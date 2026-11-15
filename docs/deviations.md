@@ -1541,13 +1541,13 @@ silent. A cancelled write still stops the queue, as cancellation does
 everywhere. The run's own flushes, D67's final deadline and the signal path are
 unchanged.
 
-**Any other queue error ends the run with its cause.** The pool terminates its
-devices as when its queue drains and fails with the queue's error. A failed pool
-already stopped the run's other pools, cancelling the batches they have in
-flight as a D52 cancel does; that policy is kept. The Scheduler then returns the
-queue's error instead of reading the pools' progress, also when the pool had
-closed before it heard of the error, so such a run never reports success. The
-run finishes as any failed run: the reports hold every result that reached a
+**Any other queue error ends the run with its cause.** Every pool is stopped,
+the failed one included, and the batches in flight are cancelled as a D52
+cancel does; this is the policy a failed pool already had. It holds also when
+the failed queue's own pool had already closed, for example because its last
+device had left and it read the failed queue as having no work. The Scheduler
+then returns the first such error instead of reading the pools' progress, so
+such a run never reports success. The run finishes as any failed run: the reports hold every result that reached a
 queue, the provider is terminated, `Marathon run failed` is logged with the
 cause, and the exit status is the existing one for a failed run: 1, or 0 with
 `ignoreFailures: true`. There is no new timeout: the devices stop as at a normal

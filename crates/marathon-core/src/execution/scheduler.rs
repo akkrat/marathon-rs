@@ -63,6 +63,9 @@ struct Inner {
     phase: std::cell::Cell<&'static str>,
     /// D68: a console failure is logged once per run.
     console_warned: Rc<std::cell::Cell<bool>>,
+    /// D68: the first error a pool's queue ended with. Set by the queue job's completion, whether or not its pool is
+    /// still there to hear of it.
+    queue_failure: Rc<RefCell<Option<Failure>>>,
 }
 
 fn operation_to_vendor(error: OperationError) -> VendorError {
@@ -91,6 +94,7 @@ impl Scheduler {
                 pooling,
                 phase: std::cell::Cell::new("not-started"),
                 console_warned: Rc::default(),
+                queue_failure: Rc::default(),
             }),
         }
     }
@@ -181,7 +185,6 @@ impl Scheduler {
         // The first absent index closes admission, even if aggregation later suspends.
         inner.phase.set("joining-pools");
         let mut results = Vec::new();
-        let mut queues = Vec::new();
         loop {
             let next = inner
                 .pools
@@ -205,14 +208,10 @@ impl Scheduler {
                 ))
             })?;
             results.push(progress);
-            queues.push(pool.queue.job());
         }
-        // D68: a queue that ended with an error leaves results that cannot be trusted, also when its pool closed
-        // before hearing of it. Its cause is the outcome; the supervisor join above has completed the queue's job.
-        for queue in queues {
-            if let JobState::Completed(Completion::Failed(cause)) = queue.state() {
-                return Err(VendorError::Other(cause));
-            }
+        // D68: a queue that ended with an error leaves results that cannot be trusted. Its cause is the outcome.
+        if let Some(cause) = inner.queue_failure.borrow_mut().take() {
+            return Err(VendorError::Other(cause));
         }
         // Preserve short-circuiting, but exclude accumulators still awaiting publication.
         inner.phase.set("aggregating-results");
@@ -343,6 +342,7 @@ impl Inner {
                 hooks: self.parts.hooks.clone(),
                 barriers: self.parts.barriers.clone(),
             });
+            self.on_queue_failure(&pool);
             self.pools.borrow_mut().insert(pool_id.clone(), pool);
         }
         // A pool that has terminated stays here, closed: the device is dropped but still tracked (B1).
@@ -359,6 +359,20 @@ impl Inner {
             .device_connected(&pool_id, &info)
             .await
             .map_err(vendor_to_operation)
+    }
+
+    /// D68: a queue that ends with an error stops the run as a D52 cancel does, and its cause is kept for `execute`.
+    /// This hangs on the queue's job, not on its pool, which may have closed on reading the failed queue as empty.
+    fn on_queue_failure(&self, pool: &DevicePool) {
+        let failure = self.queue_failure.clone();
+        let job = Rc::downgrade(&self.job);
+        pool.queue.job().invoke_on_completion(Box::new(move |completion| {
+            let Completion::Failed(cause) = completion else { return };
+            failure.borrow_mut().get_or_insert_with(|| cause.clone());
+            if let Some(job) = job.upgrade() {
+                job.cancel(Cancellation::Requested(cause));
+            }
+        }));
     }
 
     /// `results.computeIfAbsent`, before the pool.

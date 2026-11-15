@@ -1,6 +1,5 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/DevicePoolMessage.kt
 use crate::{
-    error::Failure,
     model::{BatchRef, DeviceInfo, TestBatchResults},
     vendor::DeviceRef,
 };
@@ -13,8 +12,6 @@ pub enum DevicePoolMessage {
     FromQueue(FromQueue),
     /// D48: the wait with this number for a device to return has run out.
     ReturnWaitOver(u64),
-    /// D68: the pool's queue ended with this error instead of draining.
-    QueueFailed(Failure),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FromScheduler {

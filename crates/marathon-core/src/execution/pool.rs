@@ -9,8 +9,8 @@
 //! runs from when its last live device left, through the cleanup of the devices leaving and through returns that never
 //! get ready.
 //!
-//! D68: a queue that ends with an error ends its pool with that error, which stops the run as any failed pool does
-//! (U168). Only a drained or cancelled queue is the closed queue that means "no work".
+//! D68: a queue that ends with an error still reads as a closed queue here, with no work; the Scheduler hears of the
+//! error from the queue's job and stops every pool (U168).
 use crate::error::*;
 use crate::{
     execution::{
@@ -346,23 +346,8 @@ impl DevicePoolActor {
             DevicePoolMessage::FromQueue(FromQueue::ExecuteBatch(device, batch)) => self.execute_batch(device, batch),
             DevicePoolMessage::FromQueue(FromQueue::OutcomeProcessed(device)) => self.outcome_processed(&device),
             DevicePoolMessage::ReturnWaitOver(number) => self.return_wait_over(number, task).await?,
-            DevicePoolMessage::QueueFailed(cause) => return Err(self.on_queue_failed(cause)),
         }
         Ok(())
-    }
-
-    /// D68: the queue cannot hand out or account for tests any more. The devices are terminated as when the queue
-    /// drains, and the cause fails the pool: its parent, the Scheduler's job, then stops every pool, and the Scheduler
-    /// returns the cause instead of reading the progress.
-    fn on_queue_failed(&mut self, cause: Failure) -> OperationError {
-        self.debug(&[S("pool "), J(&self.pool()), S(": queue failed")]);
-        for actor in self.devices.values() {
-            let _ = actor.actor.try_send(DeviceEvent::Terminate);
-        }
-        if let Some(supervisor) = &self.supervisor {
-            supervisor.cancel(job_was_cancelled());
-        }
-        cause.into()
     }
 
     async fn on_queue_terminated(&mut self, task: &TaskContext) -> OperationResult<()> {
@@ -953,13 +938,6 @@ impl ActorHandler<DevicePoolMessage> for DevicePoolActor {
             supervisor.clone(),
             self.hooks.clone(),
         );
-        // D68: only an error ends the queue's job as Failed; draining and close() cancel it.
-        let pool = Rc::downgrade(&context.actor);
-        queue.job().invoke_on_completion(Box::new(move |completion| {
-            if let (Completion::Failed(cause), Some(pool)) = (completion, pool.upgrade()) {
-                let _ = pool.try_send(DevicePoolMessage::QueueFailed(cause));
-            }
-        }));
         *self.built.borrow_mut() = Some((queue.clone(), supervisor.clone()));
         self.queue = Some(queue);
         self.supervisor = Some(supervisor);

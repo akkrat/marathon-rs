@@ -96,13 +96,14 @@ Rust lexical ownership or the thread on which a task was created:
   a child of that detached job (`:61`), not of the pool actor's job.
 - The queue and device actor jobs are children of that supervisor
   (`:63–74,308`). Each actor's receiver is a child of its own actor job.
-- D68: the supervisor isolates a queue job that fails, so the pool registers a
-  completion callback on it in `started`. Only a handler error completes that
-  job as Failed (a drain closes it and the supervisor cancels it), and the
-  callback then sends the pool `QueueFailed` with the cause. The pool terminates
-  its devices and fails, which fails the detached Scheduler job and cancels
-  every pool; after its join the Scheduler returns the first failed queue's
-  cause, in pool order, instead of aggregating progress.
+- D68: the supervisor isolates a queue job that fails, so the Scheduler
+  registers a completion callback on it when it creates the pool. Only a
+  handler error completes that job as Failed (a drain closes it and the
+  supervisor cancels it). The callback keeps the first such cause for the run
+  and cancels the detached Scheduler job, which stops every pool as a D52
+  cancel does. It does not go through the pool, which may already have closed
+  on reading the failed queue as empty. After its join the Scheduler returns
+  that cause instead of aggregating progress.
 - Device prepare/execute/readiness/termination tasks are children of the
   device actor job (`DeviceActor.kt:154–218`). The result Deferred created
   at `:59` is parentless. Cancelling an awaiter must not seal that result.

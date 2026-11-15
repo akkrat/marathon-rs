@@ -1841,9 +1841,16 @@ fn state_dump_does_not_date_derived_termination_from_prepare_d66() {
     });
 }
 
-/// Fails every `test` call: the queue's handler error at the Tracker seam, after the transition has made the test
-/// terminal.
-struct FailingTrack(Arc<RecordingTracker>);
+/// Fails the `test` calls of `pool` (every pool if `None`) once `gate` is open: the queue's handler error at the Tracker
+/// seam, after the transition has made the test terminal. Other pools' calls are recorded.
+struct FailingTrack(Arc<RecordingTracker>, Option<&'static str>, Gate);
+impl FailingTrack {
+    fn now(tracker: Arc<RecordingTracker>) -> Self {
+        let gate = Gate::default();
+        gate.open();
+        Self(tracker, None, gate)
+    }
+}
 impl marathon_core::wiring::Tracker for FailingTrack {
     fn device_connected<'a>(&'a self, p: &'a DevicePoolId, d: &'a DeviceInfo) -> VendorFuture<'a, ()> {
         marathon_core::wiring::Tracker::device_connected(self.0.as_ref(), p, d)
@@ -1867,8 +1874,14 @@ impl marathon_core::wiring::Tracker for FailingTrack {
     ) -> VendorFuture<'a, ()> {
         marathon_core::wiring::Tracker::device_preparing(self.0.as_ref(), s, a, b)
     }
-    fn test<'a>(&'a self, _: &'a DevicePoolId, _: &'a DeviceInfo, _: &'a TestResult, _: bool) -> VendorFuture<'a, ()> {
-        Box::pin(async { Err(VendorError::Other(ise("track failed"))) })
+    fn test<'a>(&'a self, p: &'a DevicePoolId, d: &'a DeviceInfo, r: &'a TestResult, f: bool) -> VendorFuture<'a, ()> {
+        if self.1.is_some_and(|pool| pool != p.name) {
+            return marathon_core::wiring::Tracker::test(self.0.as_ref(), p, d, r, f);
+        }
+        Box::pin(async {
+            self.2.wait().await;
+            Err(VendorError::Other(ise("track failed")))
+        })
     }
 }
 
@@ -1880,7 +1893,7 @@ fn a_queue_that_fails_on_the_last_result_is_not_a_success_d68() {
     let c = configured(1000, false);
     scheduling_test(move |h| {
         Box::pin(async move {
-            let run = Run::new_with_tracker(&h, c, Arc::new(FailingTrack(h.tracker.clone())));
+            let run = Run::new_with_tracker(&h, c, Arc::new(FailingTrack::now(h.tracker.clone())));
             run.connect(&device("serial-A", "test", 100, false));
             h.advance_until_idle().await;
             let (_, pool) = run.scheduler.pools().remove(0);
@@ -1900,4 +1913,60 @@ fn a_queue_that_fails_on_the_last_result_is_not_a_success_d68() {
             run.finish(&h).await;
         })
     });
+}
+
+/// D68, review round 1: the queue fails while its pool is shutting down. Pool A runs a batch that only a cancel ends.
+/// Pool B's only test passes and its Track waits; B's last device leaves, so B asks its queue whether work is left, and
+/// the Track then fails. B reads the failed queue as "no work" and closes, and a message to B about the failure would
+/// be discarded with its mailbox. The run must still stop A and end at once with the Track's cause; before this it
+/// stayed in `joining-pools` for ever. With `cancel`, a D52 cancel arrives in the same moment and wins, as any cancel
+/// does, and the run still ends at once.
+#[test]
+fn a_queue_that_fails_while_its_pool_shuts_down_still_ends_the_run_d68() {
+    for cancel in [false, true] {
+        scheduling_test(move |h| {
+            Box::pin(async move {
+                let gate = Gate::default();
+                let run = Run::new_with_shard(
+                    &h,
+                    waiting_with_models(),
+                    Arc::new(FailingTrack(h.tracker.clone(), Some("B"), gate.clone())),
+                    tests(1, "marathon_core::execution::scheduler"),
+                );
+                h.run_current().await;
+                let a = device("serial-A", "A", -1, false);
+                let b = device("serial-B", "B", 1000, false);
+                run.connect(&a);
+                run.connect(&b);
+                advance(&h, 1500).await;
+                assert_eq!((a.batches().len(), b.batches().len()), (1, 1));
+                run.disconnect(&b);
+                h.run_current().await;
+                let pools = run.scheduler.pools();
+                let (pool_a, pool_b) = (pools[0].1.clone(), pools[1].1.clone());
+                assert!(!pool_b.terminated(), "B waits for its queue's answer");
+                gate.open();
+                if cancel {
+                    run.scheduler.job().cancel(job_was_cancelled());
+                    run.parent.cancel(job_was_cancelled());
+                }
+                h.advance_until_idle().await;
+                assert!(
+                    matches!(pool_b.queue.job().state(), JobState::Completed(Completion::Failed(_))),
+                    "B's queue ended with the Track error"
+                );
+                assert_eq!(ended_at(&run), Some(1500), "{}", run.scheduler.state_dump());
+                match run.result.borrow().as_ref() {
+                    Some((_, Err(VendorError::Cancelled(_)))) if cancel => {}
+                    Some((_, Err(VendorError::Other(cause)))) if !cancel => {
+                        assert_eq!(cause.message.as_deref(), Some("track failed"));
+                    }
+                    other => panic!("cancel {cancel}: {other:?}"),
+                }
+                assert!(pool_a.terminated() && pool_b.terminated(), "both pools ended");
+                assert_eq!(a.batches().len(), 1, "A's batch was stopped, not finished or retried");
+                run.finish(&h).await;
+            })
+        });
+    }
 }
