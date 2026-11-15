@@ -126,3 +126,24 @@ None.
   have its whole batch returned by the core's `Terminate` before the vendor reports, so finished tests of that batch run
   again. This is the existing Terminate-first race (Kotlin's too), now narrowed to the moments outside the gates; not
   fixed here.
+
+## Review round 1 (Sol)
+
+- **S-x63-1** (Arc cycle): the D70 batch record in the device held the batch's result strongly, and a completed result
+  holds the device (`TestBatchResults.device`), so the last batch and every parked withdrawal left device, results and
+  runtime alive after their owners let go. The record now holds a `Weak`. `withdraw_unstarted` upgrades it to complete a
+  parked batch; that always succeeds, because a batch is parked only inside `execute`, which holds the result. Witness:
+  `a_batch_given_back_before_it_starts_never_starts_d70` (normal completion) and
+  `a_batch_given_up_between_instrumentations_keeps_what_the_first_gave_d70` (parked withdrawal) now drop the test's
+  last handle to the result and assert a `Weak` to it no longer upgrades. Both fail on 7833f936 and pass with the fix.
+- **S-x63-2** (test-harness race, pre-existing): `reconnect_test.rs` stamped tapped device events with the driver's
+  step counter, which is published before the virtual clock is advanced to it, so a disconnect a timer sent during the
+  advance read the previous step (a D41 grace ending at 16 000 recorded as 15 950). The tap now reads the run's own
+  `VendorClock`: the virtual timeline is set to each timer's deadline before that timer fires and never moves back, so an
+  event reads at least the time that sent it. Publishing the counter earlier would not be race-free: timers inside one
+  step fire at their own deadlines, and the counter would then read the step's end. No assertion bound or product timing
+  changed. Runs: the D41 test 10 times, `reconnect_test.rs` 3 times in full (25/25 each), `outage_batch_test.rs` 10 times;
+  all passed. The flake itself was not reproduced locally, so the fix rests on the argument above.
+- Not changed: `VirtualDuration` still places a batch's start by the driver's counter, the same pattern; no assertion is
+  known to have flaked on it, and changing it would move the placement of batches that other scenarios assert on.
+
