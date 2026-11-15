@@ -552,8 +552,14 @@ impl<'a> TestRootFactory<'a> {
                 .remote_file_manager()
                 .create_remote_directory(Some(&self.join(&app, &["PlugIns"])), context)
                 .await?;
-            // A9: Kotlin compares File to Path, so it always performs this push.
-            if !self.device.push_shared(&bundle.xctest_bundle, &test, context).await? {
+            // D76 (A9): Kotlin meant to skip this push when the app push above already carried the xctest, but its
+            // File == Path comparison is always false.
+            let local_app = bundle
+                .application
+                .clone()
+                .ok_or_else(|| configuration("no application specified for XCTest"))?;
+            let carried = carried_by_application(&*self.runtime, &local_app, &bundle.xctest_bundle).await?;
+            if !carried && !self.device.push_shared(&bundle.xctest_bundle, &test, context).await? {
                 return Err(setup("failed to push xctest to remote device".into()).into());
             }
         }
@@ -601,6 +607,25 @@ impl<'a> TestRootFactory<'a> {
         params.is_app_hosted_test_bundle = Some(true);
         self.target(bundle, params, env, user, roots, context).await
     }
+}
+
+/// D76: whether the app push already put `xctest` where the hosted factory would push it, `<app>/PlugIns/<name>`. Both
+/// sides are compared as real paths, with only the app resolved on the expected side: a symlinked `PlugIns` or bundle
+/// travels as a link (`rsync --links`), so it still gets its own push. A macOS app keeps its xctest under `Contents`,
+/// never at that destination, so it is pushed as before. A path that cannot be resolved also keeps the push.
+async fn carried_by_application(runtime: &dyn VendorRuntime, app: &Path, xctest: &Path) -> VendorResult<bool> {
+    let (app, xctest) = (app.to_owned(), xctest.to_owned());
+    blocking(runtime, move || {
+        let (Some(bundle_name), Ok(real_app), Ok(real_xctest)) = (
+            xctest.file_name(),
+            std::fs::canonicalize(&app),
+            std::fs::canonicalize(&xctest),
+        ) else {
+            return Ok(false);
+        };
+        Ok(real_xctest == real_app.join("PlugIns").join(bundle_name))
+    })
+    .await
 }
 
 // The writer seam allows deterministic write-failure tests without a filesystem race.

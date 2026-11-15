@@ -38,6 +38,72 @@ async fn generate(device: &Fake, bundle: &AppleTestBundle, context: &VendorConte
         )
         .await
 }
+/// D76 (A9): the JVM pushes a hosted iOS xctest that sits in the app's `PlugIns` again after the app push already
+/// carried it; the native factory does not. Exactly these recordings lose exactly that one shared push, from both the
+/// ordered events and the sends; every other recording, including macOS apps whose xctest is under `Contents`, is
+/// compared unchanged.
+const D76_ROWS: [&str; 2] = ["a9-embedded", "baseline-ios"];
+
+fn d76_without_the_carried_push(row: &Value) -> Value {
+    let c = &row["input"];
+    let id = s(c, "id", "");
+    let mut row = row.clone();
+    if !D76_ROWS.contains(&id) {
+        return row;
+    }
+    let (app, test) = (s(c, "app", ""), s(c, "test", ""));
+    let name = test.rsplit('/').next().unwrap();
+    assert_eq!(
+        test,
+        format!("{app}/PlugIns/{name}"),
+        "{id}: D76 needs an xctest in the app's PlugIns"
+    );
+    let carried =
+        json!({"kind":"shared","src":test,"dst":format!("/tmp/marathon/shared/appUnderTest.app/PlugIns/{name}")});
+    for field in ["events", "pushes"] {
+        let list = row[field].as_array_mut().unwrap();
+        let before = list.len();
+        list.retain(|entry| *entry != carried);
+        assert_eq!(before - list.len(), 1, "{id}: D76 expects one carried push in {field}");
+    }
+    row
+}
+
+#[test]
+fn d76_allowance_drops_only_the_carried_push_of_the_listed_rows() {
+    let row = |id: &str, test: &str| {
+        let push =
+            json!({"kind":"shared","src":test,"dst":"/tmp/marathon/shared/appUnderTest.app/PlugIns/UITests.xctest"});
+        let app = json!({"kind":"shared","src":"CloudApp.app","dst":"/tmp/marathon/shared/appUnderTest.app"});
+        json!({"input":{"id":id,"app":"CloudApp.app","test":test},"events":[app,push],"pushes":[app,push]})
+    };
+    let kept = d76_without_the_carried_push(&row("a9-embedded", "CloudApp.app/PlugIns/UITests.xctest"));
+    assert_eq!(kept["pushes"].as_array().unwrap().len(), 1);
+    assert_eq!(kept["events"][0]["src"], "CloudApp.app");
+    // An unlisted row keeps the push, so a native run that pushed it there would still have to match.
+    let other = row(
+        "IPHONESIMULATOR-XCTEST-False-False-False",
+        "CloudApp.app/PlugIns/UITests.xctest",
+    );
+    assert_eq!(d76_without_the_carried_push(&other), other);
+}
+
+#[test]
+#[should_panic(expected = "D76 expects one carried push")]
+fn d76_allowance_refuses_a_listed_row_without_the_push() {
+    let row = json!({"input":{"id":"a9-embedded","app":"CloudApp.app","test":"CloudApp.app/PlugIns/UITests.xctest"},
+        "events":[],"pushes":[]});
+    d76_without_the_carried_push(&row);
+}
+
+#[test]
+#[should_panic(expected = "D76 needs an xctest in the app's PlugIns")]
+fn d76_allowance_refuses_an_xctest_outside_the_app() {
+    let row = json!({"input":{"id":"baseline-ios","app":"CloudApp.app","test":"UITests-Runner.app/PlugIns/UITests.xctest"},
+        "events":[],"pushes":[]});
+    d76_without_the_carried_push(&row);
+}
+
 #[tokio::test]
 async fn factory_bytes_transcripts_errors_and_cleanup_match_jvm() -> TestResult {
     for row in rows() {
@@ -86,6 +152,7 @@ async fn factory_bytes_transcripts_errors_and_cleanup_match_jvm() -> TestResult 
             marathon_test_support::recorded_errors::error_object(&mut expected_error);
         }
         assert_eq!(error, expected_error, "{id}: error");
+        let row = d76_without_the_carried_push(&row);
         assert_eq!(
             *device.recorder.events.lock().unwrap(),
             row["events"].as_array().unwrap().clone(),
@@ -314,6 +381,73 @@ async fn lone_surrogate_environment_values_stage_as_replacement_characters() -> 
         assert!(xml.contains("<key>K</key>"));
         assert!(xml.contains("<string>�</string>"));
         v(device.dispose().await)?;
+    }
+    Ok(())
+}
+
+/// D76 witness: which hosted xctests are pushed after the app. `link` replaces the xctest inside the app by a symlink to
+/// a copy outside it, which the app push carries only as a link.
+async fn hosted_xctest_pushes(id: &str, link: bool) -> TestResult<Vec<Value>> {
+    let row = rows().find(|r| r["input"]["id"] == id).unwrap();
+    let c = &row["input"];
+    let temp = tempfile::tempdir()?;
+    prepare(temp.path(), c)?;
+    if link {
+        let inside = temp.path().join(s(c, "test", ""));
+        let outside = temp.path().join("elsewhere");
+        std::fs::create_dir(&outside)?;
+        let target = outside.join(inside.file_name().unwrap());
+        std::fs::rename(&inside, &target)?;
+        std::os::unix::fs::symlink(&target, &inside)?;
+    }
+    let device = Fake::new(c.clone(), temp.path());
+    let bundle = bundle(c, temp.path(), device.logging.clone()).await?;
+    v(generate(&device, &bundle, &support::context()).await)?;
+    let pushes = device.pushes.lock().unwrap().clone();
+    v(device.dispose().await)?;
+    Ok(pushes
+        .into_iter()
+        .filter(|p| p["kind"] == "shared" && p["src"].as_str().is_some_and(|src| src.ends_with(".xctest")))
+        .collect())
+}
+
+#[tokio::test]
+async fn a_hosted_xctest_inside_the_app_is_not_pushed_again_d76() -> TestResult {
+    assert_eq!(hosted_xctest_pushes("a9-embedded", false).await?, Vec::<Value>::new());
+    assert_eq!(hosted_xctest_pushes("baseline-ios", false).await?, Vec::<Value>::new());
+    Ok(())
+}
+
+#[tokio::test]
+async fn hosted_xctests_the_app_push_does_not_carry_are_still_pushed_d76() -> TestResult {
+    for (id, link, src, name) in [
+        (
+            "IPHONESIMULATOR-XCTEST-False-False-False",
+            false,
+            "UITests-Runner.app/PlugIns/UITests.xctest",
+            "UITests",
+        ),
+        ("a9-embedded", true, "CloudApp.app/PlugIns/UITests.xctest", "UITests"),
+        (
+            "baseline-macos-False",
+            false,
+            "AppleWorld.app/Contents/PlugIns/AppleWorldTests.xctest",
+            "AppleWorldTests",
+        ),
+        (
+            "MACOS-XCTEST-False-False-False",
+            false,
+            "UITests-Runner.app/Contents/PlugIns/UITests.xctest",
+            "UITests",
+        ),
+    ] {
+        assert_eq!(
+            hosted_xctest_pushes(id, link).await?,
+            vec![
+                json!({"kind":"shared","src":src,"dst":format!("/tmp/marathon/shared/appUnderTest.app/PlugIns/{name}.xctest")})
+            ],
+            "{id}"
+        );
     }
     Ok(())
 }
