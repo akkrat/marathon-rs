@@ -714,10 +714,10 @@ fn d72_a_fixed_flakiness_strategy_parses_validates_and_renders() {
         "  type: fixed\n",
         "  count: 4            # each test is scheduled 5 times\n",
         "executionStrategy:\n",
-        "  mode: ANY_SUCCESS\n",
-        "  fast: false         # run every copy, even after a pass\n",
+        "  mode: ALL_SUCCESS   # a test passes only if all 5 runs pass\n",
+        "  fast: true          # its first failure ends it and drops the copies left\n",
         "retryStrategy:\n",
-        "  type: no-retry      # retries are counted separately from copies\n",
+        "  type: no-retry      # ALL_SUCCESS takes no retries\n",
         "uncompletedTestRetryQuota: 5\n",
     ))
     .unwrap();
@@ -762,21 +762,42 @@ fn d72_a_negative_fixed_count_is_rejected() {
     assert_eq!(unknown.stage, ValidationStage::Parse);
 }
 
-/// Fixed is a complex flakiness strategy, as probability is: the same two rules reject it.
+/// Fixed is a complex flakiness strategy for sharding, as probability is. Under ALL_SUCCESS it is
+/// allowed (D72), probability is still rejected with the same wording, and the retry rule still holds.
 #[test]
-fn d72_fixed_follows_the_complex_flakiness_rules() {
+fn d72_fixed_follows_the_complex_sharding_rule_and_is_allowed_with_all_success() {
     let configuration =
         stub("flakinessStrategy:\n  type: fixed\n  count: 1\nshardingStrategy:\n  type: count\n  count: 2").unwrap();
     assert_rejected(
         &configuration,
         "Configuration is invalid: can't use complex sharding and complex flakiness strategy at the same time. See: https://github.com/MarathonLabs/marathon/issues/197",
     );
-    let configuration = stub(
-        "flakinessStrategy:\n  type: fixed\n  count: 1\nexecutionStrategy:\n  mode: ALL_SUCCESS\nretryStrategy:\n  type: no-retry",
-    )
-    .unwrap();
+    let all_success = |flakiness: &str, retry: &str| {
+        stub(&format!(
+            "flakinessStrategy:\n{flakiness}\nexecutionStrategy:\n  mode: ALL_SUCCESS\nretryStrategy:\n{retry}"
+        ))
+        .unwrap()
+    };
+    let no_retry = "  type: no-retry";
+    for fast in ["", "\n  fast: false"] {
+        let configuration = stub(&format!(
+            "flakinessStrategy:\n  type: fixed\n  count: 2\nexecutionStrategy:\n  mode: ALL_SUCCESS{fast}\nretryStrategy:\n{no_retry}"
+        ))
+        .unwrap();
+        validate(&configuration).unwrap();
+    }
     assert_rejected(
-        &configuration,
+        &all_success(
+            "  type: probability\n  minSuccessRate: 0.8\n  maxCount: 3\n  timeLimit: \"2020-01-01T00:00:00Z\"",
+            no_retry,
+        ),
         "Configuration is invalid: can't use complex flakiness strategy and all success execution strategy at the same time. Consult documentation for the all success execution logic",
+    );
+    assert_rejected(
+        &all_success(
+            "  type: fixed\n  count: 2",
+            "  type: fixed-quota\n  totalAllowedRetryQuota: 1\n  retryPerTestQuota: 1",
+        ),
+        "Configuration is invalid: can't use complex retry strategy and all success execution strategy at the same time. Consult documentation for the all success execution logic",
     );
 }

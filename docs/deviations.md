@@ -1692,31 +1692,42 @@ backend nothing changes.
 ## D72 — `flakinessStrategy: fixed` for stabilization jobs
 
 Kotlin has two flakiness strategies, `ignore` and `probability`, so a job that wants every test run a set number of
-times has to rely on history. Native builds add a third, which the Kotlin marathon rejects:
+times has to rely on history, and it rejects both with `ALL_SUCCESS`. Native builds add a third, which the Kotlin
+marathon rejects, and allow it with `ALL_SUCCESS`:
 
 ```yaml
 flakinessStrategy:
   type: fixed
   count: 4            # each test is scheduled 5 times
 executionStrategy:
-  mode: ANY_SUCCESS
-  fast: false         # run every copy, even after a pass
+  mode: ALL_SUCCESS   # a test passes only if all 5 runs pass
+  fast: true          # its first failure ends it and drops the copies left
 retryStrategy:
-  type: no-retry      # retries are counted separately from copies
+  type: no-retry      # ALL_SUCCESS takes no retries
 uncompletedTestRetryQuota: 5
 ```
 
 Every test of the shard gets exactly `count` up-front copies, grouped per test in shard order as probability's are,
-whatever analytics says, so each test is scheduled `count + 1` times; `count: 0` adds none. The results report every
-run, so the summary's `Raw:` line and the result files show how many of them failed. `count` is required and binds as
-the other integer fields do; a negative value is rejected with `flakinessStrategy.count must be at least 0, got -1`,
-and unknown fields are rejected. It is a complex flakiness strategy, like probability: it cannot be combined with
-`count` sharding or with `ALL_SUCCESS`, and with `executionStrategy.fast` (the default) a test's first pass drops its
-remaining copies. Retry quotas apply on top of the copies. `parse --include-flaky-tests`, `config-dump` and the Allure
-environment (`FixedFlakinessStrategyConfiguration(count=4)`) show it.
+whatever analytics says, so each test is scheduled `count + 1` times; `count: 0` adds none. `count` is required and
+binds as the other integer fields do; a negative value is rejected with `flakinessStrategy.count must be at least 0,
+got -1`, and unknown fields are rejected. As for probability, `fixed` cannot be combined with `count` sharding,
+and retry quotas apply on top of the copies where retries are allowed. `parse --include-flaky-tests`, `config-dump`
+and the Allure environment (`FixedFlakinessStrategyConfiguration(count=4)`) show it.
 
-Approved 2026-11-15 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12)
-and the [x62 findings](wp/x62-findings.md).
+**With `ALL_SUCCESS`** a test passes only if all its runs pass, and the run exits 1 otherwise. `ALL_SUCCESS` still
+requires `retryStrategy: no-retry`, and still rejects `probability` with the message it always had. With `fast: true`
+(the default) a test's first failure ends it: its copies still queued are dropped, that failure is its final result,
+and the summary, result files and exit code agree. With `fast: false` every run executes and the exit code still says
+failed, but the summary's first line, the per-test result file and the JUnit case follow the last run
+([C86](known-kotlin-bugs.md)), so a test whose last run passed is listed as passed there. Read the exit code and the
+summary's `Raw:` line and failed-tests list, which count every run, or keep `fast: true`.
+
+**With `ANY_SUCCESS`** a test passes if any run passes. Set `fast: false` to run every copy after a pass and read the
+`Raw:` line for how many runs failed; with `fast: true` the first pass drops the copies left, as it does for
+probability. C86 applies here too: a test whose last run failed is listed as failed although the run exits 0.
+
+Approved 2026-11-15 (project owner's decision), with `ALL_SUCCESS` allowed by a further decision the same day. See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the [x62 findings](wp/x62-findings.md).
 
 **Migration action:** none for existing configurations, which keep their meaning. A Marathonfile that uses `fixed`
 cannot be read by the Kotlin marathon.

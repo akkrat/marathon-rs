@@ -400,7 +400,11 @@ fn validate_logical_sync(configuration: &Configuration) -> Result<(), Box<Config
             }
         }
         ExecutionMode::AllSuccess => {
-            if complex_flakiness {
+            // D72: fixed copies are the point of an all-success stabilization job; probability stays out.
+            if matches!(
+                configuration.flakiness_strategy,
+                FlakinessStrategyConfiguration::Probability { .. }
+            ) {
                 return Err(logical_error(
                     "Configuration is invalid: can't use complex flakiness strategy and all success execution strategy at the same time. Consult documentation for the all success execution logic".to_owned(),
                 ));

@@ -22,8 +22,11 @@ The section for a version becomes the text of its GitHub release, which carries 
   test `maxCount` extra runs; it adds none and logs one warning saying why. Tests missing from working history still
   use `defaults.successRate`. If you relied on disabled analytics to run every test several times, use `fixed` below.
 - **`flakinessStrategy: fixed`** (D72): a new strategy type, `{type: fixed, count: N}`, schedules every test `N + 1`
-  times whatever the history says, for stabilization jobs. Set `executionStrategy.fast: false` to run every copy after
-  a pass. The Kotlin marathon does not accept it.
+  times whatever the history says, for stabilization jobs. It is allowed with `executionStrategy.mode: ALL_SUCCESS`, so
+  a test passes only if all its runs pass (with `fast`, the default, its first failure ends it); `probability` is still
+  rejected there. Under `ANY_SUCCESS`, set `fast: false` to run every copy after a pass. The Kotlin marathon does not
+  accept it. Without `fast`, the summary's passed/failed line follows each test's last run (C86); the exit code and
+  the `Raw:` line reflect every run.
 
 ## 0.13.0
 

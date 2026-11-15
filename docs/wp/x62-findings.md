@@ -78,10 +78,50 @@ now says so. No parity-matrix row changes: the ported Kotlin tests (`Probability
   `flakinessStrategy.count must be at least 0, got -1`. Placed right after the complex-sharding rule.
 - Rendering: YAML view (`type: fixed`, `count`), canonical dump (`{"count": N, "type": "fixed"}`), Allure environment
   text `FixedFlakinessStrategyConfiguration(count=N)`, and the test-support schema JSON.
-- `fixed` is a "complex flakiness strategy" for the existing validator rules: rejected with count sharding and with
-  `ALL_SUCCESS`, exactly as probability. With `executionStrategy.fast: true` (the default) the first pass completes the
-  test and the queue drops its remaining copies (Kotlin's `QueueActor` behaviour, unchanged); a stabilization job sets
-  `fast: false` to run all `count + 1`. Retry quotas are separate, as for probability's copies.
+- `fixed` is a complex flakiness strategy for the count-sharding rule, as probability is. With `ANY_SUCCESS` and
+  `executionStrategy.fast: true` (the default) the first pass completes the test and the queue drops its remaining
+  copies (Kotlin's `QueueActor` behaviour, unchanged); `fast: false` runs all `count + 1`. Retry quotas are separate,
+  as for probability's copies.
+
+### ALL_SUCCESS (owner decision 2026-11-15, extends D72)
+
+- Logical validation now rejects only `probability` under `ALL_SUCCESS`, with the unchanged message; the `no-retry`
+  requirement under `ALL_SUCCESS` stays and applies to `fixed` too. The JVM validation corpus has no `fixed` input,
+  so its rows keep their results; it passes unchanged.
+- No runtime code changed: the progress state machine already counts the copies in a test's total and, under
+  `ALL_SUCCESS`, makes a test Failed once any run fails; with `fast` the first failure completes it and the queue
+  drops its queued copies. `aggregate_result` (the exit code) follows the state.
+- Verified end to end (stub vendor, `count: 2`): all pass → passed, `1 passed, 0 failed`, exit 0; with `fast`, PASS
+  then FAIL → two runs, the failure is the final tracked result, `0 passed, 1 failed`, JUnit has the failure, exit 1;
+  without `fast`, PASS FAIL PASS → three runs, exit 1, `Raw: 2 passed, 1 failed` with the failed-tests list.
+- **C86 (new ledger row, Kotlin design, kept):** the result tracked as final is the run whose event completes the
+  test, with that run's own status (`PoolProgressAccumulator.testEnded`). Without `fast` the last run completes the
+  test, so under `ALL_SUCCESS` PASS FAIL PASS shows `1 passed, 0 failed` in the summary's first line, a PASSED
+  per-test result file and no JUnit failure, while the exit code is 1. It predates D72: `ANY_SUCCESS` without `fast`
+  shows the mirror image with probability's copies (exit 0, listed as failed). With `fast` under `ALL_SUCCESS` all
+  outputs agree. The D72 docs recommend `fast: true` and say what to read with `fast: false`.
+  A fix (e.g. tracking the verdict, not the last run, as final) changes pinned summary text and result data and lives
+  in `execution/progress.rs`, which other WPs of this batch own, so it is an owner decision, not part of x62.
+
+### D69 (x61, not merged) and copies
+
+D69 (C45 to C47, on `wp/x61-queue-robustness`) stops a retry whose attempt already finished the test from being
+queued, ends every failed copy in a batch exactly once, and drops copies of finished tests from rejected batches.
+- Under `ALL_SUCCESS`, validation still requires `no-retry`, so no retry is ever granted and C45's path (a retry of a
+  completing failure) is unreachable from a validated configuration with `fixed`. Uncompleted re-runs
+  (`uncompletedTestRetryQuota`) are not retries and are unchanged.
+- C46 is reachable: batching that puts two copies of one test in one batch (class-name batching) can fail both. With
+  D69 each copy is ended once, so a test's total reaches `done` and it completes. Without D69, under `ALL_SUCCESS`
+  with `fast` the first failure completes the test anyway; without `fast` an unended copy keeps the test from
+  completing, and at the end it counts as failed ("Expected to run ... more"), which is also the right verdict under
+  `ALL_SUCCESS` once a copy failed.
+- C47: with D69, copies of a test that a failure already finished (under `fast`) are dropped from a rejected batch
+  instead of running again. Without it they run again; under `ALL_SUCCESS` their results arrive after the test is
+  terminal and do not change its verdict.
+- Under `ANY_SUCCESS` with `fixed` and a retry strategy, D69 treats `fixed` copies exactly as probability's.
+So D69 and the `ALL_SUCCESS` allowance compose: D69 only removes runs after a test is finished, and under
+`ALL_SUCCESS` a finished test's verdict cannot change. After both merge, the x62 scenario witnesses should still hold
+unchanged; they use isolate batching on one device, which neither C46 nor C47 involves.
 
 ### Witnesses
 
@@ -91,10 +131,17 @@ now says so. No parity-matrix row changes: the ported Kotlin tests (`Probability
   perfect history; no D71 warning).
 - `flakiness_scenarios::d72_fixed_runs_each_test_count_plus_one_times_with_analytics_disabled`: production run graph,
   Stub vendor, `count: 2` and `fast: false` give three results (PASSED, FAILURE, PASSED) in `raw.json`; `count: 0`
-  gives one; with `fast: true` a FAILURE then PASSED stops at two.
+  gives one; with `fast: true` a FAILURE then PASSED stops at two (all under `ANY_SUCCESS`).
+- `ALL_SUCCESS`: `flakiness_scenarios::d72_fixed_under_all_success_passes_only_when_every_run_passes` (both `fast`
+  values), `d72_fixed_under_fast_all_success_stops_at_the_first_failure` (two runs, FAILURE final, summary, JUnit,
+  exit), `d72_fixed_under_all_success_without_fast_runs_every_copy_and_fails` (three runs, exit, `Raw:` line, and C86's
+  last-run final result), and `c86_any_success_without_fast_tracks_the_last_run_as_final`.
 - marathon-config: `schema::d72_fixed_flakiness_binds_count_strictly`, `validation::d72_a_fixed_flakiness_strategy_parses_validates_and_renders`
   (the docs/deviations.md example verbatim: parse, validate, YAML round trip, dump, environment text),
-  `validation::d72_a_negative_fixed_count_is_rejected`, `validation::d72_fixed_follows_the_complex_flakiness_rules`.
+  `validation::d72_a_negative_fixed_count_is_rejected`,
+  `validation::d72_fixed_follows_the_complex_sharding_rule_and_is_allowed_with_all_success` (fixed accepted with
+  `ALL_SUCCESS` with and without `fast`; probability rejected and fixed with `fixed-quota` rejected, both with their
+  existing messages).
 - marathon-cli: `config_dump_goldens::d72_config_dump_of_a_fixed_flakiness_strategy` (accepted dump and the logical
   rejection of `-1` through the binary). The input is written by the test, not added under `fixtures/`, so the
   configuration contract corpus (which collects every `Marathonfile*` there) is unchanged.
@@ -126,12 +173,9 @@ were not tested: they do not construct flakiness strategies or analytics lookups
 
 ## Owner decisions
 
-- **`fixed` with `ALL_SUCCESS`.** The brief says `fixed` should work "with strictMode (all runs must pass) as copies do
-  today". There is no `strictMode`; its successor, `executionStrategy.mode: ALL_SUCCESS`, rejects every complex
-  flakiness strategy (Kotlin `LogicalConfigurationValidator`), so today's copies do not work with it, and `fixed`
-  follows the same rule. A stabilization job therefore runs `ANY_SUCCESS` with `fast: false` and reads the per-run
-  results (`Raw:` summary line, result files); its exit code says only whether some run passed. Exempting `fixed` from
-  the `ALL_SUCCESS` rule would make "all runs must pass" the exit code, but it is a further contract change.
+- **`fixed` with `ALL_SUCCESS`:** decided 2026-11-15, allowed (see above).
+- **C86:** whether the final tracked result should follow the test's verdict rather than its last run (summary
+  first line, per-test result file, JUnit), under `fast: false`. Contract change in `execution/progress.rs`.
 - **Graphite setup failure** still fails the run while InfluxDB's falls back to no history (kept, see A).
 
 ## Incidental bugs

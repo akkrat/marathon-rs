@@ -151,7 +151,9 @@ server outage or a brief `offline`, a batch that never started is no longer char
 running now run, and each instrumentation of a batch waits for the device as the first did.
 
 D72 adds a native-only `flakinessStrategy` type, `fixed`, for stabilization jobs that run every test a set number of
-times. Existing configurations keep their meaning; a Marathonfile that uses it cannot be read by the Kotlin marathon.
+times, and allows it with `executionStrategy.mode: ALL_SUCCESS` (all runs must pass). Existing configurations keep
+their meaning, and `probability` with `ALL_SUCCESS` is still rejected; a Marathonfile that uses `fixed` cannot be read
+by the Kotlin marathon.
 
 ### A finite `uncompletedTestRetryQuota` (D47)
 
