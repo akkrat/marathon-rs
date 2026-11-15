@@ -640,3 +640,117 @@ fn a_rejected_copy_of_a_completed_test_is_dropped_d69() {
         })
     });
 }
+
+/// D69, review round 1: under fast ANY_SUCCESS the copy of C0 on serial-A1 passes and completes the test while the copy
+/// on serial-B1 is still out. That copy then comes back INCOMPLETE, as a returned batch or as `uncompleted` in a
+/// completed one. It is tracked once, non-final, leaves the totals and is not queued again, and its worker is not marked
+/// for a retry. Before this the finished test was queued and ran again (the Kotlin marathon does the same).
+#[test]
+fn a_late_incomplete_copy_of_a_finished_test_is_not_run_again_d69() {
+    use marathon_config::schema::ExecutionMode::AnySuccess;
+    for returned in [true, false] {
+        let (c0, c1) = (mtest("pkg", "C0", "m0"), mtest("pkg", "C1", "m1"));
+        let mut setup = retry_setup(
+            fixed_size(1),
+            AnySuccess,
+            true,
+            (10, 3),
+            vec![c0.clone(), c0.clone(), c1.clone()],
+            vec![],
+        );
+        // The returned batch's one clock read.
+        setup.timer = vec![5_000];
+        run(move |core| {
+            Box::pin(async move {
+                let queue = Queue::spawn(&core, setup);
+                let (a1, b1) = (device("serial-A1"), device("serial-B1"));
+                let on_a1 = batch_of(&queue.request(&a1, Some("worker-A")).await[0]);
+                let on_b1 = batch_of(&queue.request(&b1, Some("worker-B")).await[0]);
+                assert_eq!(
+                    (on_a1.tests.clone(), on_b1.tests.clone()),
+                    (vec![c0.clone()], vec![c0.clone()])
+                );
+                queue.trace.drain();
+
+                let passed = queue.complete(&a1, statuses(&a1, &on_a1, &[TestStatus::Passed])).await;
+                assert_eq!(passed, [FromQueue::Notify { retry_workers: vec![] }]);
+                assert_eq!(tracks(&queue), [track(&c0, "serial-A1", "PASSED", true)]);
+                assert_eq!(state(&queue, &c0).await, passing(2, 1, -1));
+
+                let late = if returned {
+                    let reason = String::from("device lost");
+                    assert!(
+                        queue
+                            .send(QueueMessage::ReturnBatch(b1.clone(), on_b1.clone(), reason))
+                            .await
+                    );
+                    queue.replies()
+                } else {
+                    queue
+                        .complete(&b1, statuses(&b1, &on_b1, &[TestStatus::Incomplete]))
+                        .await
+                };
+                assert_eq!(
+                    late,
+                    [FromQueue::Notify { retry_workers: vec![] }],
+                    "returned {returned}"
+                );
+                assert_eq!(tracks(&queue), [track(&c0, "serial-B1", "INCOMPLETE", false)]);
+                assert_eq!(state(&queue, &c0).await, passing(1, 1, -2));
+                let now = snapshot(&queue);
+                assert_eq!((now.queue, now.retry_workers), (vec![c1.clone()], vec![]));
+                assert_eq!(now.active_batches, Vec::<String>::new());
+
+                let last = batch_of(&queue.request(&b1, Some("worker-B")).await[0]);
+                assert_eq!(last.tests, std::slice::from_ref(&c1));
+                let replies = queue.complete(&b1, statuses(&b1, &last, &[TestStatus::Passed])).await;
+                assert_eq!(replies, [FromQueue::Terminated]);
+                assert_eq!(tracks(&queue), [track(&c1, "serial-B1", "PASSED", true)]);
+                assert_eq!(state(&queue, &c0).await, passing(1, 1, -2));
+                assert_eq!(snapshot(&queue).total_retries_left, Some(10));
+                Ok(())
+            })
+        });
+    }
+}
+
+/// D69, review round 1: the counterpart. An INCOMPLETE copy of a test that has not finished is queued again with its
+/// worker marked, as before, and the rerun completes the test with exact totals.
+#[test]
+fn an_incomplete_copy_of_an_unfinished_test_is_still_run_again_d69() {
+    use marathon_config::schema::ExecutionMode::AnySuccess;
+    let c0 = mtest("pkg", "C0", "m0");
+    let setup = retry_setup(fixed_size(1), AnySuccess, true, (10, 3), vec![c0.clone()], vec![]);
+    run(move |core| {
+        Box::pin(async move {
+            let queue = Queue::spawn(&core, setup);
+            let (a1, b1) = (device("serial-A1"), device("serial-B1"));
+            let on_a1 = batch_of(&queue.request(&a1, Some("worker-A")).await[0]);
+            assert_eq!(on_a1.tests, std::slice::from_ref(&c0));
+            queue.trace.drain();
+
+            let back = queue
+                .complete(&a1, statuses(&a1, &on_a1, &[TestStatus::Incomplete]))
+                .await;
+            assert_eq!(
+                back,
+                [FromQueue::Notify {
+                    retry_workers: vec!["worker-A".into()]
+                }]
+            );
+            assert_eq!(tracks(&queue), [track(&c0, "serial-A1", "INCOMPLETE", false)]);
+            assert_eq!(state(&queue, &c0).await, TestState::Added { total: 1, running: -1 });
+            let now = snapshot(&queue);
+            assert_eq!(now.queue, std::slice::from_ref(&c0));
+            assert_eq!(now.retry_workers, [(c0.clone(), vec![String::from("worker-A")])]);
+
+            let again = batch_of(&queue.request(&b1, Some("worker-B")).await[0]);
+            assert_eq!(again.tests, std::slice::from_ref(&c0));
+            let replies = queue.complete(&b1, statuses(&b1, &again, &[TestStatus::Passed])).await;
+            assert_eq!(replies, [FromQueue::Terminated]);
+            assert_eq!(tracks(&queue), [track(&c0, "serial-B1", "PASSED", true)]);
+            assert_eq!(state(&queue, &c0).await, passing(1, 1, -2));
+            Ok(())
+        })
+    });
+}

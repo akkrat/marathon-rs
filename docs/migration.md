@@ -142,7 +142,8 @@ fails ends with exit 1 (0 with `ignoreFailures: true`), its reports and a
 `Marathon run failed` line naming the cause, where it used to hang; a console
 that refuses a progress line costs that line only. With D69 a test that has
 finished is not run again, so strict-mode retries, flaky copies in class-name
-batches and rejected batches can leave fewer executions in the reports.
+batches, rejected batches and copies that come back incomplete after their test
+finished can leave fewer executions in the reports.
 
 [D70](deviations.md#d70--an-adb-outage-does-not-charge-or-break-tests-that-never-started) needs no action. After an adb
 server outage or a brief `offline`, a batch that never started is no longer charged, so tests that used to fail without

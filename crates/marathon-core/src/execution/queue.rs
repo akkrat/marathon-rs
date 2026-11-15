@@ -2,8 +2,8 @@
 //!
 //! A line-by-line port, including the fork's retry placement and the Kotlin bugs
 //! listed in docs/known-kotlin-bugs.md (C5, C30), with D60's ordered queue. D69
-//! replaces C45–C47: a test that is finished is not queued again, and the copies
-//! that will not run leave its totals.
+//! replaces C45–C47 and C86: a test that is finished is not queued again, and the
+//! copies that will not run leave its totals.
 use marathon_logging::Level;
 
 use crate::{
@@ -485,12 +485,17 @@ impl QueueActor {
             self.process_test_action(action, test, progress);
         }
         for result in uncompleted {
+            let finished = progress.is_terminal(&result.test);
             let action = progress
                 .test_ended(device, result, false, signal.clone())
                 .await
                 .map_err(vendor_error)?;
             match action {
                 Some(TestAction::Complete) => self.process_test_action(action, result, progress),
+                // D69: a copy of a test that finished elsewhere meanwhile is not run again; it leaves the totals.
+                None if finished => {
+                    progress.remove_test(&result.test, 1);
+                }
                 None => self.rerun_test(&result.test, device),
             }
         }

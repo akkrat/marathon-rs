@@ -1566,7 +1566,7 @@ in the `Marathon run failed` line. A missing progress line with a
 
 ## D69 — A finished test is not run again
 
-Three Kotlin queue bugs ran tests after they had finished, or never finished
+Four Kotlin queue bugs ran tests after they had finished, or never finished
 their accounting:
 
 - Under fast ALL_SUCCESS (strict mode), a failure that is granted a retry also
@@ -1579,6 +1579,9 @@ their accounting:
 - A batch rejected by a device that left before starting it was queued again
   whole, including copies of a test that another device had completed
   meanwhile; they ran again ([C47](known-kotlin-bugs.md)).
+- A copy that came back incomplete (its batch returned, or the test not run in
+  a completed batch) was queued again even when another copy had completed the
+  test meanwhile, so the finished test ran again ([C86](known-kotlin-bugs.md)).
 
 Native builds:
 
@@ -1592,14 +1595,19 @@ Native builds:
   totals, and do not restore their retry workers. A retry dropped this way
   keeps its quota charge. The other copies are queued again as before, in
   [D60](#d60--equal-priority-tests-run-in-insertion-order) order.
+- do not queue again an incomplete copy of a finished test. It is still
+  reported once, as a result that is not final, and it leaves the test's
+  totals; its device is not marked as one to keep the test's retries away
+  from. An incomplete copy of a test that has not finished is queued again as
+  before.
 
 A copy that is already running elsewhere when its test finishes still runs and
 is reported as a non-final result, as before. The phantom total of
 [C5](known-kotlin-bugs.md) is unchanged.
 
 Reports can hold fewer executions and fewer non-final results for strict-mode
-retries, flaky copies in class-name batches and rejected batches, and such runs
-end sooner. Progress percentages follow the exact totals. A refunded retry can
+retries, flaky copies in class-name batches, rejected batches and copies that
+came back incomplete after their test finished, and such runs end sooner. Progress percentages follow the exact totals. A refunded retry can
 let another test of the pool be retried, which can change that test's outcome.
 None of the registered native goldens change. Approved 2026-11-15 (project
 owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12)
