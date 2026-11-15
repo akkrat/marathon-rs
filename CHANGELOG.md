@@ -31,6 +31,12 @@ The section for a version becomes the text of its GitHub release, which carries 
   is now listed and run once, not once per re-scan of the dex files that include it (D75).
 - iOS: a unit-test bundle built inside its app is no longer pushed to the worker again after the app, saving one transfer
   per simulator setup; the files on the worker are unchanged (D76).
+- iOS: disposing of a simulator now stops a preparation still running on it and waits for it, up to 70 s, so a stuck
+  preparation no longer sends commands to a simulator that is gone (D74).
+- iOS and macOS: worker connections that stayed open until marathon exited, those of a device replaced after a lost worker
+  or otherwise, or whose setup or disposal failed, are now closed, at the latest when the run ends (D74).
+- A session that only ended after marathon sent KILL now logs a warning, also with `debug: false`, naming the command and
+  saying the process may still be running on the worker.
 
 ## 0.13.0
 

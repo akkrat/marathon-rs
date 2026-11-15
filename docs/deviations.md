@@ -400,8 +400,8 @@ send KILL if it did not, close the channel and give the worker up to 10 s more. 
 abandoned, so no close takes more than 30 s, and the run carries on. On iOS an abandoned session retires its
 simulator, so when that simulator was the last device of the pool, the pool waits for [D48](#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)'s limit, then ends, and so does the run. The close fails with the same error
 as Kotlin's, and one error line names the command. A worker that confirms the close although the process ignored TERM
-and KILL gives no error line: the session closes normally after 20 s, a debug line says how long that took, and the process
-may still be running ([U183](found-bugs.md)).
+and KILL gives no error line: the session closes normally after 20 s, and a warning, shown with debug off, names the command
+and says that the process may still be running ([U183](found-bugs.md)). Any close that needed KILL gives that warning.
 
 **A process can survive this.** A signal over an SSH channel is a request that the server may ignore: some servers
 do, such as Tailscale SSH and old OpenSSH versions, and there KILL has no effect. The limit, not the KILL, is what keeps the
@@ -1731,6 +1731,37 @@ Approved 2026-11-15 (project owner's decision), with `ALL_SUCCESS` allowed by a 
 
 **Migration action:** none for existing configurations, which keep their meaning. A Marathonfile that uses `fixed`
 cannot be read by the Kotlin marathon.
+
+## D74 — An Apple device's preparation and connections end with it
+
+**Preparation (iOS).** In Kotlin a simulator's preparation, once its caller has stopped waiting for it, carries on in the
+background, and disposing of the simulator neither stops it nor waits for it. A probe stuck in a stopped preparation could
+therefore go on sending commands to a simulator that had been disposed of, or that a recovery was setting up again, until the
+run ended ([U179](found-bugs.md)). Native builds stop it: disposing of a simulator cancels its preparation and waits for it to
+end, together with a cancelled batch and within the same limit of 70 s. A preparation that has not ended by then is left
+behind with one warning, and the disposal carries on. A stopped preparation sends no further command to the worker, and a
+simulator that is being disposed of starts no new preparation.
+
+**Connections (iOS and macOS).** Each Apple device holds a lease on its worker's SSH connection. Kotlin leaves some of them
+open until the process exits: an iOS simulator replaced after its worker was lost ([A90](known-kotlin-bugs.md)), any iOS
+simulator whose disposal failed at the end of the run ([A82](known-kotlin-bugs.md)), and on macOS a Mac whose setup failed and a
+Mac that was replaced ([A89](known-kotlin-bugs.md)). Native builds release every lease once, after the device's disposal,
+whether or not the disposal failed: on iOS at the end of the run, as before for the others; on macOS at once for a failed
+setup, after its disposal for a replaced Mac, and at the end of the run for the rest. With `shareWorkerConnection` a
+connection still closes only when its last user has released it. The errors reported stay those of the setup or disposal; a
+release that fails is logged.
+
+**What changes for a run.** A preparation stopped by its simulator's disposal no longer sends the commands it had left, and
+those connections close when their device is done instead of at exit. Disposal can take up to 70 s longer when a stopped
+preparation is stuck in a command that does not end; a command on a worker ends on cancellation, so in practice this is the
+time a session close takes ([D30](#d30--closing-an-ssh-session-has-a-limit)). A cancel still ends within
+[D52](#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit)'s 25 s. Result files, the Marathonfile and the CLI are
+unchanged, and no configuration field is added.
+
+Approved 2026-11-15 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the [x65 findings](wp/x65-findings.md).
+
+**Migration action:** none.
 
 ## D75 — a JUnit3 test is listed once
 
