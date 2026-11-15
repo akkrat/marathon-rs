@@ -294,7 +294,8 @@ impl ExecChannel {
         }
         let ended =
             self.wait_for(|s| (s.closed.is_some() || s.exit_status.is_some() || s.exit_signal.is_some()).then_some(()));
-        if self.bounded(TERM_WAIT_MILLIS, ended).await.is_none() {
+        let killed = self.bounded(TERM_WAIT_MILLIS, ended).await.is_none();
+        if killed {
             // A dead transport rejects the write, and the wait below ends with its error.
             let _ = self.signal(Sig::KILL);
         }
@@ -311,6 +312,12 @@ impl ExecChannel {
             });
             self.shared.log_executor_error(format!(
                 "Abandoning session `{command}`: no reply to TERM, KILL and CLOSE in 30 s. The process may still run on the worker and hold its session slot"
+            ));
+        } else if killed {
+            // U183: a server may ignore both signals and still confirm the close, so the close alone proves nothing.
+            let command = self.read(|s| s.command.clone());
+            self.shared.log_session_close_warning(format!(
+                "Session `{command}` did not end within 20 s of TERM and was closed after KILL. The process may still be running on the worker"
             ));
         }
         self.close_outcome(closed)

@@ -98,6 +98,7 @@ fn configurators_preserve_levels_and_compact_output() -> Result<(), Box<dyn std:
                 tracing::info!(target: "marathon_apple::xcodebuild_stderr", "hidden stderr");
                 tracing::warn!(target: "marathon_apple::xcodebuild_stderr", "visible stderr");
                 tracing::warn!(target: "marathon_apple::batch_outcome", "visible batch outcome");
+                tracing::warn!(target: "marathon_apple::session_close", "visible session close");
                 tracing::warn!(target: "marathon_core::reporters::timeline", "timeline");
                 tracing::info!(target: "unrelated", "hidden dependency");
                 tracing::trace!(target: "marathon_adb::client::log", "hidden trace");
@@ -110,6 +111,7 @@ fn configurators_preserve_levels_and_compact_output() -> Result<(), Box<dyn std:
             );
             assert!(text.contains(": adb\n") && text.contains(": timing\n") && text.contains(": visible stderr\n"));
             assert!(text.contains("WARN marathon_apple::batch_outcome: visible batch outcome\n"));
+            assert!(text.contains("WARN marathon_apple::session_close: visible session close\n"));
             assert!(!text.contains("hidden"));
             assert_eq!(
                 text.contains(": timeline\n"),

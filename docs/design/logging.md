@@ -88,7 +88,9 @@ diagnostics therefore print with debug off, as before),
 warnings are security-relevant and stay visible; its matcher
 component uses the same target),
 `marathon_apple::batch_outcome=warn` with debug off (`debug` with debug on;
-an all-incomplete Apple batch must be diagnosable without debug), and
+an all-incomplete Apple batch must be diagnosable without debug),
+`marathon_apple::session_close=warn` with debug off (`debug` with debug on;
+an SSH session closed only after KILL, U183), and
 `marathon_apple::cmd::remote::ssh::sshj::wire=debug` gated additionally by
 `ssh.debug` on the `Component` (with ssh debug off, only ERROR shows). iOS provisioning timing records are emitted on
 `marathon_core::timing` today; the `marathon_ios::device::timing` directive
@@ -253,7 +255,7 @@ all on `marathon_core::construction`); the iOS simulator provider
 (`marathon_macos::provider`). Their ERROR lines still show, and everything
 shows with `debug: true`, as for every other ordinary logger.
 
-Two exceptions have a WARN floor in every configurator.
+Three exceptions have a WARN floor in every configurator.
 `marathon_apple::cmd::remote::ssh::sshj::known_hosts` keeps unknown- or
 changed-host-key warnings visible because they are security-relevant and must
 not hide behind a debug flag. It is
@@ -276,6 +278,16 @@ excluded. The target is a floor like
 `known_hosts` (`debug` with debug on), pinned by
 `batch_outcome_warns_in_every_configurator_with_debug_off`, the directive
 inventories and the CLI subscriber test. See [WP x57](../wp/x57-findings.md).
+
+`marathon_apple::session_close` carries one WARN when D30's close of an SSH
+session had to send KILL because the process did not end within 20 s of TERM,
+and the close then completed. A server may ignore both signals and still confirm
+the close, so the line names the command and says that the process may still be
+running on the worker. An abandoned close has D30's ERROR line instead, on the
+sshj client logger, and no WARN. The target is a floor like `batch_outcome`,
+pinned by `session_close_warns_in_every_configurator_with_debug_off`, the
+directive inventories and the CLI subscriber test. See
+[WP x65](../wp/x65-findings.md).
 
 ## What is gone
 

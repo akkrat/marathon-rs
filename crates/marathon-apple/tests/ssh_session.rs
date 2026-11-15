@@ -89,6 +89,16 @@ fn signalled(signal: &str) -> Action {
         withhold_close: false,
     }
 }
+/// U183: the WARN lines that a close needed KILL.
+fn kill_warnings(events: &ssh::Events) -> Vec<String> {
+    events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(logger, level, ..)| logger == "marathon_apple::session_close" && *level == Level::WARN)
+        .map(|(_, _, message, _)| message.clone())
+        .collect()
+}
 fn rules(extra: Vec<fake_worker::script::Rule>) -> fake_worker::script::Script {
     let mut script = ssh::suite_script();
     script.rules.splice(0..0, extra);
@@ -930,6 +940,8 @@ async fn first_close_fails_after_term_kill_and_thirty_seconds_and_second_close_c
         .filter(|(_, level, message)| *level == Level::ERROR && message.starts_with("Abandoning session `held`:"))
         .count();
     assert_eq!(abandoned, 1, "{lines:?}");
+    // U183: the error line says it; no second line for the KILL.
+    assert!(kill_warnings(&events).is_empty());
     // Approved P5: the second close skips the backend (Kotlin's closed flag) but cancels and joins the scope.
     assert_eq!(
         tokio::time::timeout(Duration::from_secs(60), session.close()).await,
@@ -962,6 +974,7 @@ async fn a_fast_exit_on_term_closes_at_once_and_sends_no_kill_d30() {
             .iter()
             .all(|(.., message)| !message.starts_with("Abandoning"))
     );
+    assert!(kill_warnings(&events).is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -987,9 +1000,36 @@ async fn kill_ends_a_process_that_ignores_term_and_the_close_succeeds_d30() {
             .iter()
             .all(|(.., message)| !message.starts_with("Abandoning"))
     );
+    assert_eq!(kill_warnings(&events).len(), 1);
     assert_eq!(
         ssh::run(&executor, &["echo", "hello"], 600_000).await.unwrap().stdout,
         ["hello"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_confirmed_close_of_a_process_that_ignored_term_and_kill_warns_once_with_debug_off_u183() {
+    // A server that ignores signals and still answers CLOSE: the close succeeds, and only this line says what may be
+    // left on the worker. `executor_with` logs as a run with `debug: false` does.
+    let fake = ssh::fake(
+        rules(vec![ssh::exact("stubborn", unstoppable(&["TERM", "KILL"], false))]),
+        4,
+    )
+    .await;
+    let (executor, events) = executor_with(&fake, 5, 0).await;
+    let session = start(&executor, &["stubborn"], 600_000).await;
+    assert_eq!(session.close().await, Ok(()));
+    assert_eq!(signal_names(&fake.events("signal").await), ["TERM", "KILL"]);
+    assert_eq!(
+        kill_warnings(&events),
+        [
+            "Session `stubborn` did not end within 20 s of TERM and was closed after KILL. The process may still be running on the worker"
+        ]
+    );
+    assert!(
+        ssh::lines(&events)
+            .iter()
+            .all(|(_, level, message)| *level != Level::ERROR && !message.starts_with("Abandoning"))
     );
 }
 

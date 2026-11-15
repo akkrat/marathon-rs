@@ -160,6 +160,11 @@ impl ConnectionShared {
             .component("marathon_apple::cmd::remote::ssh::sshj::client");
         self.loggers.logging.log(&logger, Level::ERROR, || message, None);
     }
+    /// U183: one WARN, which shows with debug off, for a session that ended only after KILL.
+    pub(crate) fn log_session_close_warning(&self, message: String) {
+        let logger = self.loggers.logging.component("marathon_apple::session_close");
+        self.loggers.logging.log(&logger, Level::WARN, || message, None);
+    }
     /// A dead transport rejects writes, as sshj's closed socket does.
     pub fn write_failure(&self) -> SshFailure {
         SshFailure::wrapping(TRANSPORT_EXCEPTION, SshFailure::new(SOCKET_EXCEPTION, "Socket closed"))
