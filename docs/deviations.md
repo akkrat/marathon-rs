@@ -1659,6 +1659,68 @@ left before starting it` and `pool <pool>: device <serial> left before starting 
 
 **Migration action:** none.
 
+## D71 — Unavailable test history adds no probability copies
+
+With `flakinessStrategy: probability`, Kotlin gives a test up-front copies when its success rate is below
+`minSuccessRate`, and it reads a success rate of 0 whenever there is no history to read: analytics disabled, a
+backend that could not be set up, and a success-rate query that failed (C8). Every test then gets `maxCount` copies,
+so an analytics outage runs the suite up to `maxCount + 1` times.
+
+Native builds tell history that cannot be read from history that has no row for a test. The view a flakiness pass
+pins ([D34](#d34--a-failed-history-query-is-not-final)) records whether its success-rate query answered. When
+analytics is disabled, its backend could not be set up, or the query failed or did not finish and no refresh has
+answered it since, probability adds no copies for any test, and one WARN per run says why, for example:
+
+```text
+Test history unavailable (the success rate query failed); flakinessStrategy probability adds no copies
+```
+
+The other reasons read `analytics is disabled`, `the analytics backend could not be set up` and `the success rate
+query did not finish`. A working backend behaves as before: an empty window, partial history and tests missing from
+it take `analyticsConfiguration.defaults.successRate` (0.0 unless configured), so new tests still get copies, and a
+genuine 0% rate still does. A shard is still judged by one view, so a refresh that lands later reaches only views taken
+after it. Sorting and batching by history, and the duration defaults, are unchanged. A Graphite backend that cannot
+be set up still fails the run, as before. Retries are unchanged.
+
+Approved 2026-11-15 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[C8](known-kotlin-bugs.md) and the [x62 findings](wp/x62-findings.md).
+
+**Migration action:** a configuration that relied on disabled analytics with probability to copy every test must
+switch to [`type: fixed`](#d72--flakinessstrategy-fixed-for-stabilization-jobs). Otherwise none: with a working
+backend nothing changes.
+
+## D72 — `flakinessStrategy: fixed` for stabilization jobs
+
+Kotlin has two flakiness strategies, `ignore` and `probability`, so a job that wants every test run a set number of
+times has to rely on history. Native builds add a third, which the Kotlin marathon rejects:
+
+```yaml
+flakinessStrategy:
+  type: fixed
+  count: 4            # each test is scheduled 5 times
+executionStrategy:
+  mode: ANY_SUCCESS
+  fast: false         # run every copy, even after a pass
+retryStrategy:
+  type: no-retry      # retries are counted separately from copies
+uncompletedTestRetryQuota: 5
+```
+
+Every test of the shard gets exactly `count` up-front copies, grouped per test in shard order as probability's are,
+whatever analytics says, so each test is scheduled `count + 1` times; `count: 0` adds none. The results report every
+run, so the summary's `Raw:` line and the result files show how many of them failed. `count` is required and binds as
+the other integer fields do; a negative value is rejected with `flakinessStrategy.count must be at least 0, got -1`,
+and unknown fields are rejected. It is a complex flakiness strategy, like probability: it cannot be combined with
+`count` sharding or with `ALL_SUCCESS`, and with `executionStrategy.fast` (the default) a test's first pass drops its
+remaining copies. Retry quotas apply on top of the copies. `parse --include-flaky-tests`, `config-dump` and the Allure
+environment (`FixedFlakinessStrategyConfiguration(count=4)`) show it.
+
+Approved 2026-11-15 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12)
+and the [x62 findings](wp/x62-findings.md).
+
+**Migration action:** none for existing configurations, which keep their meaning. A Marathonfile that uses `fixed`
+cannot be read by the Kotlin marathon.
+
 ## Other accepted text differences
 
 [PLAN §3.10](../PLAN.md#310-accepted-differences-same-behaviour-different-text)

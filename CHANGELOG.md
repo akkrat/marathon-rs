@@ -17,6 +17,13 @@ The section for a version becomes the text of its GitHub release, which carries 
   up any of `uncompletedTestRetryQuota`, so with a small quota those tests now run later instead of failing. In a batch of
   several test APKs, each instrumentation now waits for the device to return, and one given up between them keeps the
   results of the part that ran. No configuration change.
+- **Flakiness copies without history** (D71): with `flakinessStrategy: probability`, a run whose test history cannot be
+  read (analytics disabled, a backend that could not be set up, or a failed success-rate query) no longer gives every
+  test `maxCount` extra runs; it adds none and logs one warning saying why. Tests missing from working history still
+  use `defaults.successRate`. If you relied on disabled analytics to run every test several times, use `fixed` below.
+- **`flakinessStrategy: fixed`** (D72): a new strategy type, `{type: fixed, count: N}`, schedules every test `N + 1`
+  times whatever the history says, for stabilization jobs. Set `executionStrategy.fast: false` to run every copy after
+  a pass. The Kotlin marathon does not accept it.
 
 ## 0.13.0
 
