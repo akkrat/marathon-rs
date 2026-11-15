@@ -24,6 +24,8 @@ pub enum FromDevice {
     IsReady(DeviceRef),
     CompletedTestBatch(DeviceRef, TestBatchResults),
     ReturnTestBatch(DeviceRef, BatchRef, String),
+    /// D70: the device left before it started any of the batch, which goes back with no attempt charged.
+    RejectTestBatch(DeviceRef, BatchRef),
     Terminated(DeviceRef),
 }
 impl FromDevice {
@@ -32,6 +34,7 @@ impl FromDevice {
             Self::IsReady(d)
             | Self::CompletedTestBatch(d, _)
             | Self::ReturnTestBatch(d, _, _)
+            | Self::RejectTestBatch(d, _)
             | Self::Terminated(d) => d,
         }
     }

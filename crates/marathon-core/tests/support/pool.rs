@@ -294,6 +294,8 @@ pub struct TestDevice {
     pub batches: Mutex<Vec<Vec<String>>>,
     pub finish: Finish,
     return_wait_used: std::sync::atomic::AtomicI64,
+    /// D70: what `withdraw_unstarted` says, as a vendor that never started the batch does.
+    pub withdraws: std::sync::atomic::AtomicBool,
 }
 impl TestDevice {
     pub fn new(serial: &str, worker_id: Option<&str>, prepare: Option<OnPrepare>, execute: OnExecute) -> Arc<Self> {
@@ -317,6 +319,7 @@ impl TestDevice {
             batches: Mutex::new(vec![]),
             finish: Finish::default(),
             return_wait_used: std::sync::atomic::AtomicI64::new(0),
+            withdraws: std::sync::atomic::AtomicBool::new(false),
         })
     }
     /// What this device reports having used of an emptied pool's wait (D48).
@@ -426,6 +429,9 @@ impl Device for TestDevice {
     }
     fn return_wait_used_millis(&self) -> i64 {
         self.return_wait_used.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    fn withdraw_unstarted(&self, _batch: &BatchRef) -> bool {
+        self.withdraws.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 

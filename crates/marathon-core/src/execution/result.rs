@@ -77,7 +77,7 @@ impl TemporalTestResult {
 }
 /// LinkedHashMap semantics: replacements keep the original key and position.
 /// The entries slice allows Kotlin's mutable temporal values but prevents duplicate keys.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct TemporalResults(Vec<(Test, TemporalTestResult)>);
 impl TemporalResults {
     pub fn entries(&self) -> &[(Test, TemporalTestResult)] {

@@ -1332,6 +1332,95 @@ fn review_completed_result_must_not_move_deadline_to_cleanup_end() {
     });
 }
 
+// ---- D70: a batch its device never started goes back uncharged --------------------------------------------------------
+
+/// A device that takes a batch and never starts it, as one held while its adb server is away.
+fn never_starting(serial: &str) -> Arc<TestDevice> {
+    let device = slow(serial, 1_000_000);
+    device.withdraws.store(true, std::sync::atomic::Ordering::Relaxed);
+    device
+}
+
+/// U160: the device leaves with its batch, which it says it never started. Its tests are not charged, so with no retries
+/// left for an uncompleted test they still run on the device that comes next. Before D70 they failed without running.
+#[test]
+fn a_batch_its_device_never_started_goes_back_uncharged_d70() {
+    let mut c = waiting();
+    c.uncompleted_test_retry_quota = 0;
+    scheduling_test(move |h| {
+        Box::pin(async move {
+            let run = Run::new_with_shard(
+                &h,
+                c,
+                h.tracker.clone(),
+                tests(2, "marathon_core::execution::scheduler"),
+            );
+            h.run_current().await;
+            let held = never_starting("held");
+            run.connect(&held);
+            advance(&h, 1000).await;
+            assert_eq!(held.batches().len(), 1);
+            run.disconnect(&held);
+            advance(&h, 2000).await;
+            let next = slow("next", 1000);
+            run.connect(&next);
+            h.advance_until_idle().await;
+            assert!(passed(&run), "every test ran: {:?}", run.result.borrow());
+            assert_eq!(next.batches().len(), 2);
+            assert_eq!(logged(&h, "onRejectBatch held"), 1);
+            assert_eq!(logged(&h, "onReturnBatch"), 0);
+            assert_eq!(logged(&h, "uncompletedTestRetryQuota exceeded"), 0);
+            run.finish(&h).await;
+        })
+    });
+}
+
+/// D70 with D48: a batch given back uncharged is not a test that ended, so it does not renew the pool's wait. A device that
+/// keeps coming back and leaving before it starts its batch cannot hold the run open, and nothing is charged meanwhile.
+#[test]
+fn a_device_that_keeps_leaving_before_it_starts_cannot_hold_the_run_open_d70() {
+    let mut c = waiting();
+    c.uncompleted_test_retry_quota = 0;
+    scheduling_test(move |h| {
+        Box::pin(async move {
+            let run = Run::new_with_shard(
+                &h,
+                c,
+                h.tracker.clone(),
+                tests(2, "marathon_core::execution::scheduler"),
+            );
+            h.run_current().await;
+            let mut now = 0;
+            let mut cycles = 0;
+            let mut device_now = never_starting("flapping");
+            run.connect(&device_now);
+            while ended_at(&run).is_none() {
+                assert!(cycles < 1000, "the run did not end");
+                now += 5000;
+                advance(&h, now).await;
+                run.disconnect(&device_now);
+                now += 5000;
+                advance(&h, now).await;
+                device_now = never_starting("flapping");
+                run.connect(&device_now);
+                cycles += 1;
+            }
+            assert!(
+                ended_at(&run).unwrap() <= 5000 + WAIT + 5000,
+                "ended at {:?}",
+                ended_at(&run)
+            );
+            assert!(cycles >= 2, "returns were accepted before the limit, {cycles}");
+            assert!(logged(&h, "onRejectBatch flapping") >= 2);
+            assert_eq!(logged(&h, "onReturnBatch"), 0);
+            assert_eq!(logged(&h, "uncompletedTestRetryQuota exceeded"), 0);
+            assert_eq!(logged(&h, "remaining tests will not run"), 1);
+            h.advance_until_idle().await;
+            run.finish(&h).await;
+        })
+    });
+}
+
 // Manual polling is the traversal gate: drains can complete/detach pool jobs
 // without letting execute read its next index.
 #[test]

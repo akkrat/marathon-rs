@@ -653,6 +653,9 @@ pub fn describe(message: &FromDevice, batch: &BatchRef) -> String {
             Arc::ptr_eq(returned, batch),
             reason.to_owned()
         ),
+        FromDevice::RejectTestBatch(_, rejected) => {
+            format!("RejectTestBatch(same batch={})", Arc::ptr_eq(rejected, batch))
+        }
     }
 }
 
@@ -761,6 +764,7 @@ impl Outcome {
                         FromDevice::IsReady(_) => "IsReady",
                         FromDevice::CompletedTestBatch(..) => "CompletedTestBatch",
                         FromDevice::ReturnTestBatch(..) => "ReturnTestBatch",
+                        FromDevice::RejectTestBatch(..) => "RejectTestBatch",
                         FromDevice::Terminated(_) => "Terminated",
                     };
                     body.insert("type".into(), kind.into());

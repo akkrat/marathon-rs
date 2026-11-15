@@ -329,6 +329,9 @@ impl DevicePoolActor {
             DevicePoolMessage::FromDevice(FromDevice::ReturnTestBatch(device, batch, reason)) => {
                 self.device_returned_test_batch(device, batch, reason)
             }
+            DevicePoolMessage::FromDevice(FromDevice::RejectTestBatch(device, batch)) => {
+                self.device_rejected_test_batch(device, batch)
+            }
             DevicePoolMessage::FromDevice(FromDevice::Terminated(device)) => {
                 self.device_terminated(device, task).await?
             }
@@ -364,6 +367,23 @@ impl DevicePoolActor {
         ]);
         self.release_assignment(&device);
         self.send_to_queue(QueueMessage::ReturnBatch(device.0.info(), batch, reason));
+        self.await_outcome(&device);
+    }
+
+    /// D70: as a returned batch, but nothing is charged. No test ended, so D48's wait goes on as it was: a device that
+    /// keeps leaving before it starts its batch cannot hold the pool open.
+    fn device_rejected_test_batch(&mut self, device: DeviceRef, batch: BatchRef) {
+        let serial = serial(&device);
+        self.debug(&[
+            S("pool "),
+            J(&self.pool()),
+            S(": device "),
+            J(&serial),
+            S(" left before starting test batch "),
+            J(&batch.id),
+        ]);
+        self.release_assignment(&device);
+        self.send_to_queue(QueueMessage::RejectBatch(device.0.info(), batch));
         self.await_outcome(&device);
     }
 

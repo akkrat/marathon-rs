@@ -66,6 +66,15 @@ pub trait Device: Send + Sync {
     fn return_wait_used_millis(&self) -> i64 {
         0
     }
+    /// D70: this device is leaving the pool while it holds `batch`, whose result is not in. True if the vendor has
+    /// started none of it and from now on will not start any: the batch then goes back to the queue with no attempt
+    /// charged, as a batch that never reached the device does. A vendor that has started part of it may instead complete
+    /// `result`, the one `execute` was given, with what it has, and say false. False keeps the batch's usual accounting.
+    /// Runs on the core thread: no I/O, no blocking.
+    fn withdraw_unstarted(&self, batch: &BatchRef) -> bool {
+        let _ = batch;
+        false
+    }
 }
 #[derive(Clone)]
 pub enum DeviceEvent {

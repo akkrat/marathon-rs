@@ -368,14 +368,18 @@ impl Shared {
             DeviceAction::Initialize => self.initialize(),
             DeviceAction::NotifyIsReady(execution) => {
                 if let Some(execution) = execution {
-                    self.account_for(&execution, text(&[&"Device ", &self.serial, &" reported no results"]));
+                    self.account_for(
+                        &execution,
+                        text(&[&"Device ", &self.serial, &" reported no results"]),
+                        false,
+                    );
                 }
                 self.notify_is_ready();
             }
             DeviceAction::ExecuteBatch(batch, result) => self.execute_batch(batch, result),
             DeviceAction::Terminate(execution) => {
                 if let Some(execution) = execution {
-                    self.account_for(&execution, text(&[&"Device ", &self.serial, &" terminated"]));
+                    self.account_for(&execution, text(&[&"Device ", &self.serial, &" terminated"]), true);
                 }
                 self.terminate();
             }
@@ -385,7 +389,37 @@ impl Shared {
     /// Exactly one transition leaves Running: seal the result, then send whichever
     /// completion won, synchronously, so neither Terminated nor a later IsReady
     /// can overtake it (`DeviceActor.kt:131–152`).
-    fn account_for(&self, execution: &Running, reason: String) {
+    fn account_for(&self, execution: &Running, reason: String, leaving: bool) {
+        // D70: a device leaving with a batch it never started, as one held while its adb server was away, gives it back
+        // uncharged. Only a leaving device: one that stays and keeps failing before it starts would loop on its batch.
+        if leaving && execution.result.completed().is_none() && self.device.0.withdraw_unstarted(&execution.test_batch)
+        {
+            execution.result.cancel(cancellation(reason));
+            self.log(
+                Level::DEBUG,
+                text(&[
+                    &"Rejecting batch ",
+                    &execution.test_batch.id,
+                    &": device ",
+                    &self.serial,
+                    &" left before starting it",
+                ]),
+                None,
+            );
+            let outcome = FromDevice::RejectTestBatch(self.device.clone(), execution.test_batch.clone());
+            if !self.pool_try_send(outcome) {
+                self.log(
+                    Level::WARN,
+                    text(&[
+                        &"Pool is closed, outcome of batch ",
+                        &execution.test_batch.id,
+                        &" is dropped",
+                    ]),
+                    None,
+                );
+            }
+            return;
+        }
         execution.result.cancel(cancellation(reason.clone()));
         let outcome = match execution.result.completed() {
             Some(Ok(results)) => FromDevice::CompletedTestBatch(self.device.clone(), TestBatchResults::clone(&results)),
