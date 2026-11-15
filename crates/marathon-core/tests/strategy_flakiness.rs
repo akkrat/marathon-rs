@@ -85,7 +85,8 @@ fn strategy_with_min_success_rate_0_8_should_return_three_flaky_tests_for_three_
 
 #[test]
 fn a_success_rate_of_0_gives_every_test_max_count_copies() {
-    // C8: the NoOp provider (WP 3.4a) answers 0 for every test.
+    // C8: a 0 from working history. Unavailable history makes no copies at all (D71,
+    // analytics_factory::d71_*).
     let tests = generate_tests(3);
     let result = probability(0.8, 4).process(shard(tests.clone()), &MetricsProviderStub::with_success_rate(0.0));
     let expected: Vec<Test> = tests.iter().flat_map(|t| std::iter::repeat_n(t.clone(), 4)).collect();
@@ -130,6 +131,64 @@ fn copies_follow_shard_order_and_replace_existing_flaky_tests() {
         vec![MetricsKey::SuccessRate { limit: limit() }]
     );
     assert!(FlakinessStrategy::from_config(&Cnf::Ignore).metrics_keys().is_empty());
+}
+
+// ---- D72: fixed ---------------------------------------------------------------------------------------
+
+fn fixed(count: i32) -> FlakinessStrategy {
+    FlakinessStrategy::from_config(&Cnf::Fixed { count })
+}
+/// A lookup no fixed pass may read: its answers would be ignored anyway.
+struct Unread;
+impl marathon_core::strategy::MetricsLookup for Unread {
+    fn success_rate(&self, _: &Test, _: jcompat::jtime::Instant) -> f64 {
+        panic!("fixed read a success rate")
+    }
+    fn execution_time(&self, _: &Test, _: f64, _: jcompat::jtime::Instant) -> f64 {
+        panic!("fixed read an execution time")
+    }
+    fn view(&self) -> Option<std::sync::Arc<dyn marathon_core::strategy::MetricsLookup>> {
+        panic!("fixed took a view")
+    }
+    fn success_rate_available(&self, _: jcompat::jtime::Instant, _: &str) -> bool {
+        panic!("fixed asked for history")
+    }
+}
+
+#[test]
+fn d72_fixed_gives_every_test_count_copies_grouped_as_probability_does() {
+    let tests = generate_tests(3);
+    let input = TestShard {
+        tests: tests.clone(),
+        flaky_tests: vec![tests[0].clone()],
+    };
+    let result = fixed(3).process(input, &Unread);
+    assert_eq!(result.tests, tests);
+    assert_eq!(
+        result.flaky_tests,
+        tests
+            .iter()
+            .flat_map(|t| std::iter::repeat_n(t.clone(), 3))
+            .collect::<Vec<_>>()
+    );
+    // The same grouping probability gives when every test is below the minimum.
+    assert_eq!(
+        result.flaky_tests,
+        probability(0.8, 3)
+            .process(shard(tests), &MetricsProviderStub::with_success_rate(0.0))
+            .flaky_tests
+    );
+    assert!(fixed(3).metrics_keys().is_empty());
+}
+
+#[test]
+fn d72_fixed_count_0_makes_no_copies() {
+    let tests = generate_tests(2);
+    let input = TestShard {
+        tests: tests.clone(),
+        flaky_tests: vec![tests[1].clone()],
+    };
+    assert_eq!(fixed(0).process(input, &Unread), shard(tests));
 }
 
 // ---- oracle (c) ----------------------------------------------------------------------------------------

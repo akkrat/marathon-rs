@@ -36,9 +36,12 @@ const REFRESH_DELAYS_MILLIS: [i64; 8] = [5_000, 10_000, 20_000, 40_000, 80_000, 
 /// costs a warning, and a close under a query that can no longer log or publish.
 const CLOSE_JOIN_BOUND_MILLIS: i64 = 3_000;
 
+/// A key's rows by test name, or `None` while its query has failed and no refresh has answered
+/// it yet (D71).
+type Measurement = Option<Arc<BTreeMap<String, f64>>>;
 #[derive(Clone, Default)]
 struct State {
-    measurements: Vec<(MetricsKey, Arc<BTreeMap<String, f64>>)>,
+    measurements: Vec<(MetricsKey, Measurement)>,
 }
 #[derive(Default)]
 struct Observations {
@@ -70,6 +73,8 @@ struct Shared {
     state: SkipMap<u64, Arc<State>>,
     warned_success: SkipMap<String, AtomicBool>,
     warned_time: SkipMap<String, AtomicBool>,
+    /// D71: the run's one warning that the success-rate history cannot be read.
+    warned_unavailable: AtomicBool,
     // Also serialises writers of `state`.
     refresh: Mutex<Refresh>,
 }
@@ -95,6 +100,7 @@ impl MetricsProviderImpl {
                 state,
                 warned_success: SkipMap::new(),
                 warned_time: SkipMap::new(),
+                warned_unavailable: AtomicBool::new(false),
                 refresh: Mutex::default(),
             }),
             serial: AsyncMutex::new(()),
@@ -118,9 +124,9 @@ impl MetricsProviderImpl {
                 .await?;
             let mut refresh = shared.refresh();
             match fetched {
-                Ok(rows) => shared.publish_values(&refresh, *key, rows),
+                Ok(rows) => shared.publish_values(&refresh, *key, Some(rows)),
                 Err(_) => {
-                    shared.publish_values(&refresh, *key, Vec::new());
+                    shared.publish_values(&refresh, *key, None);
                     shared.schedule_refresh(&mut refresh, *key);
                 }
             }
@@ -176,8 +182,10 @@ impl Shared {
     fn refresh(&self) -> MutexGuard<'_, Refresh> {
         self.refresh.lock().unwrap_or_else(|e| e.into_inner())
     }
-    fn publish_values(&self, _writer: &MutexGuard<'_, Refresh>, key: MetricsKey, rows: Vec<(String, f64)>) {
-        let values = Arc::new(rows.into_iter().collect());
+    /// `None` publishes a failed query: lookups answer the defaults, as for an empty answer, but
+    /// the history counts as unavailable (D71).
+    fn publish_values(&self, _writer: &MutexGuard<'_, Refresh>, key: MetricsKey, rows: Option<Vec<(String, f64)>>) {
+        let values = rows.map(|rows| Arc::new(rows.into_iter().collect()));
         let mut next = (*self.snapshot()).clone();
         match next.measurements.iter_mut().find(|(cached, _)| *cached == key) {
             Some(measurement) => measurement.1 = values,
@@ -341,7 +349,7 @@ impl Shared {
             Ok(rows) => {
                 let count = rows.len();
                 refresh.failed.remove(index);
-                self.publish_values(&refresh, key, rows);
+                self.publish_values(&refresh, key, Some(rows));
                 drop(refresh);
                 // Still logged when empty: it says why this key's warnings have stopped.
                 let effect = if count == 0 {
@@ -408,13 +416,27 @@ impl Shared {
         }
     }
     fn measurement<'a>(&self, state: &'a State, key: MetricsKey) -> Option<&'a BTreeMap<String, f64>> {
-        let found = state
-            .measurements
-            .iter()
-            .find(|(cached, _)| *cached == key)
-            .map(|(_, values)| values.as_ref());
+        let found = state.measurements.iter().find(|(cached, _)| *cached == key);
         debug_assert!(found.is_some(), "MetricsKey must be prefetched off core before lookup");
-        found
+        found.and_then(|(_, values)| values.as_deref())
+    }
+    /// D71. A key with no entry was never answered: its prefetch was cancelled.
+    fn success_rate_available(&self, state: &State, limit: Instant, consequence: &str) -> bool {
+        let key = MetricsKey::SuccessRate { limit };
+        let reason = match state.measurements.iter().find(|(cached, _)| *cached == key) {
+            Some((_, Some(_))) => return true,
+            Some((_, None)) => "the success rate query failed",
+            None => "the success rate query did not finish",
+        };
+        if !self.warned_unavailable.swap(true, Ordering::Relaxed) {
+            self.context.log(
+                "marathon_core::analytics::provider",
+                Level::WARN,
+                format!("Test history unavailable ({reason}); {consequence}"),
+                None,
+            );
+        }
+        false
     }
     fn observed(&self, name: &str, p: f64) -> Option<f64> {
         let min = self.defaults.observed_duration_min_tests?;
@@ -530,6 +552,10 @@ impl MetricsLookup for MetricsProviderImpl {
             state: self.shared.snapshot(),
         }))
     }
+    fn success_rate_available(&self, limit: Instant, consequence: &str) -> bool {
+        self.shared
+            .success_rate_available(&self.shared.snapshot(), limit, consequence)
+    }
 }
 impl MetricsLookup for PinnedMetrics {
     fn success_rate(&self, test: &Test, limit: Instant) -> f64 {
@@ -538,6 +564,9 @@ impl MetricsLookup for PinnedMetrics {
     fn execution_time(&self, test: &Test, percentile: f64, limit: Instant) -> f64 {
         self.shared
             .execution_time_or_panic(&self.state, test, percentile, limit)
+    }
+    fn success_rate_available(&self, limit: Instant, consequence: &str) -> bool {
+        self.shared.success_rate_available(&self.state, limit, consequence)
     }
 }
 impl MetricsProvider for MetricsProviderImpl {

@@ -856,6 +856,44 @@ fn a_batch_a_shard_and_a_queue_each_read_one_view_of_the_history() {
     assert_eq!(lookup.views.load(AtomicOrdering::SeqCst), 1);
 }
 
+/// D71 with D34: a failed success-rate query makes no copies while it is down. A view taken then
+/// stays without history, and one taken after the refresh lands judges by the history it brought.
+#[test]
+fn d71_success_rate_history_that_recovers_is_used_by_later_views_only() {
+    run(async {
+        let h = Harness::new();
+        let tests = generate_tests(3);
+        let p = recovered_history(&h, &tests, true).await;
+        let strategy =
+            FlakinessStrategy::from_config(&marathon_config::schema::FlakinessStrategyConfiguration::Probability {
+                min_success_rate: 0.995,
+                max_count: 1,
+                time_limit: limit(),
+            });
+        let shard = || TestShard {
+            tests: tests.clone(),
+            flaky_tests: vec![],
+        };
+        let down = p.lookup().view().unwrap();
+        assert!(strategy.process(shard(), p.lookup().as_ref()).flaky_tests.is_empty());
+        land_refresh(&h).await;
+        assert!(strategy.process(shard(), down.as_ref()).flaky_tests.is_empty());
+        // Rates 1.0, 0.99 and 0.98 against a minimum of 0.995.
+        assert_eq!(
+            strategy.process(shard(), p.lookup().as_ref()).flaky_tests,
+            vec![tests[1].clone(), tests[2].clone()]
+        );
+        assert_eq!(
+            lines_with(
+                &h,
+                Level::WARN,
+                "Test history unavailable (the success rate query failed)"
+            ),
+            1
+        );
+    });
+}
+
 /// Everything a scripted run shows: the answers, the backend's calls and the log, in order.
 async fn transcript(answers: Vec<Option<OperationError>>) -> Vec<String> {
     let h = Harness::new();

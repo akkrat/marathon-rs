@@ -298,8 +298,12 @@ fn whole_marathonfile_binds_ios_and_android_vendor_sections() {
 // ---- Focused schema rules -----------------------------------------------------
 
 use marathon_config::{
-    CompositionOperation, RegexValuesFileFilter, TestFilterConfiguration, ValidationError, ValidationKind,
-    bind::{bind_filtering_configuration, bind_flakiness_strategy, bind_pooling_strategy, bind_sorting_strategy},
+    CompositionOperation, RegexValuesFileFilter, ShardingStrategyConfiguration, TestFilterConfiguration,
+    ValidationError, ValidationKind,
+    bind::{
+        bind_filtering_configuration, bind_flakiness_strategy, bind_pooling_strategy, bind_sharding_strategy,
+        bind_sorting_strategy,
+    },
     binder,
 };
 
@@ -460,6 +464,41 @@ fn container_time_limit_is_mismatched_not_invalid_format() {
     )
     .unwrap_err();
     assert_eq!(e.kind, binder::MISMATCHED);
+}
+
+/// D72: native only, so no JVM row covers it. Strict, like the types without a hand-written deserializer.
+#[test]
+fn d72_fixed_flakiness_binds_count_strictly() {
+    use marathon_config::FlakinessStrategyConfiguration::Fixed;
+    for (text, count) in [
+        ("{type: fixed, count: 2}", 2),
+        ("{type: fixed, count: 0}", 0),
+        ("{type: fixed, count: -1}", -1),
+    ] {
+        assert_eq!(
+            bind(text, bind_flakiness_strategy).unwrap().flatten(),
+            Some(Fixed { count }),
+            "{text}"
+        );
+    }
+    let kind = |text: &str| bind(text, bind_flakiness_strategy).unwrap_err().kind;
+    assert_eq!(kind("{type: fixed}"), binder::MISSING_KOTLIN);
+    assert_eq!(kind("{type: fixed, count: ~}"), binder::MISSING_KOTLIN);
+    assert_eq!(kind("{type: fixed, count: 2, maxCount: 3}"), binder::UNKNOWN_PROPERTY);
+    assert_eq!(kind("{type: fixed, count: ''}"), binder::MISSING_KOTLIN);
+    // Any other spelling coerces as shardingStrategy's count does.
+    for value in ["2", "'2'", "2.0", "1.5", "two", "[2]", "{n: 2}", "3000000000", "true"] {
+        let fixed = bind(&format!("{{type: fixed, count: {value}}}"), bind_flakiness_strategy);
+        let sharding = bind(&format!("{{type: count, count: {value}}}"), bind_sharding_strategy);
+        match (fixed, sharding) {
+            (Ok(Some(Some(Fixed { count }))), Ok(Some(Some(ShardingStrategyConfiguration::Count { count: c })))) => {
+                assert_eq!(count, c, "{value}")
+            }
+            (Err(f), Err(s)) => assert_eq!(f.kind, s.kind, "{value}"),
+            (f, s) => panic!("{value}: {f:?} against {s:?}"),
+        }
+    }
+    assert_eq!(kind("{type: fixed-count, count: 2}"), binder::INVALID_TYPE);
 }
 
 #[test]

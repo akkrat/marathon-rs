@@ -104,3 +104,36 @@ fn config_dump_matches_the_jvm_goldens() {
     );
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// D72 is native only, so no JVM golden covers it: `config-dump` of a Marathonfile using it, and of one
+/// with an invalid count.
+#[test]
+fn d72_config_dump_of_a_fixed_flakiness_strategy() {
+    let dump = |count: &str| {
+        let tmp = tempfile::tempdir().unwrap();
+        let input = tmp.path().join("Marathonfile");
+        fs::write(
+            &input,
+            format!(
+                "name: stabilize\noutputDir: out\nvendorConfiguration:\n  type: stub\nflakinessStrategy:\n  type: fixed\n  count: {count}\nexecutionStrategy:\n  fast: false\n"
+            ),
+        )
+        .unwrap();
+        let args = ["config-dump".to_owned(), input.to_string_lossy().into_owned()];
+        let out = support::run(tmp.path(), tmp.path(), tmp.path(), &args, &[]);
+        assert_eq!(out.exit, 0, "{}", out.stderr);
+        serde_json::from_str::<Json>(&out.stdout).unwrap()
+    };
+    let accepted = dump("3");
+    assert_eq!(accepted["stage"], "ok", "{accepted}");
+    assert_eq!(
+        accepted["config"]["flakinessStrategy"],
+        serde_json::json!({"count": 3, "type": "fixed"})
+    );
+    let rejected = dump("-1");
+    assert_eq!(rejected["stage"], "logical", "{rejected}");
+    assert_eq!(
+        rejected["error"]["message"],
+        "flakinessStrategy.count must be at least 0, got -1"
+    );
+}

@@ -690,3 +690,93 @@ fn wrapper_array_without_a_body_keeps_the_missing_parameter_error() -> Result<()
     );
     Ok(())
 }
+
+// ---- D72: flakinessStrategy fixed (native only) ---------------------------------
+
+/// A stub-vendor Marathonfile with `body` appended.
+fn stub(body: &str) -> Result<Configuration, Box<ConfigurationError>> {
+    let (_temp, dir) = load::temp().unwrap();
+    let path = dir.join("Marathonfile");
+    fs::write(
+        &path,
+        format!("name: t\noutputDir: out\nvendorConfiguration:\n  type: stub\n{body}"),
+    )
+    .unwrap();
+    load::parse(&path, &load::context(&path, &dir, None))
+}
+
+/// The stabilization-job example of docs/deviations.md (D72), whole: parse, validation, the
+/// YAML it serializes to, the canonical dump and the Allure environment text.
+#[test]
+fn d72_a_fixed_flakiness_strategy_parses_validates_and_renders() {
+    let configuration = stub(concat!(
+        "flakinessStrategy:\n",
+        "  type: fixed\n",
+        "  count: 4            # each test is scheduled 5 times\n",
+        "executionStrategy:\n",
+        "  mode: ANY_SUCCESS\n",
+        "  fast: false         # run every copy, even after a pass\n",
+        "retryStrategy:\n",
+        "  type: no-retry      # retries are counted separately from copies\n",
+        "uncompletedTestRetryQuota: 5\n",
+    ))
+    .unwrap();
+    assert_eq!(configuration.uncompleted_test_retry_quota, 5);
+    validate(&configuration).unwrap();
+    assert_eq!(
+        configuration.flakiness_strategy,
+        marathon_config::FlakinessStrategyConfiguration::Fixed { count: 4 }
+    );
+    let yaml = marathon_config::serialize(&configuration).unwrap();
+    assert!(
+        yaml.contains("flakinessStrategy:\n  type: fixed\n  count: 4\n"),
+        "{yaml}"
+    );
+    let (_temp, dir) = load::temp().unwrap();
+    let path = dir.join("Marathonfile");
+    fs::write(&path, &yaml).unwrap();
+    assert_eq!(
+        load::parse(&path, &load::context(&path, &dir, None)).unwrap(),
+        configuration
+    );
+    let dump = marathon_config::dump::canonical_configuration(&configuration, &dir).pretty();
+    assert!(
+        dump.contains("\"flakinessStrategy\": {\n    \"count\": 4,\n    \"type\": \"fixed\"\n  }"),
+        "{dump}"
+    );
+    let environment = configuration.to_map(&dir);
+    assert!(environment.contains(&(
+        "flakiness".into(),
+        "FixedFlakinessStrategyConfiguration(count=4)".into()
+    )));
+}
+
+#[test]
+fn d72_a_negative_fixed_count_is_rejected() {
+    let configuration = stub("flakinessStrategy:\n  type: fixed\n  count: -1").unwrap();
+    assert_rejected(&configuration, "flakinessStrategy.count must be at least 0, got -1");
+    validate(&stub("flakinessStrategy:\n  type: fixed\n  count: 0").unwrap()).unwrap();
+    let missing = stub("flakinessStrategy:\n  type: fixed").unwrap_err();
+    assert_eq!(missing.stage, ValidationStage::Parse);
+    let unknown = stub("flakinessStrategy:\n  type: fixed\n  count: 1\n  maxCount: 1").unwrap_err();
+    assert_eq!(unknown.stage, ValidationStage::Parse);
+}
+
+/// Fixed is a complex flakiness strategy, as probability is: the same two rules reject it.
+#[test]
+fn d72_fixed_follows_the_complex_flakiness_rules() {
+    let configuration =
+        stub("flakinessStrategy:\n  type: fixed\n  count: 1\nshardingStrategy:\n  type: count\n  count: 2").unwrap();
+    assert_rejected(
+        &configuration,
+        "Configuration is invalid: can't use complex sharding and complex flakiness strategy at the same time. See: https://github.com/MarathonLabs/marathon/issues/197",
+    );
+    let configuration = stub(
+        "flakinessStrategy:\n  type: fixed\n  count: 1\nexecutionStrategy:\n  mode: ALL_SUCCESS\nretryStrategy:\n  type: no-retry",
+    )
+    .unwrap();
+    assert_rejected(
+        &configuration,
+        "Configuration is invalid: can't use complex flakiness strategy and all success execution strategy at the same time. Consult documentation for the all success execution logic",
+    );
+}

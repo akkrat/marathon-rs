@@ -853,6 +853,7 @@ fn flakiness(f: &FlakinessStrategyConfiguration) -> DumpValue {
                 ("timeLimit", instant(time_limit)),
             ],
         ),
+        FlakinessStrategyConfiguration::Fixed { count } => typed("fixed", vec![("count", int(*count))]),
     }
 }
 

@@ -425,6 +425,23 @@ pub fn bind_flakiness_strategy(value: Value<'_>) -> Result<Option<FlakinessStrat
     value.polymorphic(|id, v| match id {
         "ignore" => Some(singleton(v).map(|()| FlakinessStrategyConfiguration::Ignore)),
         "probability" => Some(bind_probability(v)),
+        // D72: native only, so it binds strictly, like the types without a hand-written deserializer.
+        "fixed" => Some((|| {
+            let mut count = Field::reference(&v, None::<i32>);
+            let mut object = v.object()?;
+            while let Some((name, child)) = object.next_field()? {
+                match name.as_str() {
+                    "count" => {
+                        let bound = child.int_boxed()?;
+                        count.set(child, bound);
+                    }
+                    _ => child.unknown(false)?,
+                }
+            }
+            Ok(FlakinessStrategyConfiguration::Fixed {
+                count: count.required("count")?,
+            })
+        })()),
         _ => None,
     })
 }

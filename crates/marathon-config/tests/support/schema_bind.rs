@@ -140,6 +140,7 @@ fn flakiness(v: &FlakinessStrategyConfiguration) -> Json {
         } => json!({
             "maxCount": max_count, "minSuccessRate": f(*min_success_rate),
             "timeLimit": time_limit.to_string(), "type": "probability"}),
+        FlakinessStrategyConfiguration::Fixed { count } => json!({"count": count, "type": "fixed"}),
     }
 }
 fn retry(v: &RetryStrategyConfiguration) -> Json {

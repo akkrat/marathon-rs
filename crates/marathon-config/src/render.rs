@@ -396,6 +396,7 @@ impl ResultText for FlakinessStrategyConfiguration {
                     ("timeLimit", instant(time_limit)),
                 ],
             ),
+            Self::Fixed { count } => data("FixedFlakinessStrategyConfiguration", vec![("count", number(count))]),
         }
     }
 }

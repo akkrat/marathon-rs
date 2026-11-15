@@ -278,6 +278,11 @@ impl Serialize for View<'_, FlakinessStrategyConfiguration> {
                 time_limit: w_instant(time_limit),
             }
             .serialize(serializer),
+            FlakinessStrategyConfiguration::Fixed { count } => view! {
+                r#type: "fixed",
+                count: w_int(*count),
+            }
+            .serialize(serializer),
         }
     }
 }

@@ -12,7 +12,8 @@ use marathon_core::{
         remote::{graphite::*, influx::*, influx2::*},
         *,
     },
-    executor::shared::failure,
+    error::OperationError,
+    executor::shared::{failure, requested},
     model::*,
     runtime::ServiceFuture,
     strategy::{FlakinessStrategy, MetricsKey},
@@ -270,42 +271,225 @@ fn coverage_is_not_reported_if_no_strategy_uses_execution_time_history() {
         assert!(recorder.0.lock().unwrap().is_empty());
     });
 }
+const NO_COPIES: &str = "flakinessStrategy probability adds no copies";
+fn probability() -> FlakinessStrategy {
+    FlakinessStrategy::from_config(&FlakinessStrategyConfiguration::Probability {
+        min_success_rate: 0.8,
+        max_count: 4,
+        time_limit: limit(),
+    })
+}
+fn flaky(strategy: &FlakinessStrategy, p: &Analytics, tests: &[Test]) -> Vec<Test> {
+    strategy
+        .process(
+            TestShard {
+                tests: tests.to_vec(),
+                flaky_tests: vec![],
+            },
+            p.lookup().as_ref(),
+        )
+        .flaky_tests
+}
+fn every(tests: &[Test], copies: usize) -> Vec<Test> {
+    tests
+        .iter()
+        .flat_map(|t| std::iter::repeat_n(t.clone(), copies))
+        .collect()
+}
+/// The D71 warnings, as (logger, message).
+fn unavailable(h: &Harness) -> Vec<(String, String)> {
+    h.logs
+        .records()
+        .iter()
+        .filter(|r| r.level == Level::WARN && r.message.to_owned().starts_with("Test history unavailable"))
+        .map(|r| (r.logger.clone(), r.message.to_owned()))
+        .collect()
+}
+fn no_success_rate_lines(h: &Harness) -> usize {
+    h.logs
+        .records()
+        .iter()
+        .filter(|r| r.message.to_owned().starts_with("No success rate found"))
+        .count()
+}
+/// D71 (C8 fixed): without history every test used to look like it never passed and got maxCount copies.
+async fn assert_no_copies(h: &Harness, p: &Analytics, logger: &str, reason: &str) {
+    let tests = generate_tests(3);
+    let strategy = probability();
+    assert_eq!(flaky(&strategy, p, &tests), vec![]);
+    // Each pass and each shard asks again, but the run warns once.
+    assert_eq!(flaky(&strategy, p, &tests), vec![]);
+    assert_eq!(
+        unavailable(h),
+        vec![(
+            logger.to_owned(),
+            format!("Test history unavailable ({reason}); {NO_COPIES}")
+        )]
+    );
+    assert_eq!(no_success_rate_lines(h), 0);
+}
 #[test]
-fn c8_zero_success_rate_repeats_every_test_for_disabled_unavailable_and_empty_history() {
+fn d71_disabled_analytics_adds_no_probability_copies() {
     run(async {
         let h = Harness::new();
         let factory = MetricsProviderFactory::new(h.context.clone(), Arc::new(Setup)).unwrap();
-        let providers = [
-            factory
-                .create_for(&AnalyticsConfiguration::Disabled, false)
-                .await
-                .unwrap(),
-            factory.create_for(&influx(), false).await.unwrap(),
-            h.provider(Arc::new(Source::default()), 300000, None),
-        ];
-        for p in providers {
-            p.prefetch(&[MetricsKey::SuccessRate { limit: limit() }]).await.unwrap();
-            let tests = generate_tests(3);
-            let strategy = FlakinessStrategy::from_config(&FlakinessStrategyConfiguration::Probability {
-                min_success_rate: 0.8,
-                max_count: 4,
-                time_limit: limit(),
-            });
-            let shard = strategy.process(
-                TestShard {
-                    tests: tests.clone(),
-                    flaky_tests: vec![],
-                },
-                p.lookup().as_ref(),
-            );
-            assert_eq!(
-                shard.flaky_tests,
-                tests
-                    .into_iter()
-                    .flat_map(|t| std::iter::repeat_n(t, 4))
-                    .collect::<Vec<_>>()
-            );
+        let p = factory
+            .create_for(&AnalyticsConfiguration::Disabled, false)
+            .await
+            .unwrap();
+        p.prefetch(&[MetricsKey::SuccessRate { limit: limit() }]).await.unwrap();
+        assert_no_copies(&h, &p, "marathon_core::analytics::noop", "analytics is disabled").await;
+    });
+}
+#[test]
+fn d71_a_backend_that_could_not_be_set_up_adds_no_probability_copies() {
+    run(async {
+        let h = Harness::new();
+        let factory = MetricsProviderFactory::new(h.context.clone(), Arc::new(Setup)).unwrap();
+        let p = factory.create_for(&influx(), false).await.unwrap();
+        p.prefetch(&[MetricsKey::SuccessRate { limit: limit() }]).await.unwrap();
+        assert_no_copies(
+            &h,
+            &p,
+            "marathon_core::analytics::noop",
+            "the analytics backend could not be set up",
+        )
+        .await;
+    });
+}
+#[test]
+fn d71_a_failed_success_rate_query_adds_no_probability_copies() {
+    run(async {
+        let h = Harness::new();
+        let source = Arc::new(Source {
+            failure: true,
+            ..Source::default()
+        });
+        let p = h.provider(source, 300000, None);
+        p.prefetch(&[MetricsKey::SuccessRate { limit: limit() }]).await.unwrap();
+        assert_no_copies(
+            &h,
+            &p,
+            "marathon_core::analytics::provider",
+            "the success rate query failed",
+        )
+        .await;
+        // Only the success-rate history is judged: a failed query of another key does not matter.
+        let other = Harness::new();
+        let source = Arc::new(Source::default());
+        *source.errors.lock().unwrap() = (0..3)
+            .map(|_| Some(failure(FailureKind::Runtime, "unreadable").into()))
+            .collect();
+        let p = other.provider(source, 300000, None);
+        p.prefetch(&[metrics_support::key(80.0), MetricsKey::SuccessRate { limit: limit() }])
+            .await
+            .unwrap();
+        let tests = generate_tests(2);
+        assert_eq!(flaky(&probability(), &p, &tests), every(&tests, 4));
+        assert_eq!(unavailable(&other), vec![]);
+    });
+}
+#[test]
+fn d71_a_cancelled_success_rate_query_adds_no_probability_copies() {
+    run(async {
+        let h = Harness::new();
+        let source = Arc::new(Source::default());
+        *source.errors.lock().unwrap() = [Some(OperationError::Cancelled(requested("cancelled fetch")))].into();
+        let p = h.provider(source, 300000, None);
+        assert!(matches!(
+            p.prefetch(&[MetricsKey::SuccessRate { limit: limit() }]).await,
+            Err(OperationError::Cancelled(_))
+        ));
+        assert_no_copies(
+            &h,
+            &p,
+            "marathon_core::analytics::provider",
+            "the success rate query did not finish",
+        )
+        .await;
+    });
+}
+/// C8 kept as configured: a working backend's window, whatever it holds, is history. A test it
+/// does not name takes `defaults.successRate` (0 unless configured), so new tests still get copies.
+#[test]
+fn c8_tests_missing_from_working_history_take_the_configured_default_success_rate() {
+    run(async {
+        let tests = generate_tests(3);
+        let key = MetricsKey::SuccessRate { limit: limit() };
+        // A successful empty window.
+        let h = Harness::new();
+        let p = h.provider(Arc::new(Source::default()), 300000, None);
+        p.prefetch(&[key]).await.unwrap();
+        assert_eq!(flaky(&probability(), &p, &tests), every(&tests, 4));
+        assert_eq!(unavailable(&h), vec![]);
+        assert_eq!(no_success_rate_lines(&h), 3);
+        // The same window with a configured default at or above minSuccessRate.
+        let h = Harness::new();
+        let mut defaults = defaults(300000, None);
+        defaults.success_rate = 0.8;
+        let p =
+            Analytics::new(MetricsProviderImpl::new(Arc::new(Source::default()), defaults, h.context.clone()).unwrap());
+        p.prefetch(&[key]).await.unwrap();
+        assert_eq!(flaky(&probability(), &p, &tests), vec![]);
+        // Partial history: only the tests it does not name take the default.
+        let h = Harness::new();
+        let source = Arc::new(Source::default());
+        *source.rates.lock().unwrap() = vec![rate_row(&tests[1], 1.0)];
+        let p = h.provider(source, 300000, None);
+        p.prefetch(&[key]).await.unwrap();
+        assert_eq!(
+            flaky(&probability(), &p, &tests),
+            [every(&tests[..1], 4), every(&tests[2..], 4)].concat()
+        );
+        assert_eq!(no_success_rate_lines(&h), 2);
+        // A genuine 0% success rate.
+        let h = Harness::new();
+        let source = Arc::new(Source::default());
+        *source.rates.lock().unwrap() = tests.iter().map(|t| rate_row(t, 0.0)).collect();
+        let p = h.provider(source, 300000, None);
+        p.prefetch(&[key]).await.unwrap();
+        assert_eq!(flaky(&probability(), &p, &tests), every(&tests, 4));
+        assert_eq!((unavailable(&h), no_success_rate_lines(&h)), (vec![], 0));
+    });
+}
+/// D72: fixed copies do not read history, so no state of the analytics backend changes them.
+#[test]
+fn d72_fixed_copies_are_made_whatever_the_history() {
+    run(async {
+        let tests = generate_tests(3);
+        let fixed = FlakinessStrategy::from_config(&FlakinessStrategyConfiguration::Fixed { count: 2 });
+        assert!(fixed.metrics_keys().is_empty());
+        let h = Harness::new();
+        let factory = MetricsProviderFactory::new(h.context.clone(), Arc::new(Setup)).unwrap();
+        let disabled = factory
+            .create_for(&AnalyticsConfiguration::Disabled, false)
+            .await
+            .unwrap();
+        let not_set_up = factory.create_for(&influx(), false).await.unwrap();
+        let failing = h.provider(
+            Arc::new(Source {
+                failure: true,
+                ..Source::default()
+            }),
+            300000,
+            None,
+        );
+        failing
+            .prefetch(&[MetricsKey::SuccessRate { limit: limit() }])
+            .await
+            .unwrap();
+        let source = Arc::new(Source::default());
+        *source.rates.lock().unwrap() = tests.iter().map(|t| rate_row(t, 1.0)).collect();
+        let perfect = h.provider(source, 300000, None);
+        perfect
+            .prefetch(&[MetricsKey::SuccessRate { limit: limit() }])
+            .await
+            .unwrap();
+        h.logs.take();
+        for p in [disabled, not_set_up, failing, perfect] {
+            assert_eq!(flaky(&fixed, &p, &tests), every(&tests, 2));
         }
+        assert_eq!(unavailable(&h), vec![]);
     });
 }
 

@@ -44,6 +44,15 @@ pub trait MetricsLookup: Send + Sync {
     fn view(&self) -> Option<Arc<dyn MetricsLookup>> {
         None
     }
+    /// D71: whether the success-rate history behind `limit` can be read. It cannot when analytics
+    /// is disabled, its backend could not be set up, or the query failed or did not finish and has
+    /// not recovered since. A working backend's answer counts even when it is empty: tests it does
+    /// not name then take the configured default. When the history cannot be read, the first call
+    /// in a run logs why, followed by `consequence`.
+    fn success_rate_available(&self, limit: Instant, consequence: &str) -> bool {
+        let _ = (limit, consequence);
+        true
+    }
 }
 
 /// A history query a strategy may make: the `(percentile, limit)` of

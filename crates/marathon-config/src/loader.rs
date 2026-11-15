@@ -340,6 +340,13 @@ fn validate_logical_sync(configuration: &Configuration) -> Result<(), Box<Config
             "Configuration is invalid: can't use complex sharding and complex flakiness strategy at the same time. See: https://github.com/MarathonLabs/marathon/issues/197".to_owned(),
         ));
     }
+    if let FlakinessStrategyConfiguration::Fixed { count } = configuration.flakiness_strategy
+        && count < 0
+    {
+        return Err(logical_error(format!(
+            "flakinessStrategy.count must be at least 0, got {count}"
+        )));
+    }
 
     configuration
         .filtering_configuration

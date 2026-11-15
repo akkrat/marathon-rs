@@ -331,6 +331,10 @@ pub enum FlakinessStrategyConfiguration {
         max_count: i32,
         time_limit: Instant,
     },
+    /// D72, native only: `count` up-front copies of every test, whatever the history says.
+    Fixed {
+        count: i32,
+    },
 }
 impl PartialEq for FlakinessStrategyConfiguration {
     fn eq(&self, other: &Self) -> bool {
@@ -348,6 +352,7 @@ impl PartialEq for FlakinessStrategyConfiguration {
                     time_limit: t,
                 },
             ) => java_double_eq(*min_success_rate, *r) && max_count == m && time_limit == t,
+            (Self::Fixed { count }, Self::Fixed { count: c }) => count == c,
             _ => false,
         }
     }
