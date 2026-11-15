@@ -256,7 +256,7 @@ type Tapped = Arc<Mutex<Vec<(bool, String, DeviceRef, bool, i64)>>>;
 struct TappedProvider {
     inner: Arc<dyn DeviceProvider>,
     tap: Tapped,
-    now: Arc<AtomicI64>,
+    clock: Arc<dyn VendorClock>,
 }
 impl DeviceProvider for TappedProvider {
     fn initialize(&self, context: VendorContext) -> VendorFuture<'_, ()> {
@@ -272,14 +272,17 @@ impl DeviceProvider for TappedProvider {
         Arc::new(TappedChannel {
             inner: self.inner.subscribe(),
             tap: self.tap.clone(),
-            now: self.now.clone(),
+            clock: self.clock.clone(),
         })
     }
 }
 struct TappedChannel {
     inner: Arc<dyn EventChannel<DeviceEvent>>,
     tap: Tapped,
-    now: Arc<AtomicI64>,
+    /// The run's own virtual clock, not the driver's step counter: the driver publishes its step before advancing the
+    /// clock to it, so an event that a timer sends during the advance would read the step before. The clock is set to
+    /// a timer's deadline before the timer fires and never goes back, so an event reads at least the time that sent it.
+    clock: Arc<dyn VendorClock>,
 }
 impl EventChannel<DeviceEvent> for TappedChannel {
     fn try_send(&self, message: DeviceEvent) -> Result<(), SendError<DeviceEvent>> {
@@ -295,7 +298,7 @@ impl EventChannel<DeviceEvent> for TappedChannel {
                 };
                 let serial = device.0.info().serial_number.to_owned();
                 let healthy = device.0.info().healthy;
-                let at = self.now.load(Ordering::SeqCst);
+                let at = self.clock.now_millis();
                 checked_lock(&self.tap).push((connected, serial, device, healthy, at));
             }
             Ok(event)
@@ -434,7 +437,6 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
     let started: Started = Arc::default();
     let clock_now = Arc::new(AtomicI64::new(0));
     let (log_started, log_now) = (started.clone(), clock_now.clone());
-    let tap_now = clock_now.clone();
     let lost_requests = Arc::new(AtomicI64::new(lost_requests));
     let delaying: Delaying = Arc::default();
     let (log_delaying, gate_delaying) = (delaying.clone(), delaying.clone());
@@ -481,6 +483,7 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
                     system_information: vec![],
                     vendor: Box::new(move |dependencies| {
                         Box::pin(async move {
+                            let tap_clock = dependencies.clock.clone();
                             let executor = Arc::new(VirtualDuration {
                                 inner: AndroidRunnerExecutor::default(),
                                 clock: dependencies.clock.clone(),
@@ -493,7 +496,7 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
                             services.provider = Arc::new(TappedProvider {
                                 inner: services.provider,
                                 tap: log_tap,
-                                now: tap_now,
+                                clock: tap_clock,
                             });
                             Ok::<VendorServices, VendorError>(services)
                         })
