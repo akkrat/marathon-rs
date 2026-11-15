@@ -317,6 +317,7 @@ impl AndroidDeviceTestRunner<'_> {
             id: raw.id.clone(),
         };
         if batch.tests.is_empty() {
+            self.device.record_submission(&raw)?;
             listener.before_test_run_in(None, context.clone()).await?;
             self.notify_ignored(&ignored, listener, &context).await?;
             listener
@@ -351,6 +352,19 @@ impl AndroidDeviceTestRunner<'_> {
         let mut announced = false;
         for (index, (info, tests)) in partitions.into_iter().enumerate() {
             let first = index == 0;
+            // D70 (U166): every instrumentation waits out an outage or a grace period, not only the batch's first, which
+            // `AndroidDevice::execute` waits for. Before its device commands and outside its timeout.
+            let waited = self
+                .device
+                .wait_for_next_instrumentation(&raw, || listener.results_so_far(), &context)
+                .await;
+            if let Err(error) = waited {
+                // An earlier instrumentation ran, so the batch's run is closed as on any other error.
+                if !first {
+                    listener.after_test_run_in(context.clone()).await?;
+                }
+                return Err(error);
+            }
             let batch = TestBatch {
                 tests,
                 id: batch.id.clone(),
@@ -368,6 +382,7 @@ impl AndroidDeviceTestRunner<'_> {
                 let info = &info;
                 let ignored = &ignored;
                 let configuration = &configuration;
+                let raw = &raw;
                 let child = VendorContext {
                     cancellation: signal,
                     ..context.clone()
@@ -389,6 +404,8 @@ impl AndroidDeviceTestRunner<'_> {
                         &format!("Running {}", request.command().to_owned()),
                         None,
                     );
+                    // D70: from here the batch counts as started, whatever comes back.
+                    self.device.record_submission(raw)?;
                     *channel = Some(InstrumentationChannel::start(self.device, request));
                     if let Some(channel) = channel.as_mut() {
                         loop {

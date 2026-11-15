@@ -45,6 +45,25 @@ const LOGCAT_END_WAIT_MILLIS: i64 = 1000;
 /// D49: lost requests per serial per adb server per run that a device listed as `device` and answering survives. Each one
 /// charges its batch an attempt, so it is a count with no forgiveness, as D41's is. One after this retires the device.
 const REQUEST_LOSSES_PER_DEVICE: u32 = 3;
+/// D70: where the batch this device took last stands, so that it is given back uncharged only if none of it started. A
+/// device runs one batch at a time.
+struct BatchRecord {
+    batch: BatchRef,
+    result: Option<Arc<Deferred<TestBatchResults>>>,
+    stage: Stage,
+}
+enum Stage {
+    /// No instrumentation of it has been submitted.
+    Unstarted,
+    /// An instrumentation has been submitted, or the batch was accounted for without one.
+    Started,
+    /// Waiting at D22's or D41's gate for its next instrumentation, with what the earlier ones gave.
+    Parked(TestBatchResults),
+    /// The core took it back; nothing of it may start.
+    Withdrawn,
+    /// `execute` has returned.
+    Done,
+}
 /// D22, D41, D49: why a request failed the way that means a lost device.
 enum LossCause {
     /// The server is away, or the transport is passing through a brief `offline`.
@@ -110,6 +129,8 @@ struct Inner {
     lost: AtomicBool,
     /// D48: what an outage or a grace period had waited for it when it was disconnected.
     return_wait_used: AtomicI64,
+    /// D70.
+    batch: Mutex<Option<BatchRecord>>,
 }
 struct State {
     booted: bool,
@@ -164,6 +185,7 @@ impl AndroidDevice {
                 disposal: tokio::sync::Mutex::new(false),
                 lost: AtomicBool::new(false),
                 return_wait_used: AtomicI64::new(0),
+                batch: Mutex::default(),
             }),
         }
     }
@@ -769,6 +791,110 @@ impl AndroidDevice {
         .await?;
         Ok(self.is_live())
     }
+    /// D70: `execute` has `batch`. False if the core has already taken it back.
+    fn take_batch(&self, batch: &BatchRef, result: &Arc<Deferred<TestBatchResults>>) -> bool {
+        let mut record = lock(&self.inner.batch);
+        if let Some(r) = record.as_ref()
+            && Arc::ptr_eq(&r.batch, batch)
+            && matches!(r.stage, Stage::Withdrawn)
+        {
+            return false;
+        }
+        *record = Some(BatchRecord {
+            batch: batch.clone(),
+            result: Some(result.clone()),
+            stage: Stage::Unstarted,
+        });
+        true
+    }
+    fn end_batch(&self, batch: &BatchRef) {
+        if let Some(r) = lock(&self.inner.batch).as_mut()
+            && Arc::ptr_eq(&r.batch, batch)
+            && !matches!(r.stage, Stage::Withdrawn)
+        {
+            r.stage = Stage::Done;
+        }
+    }
+    /// D70: an instrumentation of `batch` is about to be submitted, or the batch to be accounted for without one. From
+    /// now on the core cannot take it back uncharged. Refused, as a cancellation, once it has taken it back. A batch run
+    /// other than through [`Device::execute`], as by a test, is not tracked and passes.
+    pub fn record_submission(&self, batch: &BatchRef) -> VendorResult<()> {
+        match lock(&self.inner.batch).as_mut() {
+            Some(r) if Arc::ptr_eq(&r.batch, batch) => match r.stage {
+                Stage::Withdrawn => Err(VendorError::Cancelled(requested("batch given back before it started"))),
+                _ => {
+                    r.stage = Stage::Started;
+                    Ok(())
+                }
+            },
+            _ => Ok(()),
+        }
+    }
+    /// D22, D41 (U166): the next instrumentation of `batch` waits, as the batch's first did in [`Device::execute`], while the
+    /// adb server is away or the device is in its grace period, and a device given up waits for the core to stop it.
+    /// Returns at once when the way is clear, so a healthy run is unchanged. While it waits after an earlier
+    /// instrumentation ran, the core can end the batch with what those gave, from `so_far`, if the device goes.
+    pub async fn wait_for_next_instrumentation(
+        &self,
+        batch: &BatchRef,
+        so_far: impl FnOnce() -> VendorResult<Option<TestBatchResults>>,
+        context: &VendorContext,
+    ) -> VendorResult<()> {
+        if !self.is_gate_closed() && !self.inner.lost.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let started = lock(&self.inner.batch)
+            .as_ref()
+            .is_some_and(|r| Arc::ptr_eq(&r.batch, batch) && matches!(r.stage, Stage::Started));
+        if started && let Some(results) = so_far()? {
+            match lock(&self.inner.batch).as_mut() {
+                Some(r) if Arc::ptr_eq(&r.batch, batch) && matches!(r.stage, Stage::Started) => {
+                    r.stage = Stage::Parked(results)
+                }
+                _ => {}
+            }
+        }
+        self.log(
+            Level::DEBUG,
+            &format!(
+                "Batch {} waits for its adb server or device before its next instrumentation",
+                batch.id
+            ),
+            None,
+        );
+        let waited = self.pass_gate(context.cancellation.clone()).await;
+        if let Some(r) = lock(&self.inner.batch).as_mut()
+            && Arc::ptr_eq(&r.batch, batch)
+            && matches!(r.stage, Stage::Parked(_))
+        {
+            r.stage = Stage::Started;
+        }
+        waited?;
+        self.ensure_not_withdrawn(batch)
+    }
+    /// D22, D41: waits while the adb server is away or the device is in its grace period. D70: a device given up waits on
+    /// until the core stops it and takes its batch back. The gate opens once its disconnect has been handled, and what
+    /// started then would only fail on the lost device, charged to tests that never ran.
+    async fn pass_gate(&self, signal: Arc<dyn CancellationSignal>) -> VendorResult<()> {
+        cancellable(signal.clone(), async {
+            self.inner.tracker.available(self.adb_serial()).await;
+            Ok(())
+        })
+        .await?;
+        if self.inner.lost.load(Ordering::Acquire) {
+            return Err(VendorError::Cancelled(signal.cancelled().await));
+        }
+        Ok(())
+    }
+    /// Whether the core has taken `batch` back meanwhile, which ends it as a cancellation.
+    fn ensure_not_withdrawn(&self, batch: &BatchRef) -> VendorResult<()> {
+        match lock(&self.inner.batch).as_ref() {
+            Some(r) if Arc::ptr_eq(&r.batch, batch) && matches!(r.stage, Stage::Withdrawn) => {
+                Err(VendorError::Cancelled(requested("batch given back before it started")))
+            }
+            _ => Ok(()),
+        }
+    }
     pub(crate) async fn stop_logcat(&self) {
         let task = lock(&self.inner.logcat).take();
         if let Some(task) = task {
@@ -909,12 +1035,12 @@ impl Device for AndroidDevice {
             context.cancellation.clone(),
             move |signal| {
                 Box::pin(async move {
+                    if !device.take_batch(&batch, &result) {
+                        return Err(VendorError::Cancelled(requested("batch given back before it started")));
+                    }
                     // D22, D41: during an outage or a grace period a batch waits, whatever comes of it.
-                    cancellable(signal.clone(), async {
-                        device.inner.tracker.available(device.adb_serial()).await;
-                        Ok(())
-                    })
-                    .await?;
+                    device.pass_gate(signal.clone()).await?;
+                    device.ensure_not_withdrawn(&batch)?;
                     let blips = device.inner.tracker.blips(device.adb_serial());
                     let context = VendorContext {
                         cancellation: signal.clone(),
@@ -923,8 +1049,9 @@ impl Device for AndroidDevice {
                     let outcome = device
                         .runtime()
                         .executor
-                        .execute(&device, configuration, pool, batch, result, context.clone())
+                        .execute(&device, configuration, pool, batch.clone(), result, context.clone())
                         .await;
+                    device.end_batch(&batch);
                     // D41: the actor asks for the next batch as this returns, and a batch given to a device that does
                     // not come back goes back to the queue charged to its tests, which never ran. So it waits here. An
                     // actor terminated meanwhile accounts for this batch as usual.
@@ -981,6 +1108,37 @@ impl Device for AndroidDevice {
     }
     fn return_wait_used_millis(&self) -> i64 {
         self.inner.return_wait_used.load(Ordering::Acquire)
+    }
+    /// D70: a batch is given back uncharged only if no instrumentation of it was submitted, which is recorded as it is
+    /// done: the absence of test callbacks would not prove that none started. One parked at the gate after earlier
+    /// instrumentations ran ends with what they gave, its remaining tests uncompleted, as when the device is lost there:
+    /// giving back the whole batch would run those again.
+    fn withdraw_unstarted(&self, batch: &BatchRef) -> bool {
+        let mut record = lock(&self.inner.batch);
+        match record.as_mut() {
+            Some(r) if Arc::ptr_eq(&r.batch, batch) => match std::mem::replace(&mut r.stage, Stage::Withdrawn) {
+                Stage::Unstarted | Stage::Withdrawn => true,
+                Stage::Parked(results) => {
+                    if let Some(result) = &r.result {
+                        result.complete(Ok(results));
+                    }
+                    false
+                }
+                stage @ (Stage::Started | Stage::Done) => {
+                    r.stage = stage;
+                    false
+                }
+            },
+            // `execute` has not got this batch yet; it is the one the core runs, so the device has no later one.
+            _ => {
+                *record = Some(BatchRecord {
+                    batch: batch.clone(),
+                    result: None,
+                    stage: Stage::Withdrawn,
+                });
+                true
+            }
+        }
     }
 }
 impl LogProducer for AndroidDevice {

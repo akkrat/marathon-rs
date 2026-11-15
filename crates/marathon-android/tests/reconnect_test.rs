@@ -78,6 +78,19 @@ struct VirtualDuration {
     started: Started,
     /// D49: how many batches still get a request rejected before its reply, as if by a closed adb connection.
     lost_requests: Arc<AtomicI64>,
+    /// D70: the server ports of the batches in their four seconds, which come before the runner submits anything.
+    delaying: Delaying,
+}
+type Delaying = Arc<Mutex<Vec<u16>>>;
+/// Takes its port off `delaying` however the delay ends.
+struct Delay(Delaying, u16);
+impl Drop for Delay {
+    fn drop(&mut self) {
+        let mut delaying = checked_lock(&self.0);
+        if let Some(i) = delaying.iter().position(|p| *p == self.1) {
+            delaying.remove(i);
+        }
+    }
 }
 impl AndroidBatchExecutor for VirtualDuration {
     fn execute<'a>(
@@ -100,7 +113,10 @@ impl AndroidBatchExecutor for VirtualDuration {
                 .and_then(|p| p.parse().ok())
                 .unwrap_or_default();
             checked_lock(&self.started).push((port, device.adb_serial().to_owned(), start));
+            checked_lock(&self.delaying).push(port);
+            let delay = Delay(self.delaying.clone(), port);
             self.clock.delay(TEST_MILLIS, context.cancellation.clone()).await?;
+            drop(delay);
             if self.lost_requests.fetch_sub(1, Ordering::SeqCst) > 0 {
                 return Err(marathon_android::execution_error(VendorError::Other(Failure {
                     kind: FailureKind::Adb(AdbKind::RequestRejected),
@@ -172,13 +188,13 @@ fn load(name: &str) -> (Value, Vec<Event>, usize) {
     (script, events, 0)
 }
 
-fn marathonfile(ports: &[u16], output: &Path) -> Vec<u8> {
+fn marathonfile(ports: &[u16], output: &Path, quota: Option<i32>) -> Vec<u8> {
     let apk = |name: &str| {
         fixture(&format!("vendor-android/apk/{name}"))
             .to_string_lossy()
             .into_owned()
     };
-    json!({
+    let mut file = json!({
         "name": "x1-reconnect",
         "outputDir": output.to_string_lossy(),
         "analyticsTracking": false,
@@ -201,9 +217,11 @@ fn marathonfile(ports: &[u16], output: &Path) -> Vec<u8> {
             "testParserConfiguration": {"type": "remote"},
             "adbServers": ports.iter().map(|p| json!({"host": "127.0.0.1", "port": p})).collect::<Vec<_>>()
         }
-    })
-    .to_string()
-    .into_bytes()
+    });
+    if let Some(quota) = quota {
+        file["uncompletedTestRetryQuota"] = json!(quota);
+    }
+    file.to_string().into_bytes()
 }
 
 pub struct Observed {
@@ -351,6 +369,30 @@ fn run_loaded(loaded: Vec<(Value, Vec<Event>, usize)>) -> Observed {
 }
 
 fn run_losing_requests(loaded: Vec<(Value, Vec<Event>, usize)>, lost_requests: i64) -> Observed {
+    run_with(
+        loaded,
+        Options {
+            lost_requests,
+            ..Options::default()
+        },
+    )
+}
+
+#[derive(Default)]
+struct Options {
+    lost_requests: i64,
+    quota: Option<i32>,
+    /// D70: a server or state event waits until a batch on that server is in its four seconds, before the runner
+    /// submits anything, so that the batch it catches has not started.
+    while_unstarted: bool,
+}
+
+fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observed {
+    let Options {
+        lost_requests,
+        quota,
+        while_unstarted,
+    } = options;
     let runtime = checked(tokio::runtime::Builder::new_multi_thread().enable_all().build());
     let mut servers = Vec::new();
     for (script, _, _) in &loaded {
@@ -394,6 +436,8 @@ fn run_losing_requests(loaded: Vec<(Value, Vec<Event>, usize)>, lost_requests: i
     let (log_started, log_now) = (started.clone(), clock_now.clone());
     let tap_now = clock_now.clone();
     let lost_requests = Arc::new(AtomicI64::new(lost_requests));
+    let delaying: Delaying = Arc::default();
+    let (log_delaying, gate_delaying) = (delaying.clone(), delaying.clone());
     let tap: Tapped = Arc::default();
     let log_tap = tap.clone();
     let final_tap = tap.clone();
@@ -411,7 +455,8 @@ fn run_losing_requests(loaded: Vec<(Value, Vec<Event>, usize)>, lost_requests: i
         analytics_tracking: false,
         bugsnag_reporting: false,
     };
-    let configuration = checked(MarathonConfigurationLoader.parse_sync(&marathonfile(&ports, output.path()), &context));
+    let configuration =
+        checked(MarathonConfigurationLoader.parse_sync(&marathonfile(&ports, output.path(), quota), &context));
     let driven = servers.clone();
     // The executor's own watchdog must outlast RUN_TIMEOUT, or it fires first on a slow runner (U180).
     let observed = CoreExecutor::run_virtual_with_watchdog(
@@ -442,6 +487,7 @@ fn run_losing_requests(loaded: Vec<(Value, Vec<Event>, usize)>, lost_requests: i
                                 now: log_now,
                                 started: log_started,
                                 lost_requests,
+                                delaying: log_delaying,
                             });
                             let mut services = create_services_with_executor(dependencies, executor).await?;
                             services.provider = Arc::new(TappedProvider {
@@ -522,7 +568,10 @@ fn run_losing_requests(loaded: Vec<(Value, Vec<Event>, usize)>, lost_requests: i
                                     requests(&driven[*server], serial, "logcat -v long") >= *times
                                 })
                             && (event.connect
-                                || ((event.kill.is_some() || event.state.is_some()) && healthy_started())
+                                || ((event.kill.is_some() || event.state.is_some())
+                                    && healthy_started()
+                                    && (!while_unstarted
+                                        || checked_lock(&gate_delaying).contains(&driven[event.server].port())))
                                 || (requests(&driven[event.server], &event.serial, HELD_NOW) >= 1
                                     && healthy_started()));
                         if !ready {
@@ -1349,4 +1398,96 @@ fn a_run_does_not_take_a_parse_cut_inside_its_code_line_for_the_list_d25() {
         observed.batches.len(),
     );
     assert_eq!(summary, (true, 2, 20), "(success, parse attempts, batches)");
+}
+
+/// Log lines that contain `text`.
+fn logged(observed: &Observed, text: &str) -> usize {
+    observed
+        .lines
+        .iter()
+        .filter(|l| matches!(l, Line::Log { message, .. } if message.contains(text)))
+        .count()
+}
+
+/// The queue charged no test an attempt: no batch came back as uncompleted, whole or in part.
+fn nothing_charged(observed: &Observed) {
+    assert_eq!(logged(observed, "onReturnBatch"), 0);
+    assert_eq!(logged(observed, "uncompleted = "), 0);
+    assert_eq!(logged(observed, "uncompletedTestRetryQuota exceeded"), 0);
+}
+
+/// D70 (U160) with D41, the whole run: the only device goes `offline` while it holds a batch it has not started, and
+/// stays so past its grace. The batch goes back with no attempt charged, so with `uncompletedTestRetryQuota: 0` its test
+/// still runs once the device is back, and the run passes. Before D70 that test failed without having run.
+#[test]
+fn a_batch_held_through_a_grace_that_ends_in_a_disconnect_is_not_charged_d70() {
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (script, _, index) = load("same-server");
+    let events = [(6000, "offline"), (30_000, "device")]
+        .into_iter()
+        .map(|(at_ms, state)| Event {
+            server: 0,
+            at_ms,
+            connect: false,
+            serial: "emulator-5554".into(),
+            kill: None,
+            state: Some(state),
+        })
+        .collect();
+    let observed = run_with(
+        vec![(script, events, index)],
+        Options {
+            quota: Some(0),
+            while_unstarted: true,
+            ..Options::default()
+        },
+    );
+    assert!(
+        matches!(observed.result, Some(Ok(true))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed.result.as_ref().map(|r| r.is_ok())
+    );
+    assert_eq!(observed.received.iter().filter(|r| !r.0).count(), 1);
+    assert_eq!(observed.received.iter().filter(|r| r.0).count(), 2);
+    assert_eq!(logged(&observed, "onRejectBatch"), 1);
+    nothing_charged(&observed);
+}
+
+/// D70 (U160) with D22, the whole run: one of two adb servers goes away for good while its device holds a batch it has
+/// not started. When the server is given up the batch goes back with no attempt charged, and the other server's device
+/// runs it. With `uncompletedTestRetryQuota: 3` the run passed before D70 too, but the batch's tests used one of their
+/// retries on a run that never happened.
+#[test]
+fn a_batch_held_by_a_server_that_is_given_up_is_not_charged_d70() {
+    let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
+    let (gone, _, index) = load("same-server");
+    let (mut other, _, _) = load("same-server");
+    // A device of its own, not D18's same serial on two servers.
+    other["devices"][0]["getprop"]["ro.boot.serialno"] = json!("EMULATOR30X6X5X1");
+    let kill = Event {
+        server: 0,
+        at_ms: 6000,
+        connect: false,
+        serial: String::new(),
+        kill: Some(None),
+        state: None,
+    };
+    let observed = run_with(
+        vec![(gone, vec![kill], index), (other, vec![], index)],
+        Options {
+            quota: Some(3),
+            while_unstarted: true,
+            ..Options::default()
+        },
+    );
+    assert!(
+        matches!(observed.result, Some(Ok(true))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed.result.as_ref().map(|r| r.is_ok())
+    );
+    assert_eq!(observed.received.iter().filter(|r| !r.0).count(), 1);
+    assert_eq!(logged(&observed, "onRejectBatch"), 1);
+    nothing_charged(&observed);
 }

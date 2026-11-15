@@ -72,6 +72,11 @@ pub trait AndroidTestRunListener: Send + Sync {
     fn after_test_run_in(&self, _context: marathon_core::vendor::VendorContext) -> VendorFuture<'_, ()> {
         self.after_test_run()
     }
+    /// D70: the batch's results as `after_test_run` would give them now, from the listener that gives them, without
+    /// giving them. No I/O.
+    fn results_so_far(&self) -> VendorResult<Option<TestBatchResults>> {
+        Ok(None)
+    }
 
     fn before_test_run<'a>(&'a self, _info: Option<&'a InstrumentationInfo>) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
@@ -170,6 +175,14 @@ impl AndroidTestRunListener for CompositeTestRunListener {
             }
             Ok(())
         })
+    }
+    fn results_so_far(&self) -> VendorResult<Option<TestBatchResults>> {
+        for listener in &self.listeners {
+            if let Some(results) = listener.results_so_far()? {
+                return Ok(Some(results));
+            }
+        }
+        Ok(None)
     }
 
     fn before_test_run<'a>(&'a self, info: Option<&'a InstrumentationInfo>) -> VendorFuture<'a, ()> {
@@ -325,6 +338,60 @@ impl TestResultsListener {
         }
         merged
     }
+    /// The batch's results from what `merge` makes of the accumulated ones. Tests with no result are uncompleted.
+    fn results(
+        &self,
+        a: &mut TestRunResultsAccumulator,
+        merge: impl FnOnce(&mut TestRunResultsAccumulator) -> TemporalResults,
+    ) -> marathon_core::time::ClockResult<TestBatchResults> {
+        let mut finished = vec![];
+        let mut failed = vec![];
+        let mut uncompleted = vec![];
+        let merged = merge(a);
+        for (key, value) in merged.entries() {
+            // N1: Kotlin compares the requested clazz to key.pkg, losing metadata normally.
+            let test = self
+                .batch
+                .tests
+                .iter()
+                .find(|t| t.pkg == key.pkg && t.clazz == key.pkg && t.method == key.method)
+                .unwrap_or(key);
+            let result = TestResult {
+                test: test.clone(),
+                device: self.device.0.info(),
+                test_batch_id: self.batch.id.clone(),
+                status: value.status,
+                start_time: value.start_time,
+                end_time: value.end_time,
+                stacktrace: value.stack_trace.clone(),
+                attachments: self.attachments.get(key).unwrap_or_default(),
+            };
+            if key.method == "null" && !self.batch.tests.contains(key) {
+                continue;
+            }
+            if value.is_successful() {
+                finished.push(result);
+            } else if value.status == TestStatus::Incomplete {
+                uncompleted.push(result);
+            } else {
+                failed.push(result);
+            }
+        }
+        let missing: Vec<_> = self
+            .batch
+            .tests
+            .iter()
+            .filter(|t| merged.get(t).is_none())
+            .cloned()
+            .collect();
+        uncompleted.extend(a.create_uncompleted_test_results(&missing, &self.batch, &self.device.0.info())?);
+        Ok(TestBatchResults {
+            device: self.device.clone(),
+            finished,
+            failed,
+            uncompleted,
+        })
+    }
 }
 impl AndroidTestRunListener for TestResultsListener {
     /// D28: the next run's start must not erase why this one failed, which is the text of its own uncompleted tests.
@@ -355,65 +422,30 @@ impl AndroidTestRunListener for TestResultsListener {
     fn on_event<'a>(&'a self, event: &'a TestEvent) -> VendorFuture<'a, ()> {
         self.accumulator.on_event(event)
     }
+    /// D70: on a copy, as merging parameterised results changes the ones it merges.
+    fn results_so_far(&self) -> VendorResult<Option<TestBatchResults>> {
+        self.accumulator
+            .update(|a| {
+                self.results(a, |a| {
+                    let mut copy = a.temporal_test_results.clone();
+                    self.merge_parameterised_results(&mut copy)
+                })
+            })
+            .map(Some)
+    }
     fn after_test_run(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
-            let mut finished = vec![];
-            let mut failed = vec![];
-            let mut uncompleted = vec![];
-            self.accumulator.update(|a| {
-                let merged = self.merge_parameterised_results(&mut a.temporal_test_results);
-                for (key, value) in merged.entries() {
-                    // N1: Kotlin compares the requested clazz to key.pkg, losing metadata normally.
-                    let test = self
-                        .batch
-                        .tests
-                        .iter()
-                        .find(|t| t.pkg == key.pkg && t.clazz == key.pkg && t.method == key.method)
-                        .unwrap_or(key);
-                    let result = TestResult {
-                        test: test.clone(),
-                        device: self.device.0.info(),
-                        test_batch_id: self.batch.id.clone(),
-                        status: value.status,
-                        start_time: value.start_time,
-                        end_time: value.end_time,
-                        stacktrace: value.stack_trace.clone(),
-                        attachments: self.attachments.get(key).unwrap_or_default(),
-                    };
-                    if key.method == "null" && !self.batch.tests.contains(key) {
-                        continue;
-                    }
-                    if value.is_successful() {
-                        finished.push(result);
-                    } else if value.status == TestStatus::Incomplete {
-                        uncompleted.push(result);
-                    } else {
-                        failed.push(result);
-                    }
-                }
-                let missing: Vec<_> = self
-                    .batch
-                    .tests
-                    .iter()
-                    .filter(|t| merged.get(t).is_none())
-                    .cloned()
-                    .collect();
-                uncompleted.extend(a.create_uncompleted_test_results(&missing, &self.batch, &self.device.0.info())?);
-                Ok(())
-            })?;
-            for result in &uncompleted {
+            let results = self
+                .accumulator
+                .update(|a| self.results(a, |a| self.merge_parameterised_results(&mut a.temporal_test_results)))?;
+            for result in &results.uncompleted {
                 let mut text = String::from("uncompleted = ");
                 text.push_str(&result.test.to_test_name('.', '#'));
                 text.push_str(", ");
                 text.push_str(&self.device.0.info().serial_number);
                 (self.log)(Level::WARN, text);
             }
-            self.deferred.complete(Ok(TestBatchResults {
-                device: self.device.clone(),
-                finished,
-                failed,
-                uncompleted,
-            }));
+            self.deferred.complete(Ok(results));
             Ok(())
         })
     }
