@@ -333,6 +333,7 @@ fn grouping_retains_first_metadata_and_name_collisions_overwrite() {
                         vendor: core.vendor(),
                         sink: capture.clone(),
                     },
+                    console_warned: Default::default(),
                 },
             );
             assert_eq!(p.state(&alias).unwrap().counters(), (2, 0, 0));

@@ -1840,3 +1840,64 @@ fn state_dump_does_not_date_derived_termination_from_prepare_d66() {
         })
     });
 }
+
+/// Fails every `test` call: the queue's handler error at the Tracker seam, after the transition has made the test
+/// terminal.
+struct FailingTrack(Arc<RecordingTracker>);
+impl marathon_core::wiring::Tracker for FailingTrack {
+    fn device_connected<'a>(&'a self, p: &'a DevicePoolId, d: &'a DeviceInfo) -> VendorFuture<'a, ()> {
+        marathon_core::wiring::Tracker::device_connected(self.0.as_ref(), p, d)
+    }
+    fn device_disconnected<'a>(&'a self, p: &'a DevicePoolId, d: &'a DeviceInfo) -> VendorFuture<'a, ()> {
+        marathon_core::wiring::Tracker::device_disconnected(self.0.as_ref(), p, d)
+    }
+    fn device_provider_init<'a>(
+        &'a self,
+        s: &'a str,
+        a: jcompat::jtime::Instant,
+        b: jcompat::jtime::Instant,
+    ) -> VendorFuture<'a, ()> {
+        marathon_core::wiring::Tracker::device_provider_init(self.0.as_ref(), s, a, b)
+    }
+    fn device_preparing<'a>(
+        &'a self,
+        s: &'a str,
+        a: jcompat::jtime::Instant,
+        b: jcompat::jtime::Instant,
+    ) -> VendorFuture<'a, ()> {
+        marathon_core::wiring::Tracker::device_preparing(self.0.as_ref(), s, a, b)
+    }
+    fn test<'a>(&'a self, _: &'a DevicePoolId, _: &'a DeviceInfo, _: &'a TestResult, _: bool) -> VendorFuture<'a, ()> {
+        Box::pin(async { Err(VendorError::Other(ise("track failed"))) })
+    }
+}
+
+/// D68 (U168): the only test passes, and the Track of that result fails. The progress then reads all passed, but the
+/// queue ended with an error, so the Scheduler returns that error rather than a success. Before D68 the pool never
+/// heard of the failure and the run did not end.
+#[test]
+fn a_queue_that_fails_on_the_last_result_is_not_a_success_d68() {
+    let c = configured(1000, false);
+    scheduling_test(move |h| {
+        Box::pin(async move {
+            let run = Run::new_with_tracker(&h, c, Arc::new(FailingTrack(h.tracker.clone())));
+            run.connect(&device("serial-A", "test", 100, false));
+            h.advance_until_idle().await;
+            let (_, pool) = run.scheduler.pools().remove(0);
+            let progress = pool.queue.job();
+            assert!(
+                matches!(progress.state(), JobState::Completed(Completion::Failed(_))),
+                "the queue ended with the Track error"
+            );
+            let result = run.result.borrow_mut().take();
+            match result {
+                Some((_, Err(VendorError::Other(cause)))) => {
+                    assert_eq!(cause.message.as_deref(), Some("track failed"));
+                }
+                other => panic!("expected the queue's cause, got {other:?}"),
+            }
+            assert!(pool.terminated(), "the pool ended");
+            run.finish(&h).await;
+        })
+    });
+}

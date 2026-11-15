@@ -18,7 +18,7 @@ use crate::{
 use jcompat::formatting::format_percent;
 use marathon_config::schema::{ExecutionMode, ExecutionStrategyConfiguration};
 use marathon_error::FailureKind;
-use std::{collections::HashMap, rc::Rc, sync::Arc};
+use std::{cell::Cell, collections::HashMap, rc::Rc, sync::Arc};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TestState {
@@ -38,7 +38,7 @@ impl TestState {
             | Self::Failed { total, running, done } => (total, done, running),
         }
     }
-    fn terminal(self) -> bool {
+    pub fn terminal(self) -> bool {
         matches!(self, Self::Passed { .. } | Self::Failed { .. })
     }
     fn with_counters(self, total: i32, done: i32, running: i32) -> Self {
@@ -149,12 +149,15 @@ pub struct PoolProgressAccumulator {
     logs: Rc<LogQueue>,
     clock: Rc<dyn SchedulerClock>,
     output: OutputDriver,
+    console_warned: Rc<Cell<bool>>,
 }
 pub struct ProgressServices {
     pub tracker: Arc<dyn Tracker>,
     pub logs: Rc<LogQueue>,
     pub clock: Rc<dyn SchedulerClock>,
     pub output: OutputDriver,
+    /// D68: set once a console failure has been logged. One per run, shared by its pools.
+    pub console_warned: Rc<Cell<bool>>,
 }
 impl PoolProgressAccumulator {
     pub fn new(
@@ -200,6 +203,7 @@ impl PoolProgressAccumulator {
             logs: services.logs,
             clock: services.clock,
             output: services.output,
+            console_warned: services.console_warned,
         }
     }
     /// Mirrors the oracle's reflection seam for all state/event cells.
@@ -212,6 +216,10 @@ impl PoolProgressAccumulator {
     }
     pub fn state(&self, test: &Test) -> Option<TestState> {
         self.data(&test.to_test_name('.', '#')).map(|data| *data.state.state())
+    }
+    /// Passed or Failed: no later attempt can change the outcome (D69).
+    pub fn is_terminal(&self, test: &Test) -> bool {
+        self.state(test).is_some_and(TestState::terminal)
     }
     fn data(&self, name: &str) -> Option<&TestExecutionData> {
         self.index.get(name).map(|&at| &self.tests[at].1)
@@ -299,6 +307,27 @@ impl PoolProgressAccumulator {
         line.push('\n');
         Ok(line)
     }
+    /// D68: a console that fails to take a progress line costs the line, not the run. The first
+    /// failure is logged once per run; bookkeeping and Track go on. Cancellation still stops.
+    async fn flush(&self, cancellation: Arc<dyn CancellationSignal>) -> VendorResult<()> {
+        match self.output.flush(&self.logs, cancellation).await {
+            Err(VendorError::Cancelled(reason)) => Err(VendorError::Cancelled(reason)),
+            Err(error) => {
+                if !self.console_warned.replace(true) {
+                    self.logs.log(
+                        "marathon_core::execution::progress",
+                        self.clock.now_millis(),
+                        Level::WARN,
+                        "Cannot write progress to the console; the run carries on. Later failures are not logged"
+                            .into(),
+                        Some(error.failure().clone()),
+                    );
+                }
+                Ok(())
+            }
+            Ok(()) => Ok(()),
+        }
+    }
     pub async fn test_started(
         &mut self,
         device: &DeviceInfo,
@@ -311,9 +340,9 @@ impl PoolProgressAccumulator {
             self.logs.raw(line);
         }
         // If roundToInt throws, the preceding CI line has already been printed.
-        self.output.flush(&self.logs, cancellation.clone()).await?;
+        self.flush(cancellation.clone()).await?;
         self.logs.raw(self.line(device, test, "started")?);
-        self.output.flush(&self.logs, cancellation).await
+        self.flush(cancellation).await
     }
     pub async fn test_ended(
         &mut self,
@@ -329,7 +358,7 @@ impl PoolProgressAccumulator {
             TestStatus::Incomplete => "incomplete",
         };
         self.logs.raw(self.line(device, &result.test, status)?);
-        self.output.flush(&self.logs, cancellation.clone()).await?;
+        self.flush(cancellation.clone()).await?;
         let event = match result.status {
             TestStatus::Failure => TestEvent::Failed {
                 device: device.clone(),
@@ -346,7 +375,7 @@ impl PoolProgressAccumulator {
             },
         };
         let action = self.transition(&result.test, event);
-        self.output.flush(&self.logs, cancellation.clone()).await?;
+        self.flush(cancellation.clone()).await?;
         if let Some(data) = self.data(&result.test.to_test_name('.', '#')) {
             let mut result = result.clone();
             result.test = data.original.clone();

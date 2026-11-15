@@ -146,6 +146,7 @@ impl Harness {
                     vendor: core.vendor(),
                     sink: capture.clone(),
                 },
+                console_warned: Default::default(),
             },
         );
         Self {

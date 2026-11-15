@@ -233,10 +233,26 @@ pub struct Sink {
     pub trace: Trace,
     pub logger: String,
     pub track_fails: std::sync::atomic::AtomicBool,
+    /// A console write fails, losing its records, if a raw record in it contains one of these.
+    pub console_fails: Mutex<Vec<String>>,
+    /// As `console_fails`, with a cancellation.
+    pub console_cancels: Mutex<Vec<String>>,
+    /// A write carrying this text reports that it has started and waits to be released, first.
+    pub console_pause: Mutex<Option<ConsolePause>>,
+    /// The accumulator's own log lines (level, message), kept apart from the recorded queue events.
+    pub progress_logs: Mutex<Vec<(Level, String)>>,
+}
+pub struct ConsolePause {
+    pub text: String,
+    pub entered: tokio::sync::oneshot::Sender<()>,
+    pub release: tokio::sync::oneshot::Receiver<()>,
 }
 impl Sink {
     fn record(&self, record: OutputRecord) {
         match record {
+            OutputRecord::Log(record) if record.logger == "marathon_core::execution::progress" => {
+                lock(&self.progress_logs).push((record.level, record.message.to_owned()))
+            }
             OutputRecord::Raw(text) => {
                 let text = text.to_owned();
                 self.trace
@@ -260,6 +276,31 @@ impl Sink {
 impl ConsoleSink for Sink {
     fn write(&self, records: Vec<OutputRecord>) -> VendorFuture<'_, ()> {
         Box::pin(async move {
+            let carries = |text: &str| {
+                records
+                    .iter()
+                    .any(|record| matches!(record, OutputRecord::Raw(raw) if raw.contains(text)))
+            };
+            let pause = {
+                let mut pause = lock(&self.console_pause);
+                if pause.as_ref().is_some_and(|pause| carries(&pause.text)) {
+                    pause.take()
+                } else {
+                    None
+                }
+            };
+            if let Some(pause) = pause {
+                let _ = pause.entered.send(());
+                let _ = pause.release.await;
+            }
+            if lock(&self.console_cancels).iter().any(|text| carries(text)) {
+                return Err(VendorError::Cancelled(marathon_core::executor::shared::requested(
+                    "console cancelled",
+                )));
+            }
+            if lock(&self.console_fails).iter().any(|text| carries(text)) {
+                return Err(VendorError::Other(failure(FailureKind::IllegalState, "console closed")));
+            }
             for record in records {
                 self.record(record);
             }
@@ -523,6 +564,10 @@ impl Queue {
             trace: trace.clone(),
             logger: logger_name(&setup.pool),
             track_fails: Default::default(),
+            console_fails: Default::default(),
+            console_cancels: Default::default(),
+            console_pause: Default::default(),
+            progress_logs: Default::default(),
         });
         let accumulator = PoolProgressAccumulator::new(
             pool_id.clone(),
@@ -537,6 +582,7 @@ impl Queue {
                     vendor: core.vendor(),
                     sink: sink.clone(),
                 },
+                console_warned: Default::default(),
             },
         );
         let progress: SharedProgress = Rc::new(tokio::sync::Mutex::new(accumulator));

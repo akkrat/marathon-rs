@@ -61,6 +61,8 @@ struct Inner {
     results: RefCell<IndexMap<DevicePoolId, SharedProgress>>,
     pooling: PoolingStrategy,
     phase: std::cell::Cell<&'static str>,
+    /// D68: a console failure is logged once per run.
+    console_warned: Rc<std::cell::Cell<bool>>,
 }
 
 fn operation_to_vendor(error: OperationError) -> VendorError {
@@ -88,6 +90,7 @@ impl Scheduler {
                 results: RefCell::new(IndexMap::new()),
                 pooling,
                 phase: std::cell::Cell::new("not-started"),
+                console_warned: Rc::default(),
             }),
         }
     }
@@ -178,6 +181,7 @@ impl Scheduler {
         // The first absent index closes admission, even if aggregation later suspends.
         inner.phase.set("joining-pools");
         let mut results = Vec::new();
+        let mut queues = Vec::new();
         loop {
             let next = inner
                 .pools
@@ -201,6 +205,14 @@ impl Scheduler {
                 ))
             })?;
             results.push(progress);
+            queues.push(pool.queue.job());
+        }
+        // D68: a queue that ended with an error leaves results that cannot be trusted, also when its pool closed
+        // before hearing of it. Its cause is the outcome; the supervisor join above has completed the queue's job.
+        for queue in queues {
+            if let JobState::Completed(Completion::Failed(cause)) = queue.state() {
+                return Err(VendorError::Other(cause));
+            }
         }
         // Preserve short-circuiting, but exclude accumulators still awaiting publication.
         inner.phase.set("aggregating-results");
@@ -365,6 +377,7 @@ impl Inner {
                 logs: core.log_queue(),
                 clock: core.clock(),
                 output: self.parts.output.clone(),
+                console_warned: self.console_warned.clone(),
             },
         );
         let progress: SharedProgress = Rc::new(tokio::sync::Mutex::new(accumulator));

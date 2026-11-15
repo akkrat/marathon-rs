@@ -720,6 +720,7 @@ impl Harness {
                     vendor: self.core.vendor(),
                     sink: self.sink.clone(),
                 },
+                console_warned: Default::default(),
             },
         );
         let progress: SharedProgress = Rc::new(tokio::sync::Mutex::new(accumulator));
