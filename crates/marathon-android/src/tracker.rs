@@ -45,6 +45,14 @@ struct Gate {
     held_before_outage: HashMap<String, i64>,
     /// D49: how many lost requests each serial has outlived in this run.
     request_losses: HashMap<String, u32>,
+    /// D22 (U170): the serials whose logcat and reverse port forwards are being restored after their server came back,
+    /// with since when, on the vendor clock, each has been kept waiting. Each opens on its own.
+    restoring: HashMap<String, i64>,
+}
+impl Gate {
+    fn closed_for(&self, serial: &str) -> bool {
+        !self.server || self.held.iter().any(|held| held == serial) || self.restoring.contains_key(serial)
+    }
 }
 pub struct DeviceStateTracker {
     devices: Mutex<Vec<(String, DeviceState)>>,
@@ -62,6 +70,7 @@ impl Default for DeviceStateTracker {
                 held_since: HashMap::new(),
                 held_before_outage: HashMap::new(),
                 request_losses: HashMap::new(),
+                restoring: HashMap::new(),
             }),
         }
     }
@@ -76,14 +85,34 @@ impl DeviceStateTracker {
             for (serial, since) in &gate.held_since {
                 gate.held_before_outage.entry(serial.clone()).or_insert(*since);
             }
+            // The new outage's gate covers these; they are restored again once it is over.
+            gate.restoring.clear();
         });
     }
     pub(crate) fn server_back(&self) {
+        self.server_back_restoring(&[]);
+    }
+    /// The server is back, and `restoring` stay closed until [`Self::restored`], each for itself, in the same step, so
+    /// that no batch passes in between. They go on counting from when they were first kept waiting (D48).
+    pub(crate) fn server_back_restoring(&self, restoring: &[String]) {
         self.gate.send_modify(|gate| {
+            for serial in restoring {
+                if let Some(since) = Self::away_since_in(gate, serial) {
+                    gate.restoring.insert(serial.clone(), since);
+                }
+            }
             gate.server = true;
             gate.server_away_since = None;
             gate.held_before_outage.clear();
         });
+    }
+    /// D22 (U170): this serial's restoration is over, or no longer needed.
+    pub(crate) fn restored(&self, serial: &str) {
+        self.gate
+            .send_if_modified(|gate| gate.restoring.remove(serial).is_some());
+    }
+    pub(crate) fn is_restoring(&self, serial: &str) -> bool {
+        self.gate.borrow().restoring.contains_key(serial)
     }
     pub(crate) fn is_server_available(&self) -> bool {
         self.gate.borrow().server
@@ -110,11 +139,14 @@ impl DeviceStateTracker {
     }
     /// D48: since when this serial has been kept waiting by an outage or a grace period, if it is.
     pub(crate) fn away_since(&self, serial: &str) -> Option<i64> {
-        let gate = self.gate.borrow();
+        Self::away_since_in(&self.gate.borrow(), serial)
+    }
+    fn away_since_in(gate: &Gate, serial: &str) -> Option<i64> {
         let held = gate
             .held_since
             .get(serial)
             .or_else(|| gate.held_before_outage.get(serial))
+            .or_else(|| gate.restoring.get(serial))
             .copied();
         match (held, gate.server_away_since) {
             (Some(held), Some(server)) => Some(held.min(server)),
@@ -135,20 +167,16 @@ impl DeviceStateTracker {
     pub(crate) fn blips(&self, serial: &str) -> u32 {
         self.gate.borrow().blips.get(serial).copied().unwrap_or(0)
     }
-    /// Returns at once outside an outage or a grace period, so at once in a healthy run.
+    /// Returns at once outside an outage, a grace period or a restoration, so at once in a healthy run.
     pub(crate) async fn available(&self, serial: &str) {
         let mut gate = self.gate.subscribe();
         // The sender lives in self, so this can only end by finding the way clear.
-        let _ = gate
-            .wait_for(|gate| gate.server && !gate.held.iter().any(|held| held == serial))
-            .await;
+        let _ = gate.wait_for(|gate| !gate.closed_for(serial)).await;
     }
     /// The opposite of [`Self::available`].
     pub(crate) async fn unavailable(&self, serial: &str) {
         let mut gate = self.gate.subscribe();
-        let _ = gate
-            .wait_for(|gate| !gate.server || gate.held.iter().any(|held| held == serial))
-            .await;
+        let _ = gate.wait_for(|gate| gate.closed_for(serial)).await;
     }
     /// The serials currently in state `device`.
     pub(crate) fn device_serials(&self) -> Vec<String> {

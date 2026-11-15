@@ -79,6 +79,42 @@ pub fn run_with_stopped_clock(
 ) {
     checked(CoreExecutor::run_virtual(move |core, _replay| on_core(core, c, body)));
 }
+/// Moves the vendor clock of [`run_with_driven_clock`] from the test body, which runs on a vendor thread.
+#[derive(Clone)]
+pub struct DrivenClock(tokio::sync::mpsc::UnboundedSender<(i64, tokio::sync::oneshot::Sender<Result<(), String>>)>);
+impl DrivenClock {
+    /// Runs every timer due by `millis`, in order, and what they wake, as the replay driver does.
+    pub async fn advance_to(&self, millis: i64) {
+        let (done, wait) = tokio::sync::oneshot::channel();
+        checked(self.0.send((millis, done)).map_err(|_| "clock driver ended"));
+        checked(checked(wait.await));
+    }
+}
+/// As [`run_with_stopped_clock`], with a clock that the test moves on itself.
+pub fn run_with_driven_clock(
+    c: Configuration,
+    body: impl FnOnce(Arc<AndroidRuntime>, VendorContext, DrivenClock) -> VendorFuture<'static, ()> + Send + 'static,
+) {
+    use marathon_core::time::ReplayDriver;
+    checked(CoreExecutor::run_virtual(move |core, replay| {
+        let (requests, mut received) = tokio::sync::mpsc::unbounded_channel();
+        let clock = DrivenClock(requests);
+        let run = on_core(core, c, move |runtime, context| body(runtime, context, clock));
+        Box::pin(async move {
+            let drive = async {
+                while let Some((millis, done)) = received.recv().await {
+                    let advanced: Result<(), String> = replay.advance_to(millis).await.map_err(|e| format!("{e:?}"));
+                    let _ = done.send(advanced);
+                }
+                std::future::pending::<()>().await
+            };
+            tokio::select! {
+                result = run => result,
+                () = drive => unreachable!(),
+            }
+        })
+    }));
+}
 fn on_core(
     core: std::rc::Rc<CoreExecutor>,
     c: Configuration,

@@ -195,6 +195,10 @@ impl AndroidDevice {
     pub(crate) fn mark_disconnected(&self) {
         self.inner.lost.store(true, Ordering::Release);
     }
+    /// The same device object, not another one with the same serial.
+    pub(crate) fn is_same(&self, other: &AndroidDevice) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
     pub(crate) fn set_return_wait_used(&self, millis: i64) {
         self.inner.return_wait_used.store(millis, Ordering::Release);
     }
@@ -651,7 +655,20 @@ impl AndroidDevice {
     /// D22: this device is still listed after its adb server came back, and keeps its actor. What lived on the
     /// lost connections is set up again: the logcat stream, and the reverse port forwards, which a restarted server
     /// has forgotten. Failures are logged; they do not make the device unusable.
+    ///
+    /// U170: this runs outside the tracking loop, so the device may have been disconnected meanwhile. It holds the
+    /// disposal lock: a disposal either comes after it and undoes what it set up, or came first and it does nothing.
     pub(crate) async fn resume_after_server_return(&self, context: VendorContext) -> VendorResult<()> {
+        let disposed = cancellable(context.cancellation.clone(), async {
+            Ok(self.inner.disposal.lock().await)
+        })
+        .await?;
+        if let Some(reason) = context.cancellation.reason() {
+            return Err(VendorError::Cancelled(reason));
+        }
+        if *disposed || self.inner.lost.load(Ordering::Acquire) {
+            return Ok(());
+        }
         if *self.inner.logcat_ended.borrow() {
             self.stop_logcat().await;
             self.start_logcat();
@@ -725,7 +742,9 @@ impl AndroidDevice {
     async fn loss_cause(&self, signal: Arc<dyn CancellationSignal>) -> LossCause {
         const SERVER: &str = "the adb server is away";
         const DEVICE: &str = "the device is briefly offline";
-        if !self.adb_server_available() {
+        // U170: a device whose restoration after the server's return is still running counts as still in the outage, as
+        // it did while the restorations ran inside the tracking loop, before the server's gate opened.
+        if !self.adb_server_available() || self.inner.tracker.is_restoring(self.adb_serial()) {
             return LossCause::Passing(SERVER);
         }
         if self.is_held() {
@@ -761,7 +780,7 @@ impl AndroidDevice {
         Ok(true)
     }
     fn is_gate_closed(&self) -> bool {
-        !self.adb_server_available() || self.is_held()
+        !self.adb_server_available() || self.is_held() || self.inner.tracker.is_restoring(self.adb_serial())
     }
     /// D22, D41: after a failed request whose caller would retry at once, whether that failure was an outage of the adb
     /// server or a device's grace period, in which case this has waited it out and the caller has not used up a retry.

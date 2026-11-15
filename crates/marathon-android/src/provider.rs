@@ -413,6 +413,18 @@ impl AdamDeviceProvider {
         tx: &TrackedSender,
         context: VendorContext,
     ) -> VendorResult<()> {
+        let mut recoveries = Recoveries::new(self.inner.runtime.dependencies.io.clone(), context.clone());
+        let result = self.follow(client, tx, context, &mut recoveries).await;
+        recoveries.shutdown().await;
+        result
+    }
+    async fn follow(
+        &self,
+        client: AndroidDebugBridgeClient,
+        tx: &TrackedSender,
+        context: VendorContext,
+        recoveries: &mut Recoveries,
+    ) -> VendorResult<()> {
         let tracker = self.inner.trackers.tracker(&client);
         let wait = self.inner.runtime.configuration.wait_for_devices_timeout_millis;
         let name = server_name(&client);
@@ -434,21 +446,36 @@ impl AdamDeviceProvider {
                     next = stream.next() => Ok(TrackStep::Next(next)),
                     elapsed = settled(&mut settling) => elapsed.map(|()| TrackStep::Settled),
                     over = blips.next_over() => over.map(TrackStep::BlipOver),
+                    done = recoveries.next() => Ok(TrackStep::Recovered(done)),
                 }
             })
             .await?;
             let cause = match step {
                 TrackStep::Next(Some(Ok(devices))) => {
                     settling = self
-                        .on_device_list(&client, devices, settling, &mut blips, tx, &context)
+                        .on_device_list(&client, devices, settling, &mut blips, recoveries, tx, &context)
                         .await?;
                     continue;
                 }
                 TrackStep::Settled => {
                     if let Some(window) = settling.take() {
-                        self.finish_outage(&client, window.kept, window.latest, &mut blips, tx, &context)
-                            .await?;
+                        self.finish_outage(
+                            &client,
+                            window.kept,
+                            window.latest,
+                            &mut blips,
+                            recoveries,
+                            tx,
+                            &context,
+                        )
+                        .await?;
                     }
+                    continue;
+                }
+                TrackStep::Recovered(done) => {
+                    // The list as the core has it, with the devices in their grace period as `device`.
+                    let shown = blips.shown();
+                    self.recovered(&client, done, shown, recoveries, tx, &context).await?;
                     continue;
                 }
                 TrackStep::BlipOver(serial) => {
@@ -476,6 +503,8 @@ impl AdamDeviceProvider {
             tracker.server_lost(clock.now_millis());
             // D41: the outage's own bound now covers a device in its grace period, and the server gate holds its batches.
             blips.abandon();
+            // U170: and its devices are recovered again once it is over.
+            recoveries.abandon();
             handled(tx, context.cancellation.clone()).await?;
             let kept = tracker.device_serials();
             let recovered = timed(&context, wait, |signal| {
@@ -513,23 +542,25 @@ impl AdamDeviceProvider {
             };
             stream = new_stream;
             settling = self
-                .on_device_list(&client, devices, settling, &mut blips, tx, &context)
+                .on_device_list(&client, devices, settling, &mut blips, recoveries, tx, &context)
                 .await?;
         }
     }
     /// A list from the stream. While the window after a reconnect is open, a device that was there before the outage
     /// counts as present: a restarted server lists it late, often `offline` first.
+    #[allow(clippy::too_many_arguments)]
     async fn on_device_list<'a>(
         &self,
         client: &AndroidDebugBridgeClient,
         devices: Vec<AdbDevice>,
         settling: Option<Settling<'a>>,
         blips: &mut Blips<'a>,
+        recoveries: &mut Recoveries,
         tx: &TrackedSender,
         context: &VendorContext,
     ) -> VendorResult<Option<Settling<'a>>> {
         let Some(mut window) = settling else {
-            self.offer(client, devices, &[], blips, tx, context).await?;
+            self.offer(client, devices, &[], blips, recoveries, tx, context).await?;
             return Ok(None);
         };
         let listed = |serial: &str| {
@@ -539,7 +570,7 @@ impl AdamDeviceProvider {
         };
         let missing: Vec<String> = window.kept.iter().filter(|s| !listed(s)).cloned().collect();
         if missing.is_empty() {
-            self.finish_outage(client, window.kept, devices, blips, tx, context)
+            self.finish_outage(client, window.kept, devices, blips, recoveries, tx, context)
                 .await?;
             return Ok(None);
         }
@@ -552,7 +583,7 @@ impl AdamDeviceProvider {
             serial,
             state: DeviceState::Device,
         }));
-        self.offer(client, held, &[], blips, tx, context).await?;
+        self.offer(client, held, &[], blips, recoveries, tx, context).await?;
         window.latest = devices;
         Ok(Some(window))
     }
@@ -562,17 +593,23 @@ impl AdamDeviceProvider {
     /// emulator that was killed reads `offline`, an empty list, and nothing more, so a device missing from the list during
     /// its grace has a shorter limit. Devices in `exempt` have had the outage's window and get no grace on top of it.
     ///
-    /// A list with nothing passing through, with no grace open, is sent as it is, with no request and no wait.
+    /// A device that is back is probed and restored outside this loop (U170). A device whose recovery is under way and that
+    /// the list no longer shows as `device` has moved on: its recovery is cancelled and decides nothing.
+    ///
+    /// A list with nothing passing through, with no grace open and no recovery under way, is sent as it is, with no
+    /// request and no wait.
+    #[allow(clippy::too_many_arguments)]
     async fn offer<'a>(
         &self,
         client: &AndroidDebugBridgeClient,
         devices: Vec<AdbDevice>,
         exempt: &[String],
         blips: &mut Blips<'a>,
+        recoveries: &mut Recoveries,
         tx: &TrackedSender,
         context: &VendorContext,
     ) -> VendorResult<()> {
-        if blips.open.is_empty() && !devices.iter().any(|d| is_passing(d.state)) {
+        if blips.open.is_empty() && recoveries.ledger.is_empty() && !devices.iter().any(|d| is_passing(d.state)) {
             return send(tx, Tracked::Devices(client.clone(), devices));
         }
         // What this decides by must include all that was sent before.
@@ -586,6 +623,18 @@ impl AdamDeviceProvider {
                 .map(|p| p.device.clone())
         };
         let (returned, gone) = blips.update(&devices);
+        let listed = |serial: &str| {
+            devices
+                .iter()
+                .any(|d| d.serial == serial && d.state == DeviceState::Device)
+        };
+        let superseded: Vec<(String, Recovery)> = recoveries
+            .ledger
+            .pending()
+            .into_iter()
+            .filter(|(serial, _)| !listed(serial))
+            .filter_map(|(serial, _)| recoveries.obsolete(&serial).map(|kind| (serial, kind)))
+            .collect();
         for device in devices.iter().filter(|d| is_passing(d.state)) {
             let serial = &device.serial;
             // A device still in setup goes through disconnect and connect as ever: its setup has failed by now.
@@ -616,55 +665,90 @@ impl AdamDeviceProvider {
             tracker.hold(serial, context.clock.now_millis());
             blips.open(serial);
         }
-        let mut restarted = Vec::new();
-        for serial in &returned {
-            match provided(serial) {
-                Some(device) if !device.finished_booting(context).await? => restarted.push(serial.clone()),
-                _ => {}
-            }
-        }
         blips.latest = devices;
-        let shown = blips.shown();
-        if !restarted.is_empty() {
-            // As after an outage: the normal disconnect, then the normal connect, whose setup waits for the boot.
-            let without = shown
-                .iter()
-                .filter(|d| !restarted.contains(&d.serial))
-                .cloned()
-                .collect();
-            send(tx, Tracked::Devices(client.clone(), without))?;
-        }
-        send(tx, Tracked::Devices(client.clone(), shown))?;
-        if returned.is_empty() && gone.is_empty() {
+        send(tx, Tracked::Devices(client.clone(), blips.shown()))?;
+        if returned.is_empty() && gone.is_empty() && superseded.is_empty() {
             return Ok(());
         }
         handled(tx, context.cancellation.clone()).await?;
+        // A returned device stays held until its recovery is over.
         for serial in &returned {
-            if restarted.contains(serial) {
+            match provided(serial) {
+                Some(device) => recoveries.request(serial, Recovery::Blip, device),
+                None => tracker.release(serial),
+            }
+        }
+        for serial in &gone {
+            tracker.release(serial);
+        }
+        // Only after the disconnects: a batch released sooner fails on the missing device. A device that went back into a
+        // grace keeps that grace's hold.
+        for (serial, kind) in superseded {
+            match kind {
+                Recovery::Blip if blips.is_open(&serial) => {}
+                Recovery::Blip => tracker.release(&serial),
+                Recovery::Outage => tracker.restored(&serial),
+            }
+        }
+        Ok(())
+    }
+    /// U170: a recovery has ended. It counts only if it is still the current one of a device that is still provided:
+    /// anything that happened to the device since has cancelled it, and decides instead.
+    async fn recovered(
+        &self,
+        client: &AndroidDebugBridgeClient,
+        done: Done,
+        shown: Vec<AdbDevice>,
+        recoveries: &mut Recoveries,
+        tx: &TrackedSender,
+        context: &VendorContext,
+    ) -> VendorResult<()> {
+        let Some((kind, device)) = recoveries.finish(&done) else {
+            return Ok(());
+        };
+        let serial = done.serial;
+        let current = lock(&self.inner.devices)
+            .get(&(server_name(client), serial.clone()))
+            .is_some_and(|p| p.ready.load(Ordering::Acquire) && p.device.is_same(&device));
+        if !current {
+            return Ok(());
+        }
+        let tracker = self.inner.trackers.tracker(client);
+        match (kind, done.outcome?) {
+            (Recovery::Blip, Recovered::Resumed) => {
+                self.log(Level::INFO, &format!("Device {serial} is back"), None);
+                tracker.release(&serial);
+            }
+            (Recovery::Blip, Recovered::Restarted) => {
+                // As after an outage: the normal disconnect, then the normal connect, whose setup waits for the boot.
+                let without = shown.iter().filter(|d| d.serial != serial).cloned().collect();
+                send(tx, Tracked::Devices(client.clone(), without))?;
+                send(tx, Tracked::Devices(client.clone(), shown))?;
+                handled(tx, context.cancellation.clone()).await?;
                 self.log(
                     Level::WARN,
                     &format!("Device {serial} returned as if restarted; setting it up again"),
                     None,
                 );
-            } else if let Some(device) = provided(serial) {
-                device.resume_after_blip(context.clone()).await?;
-                self.log(Level::INFO, &format!("Device {serial} is back"), None);
+                tracker.release(&serial);
             }
-        }
-        for serial in returned.iter().chain(&gone) {
-            tracker.release(serial);
+            (Recovery::Outage, _) => tracker.restored(&serial),
         }
         Ok(())
     }
     /// The real list decides now: a device not on it is disconnected the normal way. A device whose setup the outage
     /// interrupted never had an actor, so it goes through the connect path again. The others keep theirs, with no event,
     /// so no serial ever has two actors.
+    ///
+    /// U170: the devices kept are restored outside this loop, each kept waiting until its own restoration is over.
+    #[allow(clippy::too_many_arguments)]
     async fn finish_outage(
         &self,
         client: &AndroidDebugBridgeClient,
         kept: Vec<String>,
         devices: Vec<AdbDevice>,
         blips: &mut Blips<'_>,
+        recoveries: &mut Recoveries,
         tx: &TrackedSender,
         context: &VendorContext,
     ) -> VendorResult<()> {
@@ -691,14 +775,16 @@ impl AdamDeviceProvider {
                 .collect();
             send(tx, Tracked::Devices(client.clone(), without))?;
         }
-        self.offer(client, devices, &kept, blips, tx, context).await?;
+        self.offer(client, devices, &kept, blips, recoveries, tx, context)
+            .await?;
         handled(tx, context.cancellation.clone()).await?;
-        for device in resumed {
-            if device.info().healthy {
-                device.resume_after_server_return(context.clone()).await?;
-            }
+        let restoring: Vec<AndroidDevice> = resumed.into_iter().filter(|d| d.info().healthy).collect();
+        let serials: Vec<String> = restoring.iter().map(|d| d.adb_serial().to_owned()).collect();
+        self.inner.trackers.tracker(client).server_back_restoring(&serials);
+        for device in restoring {
+            let serial = device.adb_serial().to_owned();
+            recoveries.request(&serial, Recovery::Outage, device);
         }
-        self.inner.trackers.tracker(client).server_back();
         Ok(())
     }
     /// Until the server answers and its track-devices stream gives a first list, with a capped backoff on the
@@ -859,6 +945,7 @@ enum TrackStep {
     Next(Option<Result<Vec<AdbDevice>, AdbError>>),
     Settled,
     BlipOver(String),
+    Recovered(Done),
 }
 /// The window after a reconnect, in which devices from before the outage may still appear.
 struct Settling<'a> {
@@ -954,6 +1041,244 @@ impl<'a> Blips<'a> {
             std::task::Poll::Pending
         })
         .await
+    }
+}
+/// U170: how many devices of one adb server recover at once. A recovery is a `getprop` and the restore of a logcat
+/// stream and a few reverse port forwards, where a server carries a logcat and an instrumentation stream for every
+/// device all through a run, so 8 is light for it. The bound keeps a server that has just restarted with dozens of
+/// devices from getting all of their requests at once, and leaves 7 slots working while one device does not answer.
+const RECOVERIES_PER_SERVER: usize = 8;
+/// U170: what a device that came back still needs. It runs outside the tracking loop, which meanwhile goes on reading the
+/// list and ending other devices' grace periods.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Recovery {
+    /// D41: back from its grace period. Whether it restarted, and if not, its logcat and reverse port forwards. Its hold
+    /// is released at the end.
+    Blip,
+    /// D22: still listed when its server came back. Its logcat and reverse port forwards; its own gate opens at the end.
+    Outage,
+}
+#[derive(Debug, PartialEq, Eq)]
+enum Recovered {
+    Resumed,
+    Restarted,
+}
+/// What a recovery task reports, by its id.
+struct Done {
+    id: u64,
+    serial: String,
+    outcome: VendorResult<Recovered>,
+}
+struct Queued<T> {
+    id: u64,
+    serial: String,
+    kind: Recovery,
+    payload: T,
+}
+struct Running<T, H> {
+    id: u64,
+    serial: String,
+    kind: Recovery,
+    payload: T,
+    handle: H,
+}
+/// U170: the recoveries of one adb server, apart from the tasks that run them. One per device at most, a newer one
+/// replacing the older; at most `limit` running, counting those cancelled and not yet ended; and a completion counts only
+/// if it is still the device's current recovery, so a stale one never releases a gate.
+struct Ledger<T, H> {
+    limit: usize,
+    next: u64,
+    running: Vec<Running<T, H>>,
+    ending: Vec<(u64, H)>,
+    queued: std::collections::VecDeque<Queued<T>>,
+}
+impl<T: Clone, H: Clone> Ledger<T, H> {
+    fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            next: 0,
+            running: vec![],
+            ending: vec![],
+            queued: std::collections::VecDeque::new(),
+        }
+    }
+    fn is_empty(&self) -> bool {
+        self.running.is_empty() && self.queued.is_empty()
+    }
+    /// The devices with a recovery queued or running.
+    fn pending(&self) -> Vec<(String, Recovery)> {
+        let running = self.running.iter().map(|r| (r.serial.clone(), r.kind));
+        running
+            .chain(self.queued.iter().map(|q| (q.serial.clone(), q.kind)))
+            .collect()
+    }
+    /// Queues a recovery for `serial`, replacing any it has. Returns the task to cancel, if one was running.
+    fn request(&mut self, serial: &str, kind: Recovery, payload: T) -> Option<H> {
+        let cancelled = self.obsolete(serial).and_then(|(_, handle)| handle);
+        self.next += 1;
+        self.queued.push_back(Queued {
+            id: self.next,
+            serial: serial.to_owned(),
+            kind,
+            payload,
+        });
+        cancelled
+    }
+    /// Drops the recovery of `serial`: what it was, and its task to cancel if it was running.
+    fn obsolete(&mut self, serial: &str) -> Option<(Recovery, Option<H>)> {
+        if let Some(at) = self.queued.iter().position(|q| q.serial == serial) {
+            return self.queued.remove(at).map(|q| (q.kind, None));
+        }
+        let at = self.running.iter().position(|r| r.serial == serial)?;
+        let running = self.running.remove(at);
+        self.ending.push((running.id, running.handle.clone()));
+        Some((running.kind, Some(running.handle)))
+    }
+    /// Drops them all, as when the server goes away: the tasks to cancel.
+    fn abandon(&mut self) -> Vec<H> {
+        self.queued.clear();
+        std::mem::take(&mut self.running)
+            .into_iter()
+            .map(|r| {
+                self.ending.push((r.id, r.handle.clone()));
+                r.handle
+            })
+            .collect()
+    }
+    /// The next recovery to start, if a slot is free.
+    fn startable(&mut self) -> Option<Queued<T>> {
+        if self.running.len() + self.ending.len() >= self.limit {
+            return None;
+        }
+        self.queued.pop_front()
+    }
+    fn started(&mut self, queued: Queued<T>, handle: H) {
+        self.running.push(Running {
+            id: queued.id,
+            serial: queued.serial,
+            kind: queued.kind,
+            payload: queued.payload,
+            handle,
+        });
+    }
+    /// A task has ended. Its recovery and payload if it is still the current one for its device.
+    fn finish(&mut self, id: u64) -> Option<(Recovery, T)> {
+        if let Some(at) = self.ending.iter().position(|(ending, _)| *ending == id) {
+            self.ending.remove(at);
+            return None;
+        }
+        let at = self.running.iter().position(|r| r.id == id)?;
+        let running = self.running.remove(at);
+        Some((running.kind, running.payload))
+    }
+    /// Every task, running or ending, for the shutdown.
+    fn take_all(&mut self) -> Vec<H> {
+        self.queued.clear();
+        let running = self.running.drain(..).map(|r| r.handle);
+        let tasks: Vec<H> = running.collect();
+        tasks.into_iter().chain(self.ending.drain(..).map(|(_, h)| h)).collect()
+    }
+}
+/// U170: one adb server's recoveries and the tasks that run them.
+struct Recoveries {
+    ledger: Ledger<AndroidDevice, Arc<dyn VendorTask>>,
+    io: Arc<dyn VendorRuntime>,
+    context: VendorContext,
+    done: tokio::sync::mpsc::UnboundedSender<Done>,
+    reports: tokio::sync::mpsc::UnboundedReceiver<Done>,
+}
+impl Recoveries {
+    fn new(io: Arc<dyn VendorRuntime>, context: VendorContext) -> Self {
+        let (done, reports) = tokio::sync::mpsc::unbounded_channel();
+        Self {
+            ledger: Ledger::new(RECOVERIES_PER_SERVER),
+            io,
+            context,
+            done,
+            reports,
+        }
+    }
+    fn request(&mut self, serial: &str, kind: Recovery, device: AndroidDevice) {
+        if let Some(task) = self.ledger.request(serial, kind, device) {
+            task.cancel(requested("device recovery superseded"));
+        }
+        self.start();
+    }
+    fn obsolete(&mut self, serial: &str) -> Option<Recovery> {
+        let (kind, task) = self.ledger.obsolete(serial)?;
+        if let Some(task) = task {
+            task.cancel(requested("device recovery superseded"));
+        }
+        Some(kind)
+    }
+    fn abandon(&mut self) {
+        for task in self.ledger.abandon() {
+            task.cancel(requested("adb server lost"));
+        }
+    }
+    fn finish(&mut self, done: &Done) -> Option<(Recovery, AndroidDevice)> {
+        let current = self.ledger.finish(done.id);
+        self.start();
+        current
+    }
+    /// Starts what the bound allows.
+    fn start(&mut self) {
+        while let Some(queued) = self.ledger.startable() {
+            let (id, serial, kind, device) = (queued.id, queued.serial.clone(), queued.kind, queued.payload.clone());
+            let (done, context) = (self.done.clone(), self.context.clone());
+            let task = self.io.spawn_cancellable(Box::new(move |signal| {
+                Box::pin(async move {
+                    let context = VendorContext {
+                        cancellation: signal,
+                        ..context
+                    };
+                    let outcome = match kind {
+                        Recovery::Blip => {
+                            async {
+                                if !device.finished_booting(&context).await? {
+                                    return Ok(Recovered::Restarted);
+                                }
+                                device.resume_after_blip(context.clone()).await?;
+                                Ok(Recovered::Resumed)
+                            }
+                            .await
+                        }
+                        Recovery::Outage => device
+                            .resume_after_server_return(context.clone())
+                            .await
+                            .map(|()| Recovered::Resumed),
+                    };
+                    let _ = done.send(Done { id, serial, outcome });
+                    Ok(())
+                })
+            }));
+            self.ledger.started(queued, task);
+        }
+    }
+    /// The next report; never, while nothing runs.
+    async fn next(&mut self) -> Done {
+        match self.reports.recv().await {
+            Some(done) => done,
+            // This holds a sender, so the channel never closes.
+            None => std::future::pending().await,
+        }
+    }
+    /// The tracking loop has ended. Each task ends at its next await once cancelled, so the join is short.
+    async fn shutdown(&mut self) {
+        let tasks = self.ledger.take_all();
+        for task in &tasks {
+            task.cancel(requested("device monitor ended"));
+        }
+        for task in tasks {
+            let _ = task.join().await;
+        }
+    }
+}
+impl Drop for Recoveries {
+    fn drop(&mut self) {
+        for task in self.ledger.take_all() {
+            task.cancel(requested("device monitor ended"));
+        }
     }
 }
 fn send(tx: &TrackedSender, message: Tracked) -> VendorResult<()> {
@@ -1082,6 +1407,75 @@ mod kind_tests {
             assert_eq!(message, "Lost device tracking on adb server local; reconnecting");
             assert_eq!(cause, Some(error.failure()));
         }
+    }
+    /// U170: one recovery per device, a newer one replacing it, and a completion counts only while it is current: one
+    /// superseded, dropped or abandoned with its server reports into nothing, so it can release no gate.
+    #[test]
+    fn a_stale_recovery_completes_into_nothing_u170() {
+        let mut ledger: Ledger<(), u64> = Ledger::new(8);
+        assert_eq!(ledger.request("a", Recovery::Blip, ()), None);
+        let first = ledger.startable().unwrap();
+        let first_id = first.id;
+        ledger.started(first, first_id);
+        // The device went offline and came back again: the running task is to be cancelled, and its report is stale.
+        assert_eq!(ledger.request("a", Recovery::Blip, ()), Some(first_id));
+        assert_eq!(ledger.pending(), vec![("a".to_owned(), Recovery::Blip)]);
+        let second = ledger.startable().unwrap();
+        let second_id = second.id;
+        ledger.started(second, second_id);
+        assert_eq!(ledger.finish(first_id), None);
+        assert_eq!(ledger.finish(second_id), Some((Recovery::Blip, ())));
+        assert!(ledger.is_empty());
+        // The device left the list: dropped, running or queued.
+        ledger.request("b", Recovery::Outage, ());
+        let b = ledger.startable().unwrap();
+        let b_id = b.id;
+        ledger.started(b, b_id);
+        assert_eq!(ledger.obsolete("b"), Some((Recovery::Outage, Some(b_id))));
+        assert_eq!(ledger.finish(b_id), None);
+        ledger.request("c", Recovery::Blip, ());
+        assert_eq!(ledger.obsolete("c"), Some((Recovery::Blip, None)));
+        assert!(ledger.startable().is_none());
+        // The server went away: everything is abandoned.
+        ledger.request("d", Recovery::Outage, ());
+        let d = ledger.startable().unwrap();
+        let d_id = d.id;
+        ledger.started(d, d_id);
+        ledger.request("e", Recovery::Outage, ());
+        assert_eq!(ledger.abandon(), vec![d_id]);
+        assert!(ledger.is_empty());
+        assert_eq!(ledger.finish(d_id), None);
+        assert_eq!(ledger.obsolete("d"), None);
+    }
+    /// U170: at most `limit` tasks at once, those cancelled and not yet ended included, and the rest wait in order.
+    #[test]
+    fn recoveries_are_bounded_counting_those_still_ending_u170() {
+        let mut ledger: Ledger<(), u64> = Ledger::new(RECOVERIES_PER_SERVER);
+        for device in 0..20 {
+            ledger.request(&format!("emulator-{device}"), Recovery::Outage, ());
+        }
+        let mut running = vec![];
+        while let Some(queued) = ledger.startable() {
+            let id = queued.id;
+            running.push((queued.serial.clone(), id));
+            ledger.started(queued, id);
+        }
+        assert_eq!(running.len(), RECOVERIES_PER_SERVER);
+        assert_eq!(running[0].0, "emulator-0");
+        // A cancelled task still holds its slot until it reports.
+        let (serial, id) = running.remove(0);
+        assert_eq!(ledger.obsolete(&serial), Some((Recovery::Outage, Some(id))));
+        assert!(ledger.startable().is_none());
+        assert_eq!(ledger.finish(id), None);
+        let next = ledger.startable().unwrap();
+        assert_eq!(next.serial, format!("emulator-{RECOVERIES_PER_SERVER}"));
+        let next_id = next.id;
+        ledger.started(next, next_id);
+        assert!(ledger.startable().is_none());
+        assert_eq!(ledger.finish(next_id), Some((Recovery::Outage, ())));
+        assert!(ledger.startable().is_some());
+        assert_eq!(ledger.take_all().len(), RECOVERIES_PER_SERVER - 1);
+        assert!(ledger.is_empty());
     }
     #[test]
     fn connect_retry_membership_is_the_exact_existing_set() {
