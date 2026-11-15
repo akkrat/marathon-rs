@@ -19,6 +19,7 @@ pub(crate) struct World {
     pub on_kill: KillBehaviour,
     pub builtins: bool,
     pub strict: bool,
+    pub reverse_gate: Option<String>,
     pub default: Response,
     state: Mutex<State>,
     /// Bumped whenever the device list (serials or states) changes; `host:track-devices` follows it.
@@ -134,6 +135,7 @@ impl World {
             on_kill: script.on_kill,
             builtins: script.builtins,
             strict: script.strict,
+            reverse_gate: script.reverse_gate.clone(),
             default: script.default.clone(),
             state: Mutex::new(state),
             devices_changed: watch::Sender::new(0),

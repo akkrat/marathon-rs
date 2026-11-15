@@ -24,6 +24,7 @@ server:
   on_kill: exit              # host:kill: exit (stop like the real server) or ignore
   builtins: true             # built-in getprop and echo for unmatched shell commands
   strict: false              # unmatched commands get FAIL; fake-adb exits 1 if any warning was recorded
+  reverse_gate: null         # a gate name: `reverse:forward` requests wait until the in-process test opens it
 
 devices:
   - serial: emulator-5554
@@ -72,7 +73,7 @@ One expectation answers `shell:` (v1), `shell,v2,…:` (v2), `exec:` and `abb_ex
 | `times` | Stops matching after this many uses, so a later expectation for the same command takes over |
 | `delay_ms` | Waits before the first output |
 | `stdout`, `stdout_file`, `stderr` | Output, written in that order. `stdout_file` streams a file in `chunk_size`-byte writes `chunk_interval_ms` apart (the whole file at once by default) |
-| `output` | Instead of the three above: a list of steps `{stdout: …}`, `{stderr: …}`, `{stdout_file: path}` or `{stdout_file: {path, chunk_size, interval_ms}}`, `{sleep_ms: …}`, and `{gate: name}`, which waits until the in-process test calls `FakeAdbServer::open_gate(name)` (a standalone server never opens one) |
+| `output` | Instead of the three above: a list of steps `{stdout: …}`, `{stderr: …}`, `{stdout_file: path}` or `{stdout_file: {path, chunk_size, interval_ms}}`, `{sleep_ms: …}`, and `{gate: name}`, which waits until the in-process test calls `FakeAdbServer::open_gate(name)` (a standalone server never opens one; `FakeAdbServer::close_gate(name)` closes it again) |
 | `exit_code` | 0–255 |
 | `hang` | After the output, keep the command running until the client closes the connection (logcat, a stuck instrumentation) |
 

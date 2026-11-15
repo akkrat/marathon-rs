@@ -540,6 +540,10 @@ async fn reverse(world: &World, serial: &str, req: &str, rd: OwnedReadHalf, mut 
             .unwrap_or(Ok(()))
             .map(|_| out.extend(b"OKAY"))
     } else if let Some(spec) = req.strip_prefix("forward:") {
+        if let Some(name) = &world.reverse_gate {
+            // The world holds the sender, so the wait ends only when the gate opens.
+            let _ = world.gates.subscribe().wait_for(|open| open.contains(name)).await;
+        }
         let (norebind, spec) = match spec.strip_prefix("norebind:") {
             Some(s) => (true, s),
             None => (false, spec),

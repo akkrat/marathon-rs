@@ -128,6 +128,13 @@ impl FakeAdbServer {
         });
     }
 
+    /// Closes the gate `name` again: steps that reach it from now on wait for the next `open_gate`.
+    pub fn close_gate(&self, name: &str) {
+        self.world.gates.send_modify(|open| {
+            open.remove(name);
+        });
+    }
+
     /// Waits until the transcript file holds every record so far; fails if writing it failed.
     pub async fn flush_transcript(&self) -> io::Result<()> {
         self.world.transcript.flush().await

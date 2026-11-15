@@ -99,6 +99,8 @@ pub struct ServerSpec {
     /// holds any warning.
     #[serde(default)]
     pub strict: bool,
+    /// `reverse:forward` requests wait until the in-process test opens this gate (`FakeAdbServer::open_gate`).
+    pub reverse_gate: Option<String>,
 }
 
 impl Default for ServerSpec {
@@ -109,6 +111,7 @@ impl Default for ServerSpec {
             on_kill: KillBehaviour::Exit,
             builtins: true,
             strict: false,
+            reverse_gate: None,
         }
     }
 }
@@ -365,6 +368,7 @@ impl Script {
             on_kill: self.server.on_kill,
             builtins: self.server.builtins,
             strict: self.server.strict,
+            reverse_gate: self.server.reverse_gate.clone(),
             devices,
             shell: compile_rules(&self.shell, base_dir, "shell")?,
             default: Response {
@@ -391,6 +395,7 @@ pub struct CompiledScript {
     pub on_kill: KillBehaviour,
     pub builtins: bool,
     pub strict: bool,
+    pub reverse_gate: Option<String>,
     pub devices: Vec<CompiledDevice>,
     pub shell: Vec<Rule>,
     pub default: Response,
