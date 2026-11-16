@@ -117,11 +117,14 @@ impl DeviceStateTracker {
     pub(crate) fn is_server_available(&self) -> bool {
         self.gate.borrow().server
     }
-    /// D41: a grace period starts for this serial.
+    /// D41: a grace period starts for this serial. One that went offline again while its last grace's hold is still on
+    /// (its recovery is running) has been unavailable throughout, so it keeps that hold and its start (D48).
     pub(crate) fn hold(&self, serial: &str, now: i64) {
         self.gate.send_modify(|gate| {
-            gate.held.push(serial.to_owned());
-            gate.held_since.insert(serial.to_owned(), now);
+            if !gate.held.iter().any(|held| held == serial) {
+                gate.held.push(serial.to_owned());
+            }
+            gate.held_since.entry(serial.to_owned()).or_insert(now);
             *gate.blips.entry(serial.to_owned()).or_default() += 1;
         });
     }
@@ -260,5 +263,19 @@ mod tests {
         tracker.server_lost(20_000);
         assert_eq!(tracker.away_since("graced"), Some(20_000));
         assert_eq!(tracker.away_since("healthy"), Some(20_000));
+    }
+    /// D48, U170: a device going offline again while its recovery from a grace still holds it was unavailable throughout:
+    /// it is held once, from the first grace, and one release frees it.
+    #[test]
+    fn a_second_grace_during_a_recovery_keeps_the_first_holds_start_d48() {
+        let tracker = DeviceStateTracker::default();
+        tracker.hold("flapping", 1000);
+        // The grace ends, the device's recovery runs, and the device goes offline again before it reports.
+        tracker.hold("flapping", 12_000);
+        assert_eq!(tracker.away_since("flapping"), Some(1000));
+        assert_eq!(tracker.blips("flapping"), 2);
+        tracker.release("flapping");
+        assert!(!tracker.is_held("flapping"));
+        assert_eq!(tracker.away_since("flapping"), None);
     }
 }
