@@ -51,6 +51,7 @@ split into:
 | setup failure | `analytics_factory::d71_a_backend_that_could_not_be_set_up_adds_no_probability_copies` |
 | query failure (and another key's failure does not count) | `analytics_factory::d71_a_failed_success_rate_query_adds_no_probability_copies` |
 | query cancellation | `analytics_factory::d71_a_cancelled_success_rate_query_adds_no_probability_copies` |
+| empty shard (filtering removed every test): no check, no WARN | `analytics_factory::d71_an_empty_shard_does_not_report_history_unavailable` |
 | empty window, configured default, partial history, genuine zero | `analytics_factory::c8_tests_missing_from_working_history_take_the_configured_default_success_rate` |
 | refresh/recovery, pinned view kept | `analytics_refresh::d71_success_rate_history_that_recovers_is_used_by_later_views_only` |
 | end to end, Stub vendor, analytics disabled | `flakiness_scenarios::d71_probability_with_analytics_disabled_runs_each_test_once` |
@@ -188,3 +189,10 @@ None found.
   first round). WP x61, which merges first, took C86. The ledger row, PLAN D72, docs/deviations.md D72, CHANGELOG,
   these findings and the scenario test (`flakiness_scenarios::c87_any_success_without_fast_tracks_the_last_run_as_final`)
   use the new id; the row stays in id order after C85.
+- **M-x62-2, fixed:** a shard that filtering emptied got a false `Test history unavailable` WARN. `prepare_test_shard`
+  skips the prefetch for an empty shard, so the availability check found no entry and reported "the success rate
+  query did not finish" for a working backend (and "analytics is disabled" for NoOp), in runs and in
+  `parse --include-flaky-tests`. `FlakinessStrategy::process` (probability) now returns an empty `flaky_tests` before
+  the check when the shard has no tests, as the loop over no tests did before D71. Witness:
+  `analytics_factory::d71_an_empty_shard_does_not_report_history_unavailable` (working backend without a prefetch,
+  and disabled analytics); it failed without the fix with both WARNs and passes with it.

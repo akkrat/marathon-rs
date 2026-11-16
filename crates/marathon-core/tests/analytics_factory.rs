@@ -409,6 +409,23 @@ fn d71_a_cancelled_success_rate_query_adds_no_probability_copies() {
         .await;
     });
 }
+/// A shard that filtering emptied is not prefetched (`prepare_test_shard`), so asking about its
+/// history would warn about a working backend. Such a pass has nothing to copy and asks nothing.
+#[test]
+fn d71_an_empty_shard_does_not_report_history_unavailable() {
+    run(async {
+        let h = Harness::new();
+        let p = h.provider(Arc::new(Source::default()), 300000, None);
+        assert_eq!(flaky(&probability(), &p, &[]), vec![]);
+        let factory = MetricsProviderFactory::new(h.context.clone(), Arc::new(Setup)).unwrap();
+        let p = factory
+            .create_for(&AnalyticsConfiguration::Disabled, false)
+            .await
+            .unwrap();
+        assert_eq!(flaky(&probability(), &p, &[]), vec![]);
+        assert_eq!(unavailable(&h), vec![]);
+    });
+}
 /// C8 kept as configured: a working backend's window, whatever it holds, is history. A test it
 /// does not name takes `defaults.successRate` (0 unless configured), so new tests still get copies.
 #[test]

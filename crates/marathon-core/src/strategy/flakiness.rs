@@ -67,6 +67,14 @@ impl FlakinessStrategy {
                 time_limit,
             } => (*min_success_rate, *max_count, *time_limit),
         };
+        // An empty shard is not prefetched (`prepare_test_shard`), so asking about its history
+        // would report a working backend as unavailable.
+        if shard.tests.is_empty() {
+            return TestShard {
+                flaky_tests: Vec::new(),
+                ..shard
+            };
+        }
         // D34: every test of the shard is judged by the same history.
         let view = metrics.view();
         let metrics = view.as_deref().unwrap_or(metrics);
