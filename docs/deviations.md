@@ -1668,15 +1668,15 @@ so an analytics outage runs the suite up to `maxCount + 1` times.
 
 Native builds tell history that cannot be read from history that has no row for a test. The view a flakiness pass
 pins ([D34](#d34--a-failed-history-query-is-not-final)) records whether its success-rate query answered. When
-analytics is disabled, its backend could not be set up, or the query failed or did not finish and no refresh has
-answered it since, probability adds no copies for any test, and one WARN per run says why, for example:
+analytics is disabled, its backend could not be set up, or the query failed and no refresh has answered it since,
+probability adds no copies for any test, and one WARN per run says why, for example:
 
 ```text
 Test history unavailable (the success rate query failed); flakinessStrategy probability adds no copies
 ```
 
-The other reasons read `analytics is disabled`, `the analytics backend could not be set up` and `the success rate
-query did not finish`. A working backend behaves as before: an empty window, partial history and tests missing from
+The other reasons read `analytics is disabled` and `the analytics backend could not be set up`. A cancelled query
+cancels the run, as before. A working backend behaves as before: an empty window, partial history and tests missing from
 it take `analyticsConfiguration.defaults.successRate` (0.0 unless configured), so new tests still get copies, and a
 genuine 0% rate still does. A shard is still judged by one view, so a refresh that lands later reaches only views taken
 after it. Sorting and batching by history, and the duration defaults, are unchanged. A Graphite backend that cannot

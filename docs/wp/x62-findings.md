@@ -196,3 +196,12 @@ None found.
   the check when the shard has no tests, as the loop over no tests did before D71. Witness:
   `analytics_factory::d71_an_empty_shard_does_not_report_history_unavailable` (working backend without a prefetch,
   and disabled analytics); it failed without the fix with both WARNs and passes with it.
+- **M-x62-3, fixed (docs):** D71's user-facing text said a success-rate query that "failed or did not finish" adds
+  no copies. Verified in the code: `MetricsProviderImpl::prefetch` returns the cancellation (`fetch(..).await?`) and
+  publishes nothing, `prepare_test_shard` propagates it, and the run is cancelled before `process` runs. With M-x62-2
+  an empty shard no longer reaches the check, so in a run or `parse` the "did not finish" reason is reached only by
+  a direct lookup after a cancelled prefetch (`d71_a_cancelled_success_rate_query_adds_no_probability_copies`), never
+  by a non-cancelled path. PLAN D71 and docs/deviations.md D71 now name only the failed query and say that a
+  cancelled query cancels the run, as before; the WARN reason list drops `the success rate query did not finish`.
+  CHANGELOG and docs/migration.md already said only "a failed success-rate query" and are unchanged. The reason
+  string stays in the provider for that direct-lookup case.
