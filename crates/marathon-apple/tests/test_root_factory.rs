@@ -385,15 +385,30 @@ async fn lone_surrogate_environment_values_stage_as_replacement_characters() -> 
     Ok(())
 }
 
-/// D76 witness: which hosted xctests are pushed after the app. `link` replaces the xctest inside the app by a symlink to
-/// a copy outside it, which the app push carries only as a link.
-async fn hosted_xctest_pushes(id: &str, link: bool) -> TestResult<Vec<Value>> {
+/// What [`hosted_xctest_pushes`] replaces by a symlink to a copy outside the app, which the app push carries only as a
+/// link.
+#[derive(Clone, Copy)]
+enum Link {
+    None,
+    /// The xctest inside the app.
+    Bundle,
+    /// The app's `PlugIns` directory.
+    PlugIns,
+}
+
+/// D76 witness: which hosted xctests are pushed after the app.
+async fn hosted_xctest_pushes(id: &str, link: Link) -> TestResult<Vec<Value>> {
     let row = rows().find(|r| r["input"]["id"] == id).unwrap();
     let c = &row["input"];
     let temp = tempfile::tempdir()?;
     prepare(temp.path(), c)?;
-    if link {
-        let inside = temp.path().join(s(c, "test", ""));
+    let inside = temp.path().join(s(c, "test", ""));
+    let inside = match link {
+        Link::None => None,
+        Link::Bundle => Some(inside),
+        Link::PlugIns => inside.parent().map(std::path::Path::to_path_buf),
+    };
+    if let Some(inside) = inside {
         let outside = temp.path().join("elsewhere");
         std::fs::create_dir(&outside)?;
         let target = outside.join(inside.file_name().unwrap());
@@ -413,8 +428,14 @@ async fn hosted_xctest_pushes(id: &str, link: bool) -> TestResult<Vec<Value>> {
 
 #[tokio::test]
 async fn a_hosted_xctest_inside_the_app_is_not_pushed_again_d76() -> TestResult {
-    assert_eq!(hosted_xctest_pushes("a9-embedded", false).await?, Vec::<Value>::new());
-    assert_eq!(hosted_xctest_pushes("baseline-ios", false).await?, Vec::<Value>::new());
+    assert_eq!(
+        hosted_xctest_pushes("a9-embedded", Link::None).await?,
+        Vec::<Value>::new()
+    );
+    assert_eq!(
+        hosted_xctest_pushes("baseline-ios", Link::None).await?,
+        Vec::<Value>::new()
+    );
     Ok(())
 }
 
@@ -423,20 +444,31 @@ async fn hosted_xctests_the_app_push_does_not_carry_are_still_pushed_d76() -> Te
     for (id, link, src, name) in [
         (
             "IPHONESIMULATOR-XCTEST-False-False-False",
-            false,
+            Link::None,
             "UITests-Runner.app/PlugIns/UITests.xctest",
             "UITests",
         ),
-        ("a9-embedded", true, "CloudApp.app/PlugIns/UITests.xctest", "UITests"),
+        (
+            "a9-embedded",
+            Link::Bundle,
+            "CloudApp.app/PlugIns/UITests.xctest",
+            "UITests",
+        ),
+        (
+            "a9-embedded",
+            Link::PlugIns,
+            "CloudApp.app/PlugIns/UITests.xctest",
+            "UITests",
+        ),
         (
             "baseline-macos-False",
-            false,
+            Link::None,
             "AppleWorld.app/Contents/PlugIns/AppleWorldTests.xctest",
             "AppleWorldTests",
         ),
         (
             "MACOS-XCTEST-False-False-False",
-            false,
+            Link::None,
             "UITests-Runner.app/Contents/PlugIns/UITests.xctest",
             "UITests",
         ),

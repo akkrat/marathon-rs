@@ -616,14 +616,15 @@ impl<'a> TestRootFactory<'a> {
 async fn carried_by_application(runtime: &dyn VendorRuntime, app: &Path, xctest: &Path) -> VendorResult<bool> {
     let (app, xctest) = (app.to_owned(), xctest.to_owned());
     blocking(runtime, move || {
-        let (Some(bundle_name), Ok(real_app), Ok(real_xctest)) = (
-            xctest.file_name(),
+        // The same name as the push destination's, so the skip can never apply to a different destination.
+        let (Ok(bundle_name), Ok(real_app), Ok(real_xctest)) = (
+            name(&xctest),
             std::fs::canonicalize(&app),
             std::fs::canonicalize(&xctest),
         ) else {
             return Ok(false);
         };
-        Ok(real_xctest == real_app.join("PlugIns").join(bundle_name))
+        Ok(!bundle_name.is_empty() && real_xctest == real_app.join("PlugIns").join(bundle_name))
     })
     .await
 }

@@ -102,3 +102,15 @@ with such an APK was not made.
 - Not fixed, recorded only: a method found by both the JUnit3 and the JUnit4 rules (a
   `TestCase` subclass with `@Test` on a `test…` method) is still listed twice, as
   upstream's `findTestMethods` concatenates both engines without merging.
+
+## Review round 1 (Muse)
+
+Verdict: merge. The orchestrator fixed the three low items:
+
+- M-x66-1: D75 in `docs/deviations.md` and the CHANGELOG now say a test is listed once per re-scan that includes its dex
+  file (twice for a first-dex test in a two-dex APK, once for one only in the second), as PLAN already did.
+- M-x66-2: `hosted_xctests_the_app_push_does_not_carry_are_still_pushed_d76` also covers a symlinked `PlugIns`
+  directory, which is still pushed.
+- M-x66-3: `carried_by_application` takes the bundle name from the same `name()` helper as the push destination, and an
+  empty name never skips the push, so the two cannot diverge for a path with a trailing slash.
+- M-x66-4 (keeping a same-name test whose annotations differ in content): agreed, no change.

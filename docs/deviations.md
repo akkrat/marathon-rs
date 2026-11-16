@@ -1738,8 +1738,9 @@ The test parser of Kotlin marathon (dex-test-parser 2.3.4) finds JUnit3 tests by
 the test APK's dex files several times, dropping the last dex each time, and merges the
 results as a set. Annotation values that are arrays compare by identity there, and every
 scan builds new arrays, so a JUnit3 test with an array-valued annotation is listed once per
-scan. Kotlin's `@Throws`, which compiles to `dalvik.annotation.Throws`, is the usual case: in
-an APK with two dex files such a test is listed, and run, twice (N11).
+scan that includes its dex file. Kotlin's `@Throws`, which compiles to
+`dalvik.annotation.Throws`, is the usual case: in an APK with two dex files such a test in
+the first dex is listed, and run, twice, and one only in the second dex once (N11).
 
 The native parser keeps the scans and merges their results by content: the test name and
 its annotations, with arrays compared element by element. The first-seen entry and order
