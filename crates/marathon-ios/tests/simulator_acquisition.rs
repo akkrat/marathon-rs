@@ -407,3 +407,138 @@ async fn production_provider_connections_keep_simulator_authentication_typed_and
     factory.join_pending().await.map_err(provider_support::test_error)?;
     Ok(())
 }
+/// The real factory, counting the leases the provider and its provisioner take and give back.
+struct CountedLeases {
+    inner: Arc<ConnectionFactory>,
+    acquired: AtomicUsize,
+    released: AtomicUsize,
+}
+impl ProvisioningConnections for CountedLeases {
+    fn connect(&self, transport: Transport, caller: VendorContext) -> ConnectionFuture<'_, (Option<Executor>, Bridge)> {
+        Box::pin(async move {
+            let lease = self.inner.connect(transport, caller).await?;
+            self.acquired.fetch_add(1, Ordering::SeqCst);
+            Ok(lease)
+        })
+    }
+    fn connect_worker(&self, transport: Transport, caller: VendorContext) -> ConnectionFuture<'_, Executor> {
+        Box::pin(async move {
+            let executor = self.inner.connect_worker(transport, caller).await?;
+            self.acquired.fetch_add(1, Ordering::SeqCst);
+            Ok(executor)
+        })
+    }
+    fn release(&self, executor: Executor) -> VendorFuture<'_, ()> {
+        Box::pin(async move {
+            self.released.fetch_add(1, Ordering::SeqCst);
+            self.inner.release(executor).await
+        })
+    }
+}
+#[tokio::test(start_paused = true)]
+async fn a_replacement_whose_predecessor_fails_to_dispose_releases_its_shared_lease_once_d74() -> TestResult {
+    use marathon_core::vendor::DeviceProvider;
+    use marathon_ios::device::{
+        simulator_factory::SimulatorCreating,
+        simulator_provider::{AppleSimulatorProvider, ProviderRecovery, recovery::SimulatorRecovery},
+        worker_provisioning_context::WorkerProvisioningContext,
+    };
+    let p = recovery_support::RecoveryHarness::fast()?;
+    let transport = support::worker("127.0.0.1");
+    let executor = Arc::new(Counting {
+        inner: p.base.worker(transport.clone(), &["a", "b"]),
+        closed: 0.into(),
+    });
+    let mut ssh = p.h().services.vendor.ssh.clone();
+    ssh.share_worker_connection = true;
+    let factory = ConnectionFactory::with_seams(
+        false,
+        ssh,
+        p.h().services.vendor.rsync.clone(),
+        support::duration(100),
+        8,
+        p.h().services.runtime.clone(),
+        p.h().services.context.clock.clone(),
+        p.h().services.logging.clone(),
+        Arc::new(CurrentConnector(std::sync::Mutex::new(executor.clone()))),
+        Arc::new(Probe),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let leases = Arc::new(CountedLeases {
+        inner: factory.clone(),
+        acquired: 0.into(),
+        released: 0.into(),
+    });
+    let recovery = SimulatorRecovery::new();
+    let provider = AppleSimulatorProvider::new(provider_support::ProviderHarness::services(
+        p.h(),
+        leases.clone(),
+        recovery.clone(),
+    ))?;
+    provider
+        .process_update(
+            provider_support::snapshot(vec![(transport.clone(), provider_support::targets(&["a", "b"]))]),
+            p.h().services.context.clone(),
+        )
+        .await
+        .map_err(provider_support::test_error)?;
+    provider_support::eventually(|| provider.devices().len() == 2).await;
+    // The predecessor of `a` holds a lease of the shared connection, and its disposal fails through the generic device
+    // seam.
+    let (lease, _) = leases
+        .connect(transport.clone(), p.h().services.context.clone())
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+    let mut predecessor = p
+        .h()
+        .factory()
+        .create(
+            transport.clone(),
+            lease.ok_or("missing executor")?,
+            Arc::new(support::BridgeMock),
+            "a".into(),
+            Arc::new(WorkerProvisioningContext::new(transport.clone(), p.h().clock.clone())),
+            p.h().services.context.clone(),
+        )
+        .await?;
+    let throwing = support::TestDevice::new("a");
+    *throwing.dispose_error.lock().unwrap() = Some(support::error("dispose failed"));
+    predecessor.device = throwing.device();
+    let original = predecessor.handle.clone();
+    provider.register(format!("a@{}", transport.id()), predecessor).await?;
+    // A connected loss: recovery sets `a` up again through the provisioner. `register` disposes of the predecessor,
+    // which fails, so the provisioner disposes of the new simulator and releases its lease.
+    p.h().boot.exit.store(1, Ordering::SeqCst);
+    p.h().boot.state.store(1, Ordering::SeqCst);
+    assert!(p.h().prepare(&original).await.is_err());
+    p.h().boot.exit.store(0, Ordering::SeqCst);
+    let before = leases.released.load(Ordering::SeqCst);
+    recovery
+        .reconnect(provider.clone(), p.h().services.context.clone())
+        .await
+        .map_err(provider_support::test_error)?;
+    provider_support::eventually(|| {
+        throwing.disposed.load(Ordering::SeqCst) == 1 && leases.released.load(Ordering::SeqCst) > before
+    })
+    .await;
+    settle().await;
+    assert_eq!(executor.closed.load(Ordering::SeqCst), 0);
+    provider.terminate().await.map_err(provider_support::test_error)?;
+    factory.join_pending().await.map_err(provider_support::test_error)?;
+    // Without D74's hand-back, termination released the new simulator a second time: on a shared connection that takes
+    // another simulator's user.
+    assert_eq!(
+        leases.released.load(Ordering::SeqCst),
+        leases.acquired.load(Ordering::SeqCst)
+    );
+    assert_eq!(executor.closed.load(Ordering::SeqCst), 1);
+    assert!(
+        !p.h()
+            .logs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_, _, line, _)| line.contains("is not in use, ignoring dispose"))
+    );
+    Ok(())
+}

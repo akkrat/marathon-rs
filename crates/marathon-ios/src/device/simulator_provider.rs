@@ -180,6 +180,9 @@ struct State {
     setup_failures: IndexMap<String, i32>,
     exhausted: IndexSet<String>,
     replaced: Vec<Simulator>,
+    /// D74: simulators whose `register` failed after they entered the map (their predecessor's disposal failed). The
+    /// provisioner that set one up releases its lease, so termination must not release it again.
+    handed_back: Vec<Simulator>,
     initialized: bool,
     monitoring: Option<Arc<dyn VendorTask>>,
     termination: Option<Arc<SharedDeferred<()>>>,
@@ -432,6 +435,11 @@ impl AppleSimulatorProvider {
                 .devices
                 .get(&id)
                 .is_some_and(|current| !Arc::ptr_eq(&current.handle, &device.handle));
+            if replaced.is_err() {
+                // An error from `register` leaves the lease with the caller, as for the refusals above: the provisioner
+                // disposes of the simulator and releases it, so termination skips it, in the map or in `replaced`.
+                state.handed_back.push(device.handle.clone());
+            }
             let connect = replaced.is_ok() && !superseded;
             let disconnect = disconnect && !superseded;
             if connect {
@@ -1172,11 +1180,16 @@ impl AppleSimulatorProvider {
             .artifacts
             .close_and_join(300_000, 60_000, &context)
             .await?;
+        let handed_back = std::mem::take(&mut self.state().handed_back);
+        let ours = |handle: &Simulator| !handed_back.iter().any(|h| Arc::ptr_eq(h, handle));
         join_all(self.devices().into_iter().map(|device| async move {
-            dispose_then_release(
-                device.device.0.dispose(),
-                self.services.connections.release(device.handle.executor()),
-            )
+            let lease = ours(&device.handle).then(|| device.handle.executor());
+            dispose_then_release(device.device.0.dispose(), async {
+                match lease {
+                    Some(executor) => self.services.connections.release(executor).await,
+                    None => Ok(()),
+                }
+            })
             .await;
             self.services.registry.remove(&device.device);
             self.log(
@@ -1191,7 +1204,7 @@ impl AppleSimulatorProvider {
             state.devices.clear();
             std::mem::take(&mut state.replaced)
         };
-        for device in replaced {
+        for device in replaced.into_iter().filter(|d| ours(d)) {
             let _ = self.services.connections.release(device.executor()).await;
         }
         for event in self.events.take() {
