@@ -205,3 +205,7 @@ None found.
   cancelled query cancels the run, as before; the WARN reason list drops `the success rate query did not finish`.
   CHANGELOG and docs/migration.md already said only "a failed success-rate query" and are unchanged. The reason
   string stays in the provider for that direct-lookup case.
+- Run for round 1: `cargo fmt --check`, `cargo clippy -p marathon-core --all-targets -- -D warnings`, and
+  `cargo test --no-fail-fast -p marathon-core -p marathon-config` (after building the `yaml_tree` example): clean, all
+  pass. `scripts/check_plan_dag.py`: pass. marathon-cli was not rerun: no CLI code, golden or pinned text changed
+  (the D71 wording lives only in PLAN and docs/deviations.md, which no CLI test reads).
