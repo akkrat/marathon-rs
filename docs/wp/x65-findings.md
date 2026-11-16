@@ -145,7 +145,8 @@ and differential suites pass unmodified, and no comparator allowance was needed 
   releases it again. Kotlin does the same. **Fixed in review round 1** (below).
 - **macOS replacement whose old Mac fails to dispose.** `AppleMacosProvider::connect` puts the new Mac in the map and then
   returns the old one's disposal error before registering or announcing the new one, which therefore never joins a pool
-  but is disposed of at termination. Kotlin does the same; a disposal fails only on a fatal error. Not fixed.
+  but is disposed of at termination. Kotlin does the same; a disposal fails only on a fatal error. Not fixed; recorded
+  as A107.
 
 ## Review round 1 (Muse)
 
