@@ -1595,11 +1595,13 @@ Native builds:
   totals, and do not restore their retry workers. A retry dropped this way
   keeps its quota charge. The other copies are queued again as before, in
   [D60](#d60--equal-priority-tests-run-in-insertion-order) order.
-- do not queue again an incomplete copy of a finished test. It is still
-  reported once, as a result that is not final, and it leaves the test's
-  totals; its device is not marked as one to keep the test's retries away
-  from. An incomplete copy of a test that has not finished is queued again as
-  before.
+- do not queue again an incomplete copy of a finished test. Within
+  `uncompletedTestRetryQuota` it is still reported once, as a result that is
+  not final, and it leaves the test's totals; its device is not marked as one
+  to keep the test's retries away from. Once that quota is used up such a copy
+  is reported as before, once, as a non-final failure, and keeps its total; it
+  was not queued again there either. An incomplete copy of a test that has not
+  finished is queued again as before.
 
 A copy that is already running elsewhere when its test finishes still runs and
 is reported as a non-final result, as before. The phantom total of

@@ -362,3 +362,10 @@ marathon-cli) pass unchanged, so there is no golden-diff note.
 - C86 takes the next free C number on `main`; another WP in the batch may
   claim the same number before this merges.
 
+
+## Review round 2 (Sol re-check)
+
+Verdict: merge after a documentation fix. S-x61-1 and S-x61-2 closed; the rebase onto D70 is sound. S-x61-3 (low): the
+D69 text claimed a late incomplete copy of a finished test always leaves the totals, but past
+`uncompletedTestRetryQuota` the existing branch keeps it as one non-final FAILURE with its total (not queued again
+either). The orchestrator qualified D69 in PLAN, `docs/deviations.md` and the C86 row; no code change.
