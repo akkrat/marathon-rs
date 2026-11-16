@@ -281,7 +281,8 @@ inventories and the CLI subscriber test. See [WP x57](../wp/x57-findings.md).
 
 `marathon_apple::session_close` carries one WARN when D30's close of an SSH
 session had to send KILL because the process did not end within 20 s of TERM,
-and the close then completed. A server may ignore both signals and still confirm
+and the close then completed, also when it completed with an error (which is
+then reported as before). A server may ignore both signals and still confirm
 the close, so the line names the command and says that the process may still be
 running on the worker. An abandoned close has D30's ERROR line instead, on the
 sshj client logger, and no WARN. The target is a floor like `batch_outcome`,

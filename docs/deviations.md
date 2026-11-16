@@ -401,7 +401,9 @@ abandoned, so no close takes more than 30 s, and the run carries on. On iOS an a
 simulator, so when that simulator was the last device of the pool, the pool waits for [D48](#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)'s limit, then ends, and so does the run. The close fails with the same error
 as Kotlin's, and one error line names the command. A worker that confirms the close although the process ignored TERM
 and KILL gives no error line: the session closes normally after 20 s, and a warning, shown with debug off, names the command
-and says that the process may still be running ([U183](found-bugs.md)). Any close that needed KILL gives that warning.
+and says that the process may still be running ([U183](found-bugs.md)). A close that needed KILL and then completed gives
+that warning, also when it completed with an error, which then follows its usual error path as well; an abandoned close
+gives the error line instead.
 
 **A process can survive this.** A signal over an SSH channel is a request that the server may ignore: some servers
 do, such as Tailscale SSH and old OpenSSH versions, and there KILL has no effect. The limit, not the KILL, is what keeps the
@@ -1747,7 +1749,11 @@ open until the process exits: an iOS simulator replaced after its worker was los
 simulator whose disposal failed at the end of the run ([A82](known-kotlin-bugs.md)), and on macOS a Mac whose setup failed and a
 Mac that was replaced ([A89](known-kotlin-bugs.md)). Native builds release every lease once, after the device's disposal,
 whether or not the disposal failed: on iOS at the end of the run, as before for the others; on macOS at once for a failed
-setup, after its disposal for a replaced Mac, and at the end of the run for the rest. With `shareWorkerConnection` a
+setup, after its disposal for a replaced Mac, and at the end of the run for the rest. Each lease has one owner that
+releases it: when a new iOS simulator's registration fails because its predecessor's disposal failed, the setup that
+created it releases its lease and the end of the run does not (Kotlin releases it twice, and with `shareWorkerConnection`
+the second release takes another simulator's use of the connection); a repeated macOS termination after a fatal disposal
+releases nothing again. With `shareWorkerConnection` a
 connection still closes only when its last user has released it. The errors reported stay those of the setup or disposal; a
 release that fails is logged.
 

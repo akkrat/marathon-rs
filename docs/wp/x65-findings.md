@@ -31,7 +31,9 @@ cancelled by disposal, so it kept sending commands to a simulator already dispos
 **Invariants.** No preparation starts after disposal began. Disposal returns only after every preparation it saw has
 ended, or after the bound (logged). A stopped preparation's later commands carry a cancelled context, which the SSH and
 local executors refuse before sending (`executor.rs`, `kotlin_process_command_executor.rs`), so nothing reaches the worker
-after disposal even when the bound expired. The disposal context stays uncancellable, so D52's cancel cannot cut it short;
+after disposal even when the bound expired. The witnesses below show this only through the fake worker's opt-in
+`refuses_cancelled`, which mimics those executors; the preparation's file-bridge and transfer steps are not executor commands,
+and stop on a cancelled call by D54's existing pin (`simulator_prepare::a_receive_never_takes_its_callers_cancellation_but_a_send_does_d54`). The disposal context stays uncancellable, so D52's cancel cannot cut it short;
 D52 bounds the provider termination that awaits it (the disposal task is owned separately and survives an abandoned
 caller), so the 25 s limit is unchanged.
 
@@ -90,8 +92,8 @@ handles are disjoint: each acquired device lease is released exactly once, at te
 - Termination releases after a disposal that failed; the disposal's error comes first (`disposed.and(released)`).
 - Tests: `null_executor_setup_failure_and_udid_fallback` now pins 1 release for `setup-failure`;
   `static_host_lifecycle_identity_queue_and_released_leases_d74` (renamed from `…_retained_leases`) pins 2 releases for
-  the replace. Both fail with the provider reverted. The macOS disposal error at termination is not witnessed: a
-  `MacosDevice` disposal fails only on a fatal error, which no seam can inject; the change there is three lines.
+  the replace. Both fail with the provider reverted. The macOS disposal error at termination is witnessed since review
+  round 1 (below).
 
 No JVM oracle replay compares these counts besides the two iOS tests above; the macOS numbers were transcribed by hand
 from the JVM mock-factory run, which stays in A89's row.
@@ -100,7 +102,9 @@ from the JVM mock-factory run, which stays in A89's row.
 
 `ExecChannel::close_escalating` records whether the TERM wait expired and KILL was sent. If the close then completes
 (not abandoned), it logs one WARN: ``Session `<command>` did not end within 20 s of TERM and was closed after KILL. The
-process may still be running on the worker``. An abandoned close keeps D30's ERROR line and gets no WARN. D30's line shows
+process may still be running on the worker``. That includes a close that completed with an error after KILL, on purpose: the
+process may be running all the same, and the error still takes its usual path (the `woke_to` line and the failed close). An
+abandoned close, which sent KILL too, keeps D30's ERROR line and gets no WARN. D30's line shows
 with debug off (ERROR on the client logger), so this one must too: it goes to a new target, `marathon_apple::session_close`,
 with a WARN floor (DEBUG with debug on) like `batch_outcome`, added to the filter, the directive inventory test,
 `session_close_warns_in_every_configurator_with_debug_off`, the CLI subscriber test and `docs/design/logging.md`. No
@@ -138,8 +142,55 @@ and differential suites pass unmodified, and no comparator allowance was needed 
 - **Double release after a failed predecessor disposal (iOS).** `AppleSimulatorProvider::register` inserts the new
   simulator before disposing of its predecessor, and returns the disposal's error. The provisioner then treats the setup as
   failed and disposes of and releases the new simulator, which stays in the device map, so termination disposes of and
-  releases it again. `dispose_and_join` fails only when the device's allocation is gone, so this is practically
-  unreachable today. Not fixed.
+  releases it again. Kotlin does the same. **Fixed in review round 1** (below).
 - **macOS replacement whose old Mac fails to dispose.** `AppleMacosProvider::connect` puts the new Mac in the map and then
   returns the old one's disposal error before registering or announcing the new one, which therefore never joins a pool
   but is disposed of at termination. Kotlin does the same; a disposal fails only on a fatal error. Not fixed.
+
+## Review round 1 (Muse)
+
+Four findings, all fixed.
+
+**M-x65-1 (Medium): the iOS double release after a failed predecessor disposal.** The incidental bug above made D74's
+"every lease released exactly once" false: with `shareWorkerConnection`, the second release decrements the connection's
+users (`ConnectionFactory::dispose_inner`), taking another simulator's use and possibly closing the connection under it.
+The concrete device cannot fail `dispose_and_join` while `register` holds a clone, but the generic device seam can, which is
+what A82 injects. Fix: one owner per lease. An error from `register` already left the lease with its caller on every
+earlier refusal; now it does on this one too. On a failed predecessor disposal `register` records the new simulator in
+`State::handed_back`, and termination releases no handle listed there, whether it is still in the map or a later
+registration moved it to `replaced`. The map keeps the simulator, as before and as in Kotlin, so recovery's view of the id
+is unchanged; termination still disposes of it (a simulator's second disposal waits for the first). The provisioner's cleanup is
+unchanged: it disposes of the simulator and releases its lease, once.
+
+Witness: `simulator_acquisition::a_replacement_whose_predecessor_fails_to_dispose_releases_its_shared_lease_once_d74`. Real
+`ConnectionFactory` with `shareWorkerConnection`, simulators `a` and `b` on one worker, a predecessor of `a` registered
+with a throwing `DeviceRef`, a connected loss, and recovery setting `a` up again through the provisioner; the test checks
+that the path ran (the throwing disposal was called and the provisioner released), then that termination brings releases
+level with acquisitions, the shared connection closes once, and the factory logs no "not in use" release. With the
+provider change reverted it fails with 6 releases for 5 acquisitions.
+
+**M-x65-2 (Low): a repeated macOS termination after a fatal disposal.** `terminate` returned a fatal error through
+`result?` before clearing the map, and has no once-guard, so a second call disposed of and released the same Macs again;
+this WP widened that by releasing after a failed disposal. Fix: termination takes the map out before disposing, so a
+repeated call finds nothing. Witness:
+`provider::a_fatal_disposal_still_releases_the_lease_and_a_repeated_termination_releases_nothing_more_d74`. A Mac's
+disposal fails only fatally, and only in its wait for a cancelled batch, so the test runs a batch and wraps the clock to fail
+that wait with a fatal error once armed. It pins the release after the fatal disposal (the macOS A82 line, unwitnessed
+until now) and no second release on a repeated termination. With only this fix reverted it fails with 2 releases instead
+of 1; with the provider at main, with 0.
+
+**M-x65-3 (Low): D30's wording of the U183 warning.** D30 said any close that needed KILL warns; an abandoned close, which
+also sent KILL, gets only the ERROR line. D30 now says that a close that needed KILL and then completed gives the warning,
+also when it completed with an error (kept on purpose, stated in the U183 section above and in `docs/design/logging.md`), and
+that an abandoned close gives the error line instead. CHANGELOG and migration did not describe the case and are unchanged.
+
+**M-x65-4 (Low): what the "no command after disposal" witnesses rely on.** Stated in the U179 invariants: the fake's opt-in
+`refuses_cancelled` stands in for the real executors, and the file-bridge and transfer steps rely on D54's existing pin.
+
+**D74 text.** The PLAN row, D74 in `docs/deviations.md` and the A82 row now say that each lease has one releasing owner and
+name both cases; the A82 row records the Kotlin double release and the two new witnesses.
+
+**Run for this round.** `~/.config/marathon-rs/local-check.sh`; `cargo fmt --check`; `cargo clippy -p marathon-ios
+-p marathon-macos -p marathon-apple -p marathon-logging --all-targets -- -D warnings`; `cargo test` for marathon-ios,
+marathon-macos, marathon-apple and marathon-logging, and `cargo test -p marathon-cli --test tracing_output`. The temporary
+reverts above. Not run, per the batch rules: `scripts/check.sh`, the remote check, `cargo test --workspace`.
