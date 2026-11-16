@@ -212,19 +212,26 @@ fn two_hanging_return_probes_do_not_add_up_u170() {
 /// is dropped with the device: once the queue moves it does not probe the new device, nor take it for one that restarted.
 /// The eight slots are taken by devices whose probes hang, so the queue is the only place it could be. The fake may send
 /// a return and the next change as one list, so another device's grace shows when the return has been read.
+///
+/// No fixed wait decides it: a marker device's recovery is queued behind the stale one, and only one slot frees up, so
+/// the marker recovers only after a stale recovery, had it been kept, had probed and reported.
 #[test]
 fn a_recovery_made_stale_by_a_replacement_releases_nothing_u170() {
     let _ports = shared_ports();
     run_with_driven_clock(configuration(), |runtime, context, _clock| {
         Box::pin(async move {
-            let serials: Vec<String> = (0..10).map(|i| format!("emulator-{}", 5554 + 2 * i)).collect();
+            const FIRST: &str = "first";
+            let serials: Vec<String> = (0..11).map(|i| format!("emulator-{}", 5554 + 2 * i)).collect();
             let serials: Vec<&str> = serials.iter().map(String::as_str).collect();
-            let (busy, replaced, marker) = (&serials[..8], serials[8], serials[9]);
-            let mut server = server(script(&serials, busy)).await;
+            let (busy, replaced, marker, reader) = (&serials[..8], serials[8], serials[9], serials[10]);
+            let mut script = script(&serials, busy);
+            // The first busy device's probe waits at its own gate, so one slot can be freed alone.
+            script["devices"][0]["shell"][1]["output"][0]["gate"] = json!(FIRST);
+            let mut server = server(script).await;
             let provider = AdamDeviceProvider::new(change_runtime(&runtime, &[server.port()]))?;
             provider.initialize(context).await?;
-            let devices = connected_all(&provider, 10).await;
-            logcat_streams(&[(&server, 10)]).await;
+            let devices = connected_all(&provider, 11).await;
+            logcat_streams(&[(&server, 11)]).await;
             for serial in busy {
                 blip(&server, &find(&devices, serial), serial).await;
             }
@@ -232,9 +239,9 @@ fn a_recovery_made_stale_by_a_replacement_releases_nothing_u170() {
 
             let old = find(&devices, replaced);
             blip(&server, &old, replaced).await;
-            let read = find(&devices, marker);
+            let queued = find(&devices, marker);
             checked(server.set_device_state(marker, "offline"));
-            until(|| in_grace(&read)).await;
+            until(|| in_grace(&queued)).await;
             assert_eq!(probes(&server), 8);
             checked(server.disconnect_device(replaced));
             assert_eq!(disconnected(&provider).await, old);
@@ -242,16 +249,24 @@ fn a_recovery_made_stale_by_a_replacement_releases_nothing_u170() {
             let DeviceEvent::Connected(new) = event(&provider).await else {
                 panic!("connection")
             };
-            logcat_streams(&[(&server, 11)]).await;
+            logcat_streams(&[(&server, 12)]).await;
             let getprops = getprops_on(&server, replaced);
+            // The marker returns, and its recovery is queued after any left from the replaced device.
+            checked(server.set_device_state(marker, "device"));
+            let read = find(&devices, reader);
+            checked(server.set_device_state(reader, "offline"));
+            until(|| in_grace(&read)).await;
+            assert!(in_grace(&queued));
 
+            // One slot frees up. A stale recovery would take it first, and its probe needs no gate.
+            server.open_gate(FIRST);
+            until(|| !in_grace(&queued)).await;
+            assert_eq!(getprops_on(&server, replaced), getprops);
             server.open_gate(PROBE);
             for serial in busy {
                 let device = find(&devices, serial);
                 until(|| !in_grace(&device)).await;
             }
-            // A stale recovery would start as the first slot freed up, and its probe needs no gate.
-            tokio::time::sleep(Duration::from_millis(200)).await;
             assert_eq!(getprops_on(&server, replaced), getprops);
             assert!(!in_grace(&new));
             assert!(pending_event(&provider).await.is_none());
@@ -298,17 +313,23 @@ fn restorations_after_a_server_restart_are_bounded_and_leave_the_loop_free_u170(
                 clock.advance_to(now).await;
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
+            // The bound itself is pinned by `recoveries_are_bounded_counting_those_still_ending_u170`; no event here is
+            // ordered after a ninth request that a broken bound would send, so it is checked again later, without a wait.
             until(|| reverse_forwards_requested(&server) == 20 + 8).await;
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            assert_eq!(reverse_forwards_requested(&server), 20 + 8);
 
-            // The loop is free meanwhile: a device going offline has its grace, which ends at its limit.
-            let (serial, device) = &devices[19];
+            // The loop is free meanwhile: a device going offline has its grace, which ends at its limit. It is one whose
+            // restoration is still queued: dropping that frees no slot, so the count stays at eight in flight.
+            let (serial, device) = devices
+                .iter()
+                .rev()
+                .find(|(serial, _)| reverse_forwards_on(&server, serial) == 1)
+                .unwrap();
             checked(server.set_device_state(serial, "offline"));
             until(|| in_grace(device)).await;
             clock.advance_to(now + 10_500).await;
             assert_eq!(disconnected(&provider).await, *device);
-            // The others are all restored. The one that left may have sent its request before it did.
+            assert_eq!(reverse_forwards_requested(&server), 20 + 8);
+            // The others are all restored.
             server.open_gate(REVERSE);
             until(|| reverse_forwards_requested(&server) >= 20 + 19).await;
             assert!(pending_event(&provider).await.is_none());
@@ -338,17 +359,26 @@ fn termination_during_recoveries_is_bounded_and_releases_nothing_u170() {
             let logcats = logcat_count(&server);
             // The probes would time out only when the clock moves, which it does not.
             checked(tokio::time::timeout(Duration::from_secs(60), provider.terminate()).await)?;
-            server.open_gate(PROBE);
-            tokio::time::sleep(Duration::from_millis(200)).await;
+            // `terminate` has joined the tracking loops, and each loop its recovery tasks, so nothing can release or set
+            // up a device after this point: the checks need no wait, and the probes answered below reach no one.
             for (_, device) in &devices {
                 assert!(in_grace(device));
             }
             assert_eq!(logcat_count(&server), logcats);
             assert!(pending_event(&provider).await.is_none());
+            server.open_gate(PROBE);
             checked(server.shutdown().await);
             Ok(())
         })
     });
+}
+fn reverse_forwards_on(server: &marathon_adb::server::FakeAdbServer, serial: &str) -> usize {
+    server
+        .transcript()
+        .iter()
+        .filter(|r| r["type"] == "request" && r["serial"] == serial)
+        .filter(|r| r["service"].as_str().is_some_and(|s| s.starts_with("reverse:forward:")))
+        .count()
 }
 fn logcat_count(server: &marathon_adb::server::FakeAdbServer) -> usize {
     server
