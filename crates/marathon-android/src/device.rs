@@ -908,6 +908,14 @@ impl AndroidDevice {
         Ok(())
     }
     /// Whether the core has taken `batch` back meanwhile, which ends it as a cancellation.
+    /// Whether `batch` waits at the gate for its next instrumentation with what the earlier ones gave, so the core taking
+    /// it back now ends it with those results. For tests, which can see a runner reach the gate before this is recorded.
+    #[doc(hidden)]
+    pub fn is_parked(&self, batch: &BatchRef) -> bool {
+        lock(&self.inner.batch)
+            .as_ref()
+            .is_some_and(|r| Arc::ptr_eq(&r.batch, batch) && matches!(r.stage, Stage::Parked(_)))
+    }
     fn ensure_not_withdrawn(&self, batch: &BatchRef) -> VendorResult<()> {
         match lock(&self.inner.batch).as_ref() {
             Some(r) if Arc::ptr_eq(&r.batch, batch) && matches!(r.stage, Stage::Withdrawn) => {

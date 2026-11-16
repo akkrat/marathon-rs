@@ -360,10 +360,11 @@ fn between_instrumentations(
                     ..context.clone()
                 },
             );
-            // The runner reaches the gate, unless it ran on through it.
+            // The runner reaches the gate, unless it ran on through it. The listener hears of the gate just before the
+            // device records the batch as parked there, so this waits for the record too.
             checked(
                 tokio::time::timeout(Duration::from_secs(60), async {
-                    while !blip.parked.load(Ordering::SeqCst)
+                    while !(blip.parked.load(Ordering::SeqCst) && android.is_parked(&batch))
                         && !running.is_finished()
                         && instrumentations(&server).len() < 2
                     {
