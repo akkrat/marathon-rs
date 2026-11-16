@@ -7,6 +7,7 @@ use crate::{
     support::*,
     tracker::{DeviceStateTracker, MultiServerDeviceStateTracker, TrackingUpdate, is_passing},
 };
+use futures_util::FutureExt;
 use marathon_adb::client::{
     AdamLogging, AdbError, AndroidDebugBridgeClient, ChannelStream, SocketFactory,
     device::{AsyncDeviceMonitorRequest, Device as AdbDevice, DeviceState, ListDevicesRequest},
@@ -714,7 +715,22 @@ impl AdamDeviceProvider {
             return Ok(());
         }
         let tracker = self.inner.trackers.tracker(client);
-        match (kind, done.outcome?) {
+        // A recovery fails only by a cancellation, which a current one sees only as the loop ends, or a panic. After a
+        // panic the device's state is unknown, so it is set up again, as when its probe fails; ending the loop instead
+        // would end the server's tracking.
+        let outcome = match done.outcome {
+            Ok(outcome) => outcome,
+            Err(e @ VendorError::Cancelled(_)) => return Err(e),
+            Err(e) => {
+                self.log(
+                    Level::WARN,
+                    &format!("Recovering device {serial} failed"),
+                    Some(e.failure()),
+                );
+                Recovered::Restarted
+            }
+        };
+        match (kind, outcome) {
             (Recovery::Blip, Recovered::Resumed) => {
                 self.log(Level::INFO, &format!("Device {serial} is back"), None);
                 tracker.release(&serial);
@@ -1232,23 +1248,22 @@ impl Recoveries {
                         cancellation: signal,
                         ..context
                     };
-                    let outcome = match kind {
-                        Recovery::Blip => {
-                            async {
+                    let recovery = async {
+                        match kind {
+                            Recovery::Blip => {
                                 if !device.finished_booting(&context).await? {
                                     return Ok(Recovered::Restarted);
                                 }
                                 device.resume_after_blip(context.clone()).await?;
                                 Ok(Recovered::Resumed)
                             }
-                            .await
+                            Recovery::Outage => device
+                                .resume_after_server_return(context.clone())
+                                .await
+                                .map(|()| Recovered::Resumed),
                         }
-                        Recovery::Outage => device
-                            .resume_after_server_return(context.clone())
-                            .await
-                            .map(|()| Recovered::Resumed),
                     };
-                    let _ = done.send(Done { id, serial, outcome });
+                    report(id, serial, &done, recovery).await;
                     Ok(())
                 })
             }));
@@ -1273,6 +1288,28 @@ impl Recoveries {
             let _ = task.join().await;
         }
     }
+}
+/// U170: runs a recovery and always reports it. The ledger's slot and the device's hold are freed only by the report, and
+/// the runtime's own catch of a panic is seen only by a join, which the loop does at its end; so a panic is reported here,
+/// as a failed recovery.
+async fn report(
+    id: u64,
+    serial: String,
+    done: &tokio::sync::mpsc::UnboundedSender<Done>,
+    recovery: impl std::future::Future<Output = VendorResult<Recovered>>,
+) {
+    let outcome = match std::panic::AssertUnwindSafe(recovery).catch_unwind().await {
+        Ok(outcome) => outcome,
+        Err(payload) => {
+            let message = payload
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                .unwrap_or("device recovery panicked");
+            Err(VendorError::Other(failure(FailureKind::Runtime, message)))
+        }
+    };
+    let _ = done.send(Done { id, serial, outcome });
 }
 impl Drop for Recoveries {
     fn drop(&mut self) {
@@ -1476,6 +1513,36 @@ mod kind_tests {
         assert!(ledger.startable().is_some());
         assert_eq!(ledger.take_all().len(), RECOVERIES_PER_SERVER - 1);
         assert!(ledger.is_empty());
+    }
+    /// U170 (review M-x64-1): a recovery that panics still reports, so its slot frees and the loop decides about its
+    /// device, instead of both waiting for a report that never comes.
+    #[tokio::test]
+    async fn a_panicking_recovery_still_reports_and_frees_its_slot_u170() {
+        let mut ledger: Ledger<(), u64> = Ledger::new(1);
+        ledger.request("a", Recovery::Blip, ());
+        ledger.request("b", Recovery::Blip, ());
+        let a = ledger.startable().unwrap();
+        let a_id = a.id;
+        ledger.started(a, a_id);
+        assert!(ledger.startable().is_none());
+        let (done, mut reports) = tokio::sync::mpsc::unbounded_channel();
+        let task = tokio::spawn(async move {
+            report(a_id, "a".to_owned(), &done, async {
+                if a_id < u64::MAX {
+                    panic!("probe panicked");
+                }
+                Ok(Recovered::Resumed)
+            })
+            .await;
+        });
+        task.await.expect("report must not unwind");
+        let report = reports.try_recv().expect("a panicking recovery reports");
+        assert_eq!((report.id, report.serial.as_str()), (a_id, "a"));
+        let error = report.outcome.expect_err("a panic is a failed recovery");
+        assert!(!matches!(error, VendorError::Cancelled(_)));
+        assert_eq!(error.failure().message.as_deref(), Some("probe panicked"));
+        assert_eq!(ledger.finish(report.id), Some((Recovery::Blip, ())));
+        assert_eq!(ledger.startable().map(|b| b.serial), Some("b".to_owned()));
     }
     #[test]
     fn connect_retry_membership_is_the_exact_existing_set() {

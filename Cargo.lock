@@ -1587,6 +1587,7 @@ dependencies = [
 name = "marathon-android"
 version = "0.0.0"
 dependencies = [
+ "futures-util",
  "gif",
  "jcompat",
  "marathon-adb",
