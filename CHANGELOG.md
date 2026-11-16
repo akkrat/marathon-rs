@@ -25,7 +25,7 @@ The section for a version becomes the text of its GitHub release, which carries 
   times whatever the history says, for stabilization jobs. It is allowed with `executionStrategy.mode: ALL_SUCCESS`, so
   a test passes only if all its runs pass (with `fast`, the default, its first failure ends it); `probability` is still
   rejected there. Under `ANY_SUCCESS`, set `fast: false` to run every copy after a pass. The Kotlin marathon does not
-  accept it. Without `fast`, the summary's passed/failed line follows each test's last run (C86); the exit code and
+  accept it. Without `fast`, the summary's passed/failed line follows each test's last run (C87); the exit code and
   the `Raw:` line reflect every run.
 
 ## 0.13.0

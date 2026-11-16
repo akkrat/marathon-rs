@@ -94,7 +94,7 @@ now says so. No parity-matrix row changes: the ported Kotlin tests (`Probability
 - Verified end to end (stub vendor, `count: 2`): all pass → passed, `1 passed, 0 failed`, exit 0; with `fast`, PASS
   then FAIL → two runs, the failure is the final tracked result, `0 passed, 1 failed`, JUnit has the failure, exit 1;
   without `fast`, PASS FAIL PASS → three runs, exit 1, `Raw: 2 passed, 1 failed` with the failed-tests list.
-- **C86 (new ledger row, Kotlin design, kept):** the result tracked as final is the run whose event completes the
+- **C87 (new ledger row, Kotlin design, kept):** the result tracked as final is the run whose event completes the
   test, with that run's own status (`PoolProgressAccumulator.testEnded`). Without `fast` the last run completes the
   test, so under `ALL_SUCCESS` PASS FAIL PASS shows `1 passed, 0 failed` in the summary's first line, a PASSED
   per-test result file and no JUnit failure, while the exit code is 1. It predates D72: `ANY_SUCCESS` without `fast`
@@ -134,8 +134,8 @@ unchanged; they use isolate batching on one device, which neither C46 nor C47 in
   gives one; with `fast: true` a FAILURE then PASSED stops at two (all under `ANY_SUCCESS`).
 - `ALL_SUCCESS`: `flakiness_scenarios::d72_fixed_under_all_success_passes_only_when_every_run_passes` (both `fast`
   values), `d72_fixed_under_fast_all_success_stops_at_the_first_failure` (two runs, FAILURE final, summary, JUnit,
-  exit), `d72_fixed_under_all_success_without_fast_runs_every_copy_and_fails` (three runs, exit, `Raw:` line, and C86's
-  last-run final result), and `c86_any_success_without_fast_tracks_the_last_run_as_final`.
+  exit), `d72_fixed_under_all_success_without_fast_runs_every_copy_and_fails` (three runs, exit, `Raw:` line, and C87's
+  last-run final result), and `c87_any_success_without_fast_tracks_the_last_run_as_final`.
 - marathon-config: `schema::d72_fixed_flakiness_binds_count_strictly`, `validation::d72_a_fixed_flakiness_strategy_parses_validates_and_renders`
   (the docs/deviations.md example verbatim: parse, validate, YAML round trip, dump, environment text),
   `validation::d72_a_negative_fixed_count_is_rejected`,
@@ -174,10 +174,17 @@ were not tested: they do not construct flakiness strategies or analytics lookups
 ## Owner decisions
 
 - **`fixed` with `ALL_SUCCESS`:** decided 2026-11-15, allowed (see above).
-- **C86:** whether the final tracked result should follow the test's verdict rather than its last run (summary
+- **C87:** whether the final tracked result should follow the test's verdict rather than its last run (summary
   first line, per-test result file, JUnit), under `fast: false`. Contract change in `execution/progress.rs`.
 - **Graphite setup failure** still fails the run while InfluxDB's falls back to no history (kept, see A).
 
 ## Incidental bugs
 
 None found.
+
+## Review round 1 (Muse)
+
+- **M-x62-1, renumbered:** the kept-Kotlin-bug row for the last-run final result is now **C87** (it was C86 in the
+  first round). WP x61, which merges first, took C86. The ledger row, PLAN D72, docs/deviations.md D72, CHANGELOG,
+  these findings and the scenario test (`flakiness_scenarios::c87_any_success_without_fast_tracks_the_last_run_as_final`)
+  use the new id; the row stays in id order after C85.

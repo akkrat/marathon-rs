@@ -1719,12 +1719,12 @@ requires `retryStrategy: no-retry`, and still rejects `probability` with the mes
 (the default) a test's first failure ends it: its copies still queued are dropped, that failure is its final result,
 and the summary, result files and exit code agree. With `fast: false` every run executes and the exit code still says
 failed, but the summary's first line, the per-test result file and the JUnit case follow the last run
-([C86](known-kotlin-bugs.md)), so a test whose last run passed is listed as passed there. Read the exit code and the
+([C87](known-kotlin-bugs.md)), so a test whose last run passed is listed as passed there. Read the exit code and the
 summary's `Raw:` line and failed-tests list, which count every run, or keep `fast: true`.
 
 **With `ANY_SUCCESS`** a test passes if any run passes. Set `fast: false` to run every copy after a pass and read the
 `Raw:` line for how many runs failed; with `fast: true` the first pass drops the copies left, as it does for
-probability. C86 applies here too: a test whose last run failed is listed as failed although the run exits 0.
+probability. C87 applies here too: a test whose last run failed is listed as failed although the run exits 0.
 
 Approved 2026-11-15 (project owner's decision), with `ALL_SUCCESS` allowed by a further decision the same day. See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the [x62 findings](wp/x62-findings.md).

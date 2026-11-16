@@ -173,7 +173,7 @@ fn d72_fixed_under_fast_all_success_stops_at_the_first_failure() {
     );
 }
 
-/// Without `fast` every run executes and the run fails. C86 (kept, Kotlin's `testEnded`): the run that
+/// Without `fast` every run executes and the run fails. C87 (kept, Kotlin's `testEnded`): the run that
 /// completes the test, here the last, is the one tracked as final with its own status, so the summary's
 /// first line and the per-test result file show it as passed while the exit code says failed. The
 /// `Raw:` line and its failed-tests list count every run.
@@ -183,7 +183,7 @@ fn d72_fixed_under_all_success_without_fast_runs_every_copy_and_fails() {
     let outcome = all_success(false, &[Passed, Failure, Passed, Passed]);
     assert_eq!(statuses(&outcome), ["PASSED", "FAILURE", "PASSED"]);
     assert!(matches!(outcome.value, Some(Ok(false))));
-    // C86: the verdict is failed, the final tracked result is the last run.
+    // C87: the verdict is failed, the final tracked result is the last run.
     assert_eq!(final_status(&outcome), "PASSED");
     assert!(
         !outcome
@@ -207,9 +207,9 @@ fn d72_fixed_under_all_success_without_fast_runs_every_copy_and_fails() {
     assert_eq!(final_status(&outcome), "FAILURE");
 }
 
-/// C86 predates D72: ANY_SUCCESS without `fast` shows the mirror image with probability's copies too.
+/// C87 predates D72: ANY_SUCCESS without `fast` shows the mirror image with probability's copies too.
 #[test]
-fn c86_any_success_without_fast_tracks_the_last_run_as_final() {
+fn c87_any_success_without_fast_tracks_the_last_run_as_final() {
     use TestStatus::*;
     let outcome = run(
         FlakinessStrategyConfiguration::Fixed { count: 2 },
