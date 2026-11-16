@@ -381,7 +381,10 @@ impl DeviceProvider for AppleMacosProvider {
         Box::pin(async move {
             self.log(Level::DEBUG, "Terminating AppleMacosProvider".into());
             self.channel.close(None);
-            let results = futures_util::future::join_all(self.snapshot().into_iter().map(|device| async move {
+            // D74: termination takes the Macs out first, so a repeated call after a fatal disposal finds none to release
+            // again.
+            let devices = std::mem::take(&mut *self.devices.lock().unwrap_or_else(|e| e.into_inner()));
+            let results = futures_util::future::join_all(devices.into_values().map(|device| async move {
                 // A82 for macOS (D74): the release follows the disposal whatever its outcome; the disposal's error wins.
                 let disposed = device.dispose().await;
                 let released = self.connections.release(device.executor()).await;
@@ -399,7 +402,6 @@ impl DeviceProvider for AppleMacosProvider {
             for result in results {
                 result?;
             }
-            self.devices.lock().unwrap_or_else(|e| e.into_inner()).clear();
             Ok(())
         })
     }

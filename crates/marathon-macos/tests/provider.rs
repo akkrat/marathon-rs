@@ -517,3 +517,84 @@ async fn borrow_untried_avoids_a_tried_mac_and_takes_only_a_connected_one_d53() 
     v(p.join_pending().await)?;
     Ok(())
 }
+/// Fails the disposal's wait for a cancelled batch with a fatal error once armed: the only way a Mac's disposal fails.
+struct FatalJoin {
+    inner: Arc<dyn marathon_core::runtime::VendorClock>,
+    armed: std::sync::atomic::AtomicBool,
+}
+impl marathon_core::runtime::VendorClock for FatalJoin {
+    fn delay(
+        &self,
+        millis: i64,
+        cancellation: Arc<dyn marathon_core::runtime::CancellationSignal>,
+    ) -> marathon_core::runtime::VendorFuture<'_, ()> {
+        self.inner.delay(millis, cancellation)
+    }
+    fn now_millis(&self) -> i64 {
+        self.inner.now_millis()
+    }
+    fn with_timeout<'a>(
+        &'a self,
+        parent: Arc<dyn marathon_core::runtime::CancellationSignal>,
+        millis: i64,
+        body: marathon_core::runtime::VendorTimeoutBody<'a>,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        self.inner.with_timeout(parent, millis, body)
+    }
+    fn with_timeout_or_null<'a>(
+        &'a self,
+        parent: Arc<dyn marathon_core::runtime::CancellationSignal>,
+        millis: i64,
+        body: marathon_core::runtime::VendorTimeoutBody<'a>,
+    ) -> marathon_core::runtime::VendorFuture<'a, Option<()>> {
+        if self.armed.load(Ordering::SeqCst) {
+            return Box::pin(async {
+                Err(VendorError::Other(marathon_apple::cmd::failure(
+                    FailureKind::Fatal(marathon_error::FatalKind::NotImplemented),
+                    "fatal disposal",
+                )))
+            });
+        }
+        self.inner.with_timeout_or_null(parent, millis, body)
+    }
+}
+#[tokio::test]
+async fn a_fatal_disposal_still_releases_the_lease_and_a_repeated_termination_releases_nothing_more_d74() -> R {
+    let mut h = Harness::new("")?;
+    Arc::make_mut(&mut h.options.vendor).devices_file = None;
+    std::fs::write(
+        h.root.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: host}]\n",
+    )?;
+    let clock = Arc::new(FatalJoin {
+        inner: h.options.dependencies.clock.clone(),
+        armed: false.into(),
+    });
+    h.options.dependencies.clock = clock.clone();
+    let (p, c) = h.provider();
+    v(p.initialize(h.context.clone()).await)?;
+    v(p.join_pending().await)?;
+    let device = p.snapshot().remove(0);
+    v(marathon_core::vendor::Device::prepare(
+        &*device,
+        h.options.dependencies.configuration.clone(),
+        h.context.clone(),
+    )
+    .await)?;
+    // A running batch makes the disposal wait for it, and that wait fails fatally.
+    let running = Running::install(&h, vec![]);
+    let batch = tokio::spawn(support::batch(device.clone(), h.context.clone()));
+    tokio::time::timeout(std::time::Duration::from_secs(60), running.opened.notified()).await?;
+    clock.armed.store(true, Ordering::SeqCst);
+    let outcome = p.terminate().await;
+    assert!(matches!(&outcome, Err(error) if error.failure().kind.is_fatal()));
+    // A82 for macOS: the lease is released although the disposal failed.
+    assert_eq!(c.releases.load(Ordering::SeqCst), 1);
+    v(p.terminate().await)?;
+    assert_eq!(c.releases.load(Ordering::SeqCst), 1);
+    clock.armed.store(false, Ordering::SeqCst);
+    running.release.notify_one();
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(60), batch).await?;
+    v(device.join_pending().await)?;
+    Ok(())
+}
