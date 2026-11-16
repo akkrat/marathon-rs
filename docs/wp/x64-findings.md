@@ -104,15 +104,19 @@ thread) and fake-adb gates, with no real-time sleeps deciding the outcome (`docs
 - `two_hanging_return_probes_do_not_add_up_u170`: `shell` 30 s; both probes are in flight at once, a third device's
   grace ends at 10.5 s, and at 30.5 s both returned devices are given up as restarted (disconnected and set up again).
 - `a_recovery_made_stale_by_a_replacement_releases_nothing_u170`: 8 hanging probes fill the slots, so A's recovery is
-  queued; A leaves and connects again as a new device; when the slots free up, nothing probes the new device and no
-  event follows.
+  queued; A leaves and connects again as a new device; a marker device's recovery is queued behind it and one slot is
+  freed alone, so the marker recovers only after a kept stale recovery would have probed; nothing probes the new device
+  and no event follows.
 - `restorations_after_a_server_restart_are_bounded_and_leave_the_loop_free_u170`: 20 devices kept through a server
-  restart; exactly 8 reverse forwards in flight; meanwhile a device going `offline` has its grace end at its limit;
-  all others restored once the gate opens.
+  restart; 8 reverse forwards in flight, checked again after a device whose restoration is queued goes `offline` and
+  has its grace end at its limit; all others restored once the gate opens. The re-check is not ordered after a ninth
+  request a broken bound would send, so the bound's deciding witness is the ledger's unit test.
 - `termination_during_recoveries_is_bounded_and_releases_nothing_u170`: terminate with three probes held (the clock
   never moves, so only cancellation can end them); it returns, and afterwards nothing was released or restarted.
 - Unit tests in `provider.rs`: `a_stale_recovery_completes_into_nothing_u170` (superseded, dropped, abandoned
-  completions return nothing) and `recoveries_are_bounded_counting_those_still_ending_u170`.
+  completions return nothing), `recoveries_are_bounded_counting_those_still_ending_u170` and
+  `a_panicking_recovery_still_reports_and_frees_its_slot_u170`; in `tracker.rs`,
+  `a_second_grace_during_a_recovery_keeps_the_first_holds_start_d48`.
 
 Each fails without the change:
 
@@ -132,6 +136,43 @@ first; both passed once it was built); `python3 -I tools/differential/make_regis
 `tools/differential/test_evidence.py` and `scripts/check_plan_dag.py`. The registry was regenerated because the fake's
 `world.rs`, a pinned scenario input, changed; only its hash moved. Not run, per the batch's gate rule: `scripts/check.sh`,
 `scripts/remote-check.sh`, `cargo test --workspace`.
+
+## Review round 1 (Muse)
+
+Verdict "merge", with three minor findings, all fixed.
+
+- **M-x64-1, a panicking recovery never reported.** The task sent its `Done` at the end of its body, and only that
+  message frees the ledger's slot and decides about the device; the runtime's catch of a panic is seen only by a join,
+  which the loop does at its end. The body now runs under `AssertUnwindSafe(..).catch_unwind()` (`report`, which adds
+  `futures-util` =0.3.34 to marathon-android, the version the workspace already locks), and a panic is reported as a
+  failed recovery. Departure: the loop used to end on a failed recovery (`done.outcome?`), which would have ended the
+  server's tracking and failed the run. It now ends only on a cancellation; any other failure (before this round only a
+  timeout conversion of the configuration or the vendor clock's delay could fail this way) is logged and the device set up again, as when its
+  probe fails, since its state is unknown. After an outage that means its own gate opens. Witness:
+  `a_panicking_recovery_still_reports_and_frees_its_slot_u170` (a one-slot ledger, a panicking body: the report arrives
+  as an error, the slot frees and the queued device starts). Without the catch, the panic unwinds out of the task and the
+  test fails.
+- **M-x64-2, a second grace during a recovery held the device twice.** The first grace's hold stays until its recovery
+  reports, so a device going `offline` again meanwhile was held again, and `held_since` moved to the second grace,
+  undercounting D48's `return_wait_used`. `hold` now keeps an existing hold and its start; the grace count still goes up.
+  Witness: `a_second_grace_during_a_recovery_keeps_the_first_holds_start_d48`, which fails without the fix (away since
+  12,000 instead of 1,000).
+- **M-x64-3, fixed sleeps decided three negative checks.** The claim above, "no real-time sleeps deciding the outcome",
+  now holds, with one qualification:
+  - stale recovery: the first busy device's probe waits at its own gate, and a marker device's recovery is queued
+    behind the replaced device's. Opening that gate frees one slot; a kept stale recovery would take it, probe and
+    report before the marker starts, so the check made once the marker has recovered cannot pass early. With the queue
+    drop reverted it fails at that check (5 `getprop`s on the new device, 4 expected), 3 of 3 runs;
+  - termination: `terminate` joins the provider task, which joins each server's tracking task, which joins its
+    recoveries, so the checks are made right after it, before the probes are let through, with no wait;
+  - restorations: no event is ordered after a ninth request that a broken bound would send, so this one cannot be made
+    strict end to end. The sleep is gone; the count is checked again after a later grace ends, and the deciding witness
+    of the bound is `recoveries_are_bounded_counting_those_still_ending_u170`. The device sent `offline` there is now
+    one whose restoration is queued: a running one's cancelled task reports and frees its slot, which made the re-check
+    see 29 (seen while writing it).
+
+  The 50 ms pause in that test's retry loop paces clock steps until the provider reconnects; it decides nothing.
+  `return_recovery_test` passed 10 of 10 runs.
 
 ## Not verified
 
