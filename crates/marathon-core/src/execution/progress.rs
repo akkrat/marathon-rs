@@ -135,6 +135,10 @@ fn machine_at(
 struct TestExecutionData {
     original: Test,
     state: StateMachine<TestState, TestEvent, TestAction>,
+    /// D77: the state `fast: true` reaches on the same events. Without `fast` the run on which it
+    /// completes is tracked as final, not the run that completes `state` (C87), so the final result
+    /// agrees with the verdict: the first pass under ANY_SUCCESS, the first failure under ALL_SUCCESS.
+    fast: TestState,
 }
 /// Per-pool serial owner. Every async method must be awaited through completion.
 /// RetryProgress remains synchronous because AddRetry has no tracker payload.
@@ -185,6 +189,10 @@ impl PoolProgressAccumulator {
             let data = TestExecutionData {
                 original,
                 state: machine(count, strategy.clone()),
+                fast: TestState::Added {
+                    total: count,
+                    running: 0,
+                },
             };
             if let Some(&at) = index.get(&name) {
                 tests[at].1 = data;
@@ -210,8 +218,19 @@ impl PoolProgressAccumulator {
     #[cfg(feature = "test-support")]
     pub fn replace_state_for_test(&mut self, test: &Test, state: TestState) {
         let machine = machine_at(state, self.strategy.clone());
+        // A pass under ANY_SUCCESS, or a failure under ALL_SUCCESS, would have completed it with `fast`.
+        let fast = match (state, self.strategy.mode) {
+            (TestState::Passing { total, running, done }, ExecutionMode::AnySuccess) => {
+                TestState::Passed { total, running, done }
+            }
+            (TestState::Failing { total, running, done }, ExecutionMode::AllSuccess) => {
+                TestState::Failed { total, running, done }
+            }
+            _ => state,
+        };
         if let Some(data) = self.data_mut(&test.to_test_name('.', '#')) {
             data.state = machine;
+            data.fast = fast;
         }
     }
     pub fn state(&self, test: &Test) -> Option<TestState> {
@@ -240,16 +259,29 @@ impl PoolProgressAccumulator {
         );
     }
     fn transition(&mut self, test: &Test, event: TestEvent) -> Option<TestAction> {
+        self.transition_tracked(test, event).0
+    }
+    /// The action, and whether this event's result is the test's final one (D77).
+    fn transition_tracked(&mut self, test: &Test, event: TestEvent) -> (Option<TestAction>, bool) {
         let name = test.to_test_name('.', '#');
+        let fast = ExecutionStrategyConfiguration {
+            fast: true,
+            ..self.strategy.clone()
+        };
+        let strategy_fast = self.strategy.fast;
         let Some(data) = self.data_mut(&name) else {
             self.log(Level::WARN, "No FSM registered for test ", &name, "");
-            return None;
+            return (None, false);
         };
+        let (next, fast_action) = advance(data.fast, &event, &fast);
+        data.fast = next;
         // The construction defines every state/event pair; no invalid transition is reachable.
-        match data.state.transition(event) {
+        let action = match data.state.transition(event) {
             Ok(Transition::Valid { side_effect, .. }) => side_effect,
             _ => None,
-        }
+        };
+        let complete = if strategy_fast { action } else { fast_action };
+        (action, complete == Some(TestAction::Complete))
     }
     pub fn remove_test(&mut self, test: &Test, count: i32) -> Option<TestAction> {
         self.transition(test, TestEvent::RemoveAttempts(count))
@@ -374,7 +406,7 @@ impl PoolProgressAccumulator {
                 result: result.clone(),
             },
         };
-        let action = self.transition(&result.test, event);
+        let (action, final_tracked) = self.transition_tracked(&result.test, event);
         self.flush(cancellation.clone()).await?;
         if let Some(data) = self.data(&result.test.to_test_name('.', '#')) {
             let mut result = result.clone();
@@ -386,11 +418,7 @@ impl PoolProgressAccumulator {
             let device = device.clone();
             let tracker = self.tracker.clone();
             call_vendor(self.output.vendor.as_ref(), cancellation, move |_| {
-                Box::pin(async move {
-                    tracker
-                        .test(&pool, &device, &result, action == Some(TestAction::Complete))
-                        .await
-                })
+                Box::pin(async move { tracker.test(&pool, &device, &result, final_tracked).await })
             })
             .await?;
         }

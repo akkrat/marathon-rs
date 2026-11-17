@@ -173,26 +173,27 @@ fn d72_fixed_under_fast_all_success_stops_at_the_first_failure() {
     );
 }
 
-/// Without `fast` every run executes and the run fails. C87 (kept, Kotlin's `testEnded`): the run that
-/// completes the test, here the last, is the one tracked as final with its own status, so the summary's
-/// first line and the per-test result file show it as passed while the exit code says failed. The
-/// `Raw:` line and its failed-tests list count every run.
+/// Without `fast` every run executes and the run fails. D77 (was C87): the first failure, the run `fast`
+/// would have ended the test on, is the one tracked as final, so the summary's first line, the per-test
+/// result file and JUnit say failed, as the exit code does. The `Raw:` line and its failed-tests list
+/// count every run.
 #[test]
 fn d72_fixed_under_all_success_without_fast_runs_every_copy_and_fails() {
     use TestStatus::*;
     let outcome = all_success(false, &[Passed, Failure, Passed, Passed]);
     assert_eq!(statuses(&outcome), ["PASSED", "FAILURE", "PASSED"]);
     assert!(matches!(outcome.value, Some(Ok(false))));
-    // C87: the verdict is failed, the final tracked result is the last run.
-    assert_eq!(final_status(&outcome), "PASSED");
+    assert_eq!(final_status(&outcome), "FAILURE");
     assert!(
-        !outcome
+        outcome
             .read("tests/omni/marathon_junit_report.xml")
             .contains("<failure")
     );
     let summary = summary(&outcome);
     assert!(
-        summary.starts_with("Marathon run finished:\nDevice pool omni:\n\t1 passed, 0 failed, 0 ignored tests\n"),
+        summary.starts_with(
+            "Marathon run finished:\nDevice pool omni:\n\t0 passed, 1 failed, 0 ignored tests\n\tFailed tests:\n\t\ttest.SimpleTest#test\n"
+        ),
         "{summary}"
     );
     assert!(
@@ -207,16 +208,78 @@ fn d72_fixed_under_all_success_without_fast_runs_every_copy_and_fails() {
     assert_eq!(final_status(&outcome), "FAILURE");
 }
 
-/// C87 predates D72: ANY_SUCCESS without `fast` shows the mirror image with probability's copies too.
+/// D77 under ANY_SUCCESS without `fast` (C87 predates D72 and showed with probability's copies too): the
+/// first pass is the final result of a test that passes, whatever the runs after it, so the summary's
+/// first line, the per-test result file and JUnit say passed, as the exit code does.
 #[test]
-fn c87_any_success_without_fast_tracks_the_last_run_as_final() {
+fn d77_any_success_without_fast_tracks_the_first_pass_as_final() {
     use TestStatus::*;
     let outcome = run(
         FlakinessStrategyConfiguration::Fixed { count: 2 },
         false,
         &[Failure, Passed, Failure, Passed],
     );
+    assert_eq!(statuses(&outcome), ["FAILURE", "PASSED", "FAILURE"]);
     assert!(matches!(outcome.value, Some(Ok(true))));
+    assert_eq!(final_status(&outcome), "PASSED");
+    assert!(
+        !outcome
+            .read("tests/omni/marathon_junit_report.xml")
+            .contains("<failure")
+    );
+    let text = summary(&outcome);
+    assert!(
+        text.starts_with("Marathon run finished:\nDevice pool omni:\n\t1 passed, 0 failed, 0 ignored tests\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "\tRaw: 1 passed, 2 failed, 0 ignored, 0 incomplete tests\n\tFailed tests:\n\t\ttest.SimpleTest#test failed 2 time(s)\n"
+        ),
+        "{text}"
+    );
+    // A test whose every run fails keeps its last run as final, as with `fast`.
+    let outcome = run(
+        FlakinessStrategyConfiguration::Fixed { count: 2 },
+        false,
+        &[Failure, Failure, Failure, Passed],
+    );
+    assert!(matches!(outcome.value, Some(Ok(false))));
     assert_eq!(final_status(&outcome), "FAILURE");
     assert!(summary(&outcome).contains("\t0 passed, 1 failed, 0 ignored tests\n"));
+}
+
+/// D77 takes the final record from what `fast: true` tracks, which is unchanged: there the run that
+/// decides the verdict ends the test. For the same answers both settings write the same per-test result
+/// file and summary first line; only the number of runs differs.
+#[test]
+fn d77_fast_and_not_fast_track_the_same_final_record() {
+    use TestStatus::*;
+    let fixed = FlakinessStrategyConfiguration::Fixed { count: 2 };
+    for (mode, answers, runs) in [
+        (ExecutionMode::AnySuccess, [Failure, Passed, Failure, Passed], 2),
+        (ExecutionMode::AllSuccess, [Passed, Failure, Passed, Passed], 2),
+        (ExecutionMode::AnySuccess, [Failure, Failure, Failure, Passed], 3),
+        (ExecutionMode::AllSuccess, [Passed, Passed, Passed, Passed], 3),
+    ] {
+        let fast = run_in(mode, fixed.clone(), true, &answers);
+        let slow = run_in(mode, fixed.clone(), false, &answers);
+        assert_eq!(statuses(&fast).len(), runs, "{mode:?} {answers:?}");
+        assert_eq!(statuses(&slow).len(), 3, "{mode:?} {answers:?}");
+        // Batch ids are random per run; which run is final is pinned in `pool_progress`.
+        let record = |outcome: &Outcome| {
+            let mut record: Value =
+                serde_json::from_str(&outcome.read("test_result/omni/serial-1/test.SimpleTest#test.json")).unwrap();
+            record["testBatchId"] = Value::Null;
+            record
+        };
+        assert_eq!(record(&fast), record(&slow), "{mode:?} {answers:?}");
+        let first = |outcome: &Outcome| summary(outcome).lines().take(3).collect::<Vec<_>>().join("\n");
+        assert_eq!(first(&fast), first(&slow), "{mode:?} {answers:?}");
+        assert_eq!(
+            format!("{:?}", fast.value),
+            format!("{:?}", slow.value),
+            "{mode:?} {answers:?}"
+        );
+    }
 }

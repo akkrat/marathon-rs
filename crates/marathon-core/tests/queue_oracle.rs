@@ -2,6 +2,9 @@
 //! real QueueActor, message by message. D60 gives the recorded inputs explicit native key,
 //! batch and queue-order expectations; accounting, replies, logs and final states remain exact.
 //! D69 supersedes the three recordings of C45–C47; `queue_behaviour` pins their native contract.
+//! D77 moves the final flag of tracked runs in the `fast: false` recordings (`d77_finals`).
+#[path = "support/d77.rs"]
+mod d77;
 #[path = "support/queue.rs"]
 mod support;
 use marathon_core::{
@@ -302,7 +305,13 @@ const NATIVE_VARIANTS: &str = r#"[
   }
 ]"#;
 
-fn native_expected(mut row: Value) -> Value {
+fn native_expected(row: Value) -> Value {
+    let mut row = native_order(row);
+    d77_finals(&mut row);
+    row
+}
+
+fn native_order(mut row: Value) -> Value {
     // x56 changes exactly the handler's diagnostic name/message, not queue data.
     for step in row["steps"].as_array_mut().unwrap() {
         for event in step["events"].as_array_mut().unwrap() {
@@ -392,6 +401,27 @@ fn native_expected(mut row: Value) -> Value {
         step["events"] = json!(events);
     }
     row
+}
+
+/// D77: with `fast: false` the JVM tracks the run that completes a test as final (C87); the native
+/// accounting tracks the run `fast: true` would complete it on. Only the final flag of `track` events moves.
+fn d77_finals(row: &mut Value) {
+    if row["fast"] == true {
+        return;
+    }
+    let mut d77 = d77::D77::new(row["mode"] != "ALL_SUCCESS");
+    for step in row["steps"].as_array_mut().unwrap() {
+        for event in step["events"].as_array_mut().unwrap() {
+            if event[0] == "track" {
+                let flag = d77.final_flag(
+                    event[3].to_string(),
+                    event[4].as_str().unwrap(),
+                    event[8].as_bool().unwrap(),
+                );
+                event[8] = json!(flag);
+            }
+        }
+    }
 }
 
 /// D69: the recordings of C45 (K1), C46 (K2) and C47 (K4), which the native queue no longer reproduces. They stay in
@@ -552,6 +582,74 @@ fn d50_fills_the_slot_kotlin_gave_to_a_flaky_copy() {
         json!([["pkg", "C1", "m1"], ["pkg", "C2", "m2"], ["pkg", "C3", "m3"]])
     );
     assert_eq!(native["steps"].as_array().unwrap().len(), 11);
+    assert!(mismatches_of(vec![native]).is_empty());
+}
+
+/// D77 moves the final flag of these tracked runs, all in `fast: false` (ANY_SUCCESS) recordings: the first pass
+/// of a test with several runs becomes final, and the later run that completes the test does not. A flag moved
+/// back to the JVM's is a mismatch.
+#[test]
+fn d77_moves_only_final_flags_of_non_fast_recordings() {
+    let mut moved = Vec::new();
+    for row in rows() {
+        let case = row["case"].as_str().unwrap().to_owned();
+        let fast = row["fast"] == true;
+        let before = native_order(row);
+        let mut after = before.clone();
+        d77_finals(&mut after);
+        for (index, (old, new)) in before["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(after["steps"].as_array().unwrap())
+            .enumerate()
+        {
+            for (old, new) in old["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .zip(new["events"].as_array().unwrap())
+            {
+                if old != new {
+                    assert!(!fast, "{case}");
+                    let mut old = old.clone();
+                    old[8] = new[8].clone();
+                    assert_eq!(&old, new);
+                    let case = case.split(':').next().unwrap();
+                    let test = new[3][1].as_str().unwrap().to_owned() + "#" + new[3][2].as_str().unwrap();
+                    moved.push(format!("{case} step {} {test} {}", index + 1, new[8]));
+                }
+            }
+        }
+    }
+    assert_eq!(
+        moved,
+        [
+            "placement step 10 Placement#slow true",
+            "placement step 12 Placement#slow false",
+            // C46's recording (superseded by D69): the JVM never completes the test, D77 tracks its pass.
+            "K2 step 4 A#m1 true",
+            "K3 step 6 A#m1 true",
+            "K3 step 6 A#m1 false",
+            "K3 step 2 A#m1 true",
+            "K3 step 8 A#m1 false",
+            "class-name batching with flaky copies and mixed results step 3 A#m1 true",
+            "class-name batching with flaky copies and mixed results step 4 C0#m0 true",
+            "class-name batching with flaky copies and mixed results step 7 A#m1 false",
+            "class-name batching with flaky copies and mixed results step 8 C0#m0 false",
+            "execution-time comparisons with ConfirmOutcome and IsEmpty step 8 C1#m1 true",
+            "execution-time comparisons with ConfirmOutcome and IsEmpty step 10 C1#m1 false",
+        ]
+    );
+    // A flag left as the JVM recorded it is a mismatch.
+    let case = rows()
+        .into_iter()
+        .find(|row| row["case"].as_str().unwrap().starts_with("execution-time comparisons"))
+        .unwrap();
+    let jvm = native_order(case);
+    assert_eq!(mismatches_of(vec![jvm.clone()]).len(), 2);
+    let mut native = jvm;
+    d77_finals(&mut native);
     assert!(mismatches_of(vec![native]).is_empty());
 }
 

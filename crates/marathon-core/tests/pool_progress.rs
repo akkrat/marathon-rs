@@ -782,3 +782,49 @@ fn should_report_progress() {
         })
     });
 }
+
+/// D77 (native): the run tracked as final is the one `fast: true` completes the test on, with either
+/// setting. Without `fast` that was the last run (C87), which disagreed with the verdict when a pass
+/// under ANY_SUCCESS or a failure under ALL_SUCCESS came earlier.
+#[test]
+fn d77_the_final_run_is_the_one_fast_completes_the_test_on() {
+    use TestStatus::*;
+    run(|core| {
+        Box::pin(async move {
+            let cases = [
+                (AnySuccess, vec![Failure, Passed, Failure], "2"),
+                (AnySuccess, vec![Passed, Passed, Passed], "1"),
+                (AnySuccess, vec![Failure, Failure, Failure], "3"),
+                (AllSuccess, vec![Passed, Failure, Passed], "2"),
+                (AllSuccess, vec![Failure, Failure, Passed], "1"),
+                (AllSuccess, vec![Passed, Passed, Passed], "3"),
+            ];
+            for (mode, statuses, expected) in cases {
+                for fast in [false, true] {
+                    let test = test("method");
+                    let device = device("1");
+                    let mut h = Harness::new(&core, vec![test.clone(); statuses.len()], mode, fast);
+                    for (at, status) in statuses.iter().enumerate() {
+                        let batch = (at + 1).to_string();
+                        h.start(&device, &test).await;
+                        h.end(result(&test, &device, &batch, *status, at as i64, at as i64 + 1), false)
+                            .await;
+                    }
+                    let finals: Vec<String> = h
+                        .capture
+                        .effects
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .filter_map(|effect| match effect {
+                            Effect::Track(_, _, result, true) => Some(result.test_batch_id.clone()),
+                            _ => None,
+                        })
+                        .collect();
+                    assert_eq!(finals, [expected], "{mode:?} fast {fast} {statuses:?}");
+                }
+            }
+            Ok(())
+        })
+    });
+}

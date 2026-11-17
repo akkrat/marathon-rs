@@ -1,5 +1,8 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/progress/PoolProgressAccumulator.kt
 //! and integrations/ci/CIIntegrationFactory.kt (JVM differential corpus).
+//! D77 moves the final flag of tracked runs in the `fast: false` rows (`native_expected`).
+#[path = "support/d77.rs"]
+mod d77;
 #[path = "support/progress.rs"]
 mod support;
 
@@ -33,12 +36,100 @@ fn seeded(row: &Value) -> TestState {
     }
 }
 
+const RECORDED: &str = include_str!("../../../fixtures/oracle/progress/pool.jsonl");
+
+/// D77: with `fast: false` the run `fast: true` would complete the test on is tracked as final, not
+/// the run that completes it (C87). A seeded test whose verdict is already decided (terminal, or
+/// a pass under ANY_SUCCESS, a failure under ALL_SUCCESS) has its final run tracked already.
+fn native_expected(mut row: Value) -> Value {
+    if row["fast"] == true {
+        return row;
+    }
+    let any = row["mode"] == "ANY_SUCCESS";
+    let mut d77 = d77::D77::new(any);
+    let kind = row["before"]["kind"].as_str().unwrap();
+    if matches!(kind, "Passed" | "Failed") || kind == if any { "Passing" } else { "Failing" } {
+        d77.decide(());
+    }
+    let mut flags = Vec::new();
+    for track in row["tracks"].as_array_mut().unwrap() {
+        let flag = d77.final_flag((), track["status"].as_str().unwrap(), track["final"].as_bool().unwrap());
+        track["final"] = json!(flag);
+        flags.push(flag);
+    }
+    let mut flags = flags.into_iter();
+    for effect in row["effects"].as_array_mut().unwrap() {
+        if let Some(track) = effect.get_mut("track") {
+            track["final"] = json!(flags.next().unwrap());
+        }
+    }
+    assert!(flags.next().is_none());
+    row
+}
+
+fn without_finals(mut row: Value) -> Value {
+    for track in row["tracks"].as_array_mut().unwrap() {
+        track["final"] = Value::Null;
+    }
+    for effect in row["effects"].as_array_mut().unwrap() {
+        if let Some(track) = effect.get_mut("track") {
+            track["final"] = Value::Null;
+        }
+    }
+    row
+}
+/// The D77 allowance changes nothing but final flags, only on `fast: false` rows, and on exactly
+/// the 22 rows where a pass under ANY_SUCCESS or a failure under ALL_SUCCESS decides the verdict
+/// before the run that completes the test (true), or that completing run follows it (false).
+#[test]
+fn d77_moves_only_the_final_flag_of_non_fast_rows() {
+    let mut moved = Vec::new();
+    for line in RECORDED.lines() {
+        let recorded: Value = serde_json::from_str(line).unwrap();
+        let native = native_expected(recorded.clone());
+        if native == recorded {
+            continue;
+        }
+        assert_eq!(recorded["fast"], false, "{line}");
+        assert_eq!(
+            without_finals(native.clone()),
+            without_finals(recorded.clone()),
+            "{line}"
+        );
+        let flag = native["tracks"][0]["final"].as_bool().unwrap();
+        moved.push(format!(
+            "{} {} {} {}",
+            recorded["mode"].as_str().unwrap(),
+            recorded["before"]["kind"].as_str().unwrap(),
+            recorded["event"].as_str().unwrap(),
+            flag
+        ));
+    }
+    assert_eq!(moved.len(), 22, "{moved:#?}");
+    for row in &moved {
+        let decides = row.starts_with("ANY_SUCCESS")
+            && ["passed", "ignored", "assumption"]
+                .iter()
+                .any(|e| row.contains(&format!(" {e} ")))
+            || row.starts_with("ALL_SUCCESS") && row.contains(" failed ");
+        let decided = row.starts_with("ANY_SUCCESS Passing") || row.starts_with("ALL_SUCCESS Failing");
+        assert!(
+            if row.ends_with("true") {
+                decides && !decided
+            } else {
+                decided
+            },
+            "{row}"
+        );
+    }
+}
+
 #[test]
 fn every_state_event_mode_and_fast_setting_replays_the_jvm() {
     run(|core| {
         Box::pin(async move {
-            for line in include_str!("../../../fixtures/oracle/progress/pool.jsonl").lines() {
-                let row: Value = serde_json::from_str(line).unwrap();
+            for line in RECORDED.lines() {
+                let row = native_expected(serde_json::from_str(line).unwrap());
                 let mut original = test("method");
                 original.meta_properties.push(MetaProperty {
                     name: "original".into(),
