@@ -242,15 +242,17 @@ impl AppleMacosProvider {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .insert(device.info().serial_number, device.clone());
+        let mut disposed = Ok(());
         if let Some(previous) = previous {
             self.log(
                 Level::ERROR,
                 "replaced existing device MacosDevice with new MacosDevice.".into(),
             );
             // A89 (D74): the replaced Mac's lease is released after its disposal, whether or not that failed.
-            let disposed = previous.dispose().await;
+            disposed = previous.dispose().await;
             self.release_logged(previous.executor()).await;
-            disposed?;
+            // A107: a failed disposal no longer stops the replacement. The old Mac leaves the registry and the new one
+            // is registered and announced; the (fatal) error is returned afterwards, so it still ends the run.
             self.registry.remove(&DeviceRef(previous));
         }
         let event = DeviceEvent::Connected(self.registry.register(device));
@@ -263,7 +265,7 @@ impl AppleMacosProvider {
                 )
             })
         });
-        Ok(())
+        disposed
     }
     pub async fn join_pending(&self) -> VendorResult<()> {
         let mut outcome = Ok(());

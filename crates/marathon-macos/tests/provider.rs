@@ -598,3 +598,73 @@ async fn a_fatal_disposal_still_releases_the_lease_and_a_repeated_termination_re
     v(device.join_pending().await)?;
     Ok(())
 }
+#[tokio::test]
+async fn a_replacement_whose_predecessor_fails_to_dispose_is_announced_and_released_once_a107() -> R {
+    use marathon_core::vendor::DeviceRef;
+    let mut h = Harness::new("")?;
+    Arc::make_mut(&mut h.options.vendor).devices_file = None;
+    std::fs::write(
+        h.root.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: host}]\n",
+    )?;
+    let clock = Arc::new(FatalJoin {
+        inner: h.options.dependencies.clock.clone(),
+        armed: false.into(),
+    });
+    h.options.dependencies.clock = clock.clone();
+    let (p, c) = h.provider();
+    v(p.initialize(h.context.clone()).await)?;
+    v(p.join_pending().await)?;
+    let old = p.snapshot().remove(0);
+    v(
+        marathon_core::vendor::Device::prepare(&*old, h.options.dependencies.configuration.clone(), h.context.clone())
+            .await,
+    )?;
+    // A running batch makes the old Mac's disposal wait for it, and that wait fails fatally.
+    let running = Running::install(&h, vec![]);
+    let batch = tokio::spawn(support::batch(old.clone(), h.context.clone()));
+    tokio::time::timeout(std::time::Duration::from_secs(60), running.opened.notified()).await?;
+    clock.armed.store(true, Ordering::SeqCst);
+    // The same worker again: a new Mac under the same serial replaces the old one.
+    let outcome = p.initialize(h.context.clone()).await;
+    clock.armed.store(false, Ordering::SeqCst);
+    assert!(
+        matches!(&outcome, Err(error) if error.failure().kind.is_fatal()),
+        "the old Mac's fatal disposal error still ends the run"
+    );
+    let new = p.snapshot().remove(0);
+    assert!(!Arc::ptr_eq(&old, &new));
+    assert_eq!(c.creates.load(Ordering::SeqCst), 2);
+    // The old Mac's lease is released after its failed disposal.
+    assert_eq!(c.releases.load(Ordering::SeqCst), 1);
+    assert!(
+        p.registry.lookup(&DeviceRef(old.clone())).is_err(),
+        "old Mac left the registry"
+    );
+    assert!(
+        p.registry.lookup(&DeviceRef(new.clone())).is_ok(),
+        "new Mac is registered"
+    );
+    // Both Macs were announced, each once; the second announcement is the new Mac.
+    let mut connected = vec![];
+    for _ in 0..2 {
+        let event = tokio::time::timeout(std::time::Duration::from_secs(60), p.subscribe().receive()).await?;
+        match v(event)? {
+            Some(DeviceEvent::Connected(device)) => connected.push(device),
+            _ => return Err("expected a Connected event".into()),
+        }
+    }
+    assert_eq!(connected[0], DeviceRef(old.clone()));
+    assert_eq!(connected[1], DeviceRef(new.clone()));
+    running.release.notify_one();
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(60), batch).await?;
+    v(p.join_pending().await)?;
+    v(p.terminate().await)?;
+    assert!(v(p.subscribe().receive().await)?.is_none(), "no further announcement");
+    // Termination releases the new Mac's lease, once; the old one is not released again.
+    assert_eq!(c.releases.load(Ordering::SeqCst), 2);
+    v(p.terminate().await)?;
+    assert_eq!(c.releases.load(Ordering::SeqCst), 2);
+    v(p.join_pending().await)?;
+    Ok(())
+}
