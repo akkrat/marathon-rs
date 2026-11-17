@@ -347,3 +347,74 @@ fn folder_pull_uses_shell_listing_breadth_first() {
         })
     });
 }
+
+/// x77: adb's sync reports a transport that closed mid-reply as an unsupported protocol. A pull cut off because the device
+/// went offline says so, where it used to blame the device's sync support; one cut off while the server still lists the
+/// device as `device` keeps that text.
+#[test]
+fn a_pull_cut_off_by_an_offline_device_blames_the_connection_x77() {
+    let temp = checked(tempfile::tempdir());
+    let local = temp.path().to_string_lossy().to_string();
+    run(configuration(), move |runtime, context| {
+        Box::pin(async move {
+            let _temp = temp;
+            let mut script = base_script(27, vec![]);
+            script["devices"][0]["files"] = json!([
+                {"path":"/sdcard/closed.mp4","content":"VIDEO","recv_cut":"close"},
+                {"path":"/sdcard/hung.mp4","content":"VIDEO","recv_cut":"hang"}
+            ]);
+            let server = server(script).await;
+            let device = device(&server, runtime);
+            device.setup(context.clone()).await?;
+            let serial = device.serial_number();
+            let message = |error: VendorError| {
+                assert!(matches!(error, VendorError::Transfer(_)), "{error:?}");
+                error.failure().message.clone().unwrap_or_default()
+            };
+
+            let error = device
+                .pull_file("/sdcard/closed.mp4", &format!("{local}/closed.mp4"), context.clone())
+                .await
+                .unwrap_err();
+            assert_eq!(
+                message(error),
+                format!("Device {serial} does not support sync: file transfer")
+            );
+
+            let pulling = {
+                let (device, local, context) = (device.clone(), local.clone(), context.clone());
+                tokio::spawn(async move {
+                    device
+                        .pull_file("/sdcard/hung.mp4", &format!("{local}/hung.mp4"), context)
+                        .await
+                })
+            };
+            let received = || {
+                server
+                    .transcript()
+                    .iter()
+                    .any(|r| r["type"] == "sync" && r["path"] == "/sdcard/hung.mp4" && r["op"] != "STAT")
+            };
+            checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                    while !received() {
+                        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                    }
+                })
+                .await,
+            );
+            checked(server.set_device_state("emulator-5554", "offline"));
+            let error = checked(checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), pulling).await,
+            ))
+            .unwrap_err();
+            assert_eq!(
+                message(error),
+                format!("File transfer from device {serial} broke off because the device is briefly offline")
+            );
+            checked(server.set_device_state("emulator-5554", "device"));
+            finish(server, device).await;
+            Ok(())
+        })
+    });
+}

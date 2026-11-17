@@ -96,7 +96,7 @@ A device without `features` reports a recent emulator's list minus the compresse
 
 ### Files and sync
 
-Each device has an in-memory filesystem with `/`, `/data/local/tmp`, `/sdcard` and `/system/bin`, plus the script's `files`. `mode` is an octal string (`"0644"` by default, `"0755"` for directories; a scripted directory keeps its mode, the parents created for it get `0755`); `mtime` is in seconds. Pushes create parent directories, like adbd. `/sdcard` is a plain directory, not a link to `/storage/emulated/0`.
+Each device has an in-memory filesystem with `/`, `/data/local/tmp`, `/sdcard` and `/system/bin`, plus the script's `files`. `mode` is an octal string (`"0644"` by default, `"0755"` for directories; a scripted directory keeps its mode, the parents created for it get `0755`); `mtime` is in seconds. Pushes create parent directories, like adbd. `/sdcard` is a plain directory, not a link to `/storage/emulated/0`. A file with `recv_cut` breaks off its RECV after the first DATA header, as a transport closing mid-reply does: `close` ends the connection at once, with the device still `device`; `hang` waits until the device disconnects or goes offline.
 
 ### Framebuffer
 

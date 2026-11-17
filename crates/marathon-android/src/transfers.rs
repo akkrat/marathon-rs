@@ -117,16 +117,18 @@ impl AndroidDevice {
                 ),
                 e,
             )),
-            Err(e) if e.failure().kind == FailureKind::Adb(AdbKind::UnsupportedSyncProtocol) => Err(with_cause(
-                transfer(
-                    format!(
-                        "Device {} does not support sync: file transfer",
-                        self.serial_number().to_owned()
-                    )
-                    .as_str(),
-                ),
-                e,
-            )),
+            // x77: adb's sync reports a transport that closed mid-reply as an unsupported protocol, so a pull during an
+            // `offline` blamed the device's sync support.
+            Err(e) if e.failure().kind == FailureKind::Adb(AdbKind::UnsupportedSyncProtocol) => {
+                let message = match self.lost_connection(context.cancellation.clone()).await {
+                    Some(why) => format!(
+                        "File transfer from device {} broke off because {why}",
+                        self.serial_number()
+                    ),
+                    None => format!("Device {} does not support sync: file transfer", self.serial_number()),
+                };
+                Err(with_cause(transfer(message.as_str()), e))
+            }
             other => other,
         }
     }

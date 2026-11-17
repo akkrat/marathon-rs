@@ -192,6 +192,18 @@ pub struct FileSpec {
     pub mode: Option<String>,
     #[serde(default)]
     pub mtime: u32,
+    /// A RECV of this file sends the first DATA header and then breaks off, as a transport that closes mid-reply does.
+    pub recv_cut: Option<RecvCut>,
+}
+
+/// How a RECV breaks off after its first DATA header.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecvCut {
+    /// Close the connection at once, with the device still `device`.
+    Close,
+    /// Wait, so that the session ends only when the device disconnects or goes offline.
+    Hang,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -421,6 +433,7 @@ pub struct CompiledFile {
     pub content: Option<Vec<u8>>,
     pub mode: u32,
     pub mtime: u32,
+    pub recv_cut: Option<RecvCut>,
 }
 
 #[derive(Debug, Clone)]
@@ -504,6 +517,7 @@ fn compile_device(d: &DeviceSpec, base: &Path) -> Result<CompiledDevice, ScriptE
             content,
             mode,
             mtime: f.mtime,
+            recv_cut: f.recv_cut,
         });
     }
     let mut probe = super::fs::DeviceFs::default();

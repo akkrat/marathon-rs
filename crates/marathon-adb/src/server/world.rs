@@ -8,7 +8,7 @@ use serde_json::json;
 use tokio::sync::watch;
 
 use super::fs::DeviceFs;
-use super::script::{CompiledDevice, CompiledScript, KillBehaviour, Response, Rule, ServiceKind};
+use super::script::{CompiledDevice, CompiledScript, KillBehaviour, RecvCut, Response, Rule, ServiceKind};
 use super::transcript::{Transcript, lock};
 
 pub(crate) struct World {
@@ -65,6 +65,8 @@ pub(crate) struct Device {
     life: watch::Sender<u64>,
     /// Reverse forwards, local spec → remote spec, in creation order.
     pub reverse: Vec<(String, String)>,
+    /// The files whose RECV breaks off after its first DATA header.
+    pub recv_cuts: BTreeMap<String, RecvCut>,
 }
 
 /// Which device a host request or transport switch addresses.
@@ -364,6 +366,11 @@ impl State {
             transport_id,
             life: watch::Sender::new(0),
             reverse: Vec::new(),
+            recv_cuts: d
+                .files
+                .iter()
+                .filter_map(|f| f.recv_cut.map(|cut| (f.path.clone(), cut)))
+                .collect(),
         });
     }
 }

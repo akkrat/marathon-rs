@@ -14,6 +14,7 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
 use super::fs::Node;
 use super::protocol::write_okay;
+use super::script::RecvCut;
 use super::world::World;
 
 /// SYNC_DATA_MAX: the largest DATA chunk adbd sends and accepts.
@@ -281,6 +282,7 @@ pub(crate) async fn serve(
                         return super::device::close(rd, wr).await;
                     }
                 }
+                let cut = world.with_device(serial, |d| d.recv_cuts.get(&path).copied()).flatten();
                 let content = world
                     .with_device(serial, |d| match d.fs.get(&path) {
                         None => Err("open failed: No such file or directory".to_string()),
@@ -295,6 +297,15 @@ pub(crate) async fn serve(
                     json!({"path": path, "size": content.as_ref().ok().map(Vec::len), "error": content.as_ref().err()}),
                 );
                 match content {
+                    Ok(c) if cut.is_some() => {
+                        let mut out = b"DATA".to_vec();
+                        out.extend((c.len().min(DATA_MAX) as u32).to_le_bytes());
+                        wr.write_all(&out).await?;
+                        if cut == Some(RecvCut::Hang) {
+                            std::future::pending::<()>().await;
+                        }
+                        return super::device::close(rd, wr).await;
+                    }
                     Ok(c) => {
                         let mut out = Vec::with_capacity(c.len() + c.len() / DATA_MAX * 8 + 16);
                         for chunk in c.chunks(DATA_MAX) {
