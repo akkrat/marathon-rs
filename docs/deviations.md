@@ -2086,7 +2086,9 @@ Approved 2026-11-17 (project owner's decision). See
 [x79 findings](wp/x79-findings.md).
 
 **Migration action:** none for most jobs: the `.ec` files land where they did. A tool that reads attachment types from
-the per-test result files or Allure should accept `COVERAGE`. A job that made its app debuggable only to get coverage
+the per-test result files or Allure should accept `COVERAGE`. Its path, like every attachment's, is absolute on the machine
+that ran marathon; a tool reading a copy of the output folder elsewhere joins the part after the last `/device-files/`
+onto its copy. A job that made its app debuggable only to get coverage
 can stop doing so.
 
 ## Other accepted text differences
