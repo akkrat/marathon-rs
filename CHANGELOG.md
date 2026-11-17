@@ -12,9 +12,13 @@ differences D78–D81. Upgrading from 0.13.0 needs the checks in 0.14.0-rc.1's "
   elements as extra runs should read `test_result/raw.json`.
 - **iOS videos and durations (D80):** with video recording on a remote worker, tests after the first of a batch now keep
   their videos and real durations, so reports can show more videos and longer times than before.
-- **Android coverage (D81):** with `isCodeCoverageEnabled: true`, the instrumentation writes its coverage file under the
-  app's external files directory instead of its private data, a missing coverage file is an ERROR, and each test's
-  result file lists a `COVERAGE` attachment. A non-debuggable app now produces coverage.
+- **Android coverage (D81):** with `isCodeCoverageEnabled: true`, each instrumentation writes its coverage file under the
+  app's external files directory instead of its private data, without `run-as`, so a non-debuggable app now produces
+  coverage. The `.ec` files land in `device-files/<pool>/coverage/` as before, one per instrumentation
+  (`coverage-<batch>.ec`, then `coverage-<batch>-2.ec` for a second instrumentation of the batch). A missing coverage
+  file is an ERROR but does not change the exit code. Each test's result file and Allure list the file as a `COVERAGE`
+  attachment with its absolute path on the machine that ran marathon; a tool reading a copied output folder joins the
+  part after `/device-files/` onto its copy (see D81 in the deviations guide).
 
 ### Reports
 
@@ -47,17 +51,20 @@ differences D78–D81. Upgrading from 0.13.0 needs the checks in 0.14.0-rc.1's "
 
 - **Code coverage works for a non-debuggable app (D81):** with `isCodeCoverageEnabled: true`, coverage used to be
   written to the app's private data and copied out with `run-as`, which only a debuggable app allows; a non-debuggable
-  app's run passed with no coverage and no warning. The instrumentation now writes
-  `<external storage>/Android/data/<app>/files/coverage/coverage-<batch>.ec`, which marathon prepares and pulls without
-  `run-as` into `device-files/<pool>/coverage/` as before. A coverage file that is missing or cannot be pulled is an
-  ERROR naming the batch, and each test's result file lists its batch's file as a `COVERAGE` attachment.
+  app's run passed with no coverage and no warning. Each instrumentation now writes
+  `<external storage>/Android/data/<app>/files/coverage/coverage-<batch>.ec` (`-2`, `-3` … for further instrumentations
+  of the batch), which marathon prepares and pulls without `run-as` into `device-files/<pool>/coverage/` as before. A
+  coverage file that is missing or cannot be pulled is an ERROR naming the batch, with the exit code unchanged, and each
+  test's result file and Allure list its instrumentation's file as a `COVERAGE` attachment.
 
 ### Evidence
 
 - 0.14.0-rc.1 ran on real hosts before these changes: the static Linux build on two API 36 Android emulators (adb server
   killed and an emulator lost mid-batch, brief `offline`, SIGTERM, and D71, D72 and D77 on the real runner), and the
   macOS build on this project's Mac with iOS 18.6 and 26.4 simulators and macOS tests, locally and over SSH to a second
-  Mac as a real worker. Per-test results and reports matched 0.13.0-rc.1, and the D68–D77 cases behaved as documented.
+  Mac as a real worker. Healthy runs gave the same per-test outcomes and report data as 0.13.0-rc.1, and the D69–D72,
+  D74, D76 and D77 cases that were exercised behaved as documented; D68 and D75 were not reachable there. On the remote
+  worker one test lost its video and got a JUnit time of 0 after a slow video transfer, as in 0.13.0 (fixed by D80).
   Those runs found what D78–D80 and the log changes fix.
 - D78–D80 and the log changes were tested with fakes and test harnesses, each with a test that fails without its fix,
   and reviewed by another model. D81 also ran on an API 36 emulator with a non-debuggable app: 0.14.0-rc.1 wrote no
