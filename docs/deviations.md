@@ -1731,14 +1731,15 @@ and the Allure environment (`FixedFlakinessStrategyConfiguration(count=4)`) show
 **With `ALL_SUCCESS`** a test passes only if all its runs pass, and the run exits 1 otherwise. `ALL_SUCCESS` still
 requires `retryStrategy: no-retry`, and still rejects `probability` with the message it always had. With `fast: true`
 (the default) a test's first failure ends it: its copies still queued are dropped, that failure is its final result,
-and the summary, result files and exit code agree. With `fast: false` every run executes and the exit code still says
-failed, but the summary's first line, the per-test result file and the JUnit case follow the last run
-([C87](known-kotlin-bugs.md)), so a test whose last run passed is listed as passed there. Read the exit code and the
-summary's `Raw:` line and failed-tests list, which count every run, or keep `fast: true`.
+and the summary, result files and exit code agree. With `fast: false` every run executes; since
+[D77](#d77--the-final-result-of-a-test-agrees-with-its-verdict) its first failure is still its final result, so the
+outputs agree too (before D77 they followed the last run, [C87](known-kotlin-bugs.md)). The summary's `Raw:` line and
+failed-tests list count every run.
 
 **With `ANY_SUCCESS`** a test passes if any run passes. Set `fast: false` to run every copy after a pass and read the
 `Raw:` line for how many runs failed; with `fast: true` the first pass drops the copies left, as it does for
-probability. C87 applies here too: a test whose last run failed is listed as failed although the run exits 0.
+probability. With `fast: false` the first pass is the final result of a test that passes (D77; before it, C87 listed
+a test whose last run failed as failed although the run exits 0).
 
 Approved 2026-11-15 (project owner's decision), with `ALL_SUCCESS` allowed by a further decision the same day. See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the [x62 findings](wp/x62-findings.md).
@@ -1827,6 +1828,61 @@ Approved 2026-11-15 (project owner's decision). See
 
 **Migration action:** none. A wrapper or log check that counts worker transfers sees one
 fewer for an iOS unit-test bundle built inside its app.
+
+## D77 — The final result of a test agrees with its verdict
+
+A test with several runs (retries, flaky copies, uncompleted re-runs) has one result tracked as final: it is the
+test's line in the summary's first block (`N passed, N failed, N ignored tests` and the `Failed tests:` under it),
+its per-test result file, its JUnit test case and its HTML entry. In the Kotlin marathon it is the run whose event
+completes the test, with that run's own status (C87). With `executionStrategy.fast: true` (the default) the run
+that decides the verdict completes the test, so the two agree. With `fast: false` the last run completes it, so:
+
+- under `ANY_SUCCESS` a test that passed once and failed on its last run passes (exit 0) but is listed as failed,
+  with a FAILURE result file and a JUnit `<failure>`;
+- under `ALL_SUCCESS` (reachable with copies since [D72](#d72--flakinessstrategy-fixed-for-stabilization-jobs)) a
+  test that failed once and passed on its last run fails (exit 1) but is listed as passed.
+
+The native run tracks as final the run `fast: true` would complete the test on for the same runs. That is the
+first pass under `ANY_SUCCESS` and the first failure under `ALL_SUCCESS`; when no run decides early (every run
+failed under `ANY_SUCCESS`, every run passed under `ALL_SUCCESS`) it is the run that completes the test, as before.
+A final INCOMPLETE (tracked as FAILURE) is the final result only when no earlier run decided the verdict, as with
+`fast: true`. A test whose runs were not all reported (the end-of-run `Expected to run ... more` error) now has a
+final result when an earlier run decided its verdict; before, it had none. So `fast: true` and `fast: false` write the same final
+record for the same runs and differ only in how many runs happen. `fast: true` is unchanged.
+
+```text
+executionStrategy: {mode: ANY_SUCCESS, fast: false}, runs FAILURE PASSED FAILURE
+Kotlin:  0 passed, 1 failed  (exit 0)     native:  1 passed, 0 failed  (exit 0)
+executionStrategy: {mode: ALL_SUCCESS, fast: false}, runs PASSED FAILURE PASSED
+Kotlin:  1 passed, 0 failed  (exit 1)     native:  0 passed, 1 failed  (exit 1)
+```
+
+What changes, only with `fast: false` and only for a test with several runs whose verdict an earlier run decided:
+the summary's first block and its `Flakiness overhead`, the per-test result file (status, timings, batch, device and
+so its directory, attachments), the JUnit test case (its status, `time`, and which runs appear as `flakyFailure` or
+`rerunFailure`) and the HTML report. Under `ANY_SUCCESS` this includes a test whose runs all passed: its first run is
+now the final one, not its last. A test's case can move in the JUnit and HTML order, which follows when its final
+result was tracked.
+
+What does not change: the exit code and `Marathon execution failed`, the queue, retries and copies, the `Raw:` line
+and its failed and incomplete lists, `raw.json`, Allure (every run), the timeline, device bills and device files,
+the analytics backends (every run is sent), the per-test progress lines, and every output of `fast: true`.
+
+Evidence: `flakiness_scenarios::d77_any_success_without_fast_tracks_the_first_pass_as_final` and
+`d72_fixed_under_all_success_without_fast_runs_every_copy_and_fails` (the two runs above, end to end on the
+Stub vendor), `d77_fast_and_not_fast_track_the_same_final_record`, and
+`pool_progress::d77_the_final_run_is_the_one_fast_completes_the_test_on`. The JVM progress and queue recordings
+are compared with a D77 allowance that moves only the final flag of tracked runs in `fast: false` rows
+(`progress_oracle::d77_moves_only_the_final_flag_of_non_fast_rows`,
+`queue_oracle::d77_moves_only_final_flags_of_non_fast_recordings`).
+
+Approved 2026-11-17 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
+[x70 findings](wp/x70-findings.md).
+
+**Migration action:** none. A job that sets `fast: false` and reads the summary's first block, the per-test result
+files or JUnit now sees each test as the exit code does. A tool that took the final record as a test's last run
+should read `raw.json`, which lists every run.
 
 ## Other accepted text differences
 

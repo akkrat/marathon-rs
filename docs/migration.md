@@ -165,6 +165,12 @@ D75 and D76 need no action. An Android test APK with several dex files runs each
 array-valued annotation such as Kotlin's `@Throws`, so such a run can have fewer tests. An iOS unit-test bundle built inside
 its app is no longer pushed to the worker a second time after the app; the files on the worker stay the same.
 
+[D77](deviations.md#d77--the-final-result-of-a-test-agrees-with-its-verdict) needs no action. With
+`executionStrategy.fast: false`, a test with several runs is reported (summary's first block, per-test result file,
+JUnit, HTML) by the run `fast: true` would have stopped at: its first pass under `ANY_SUCCESS`, its first failure under
+`ALL_SUCCESS`, otherwise its last run. These reports now agree with the exit code. A tool that read a test's last run
+from them should read `raw.json`, which lists every run.
+
 ### A finite `uncompletedTestRetryQuota` (D47)
 
 Add one line at the top level of every Marathonfile, on Android, iOS and macOS alike:

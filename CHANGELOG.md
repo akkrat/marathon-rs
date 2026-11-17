@@ -35,8 +35,13 @@ The section for a version becomes the text of its GitHub release, which carries 
   times whatever the history says, for stabilization jobs. It is allowed with `executionStrategy.mode: ALL_SUCCESS`, so
   a test passes only if all its runs pass (with `fast`, the default, its first failure ends it); `probability` is still
   rejected there. Under `ANY_SUCCESS`, set `fast: false` to run every copy after a pass. The Kotlin marathon does not
-  accept it. Without `fast`, the summary's passed/failed line follows each test's last run (C87); the exit code and
-  the `Raw:` line reflect every run.
+  accept it. The `Raw:` line reflects every run.
+- **With `executionStrategy.fast: false`, a test's reported result agrees with its verdict** (D77). The summary's
+  passed/failed line, the per-test result file, JUnit and HTML used to show a test's last run, so under `ANY_SUCCESS` a
+  test that passed once but failed last was listed as failed although the run exited 0 (and the mirror image under
+  `ALL_SUCCESS`). They now show the run `fast: true` would have stopped at: the first pass under `ANY_SUCCESS`, the
+  first failure under `ALL_SUCCESS`, otherwise the last run. Exit codes, retries, the `Raw:` line, `raw.json` and
+  Allure are unchanged, and so is everything with `fast: true`.
 - Android: a JUnit3 test with an array-valued annotation, such as Kotlin's `@Throws`, in a test APK with several dex files
   is now listed and run once, not once per re-scan of the dex files that include it (D75).
 - iOS: a unit-test bundle built inside its app is no longer pushed to the worker again after the app, saving one transfer
