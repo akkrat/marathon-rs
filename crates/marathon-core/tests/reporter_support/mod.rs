@@ -508,7 +508,9 @@ pub fn without_delegate(mut data: Vec<u8>) -> Vec<u8> {
 /// `flakyFailure` elements of passing runs. The runs come from the row's `input`, paired as the summary pairs them: the
 /// other events of the same test that are not incomplete, keyed by the final result (an equal final shares the last
 /// equal one's runs). Every passed test case must hold exactly as many `flakyFailure` elements as it has runs, so a
-/// recording this does not describe fails instead of being edited.
+/// recording this does not describe fails instead of being edited. It slices on the literal `<testcase` and
+/// `</flakyFailure>` tags, so it assumes neither occurs inside a CDATA trace; a recording that broke this would trip the
+/// count check or the byte comparison, not pass silently.
 pub fn d78_native_junit(input: &Value, pool_name: &str, jvm: &[u8]) -> Vec<u8> {
     const OPEN: &str = "<flakyFailure type=\"rerun exception\">";
     const CLOSE: &str = "</flakyFailure>";

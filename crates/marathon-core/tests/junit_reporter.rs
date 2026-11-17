@@ -134,6 +134,26 @@ fn passed_test_with_one_failed_copy_has_exactly_that_flaky_failure() {
     );
 }
 
+/// D78: "did not pass" is the rule, as for `rerunFailure`: a passed test still lists its ignored and assumption-failure
+/// runs, and never an incomplete run.
+#[test]
+fn passed_test_lists_ignored_and_assumption_runs_but_not_incomplete_ones() {
+    let case = d78_case(&[
+        ("IGNORED", false, None),
+        ("INCOMPLETE", false, Some("lost")),
+        ("ASSUMPTION_FAILURE", false, Some("assumed")),
+        ("PASSED", false, None),
+        ("PASSED", true, None),
+    ]);
+    assert_eq!(
+        case,
+        format!(
+            "{CASE}<flakyFailure type=\"rerun exception\"></flakyFailure><flakyFailure type=\"rerun exception\">\
+             <stackTrace><![CDATA[assumed]]></stackTrace></flakyFailure></testcase>"
+        )
+    );
+}
+
 /// A failed test lists only its other failed runs as `rerunFailure`, as Kotlin did; D78 leaves this branch as it was.
 #[test]
 fn failed_test_with_mixed_copies_has_rerun_failure_only_for_failed_runs() {
