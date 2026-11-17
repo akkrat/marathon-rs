@@ -198,3 +198,34 @@ fn entry_cancellation_matches_the_probe_on_every_run() {
         serde_json::to_string(&divergent[0]).unwrap()
     );
 }
+
+/// x77's allowance maps only the initialize task's own cancellation: an ERROR record with a job-cancelled throwable.
+#[test]
+fn the_preparation_cancel_allowance_maps_nothing_else() {
+    let row = |level: &str, class: &str| {
+        let mut row = serde_json::json!({
+            "scenario": "not a probe scenario",
+            "trace": [{"t": 0, "log": {
+                "logger": "DevicePool[test]_DeviceActor[serial-1]",
+                "level": level,
+                "message": "Error DeferredCoroutine was cancelled",
+                "throwable": [{"class": class, "message": "DeferredCoroutine was cancelled"}],
+            }}],
+        });
+        accepted(&mut row);
+        let log = &row["trace"][0]["log"];
+        (
+            log["level"].as_str().unwrap().to_owned(),
+            log["message"].as_str().unwrap().to_owned(),
+        )
+    };
+    let unchanged = |level: &str| (level.to_owned(), "Error DeferredCoroutine was cancelled".to_owned());
+    assert_eq!(
+        row("ERROR", "job-cancelled"),
+        ("WARN".to_owned(), "Device preparation has been cancelled".to_owned())
+    );
+    assert_eq!(row("ERROR", "illegal-state"), unchanged("ERROR"));
+    assert_eq!(row("ERROR", "cancelled"), unchanged("ERROR"));
+    assert_eq!(row("WARN", "job-cancelled"), unchanged("WARN"));
+    assert_eq!(row("DEBUG", "job-cancelled"), unchanged("DEBUG"));
+}
