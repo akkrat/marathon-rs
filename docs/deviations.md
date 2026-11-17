@@ -1994,16 +1994,24 @@ Native builds handle a test's end without waiting for the worker:
 
 - The recorder of the test that ended is stopped by a task of its own. The next test's recording starts after that
   stop, as it did before, so one recording runs at a time and the "Previous video recording didn't finish yet" warning
-  keeps its meaning.
+  keeps its meaning. A test that runs again in the same batch records to the same remote file, so its new recording
+  also waits until its earlier video has been collected, as it did before.
 - The transcode, pull and removal follow the stop in a queue per batch, one test at a time in the order the tests ended,
   beside the batch's later tests.
 - Before the batch's results are built, `after_test_run` waits for the queue, so every video is attached to its test
   as before; the xcresult pull still comes after the videos, and the device takes no other batch before they are done.
-- A failure of the stop or pull other than a transfer failure ("Can't pull video", unchanged) no longer ends the batch's
-  event handling at that test; the batch fails from `after_test_run` with it, after its other listeners have run.
-- A cancelled batch starts none of its queued items; an item already running ends as before, within the same
-  cancelled-batch bound ([D52](#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit),
-  [D74](#d74--an-apple-devices-preparation-and-connections-end-with-it)).
+- A failure of the stop or pull other than a transfer failure ("Can't pull video", unchanged), including an internal
+  error of that work, no longer ends the batch's event handling at that test; the batch fails from `after_test_run`
+  with it, after its other listeners have run.
+- A batch that is cancelled, or whose simulator is disposed of, starts none of its queued items and no recording that
+  was still waiting for the previous test's stop.
+- A transfer already running is not ended by that cancellation, as an inline one was not. Its worker commands end with
+  the batch, but a pull ends only when it finishes, when its device's connection is lost
+  ([D54](#d54--an-apple-send-stops-when-its-call-is-cancelled-and-any-transfer-when-its-devices-connection-is-lost)),
+  or after 300 s without progress ([D43](#d43--an-rsync-receive-has-a-limit-on-progress), about 305 to 330 s with its
+  teardown). [D74](#d74--an-apple-devices-preparation-and-connections-end-with-it) and
+  [D52](#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit) bound how long a cancel or a disposal waits for
+  the batch, not the pull: a pull still running at that limit carries on in the background, as an inline one did.
 
 What changes for a run: on a slow worker the tests after the first keep their videos and their durations. The worker
 commands are the same; the stop, transcode and pull of one test can now come after the next test's recording command.
@@ -2012,8 +2020,11 @@ have no transfer at a test's end and are unchanged; Android pulls its videos ove
 
 Evidence: `simulator_video_pull::a_slow_video_pull_does_not_hold_back_the_next_test_d80` (the first pull held until the
 second test has run 7.7 s and passed) and `a_slow_recording_stop_does_not_hold_back_the_next_test_d80` (the first stop
-held the same way) fail without the change with a duration of 0 ms; `a_cancelled_batch_skips_queued_video_work_d80`;
-the vendor differential replays pass unchanged.
+held the same way) fail without the change with a duration of 0 ms;
+`a_recording_waiting_for_the_previous_stop_never_starts_after_disposal_d80`,
+`a_repeated_test_records_again_only_after_its_first_video_is_collected_d80`,
+`a_cancelled_batch_skips_queued_video_work_d80`, and `pending_artifacts` for a panicking transfer; the vendor
+differential replays pass unchanged.
 
 Approved 2026-11-17 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the

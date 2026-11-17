@@ -49,9 +49,12 @@ reports is kept by tasks and one barrier.
 - **Stop.** `ended` takes the test's recording job synchronously (so it cannot be confused with the next test's), clears
   `last`, and spawns the stop as its own task (`stop_recording`, the old `stop()` body). Each stop first joins the
   previous stop. The task is kept in `stopping`.
-- **Next recording.** `test_started`'s start job joins `stopping` first (selecting on its own cancellation), then does
-  the unchanged `await_removal` and `nohup` start. So one recording runs at a time and the recording starts when it did
-  before (right after the previous stop), and the "Previous video recording didn't finish yet" warning keeps its meaning.
+- **Next recording.** `test_started`'s start job joins `stopping` first, then does the unchanged `await_removal` and
+  `nohup` start. So one recording runs at a time and the recording starts when it did before (right after the previous
+  stop), and the "Previous video recording didn't finish yet" warning keeps its meaning. The job's cancellation is its
+  own signal linked to the batch's (`Linked`), for the whole start: a batch cancelled or disposed of while the job waits
+  starts no recording (review P1). A test already ended in this batch also makes its repeat's start wait for its queued
+  transfer (`collecting`, keyed by remote video path), since both recordings use one remote file.
 - **Transfers.** `PendingArtifacts` (`crates/marathon-ios/src/listener/pending.rs`) is a per-listener (so per-batch) chain:
   each item joins the previous item, then runs. A test's item joins its stop (a failed stop skips the pull, as the inline
   `?` did), then runs the unchanged transcode, pull, attachment and removal (`Media::collect`, with the same
@@ -61,12 +64,17 @@ reports is kept by tasks and one barrier.
   batch's results and before `ResultBundleRunListener` pulls the xcresult. It never fails, so the results listener always
   runs.
 - **Errors.** The queue keeps the first failure; the video listener's `after_test_run` (stop, then settle) returns it. A
-  failure that is the batch's own cancellation is dropped, since the runner reports it.
+  failure that is the batch's own cancellation is dropped, since the runner reports it. A failed join of an item (a
+  panic, which the runtime reports as the task's failure) goes into the same ledger, from the next item's join or from
+  `settle` (review P2).
 - **Cancellation.** Items capture the batch context's cancellation (the batch job's signal); a queued item whose turn comes
-  after a cancel does nothing. A running item's commands observe the same signal; a pull is ended, as before, only by its
-  connection's stop (D54). Everything is awaited inside the batch's own retained job, so D74's cancelled-batch bound
-  covers it as it covered the inline work.
-- **Other callbacks.** `stop()` (before/after run, batch failure) joins `stopping` first. `test_run_failed` settles the
+  after a cancel does nothing. A running item's worker commands observe the same signal, but its pull does not: a
+  receive ends only when it finishes, when its connection is lost (D54), or after 300 s without progress (D43, about
+  305 to 330 s with the teardown). D74's cancelled-batch limit (70 s) and D52 bound how long the cancel or the disposal
+  waits for the batch job, which awaits the queue; they do not end the pull, which then carries on in the background as
+  an inline pull did (review P3).
+- **Other callbacks.** `stop()` (before/after run, batch failure) first cancels and joins the current start job, so a
+  start still waiting for the previous stop cannot record after it, then joins `stopping`. `test_run_failed` settles the
   queue before its own last-video pull, so a batch still transfers one video at a time and in test order.
 
 ## Invariants
@@ -77,8 +85,11 @@ reports is kept by tasks and one barrier.
    tests ended (worker load per batch as before).
 4. Every queued transfer has ended before the batch's results are built, before the xcresult pull, and before the batch's
    run returns.
-5. No queued item starts after the batch's cancellation.
+5. No queued item starts, and no recording that was waiting for the previous stop starts, after the batch's
+   cancellation or its simulator's disposal.
 6. Xcodebuild events are handled without waiting for any worker command of the video listener.
+7. A test's repeat in the batch records only after its earlier video was moved, pulled and removed.
+8. Every failure of a queued item, a panic included, fails the batch from `after_test_run`.
 
 ## Verified
 
@@ -98,7 +109,19 @@ reports is kept by tasks and one barrier.
   - `a_cancelled_batch_skips_queued_video_work_d80`: test1's pull in progress, test2 ended with its item queued; the
     caller cancels. The batch returns `Cancelled` within the cancelled-batch bound, the device is not lost, and no worker
     command names test2's video after the cancel; only test1's video was pulled. This test is about the new queue and
-    hangs without the fix (the second test's end is never handled), so it is not a revert witness.
+    hangs without the fix (the second test's end is never handled), so it is not a revert witness. It releases test1's
+    pull right after the cancel, so it does not cover a receive that stays stuck: that case ends by D43's no-progress
+    limit or D54's connection loss, not by anything this WP adds, and is not tested here (a stalled receive takes 300 s
+    on the real clock; `ios_stalled_send` keeps such tests `--ignored`).
+  - `a_recording_waiting_for_the_previous_stop_never_starts_after_disposal_d80` (review P1): test1's stop is held, test2's
+    start is handled and waits for it, the simulator is disposed of, then the stop is released. Asserts test2 is never
+    recorded. Without the fix: fails 3 of 3 with test2 recorded at 200 ms, the moment disposal returned.
+  - `a_repeated_test_records_again_only_after_its_first_video_is_collected_d80`: test1 twice in one batch, the first pull
+    held until the repeat has passed. Asserts the first removal of the shared remote file comes before the second
+    recording command. Without the guard: fails (the repeat recorded while the first transfer still held the file).
+- New `crates/marathon-ios/tests/pending_artifacts.rs` (review P2), on the production executor's vendor runtime
+  (`CoreExecutor::run`, `core.vendor()`): a panicking item first and a panicking last item each leave the panic in the
+  ledger, and the queue goes on after a panicking item. Without the fix both fail (the ledger is empty).
 - Adapted listener tests in `crates/marathon-ios/tests/ios_listeners.rs`: `video_policy_matrix_and_ignored_pull_boolean_emit_attachment`,
   `video_transfer_only_catch_and_missing_file_skip_removal`, `two_tests_keep_the_recorder_alive_until_stop_and_attach_both_videos`,
   `fast_recorder_exit_keeps_failed_stop_from_blocking_next_recording` and
@@ -148,3 +171,13 @@ None. No golden or JVM recording changes; no comparator allowance.
 - The full `cargo test -p marathon-cli` in a fresh worktree fails `differential_vendors` and `production_runner` with
   "missing YAML helper; run cargo build -q -p snakeyaml --example yaml_tree" until that example is built (the gate builds
   it). A harness convenience, not a product bug.
+
+## Review round 1 (Sol)
+
+- **P1, a waiting recording could start after disposal.** Fixed in `c1f5b27a`: the start job's cancellation is linked to
+  the batch's for the whole start, and cleanup cancels and joins the start job before joining the previous stop.
+- **P2, a panicking transfer settled as success.** Fixed in `1bf20a7d`: failed joins go into the first-failure ledger.
+- **P3, the docs overstated the cancellation bound.** Corrected here and in D80 (deviations, PLAN row): D74 and D52 bound
+  the wait for the batch; a running receive is bounded only by D43 and D54.
+- **Repeated callbacks of one test.** Testing it found a real hazard: a repeat records to the same remote file while the
+  first transfer may still move, pull or remove it. Fixed in `78ae6f9d`: the repeat's start waits for that transfer.
