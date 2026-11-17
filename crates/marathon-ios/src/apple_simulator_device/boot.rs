@@ -118,15 +118,22 @@ impl AppleSimulatorDevice {
             .and_then(|n| n.checked_add(wait.nanos()))
             .ok_or_else(|| VendorError::Other(failure(FailureKind::Arithmetic, "long overflow")))?;
         let deadline = started.saturating_add(nanos);
+        // D79: a simulator seen booting (device.plist state 3) that later reads Shutdown was shut down or
+        // crashed and will not boot by itself, so the wait ends there as a failed attempt instead of at
+        // `bootWait`. Shutdown before the first Booting read (e.g. a device.plist not yet rewritten after
+        // `simctl boot`, or a Creating simulator) keeps the Kotlin wait.
+        let mut seen_booting = false;
         match self.simulator_state(context).await? {
             SimulatorState::Booted => return Ok(None),
-            SimulatorState::Creating | SimulatorState::Booting => {}
+            SimulatorState::Creating => {}
+            SimulatorState::Booting => seen_booting = true,
             SimulatorState::Shutdown => {
                 if let Err(error) = self.bin.xcrun.simctl.simulator.boot(&self.udid, &[], context).await {
                     if error.failure().kind != FailureKind::Apple(AppleKind::Command) {
                         return Err(error);
                     }
                     let now = self.simulator_state(context).await?;
+                    seen_booting = now == SimulatorState::Booting;
                     if !matches!(now, SimulatorState::Booting | SimulatorState::Booted) {
                         return Ok(Some(format!(
                             "simctl boot failed ({}), its state is {}",
@@ -148,6 +155,13 @@ impl AppleSimulatorDevice {
             if state == SimulatorState::Booted {
                 self.log(Level::DEBUG, format!("Device {} booted!", self.udid), None);
                 return Ok(None);
+            }
+            match state {
+                SimulatorState::Booting => seen_booting = true,
+                SimulatorState::Shutdown if seen_booting => {
+                    return Ok(Some("it shut down while booting".into()));
+                }
+                _ => {}
             }
             let left = deadline.saturating_sub(self.nanos("ios.AppleSimulatorDevice.nanoTime")?);
             if left <= 0 {

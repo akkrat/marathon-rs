@@ -159,6 +159,98 @@ async fn a_boot_that_does_not_finish_within_boot_wait_is_retried_once_and_then_t
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }
+/// A boot wait in which simctl's commands go through `plan`, and `edit` may change the simulator's
+/// device.plist state after each answer: the hook sees the command and the virtual time.
+fn on_commands(h: &Harness, edit: impl Fn(&Boot, &[String], i64) + Send + Sync + 'static) {
+    let plan = h.boot.clone();
+    let clock = h.clock.clone();
+    *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
+        let reply = plan.answer(&cmd);
+        edit(&plan, &cmd, clock.now());
+        Box::pin(async move { Ok(reply) })
+    });
+}
+#[tokio::test(start_paused = true)]
+async fn a_simulator_shut_down_during_its_boot_wait_is_booted_again_after_one_poll_d79() -> TestResult {
+    let h = Harness::new(|v| v.timeout_configuration.boot_wait = duration(60_000))?;
+    h.services
+        .logging
+        .registry
+        .lock()
+        .unwrap()
+        .set_level("marathon_ios::apple_simulator_device", marathon_logging::Level::WARN);
+    h.boot.finish_after.store(6, Ordering::SeqCst);
+    let d = h.device().await?;
+    let shut = Arc::new(std::sync::Mutex::new(None));
+    let reboot = Arc::new(std::sync::Mutex::new(None));
+    {
+        let (shut, reboot) = (shut.clone(), reboot.clone());
+        on_commands(&h, move |plan, cmd, now| match cmd.get(2).map(String::as_str) {
+            // `simctl shutdown` from outside, or a crash, after the third poll found it booting.
+            Some("spawn") if plan.boots.load(Ordering::SeqCst) == 1 && plan.polls.load(Ordering::SeqCst) == 3 => {
+                plan.state.store(1, Ordering::SeqCst);
+                *shut.lock().unwrap() = Some(now);
+            }
+            Some("boot") if plan.boots.load(Ordering::SeqCst) == 2 => *reboot.lock().unwrap() = Some(now),
+            _ => {}
+        });
+    }
+    h.prepare(&d).await.unwrap();
+    assert_eq!(h.boot.boots.load(Ordering::SeqCst), 2);
+    // device.plist already says Shutdown, so the failed attempt sends no `simctl shutdown`.
+    assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 0);
+    let (shut, reboot) = (shut.lock().unwrap().unwrap(), reboot.lock().unwrap().unwrap());
+    // One poll interval (20 ms) to see the Shutdown, then the retry pause (10 ms); not `bootWait`.
+    assert!(reboot - shut <= 30, "rebooted {} ms after the shutdown", reboot - shut);
+    assert!(
+        h.logs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_, level, message, _)| *level == marathon_logging::Level::WARN
+                && message.contains("failed to boot: it shut down while booting after ")
+                && message.ends_with(" ms, attempt 1 of 2"))
+    );
+    assert!(!d.lost());
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn a_simulator_that_stays_booting_is_still_waited_for_until_boot_wait_d79() -> TestResult {
+    let h = Harness::new(|v| v.timeout_configuration.boot_wait = duration(2_000))?;
+    h.boot.finish_after.store(usize::MAX, Ordering::SeqCst);
+    let d = h.device().await?;
+    let started = h.clock.now();
+    assert!(!d.boot(&h.services.context).await.unwrap());
+    assert_eq!(h.boot.boots.load(Ordering::SeqCst), 1);
+    assert!(h.clock.now() - started >= 2_000);
+    assert_eq!(h.boot.polls.load(Ordering::SeqCst), 101);
+    h.finish(&[d]).await;
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn a_shutdown_state_before_the_first_booting_read_does_not_end_the_boot_wait_d79() -> TestResult {
+    let h = Harness::new(|v| v.timeout_configuration.boot_wait = duration(60_000))?;
+    h.boot.finish_after.store(3, Ordering::SeqCst);
+    let d = h.device().await?;
+    let reads = Arc::new(AtomicUsize::new(0));
+    {
+        let reads = reads.clone();
+        on_commands(&h, move |plan, cmd, _| match cmd.first().map(String::as_str) {
+            // device.plist still says Shutdown for the first two reads after `simctl boot` returns.
+            Some("xcrun") if cmd.get(2).is_some_and(|s| s == "boot") => plan.state.store(1, Ordering::SeqCst),
+            Some("cat") if plan.boots.load(Ordering::SeqCst) == 1 && reads.fetch_add(1, Ordering::SeqCst) == 1 => {
+                plan.state.store(3, Ordering::SeqCst)
+            }
+            _ => {}
+        });
+    }
+    assert!(d.boot(&h.services.context).await.unwrap());
+    assert_eq!(h.boot.boots.load(Ordering::SeqCst), 1);
+    assert_eq!(reads.load(Ordering::SeqCst), 2 + 3);
+    h.finish(&[d]).await;
+    Ok(())
+}
 #[tokio::test(start_paused = true)]
 async fn a_simulator_that_does_not_shut_down_after_a_failed_boot_is_left_as_it_is() -> TestResult {
     use marathon_apple::cmd::{BaseCommand, CommandSession, SessionControl};
