@@ -18,6 +18,14 @@ The section for a version becomes the text of its GitHub release, which carries 
   booted again within a poll and the 10 s retry pause, not after `bootWait` (240 s by default). A simulator that stays booting is still waited for until `bootWait`,
   and the readiness-probe times under the known limits are unchanged (D79).
 
+### Logs
+
+- Clearer log lines, with no change to results or exit codes: a signal or the end of a run during device preparation
+  is one WARN line (`Device preparation has been cancelled`) instead of an ERROR that repeated its message; an Android
+  batch that fails in an `offline` the device does not return from says the device was disconnected, not that it is
+  kept, and names the device; and a file pull cut off by an offline or lost device says so instead of blaming the
+  device's sync support.
+
 ## 0.14.0-rc.1
 
 The first release candidate of 0.14.0, a pre-release for trial runs. It fixes run-stability and Android, iOS and macOS
