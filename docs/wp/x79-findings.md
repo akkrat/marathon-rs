@@ -48,7 +48,9 @@ New `artifact_listeners/coverage.rs` (no Kotlin source):
 - `CoverageFile` per instrumentation: `<external storage>/Android/data/<app>/files/coverage/coverage-<batch>.ec`; the
   n-th instrumentation of a batch (D28, n ≥ 2) gets `coverage-<batch>-<n>.ec`, because two instrumentations of the
   same app used to write one name.
-- The runner passes it as `coverageFile` and, in `clear_data` after `pm clear` (which would remove it), runs one shell
+- The runner passes it as `coverageFile` and, after `pm clear` and after the listeners' setup hooks (file sync removes
+  and recreates its pull folders there, which can enclose this one; review S-x79-1), just before sending the
+  instrumentation, runs one shell
   command: `rm -rf <dir>; mkdir -p <dir> && { chmod o+rwx <app dir> <app dir>/files <dir> 2>/dev/null; true; }`. Its
   exit code is `mkdir`'s: the `chmod` fails harmlessly on folders the app already owns and on storage that derives
   permissions (API 29 and older), and toolbox `chmod` on API 21–22 has no symbolic modes, where it is not needed either.
@@ -82,7 +84,13 @@ New `artifact_listeners/coverage.rs` (no Kotlin source):
   the local file's content; one `COVERAGE` attachment on the result.
 - `android_runner::missing_coverage_is_an_error_and_attaches_nothing_d81`: one ERROR with the path, no attachment.
 - `android_runner::a_coverage_directory_that_cannot_be_created_is_an_error_d81`: a failed prepare is its own ERROR.
-- `android_runner::each_instrumentation_of_a_batch_writes_its_own_coverage_file_d81_d28`.
+- `android_runner::each_instrumentation_of_a_batch_writes_and_pulls_its_own_coverage_file_d81_d28`: the whole
+  executor with two instrumentations of the same app and `pm clear`: per instrumentation `pm clear` → prepare →
+  instrument → remove, the first done before the second's `pm clear`; two local files; each result names its own.
+- `android_runner::coverage_is_prepared_after_a_file_sync_setup_that_contains_it_d81`: a file-sync pull of
+  `Android/data/<app>/files` is set up before the coverage folder is prepared.
+- Both review regressions were checked against mutations: preparing before the listener hooks fails the second, and
+  skipping the pull of a batch's non-last instrumentation fails the first.
 - `android_artifacts::coverage_is_attached_to_every_started_test_and_merged_parameterised_result_d81` and
   `coverage_file_names_and_commands_d81`.
 - `android_runner::request_escapes_only_ascii_spaces_and_keeps_null` now checks the new `coverageFile`.
@@ -117,6 +125,21 @@ New `artifact_listeners/coverage.rs` (no Kotlin source):
   `raw.json` entry is a result-data change touching many goldens; not done here.
 - The ERROR does not change the exit code. A flag that fails the run when coverage is missing would be a new
   configuration field.
+
+## Review round 1 (Sol, gpt-6.1-sol)
+
+Verdict: merge after fixes. Both findings taken.
+
+- S-x79-1 (Medium): an external-storage file-sync pull of `Android/data/<app>/files` removed and recreated that folder
+  in its `before_test_run` setup, after the coverage folder had been prepared in `clear_data`, so the instrumentation
+  could not write its file. The coverage folder is now prepared after the listeners' setup hooks, still after
+  `pm clear`. Regression `coverage_is_prepared_after_a_file_sync_setup_that_contains_it_d81`.
+- S-x79-2 (Low): the D28 test used a no-op listener and checked only the file names. It now runs the real executor and
+  coverage listener and checks pulls, order against `pm clear`, and each result's attachment.
+
+Sol also checked: the error folding keeps `after_test_run`; attachments reach ordinary, merged parameterised and
+started-but-incomplete results; JSON and Allure handle `COVERAGE` and HTML only filters videos; no new blocking I/O on
+the core executor. It agrees that `testBatchId` in `raw.json` is a separate follow-up.
 
 ## Incidental bugs
 

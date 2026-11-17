@@ -61,7 +61,7 @@ impl CoverageFile {
     }
 }
 
-/// Prepares the coverage directory, after `pm clear`, which would remove it. A failure is reported, not raised: the
+/// Prepares the coverage directory, after `pm clear` and the listeners' file-sync setup, either of which would remove it. A failure is reported, not raised: the
 /// tests can still run, and the missing file is reported again when it is pulled.
 pub(crate) async fn prepare(device: &AndroidDevice, file: &CoverageFile, context: VendorContext) -> VendorResult<()> {
     let directory = file.directory();

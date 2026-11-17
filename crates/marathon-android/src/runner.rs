@@ -200,7 +200,6 @@ impl AndroidDeviceTestRunner<'_> {
         &self,
         c: &Configuration,
         info: &InstrumentationInfo,
-        coverage: Option<&CoverageFile>,
         context: VendorContext,
     ) -> VendorResult<()> {
         let a = android_configuration(c)?;
@@ -260,9 +259,6 @@ impl AndroidDeviceTestRunner<'_> {
                     None,
                 );
             }
-        }
-        if let Some(coverage) = coverage {
-            coverage::prepare(self.device, coverage, context).await?;
         }
         Ok(())
     }
@@ -389,12 +385,17 @@ impl AndroidDeviceTestRunner<'_> {
                     if first {
                         self.notify_ignored(ignored, listener, &child).await?;
                     }
-                    self.clear_data(configuration, info, coverage, child.clone()).await?;
+                    self.clear_data(configuration, info, child.clone()).await?;
                     if *announced {
                         listener.before_next_instrumentation_in(info, child.clone()).await?;
                     } else {
                         listener.before_test_run_in(Some(info), child.clone()).await?;
                         *announced = true;
+                    }
+                    // D81: after `pm clear` and after the listeners' setup, whose file-sync step can remove and recreate
+                    // a pull folder that contains this one (review S-x79-1).
+                    if let Some(coverage) = coverage {
+                        coverage::prepare(self.device, coverage, child.clone()).await?;
                     }
                     self.device.log_named(
                         "AndroidDeviceTestRunner",

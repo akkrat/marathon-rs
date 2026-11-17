@@ -2049,7 +2049,8 @@ coverageFile  <external storage>/Android/data/<app>/files/coverage/coverage-<bat
 pulled to     <outputDir>/device-files/<pool>/coverage/coverage-<batch>.ec
 ```
 
-- **Before each instrumentation**, after `pm clear` (which would remove it), one shell command removes the folder,
+- **Before each instrumentation**, after `pm clear` and after file sync has prepared its pull folders (either could
+  remove it), one shell command removes the folder,
   creates it and opens it to the app:
   `rm -rf <dir>; mkdir -p <dir> && { chmod o+rwx <app dir> <app dir>/files <dir> 2>/dev/null; true; }`. A folder the
   shell creates there belongs to the shell with mode 2770 and group `ext_data_rw`; `o+rwx` lets the app in and the
@@ -2073,7 +2074,8 @@ Coverage is no longer a file-sync entry and no longer uses `run-as`, for debugga
 
 Evidence: `android_runner::coverage_is_written_to_shared_storage_pulled_and_attached_without_run_as_d81`,
 `missing_coverage_is_an_error_and_attaches_nothing_d81`, `a_coverage_directory_that_cannot_be_created_is_an_error_d81`,
-`each_instrumentation_of_a_batch_writes_its_own_coverage_file_d81_d28`,
+`each_instrumentation_of_a_batch_writes_and_pulls_its_own_coverage_file_d81_d28`,
+`coverage_is_prepared_after_a_file_sync_setup_that_contains_it_d81`,
 `android_artifacts::coverage_is_attached_to_every_started_test_and_merged_parameterised_result_d81`. The recorded Kotlin
 file-sync scenario is compared with a D81 allowance that drops its coverage rows. On an API 36 emulator a
 non-debuggable app with JaCoCo offline instrumentation gave one readable `.ec` per batch, where 0.14.0-rc.1 gave none.

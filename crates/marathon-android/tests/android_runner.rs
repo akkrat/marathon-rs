@@ -1982,30 +1982,64 @@ fn coverage_run(
     written: Option<&'static str>,
     pm_clear: bool,
 ) -> (Arc<TestBatchResults>, Vec<String>, Vec<String>, tempfile::TempDir) {
+    let files = written.map(|w| vec![("coverage-batch.ec", w)]).unwrap_or_default();
+    coverage_run_with(files, pm_clear, false, false)
+}
+/// The same, with these coverage files on the device, optionally an external-storage file-sync pull of the app's
+/// `files` folder, which contains the coverage folder, and optionally the batch split over two instrumentations (D28).
+fn coverage_run_with(
+    written: Vec<(&'static str, &'static str)>,
+    pm_clear: bool,
+    sync_app_files: bool,
+    two: bool,
+) -> (Arc<TestBatchResults>, Vec<String>, Vec<String>, tempfile::TempDir) {
+    use marathon_config::vendor::{AggregationMode, FileSyncEntry, PathRoot};
     let temp = checked(tempfile::tempdir());
     let mut c = config();
     c.is_code_coverage_enabled = true;
     c.output_dir = PathBuf::from(temp.path().to_string_lossy().into_owned());
     android(&mut c).application_pm_clear = pm_clear;
+    if sync_app_files {
+        android(&mut c).file_sync_configuration.pull.push(FileSyncEntry {
+            relative_path: "Android/data/com.example/files".into(),
+            path_root: PathRoot::ExternalStorage,
+            aggregation_mode: AggregationMode::Pool,
+        });
+    }
     let out = Arc::new(Mutex::new(None));
     let sink = out.clone();
     run(c, move |runtime, context| {
         Box::pin(async move {
             let (runtime, lines) = logged_runtime(runtime);
             let mut s = base_script(30, vec!["shell_v2", "cmd", "abb_exec", "sendrecv_v2"]);
-            s["shell"].as_array_mut().unwrap().extend([
-                json!({"prefix":"am instrument","stdout":completes("pkg.Clazz","method")}),
+            let rules = s["shell"].as_array_mut().unwrap();
+            for method in ["method", "one", "two"] {
+                rules.push(json!({"regex":format!("^am instrument.* -e class pkg.Clazz#{method} "),"stdout":completes("pkg.Clazz",method)}));
+            }
+            rules.extend([
                 json!({"prefix":"pm clear com.example","stdout":"Success"}),
                 json!({"prefix":format!("rm -rf {COVERAGE_DIRECTORY}"),"stdout":""}),
+                json!({"prefix":"appops set","stdout":""}),
+                json!({"prefix":"rm -r /sdcard/Android/data/com.example/files","stdout":""}),
+                json!({"prefix":"mkdir /sdcard/Android/data/com.example/files","stdout":""}),
+                json!({"prefix":"ls -l /sdcard/Android/data/com.example/files","stdout":""}),
             ]);
-            if let Some(content) = written {
-                s["devices"][0]["files"] =
-                    json!([{"path":format!("{COVERAGE_DIRECTORY}/coverage-batch.ec"),"content":content}]);
-            }
+            s["devices"][0]["files"] = json!(
+                written
+                    .iter()
+                    .map(|(name, content)| json!({"path":format!("{COVERAGE_DIRECTORY}/{name}"),"content":content}))
+                    .collect::<Vec<_>>()
+            );
             let mut server = server(s).await;
             let d = device(&server, runtime.clone());
             d.setup(context.clone()).await?;
-            register(&runtime, &[test("method")]);
+            let tests = if two {
+                let (one, two) = two_instrumentations(&runtime);
+                vec![one, two]
+            } else {
+                register(&runtime, &[test("method")]);
+                vec![test("method")]
+            };
             let deferred = Arc::new(SharedDeferred::default());
             AndroidRunnerExecutor {
                 slots: ListenerSlots::default(),
@@ -2015,7 +2049,7 @@ fn coverage_run(
                 runtime.dependencies.configuration.clone(),
                 DevicePoolId { name: "pool".into() },
                 Arc::new(TestBatch {
-                    tests: vec![test("method")],
+                    tests,
                     id: "batch".into(),
                 }),
                 deferred.clone(),
@@ -2181,44 +2215,96 @@ fn a_coverage_directory_that_cannot_be_created_is_an_error_d81() {
         errors[1]
     );
 }
-/// D81 with D28: each instrumentation of a batch writes its own file, pulled before the next one's `pm clear`; two for
-/// the same application package used to write one file.
+/// D81 with D28: each instrumentation of a batch writes its own file, pulled and removed before the next one's
+/// `pm clear`, and each test's result names its own instrumentation's file. Both instrumentations here test the same
+/// app, which used to write one file name.
 #[test]
-fn each_instrumentation_of_a_batch_writes_its_own_coverage_file_d81_d28() {
-    let mut c = config();
-    c.is_code_coverage_enabled = true;
-    run(c, |runtime, context| {
-        Box::pin(async move {
-            let mut server = server(script("INSTRUMENTATION_CODE: -1\n", false)).await;
-            let d = device(&server, runtime.clone());
-            d.setup(context.clone()).await?;
-            let (one, two) = two_instrumentations(&runtime);
-            AndroidDeviceTestRunner { device: &d }
-                .execute(
-                    runtime.dependencies.configuration.clone(),
-                    Arc::new(TestBatch {
-                        tests: vec![one, two],
-                        id: "batch".into(),
-                    }),
-                    &Events::default(),
-                    context,
-                )
-                .await?;
-            let commands = instrumentations(&server);
-            assert_eq!(commands.len(), 2);
-            assert!(
-                commands[0].contains("/files/coverage/coverage-batch.ec "),
-                "{}",
-                commands[0]
-            );
-            assert!(
-                commands[1].contains("/files/coverage/coverage-batch-2.ec "),
-                "{}",
-                commands[1]
-            );
-            d.dispose().await?;
-            checked(server.shutdown().await);
-            Ok(())
-        })
-    });
+fn each_instrumentation_of_a_batch_writes_and_pulls_its_own_coverage_file_d81_d28() {
+    let (results, commands, errors, temp) = coverage_run_with(
+        vec![("coverage-batch.ec", "first"), ("coverage-batch-2.ec", "second")],
+        true,
+        false,
+        true,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let all = |prefix: &str| -> Vec<usize> {
+        commands
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.starts_with(prefix))
+            .map(|(i, _)| i)
+            .collect()
+    };
+    let instruments = all("am instrument");
+    assert_eq!(instruments.len(), 2, "{commands:?}");
+    assert!(commands[instruments[0]].contains(&format!(" -e coverageFile {COVERAGE_DIRECTORY}/coverage-batch.ec ")));
+    assert!(commands[instruments[1]].contains(&format!(" -e coverageFile {COVERAGE_DIRECTORY}/coverage-batch-2.ec ")));
+    let clears = all("pm clear com.example");
+    let prepares = all(&format!("rm -rf {COVERAGE_DIRECTORY}; mkdir -p "));
+    let removes: Vec<usize> = commands
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| **c == format!("rm -rf {COVERAGE_DIRECTORY}"))
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!((clears.len(), prepares.len(), removes.len()), (2, 2, 2), "{commands:?}");
+    // pm clear → prepare → instrument → pull and remove, once per instrumentation, the first finished before the second
+    // one's pm clear.
+    let order = [
+        clears[0],
+        prepares[0],
+        instruments[0],
+        removes[0],
+        clears[1],
+        prepares[1],
+        instruments[1],
+        removes[1],
+    ];
+    assert!(order.windows(2).all(|w| w[0] < w[1]), "{order:?} in {commands:?}");
+    let folder = temp.path().join("device-files/pool/coverage");
+    assert_eq!(
+        checked(std::fs::read_to_string(folder.join("coverage-batch.ec"))),
+        "first"
+    );
+    assert_eq!(
+        checked(std::fs::read_to_string(folder.join("coverage-batch-2.ec"))),
+        "second"
+    );
+    for (method, name) in [("one", "coverage-batch.ec"), ("two", "coverage-batch-2.ec")] {
+        let result = results.finished.iter().find(|r| r.test.method == method).unwrap();
+        let coverage: Vec<_> = result
+            .attachments
+            .iter()
+            .filter(|a| a.kind == AttachmentType::Coverage)
+            .collect();
+        assert_eq!(coverage.len(), 1, "{method}: {:?}", result.attachments);
+        assert!(coverage[0].file.ends_with(name), "{method}: {:?}", coverage[0].file);
+    }
+}
+/// D81 (review S-x79-1): a file-sync pull of a folder that contains the coverage folder removes and recreates it in its
+/// own setup; the coverage folder is prepared after that, so the instrumentation can still write its file.
+#[test]
+fn coverage_is_prepared_after_a_file_sync_setup_that_contains_it_d81() {
+    let (results, commands, errors, _temp) =
+        coverage_run_with(vec![("coverage-batch.ec", "jacoco")], false, true, false);
+    assert!(errors.is_empty(), "{errors:?}");
+    let position = |prefix: &str| {
+        commands
+            .iter()
+            .position(|c| c.starts_with(prefix))
+            .unwrap_or_else(|| panic!("{prefix} missing from {commands:?}"))
+    };
+    let synced = position("rm -r /sdcard/Android/data/com.example/files");
+    let created = position("mkdir /sdcard/Android/data/com.example/files");
+    let prepared = position(&format!("rm -rf {COVERAGE_DIRECTORY}; mkdir -p "));
+    assert!(
+        synced < created && created < prepared && prepared < position("am instrument"),
+        "{commands:?}"
+    );
+    assert!(
+        results.finished[0]
+            .attachments
+            .iter()
+            .any(|a| a.kind == AttachmentType::Coverage)
+    );
 }
