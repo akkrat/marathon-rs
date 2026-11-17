@@ -855,3 +855,48 @@ async fn failed_or_null_transcode_still_pulls_and_only_failed_result_logs_error(
     }
     Ok(())
 }
+/// D80: every join of the recording start drops its failure, as Kotlin's cancelAndJoin does, so a start that panicked
+/// on the production executor used to leave `after_test_run` successful. The panic now fails the batch.
+#[test]
+fn a_recording_start_that_panics_fails_after_test_run_d80() -> TestResult {
+    let mut h = harness(|_| {})?;
+    let outcome = marathon_core::executor::CoreExecutor::run(move |core| {
+        Box::pin(async move {
+            h.services.runtime = core.vendor();
+            let d = device(&h, Arc::new(Bridge::default()))
+                .await
+                .map_err(|e| marathon_apple::cmd::failure(FailureKind::IllegalState, e.to_string()))?;
+            let c = context(&h, d.clone());
+            let test = c.batch.tests[0].clone();
+            let l = ScreenRecordingListener::new(c);
+            let reached = marathon_core::executor::shared::SharedDeferred::new();
+            let starting = reached.clone();
+            *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
+                let starting = starting.clone();
+                Box::pin(async move {
+                    if cmd.last().is_some_and(|a| a.contains("nohup")) {
+                        starting.complete(Ok(()));
+                        panic!("recording start panicked");
+                    }
+                    Ok(Some(if cmd[0] == "cat" {
+                        absent()
+                    } else {
+                        ok(Vec::<String>::new())
+                    }))
+                })
+            });
+            l.test_started(&test).await.map_err(|e| e.failure().clone())?;
+            // The start has reached the command that panics; the stop below cancels and joins it.
+            reached.wait().await.map_err(|e| e.failure().clone())?;
+            let after = l.after_test_run().await;
+            h.finish(&[d]).await;
+            Ok(format!("{after:?}"))
+        })
+    })
+    .map_err(|e| format!("{e:?}"))?;
+    assert!(
+        outcome.starts_with("Err") && outcome.contains("recording start panicked"),
+        "{outcome}"
+    );
+    Ok(())
+}

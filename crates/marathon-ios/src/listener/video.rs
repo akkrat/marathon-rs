@@ -157,6 +157,13 @@ impl ScreenRecordingListener {
         Ok(())
     }
 }
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_owned())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "Rust task panicked".into())
+}
 /// A recording start's cancellation: its own (a stop) or its batch's.
 struct Linked {
     own: Arc<dyn CancellationSignal>,
@@ -392,8 +399,9 @@ impl AppleTestRunListener for ScreenRecordingListener {
                 .unwrap_or_else(|e| e.into_inner())
                 .get(&src)
                 .cloned();
+            let pending = self.pending.clone();
             let job = c.device.services().runtime.clone().spawn_cancellable(Box::new(move |signal| {
-                Box::pin(async move {
+                let start = async move {
                     let mut c = c;
                     // D80: the start can wait for the previous test's stop, so it also ends with the batch: a batch
                     // cancelled or disposed of while it waits starts no recording.
@@ -454,6 +462,22 @@ impl AppleTestRunListener for ScreenRecordingListener {
                         c.log(&logger, Level::DEBUG, format!("started video recording pid={pid} to {src}"));
                     }
                     Ok(())
+                };
+                Box::pin(async move {
+                    use futures_util::FutureExt;
+                    match std::panic::AssertUnwindSafe(start).catch_unwind().await {
+                        Ok(started) => started,
+                        // Kotlin's cancelAndJoin drops the start's failure, and so does every join of this task. A
+                        // panic is no such failure: it fails the batch with the video work's failures (D80).
+                        Err(payload) => {
+                            let error = VendorError::Other(marathon_apple::cmd::failure(
+                                FailureKind::Runtime,
+                                panic_message(payload.as_ref()),
+                            ));
+                            pending.record(error.clone());
+                            Err(error)
+                        }
+                    }
                 })
             }));
             *self.job.lock().unwrap_or_else(|e| e.into_inner()) = Some(job);

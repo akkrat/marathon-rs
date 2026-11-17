@@ -63,6 +63,10 @@ impl PendingArtifacts {
             keep(&self.error, e);
         }
     }
+    /// Adds a failure of the listener's own work outside the queue, such as a recording start that panicked.
+    pub fn record(&self, error: VendorError) {
+        keep(&self.error, error);
+    }
     /// The first failure of an item, which the listener reports as Kotlin's inline transfer would have.
     pub fn take_error(&self) -> VendorResult<()> {
         match self.error.lock().unwrap_or_else(|e| e.into_inner()).take() {

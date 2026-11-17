@@ -66,7 +66,8 @@ reports is kept by tasks and one barrier.
 - **Errors.** The queue keeps the first failure; the video listener's `after_test_run` (stop, then settle) returns it. A
   failure that is the batch's own cancellation is dropped, since the runner reports it. A failed join of an item (a
   panic, which the runtime reports as the task's failure) goes into the same ledger, from the next item's join or from
-  `settle` (review P2).
+  `settle` (review P2). The recording start's own failures stay dropped, as Kotlin's `cancelAndJoin` drops them, but a
+  panic in the start task is caught there and recorded in the ledger too (review round 2).
 - **Cancellation.** Items capture the batch context's cancellation (the batch job's signal); a queued item whose turn comes
   after a cancel does nothing. A running item's worker commands observe the same signal, but its pull does not: a
   receive ends only when it finishes, when its connection is lost (D54), or after 300 s without progress (D43, about
@@ -181,3 +182,14 @@ None. No golden or JVM recording changes; no comparator allowance.
   the wait for the batch; a running receive is bounded only by D43 and D54.
 - **Repeated callbacks of one test.** Testing it found a real hazard: a repeat records to the same remote file while the
   first transfer may still move, pull or remove it. Fixed in `78ae6f9d`: the repeat's start waits for that transfer.
+
+## Review round 2 (Sol)
+
+- **The repeated-test check raced its recording start** (36 of 100 runs saw one recording). The repeat's pass was sent
+  before the first pull was released, so when it was handled first, its stop rightly cancelled its waiting start. Fixed
+  in the test: the first pull is released while the repeat runs, and the repeat ends only once it records. 100 of 100
+  runs pass; with the repeat guard removed from `video.rs`, 100 of 100 fail on the removal-before-recording check.
+- **A panicking recording start did not fail the batch.** Every join of the start task drops its result. The start
+  task now catches its own panic and records it in the first-failure ledger, so `after_test_run` fails; other start
+  failures are still dropped, as in Kotlin. Witness: `ios_listeners::a_recording_start_that_panics_fails_after_test_run_d80`
+  on the production executor; 100 of 100 pass, and 20 of 20 fail with `Ok(())` without the recording.
