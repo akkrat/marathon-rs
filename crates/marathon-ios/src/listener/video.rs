@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/video/ScreenRecordingListener.kt
+use super::pending::PendingArtifacts;
 use super::*;
 use marathon_apple::logparser::parser::DeviceFailureReason;
 use marathon_config::vendor::{Codec, IosVideoConfiguration};
@@ -56,6 +57,16 @@ pub struct ScreenRecordingListener {
     job: Mutex<Option<Arc<dyn VendorTask>>>,
     last: Mutex<Option<String>>,
     pub attachments: Arc<AttachmentProviderDelegate>,
+    /// The last ended test's stop (D80), which the next recording and every later stop wait for.
+    stopping: Mutex<Option<Arc<dyn VendorTask>>>,
+    pending: Arc<PendingArtifacts>,
+}
+/// The transfer side of the listener, owned so that a test's video can be collected off the event path (D80).
+#[derive(Clone)]
+struct Media {
+    c: ListenerContext,
+    logger: Component,
+    attachments: Arc<AttachmentProviderDelegate>,
 }
 impl ScreenRecordingListener {
     pub fn new(c: ListenerContext) -> Self {
@@ -66,20 +77,109 @@ impl ScreenRecordingListener {
             job: Mutex::new(None),
             last: Mutex::new(None),
             attachments: Arc::default(),
+            stopping: Mutex::new(None),
+            pending: Arc::default(),
+        }
+    }
+    /// The batch's queued video work, for the barrier that settles it before results are built.
+    pub fn pending(&self) -> Arc<PendingArtifacts> {
+        self.pending.clone()
+    }
+    /// Waits for the videos of the tests that have ended and returns the first failure among them.
+    pub async fn settle(&self) -> VendorResult<()> {
+        self.pending.settle().await;
+        self.pending.take_error()
+    }
+    fn media(&self) -> Media {
+        Media {
+            c: self.c.clone(),
+            logger: self.logger.clone(),
+            attachments: self.attachments.clone(),
         }
     }
     async fn stop(&self) -> VendorResult<()> {
-        self.c.cancel(&self.job).await?;
-        let path = self.c.device.remote_file_manager().remote_video_pidfile();
-        if let Some(pid) = self.c.device.read_textfile(&path, &self.c.context).await? {
-            let pid = super::trim(&pid);
-            if !pid.is_empty() {
-                self.c.device.stop_video_recording(&self.c.context).await?;
-                self.c
-                    .log(&self.logger, Level::DEBUG, format!("stopped video recording pid={pid}"));
-            }
+        let stopping = self.stopping.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(stopping) = stopping {
+            // Its failure is reported with its test's video.
+            let _ = stopping.join().await;
         }
+        let job = self.job.lock().unwrap_or_else(|e| e.into_inner()).take();
+        stop_recording(&self.c, &self.logger, job).await
+    }
+    async fn ended(&self, test: &Test, failed: bool) -> VendorResult<()> {
+        // D80: the stop, transcode and pull run beside the next tests instead of holding back their events (U201).
+        // The test's own recording job is taken now, so its stop cannot reach the next test's.
+        let job = self.job.lock().unwrap_or_else(|e| e.into_inner()).take();
+        *self.last.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let runtime = self.c.device.services().runtime.clone();
+        let stop = {
+            let mut stopping = self.stopping.lock().unwrap_or_else(|e| e.into_inner());
+            let previous = stopping.take();
+            let (c, logger) = (self.c.clone(), self.logger.clone());
+            let stop = runtime.spawn(Box::pin(async move {
+                if let Some(previous) = previous {
+                    let _ = previous.join().await;
+                }
+                stop_recording(&c, &logger, job).await
+            }));
+            *stopping = Some(stop.clone());
+            stop
+        };
+        let media = self.media();
+        let test = test.clone();
+        self.pending.submit(
+            runtime.as_ref(),
+            self.c.context.cancellation.clone(),
+            Box::pin(async move {
+                // A failed stop skips the pull, as Kotlin's inline stop did.
+                stop.join().await?;
+                media.collect(&test, failed).await
+            }),
+        );
         Ok(())
+    }
+}
+/// Kotlin's stop(): ends `job`, the recording's start, then the recorder whose pid is in the pidfile.
+async fn stop_recording(c: &ListenerContext, logger: &Component, job: Option<Arc<dyn VendorTask>>) -> VendorResult<()> {
+    if let Some(job) = job {
+        // Cancel a recording that is still waiting to start first, so that it can't start after the pidfile check.
+        job.cancel(marathon_apple::cmd::cancelled("Recording finished"));
+        // Kotlin cancelAndJoin does not rethrow the joined child's failure.
+        let _ = job.join().await;
+    }
+    let path = c.device.remote_file_manager().remote_video_pidfile();
+    if let Some(pid) = c.device.read_textfile(&path, &c.context).await? {
+        let pid = super::trim(&pid);
+        if !pid.is_empty() {
+            c.device.stop_video_recording(&c.context).await?;
+            c.log(logger, Level::DEBUG, format!("stopped video recording pid={pid}"));
+        }
+    }
+    Ok(())
+}
+impl Media {
+    async fn collect(&self, test: &Test, failed: bool) -> VendorResult<()> {
+        self.catch_transfer(
+            async {
+                let remote = self.c.device.remote_file_manager();
+                let src = remote.remote_video_for_test(test, &self.c.batch.id).to_owned();
+                if !remote.test(&src, &self.c.context).await? {
+                    return Ok(());
+                }
+                if self.c.policy(failed) {
+                    if self.transcoding() {
+                        self.transcode(
+                            &src,
+                            &remote.remote_temp_video_for_test(test, &self.c.batch.id).to_owned(),
+                        )
+                        .await?;
+                    }
+                    self.pull(&src, Some(test)).await?;
+                }
+                self.remove(&src).await
+            }
+            .await,
+        )
     }
     async fn transcode(&self, src: &str, temp: &str) -> VendorResult<()> {
         self.c
@@ -180,31 +280,6 @@ impl ScreenRecordingListener {
             other => other,
         }
     }
-    async fn ended(&self, test: &Test, failed: bool) -> VendorResult<()> {
-        self.stop().await?;
-        *self.last.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        self.catch_transfer(
-            async {
-                let remote = self.c.device.remote_file_manager();
-                let src = remote.remote_video_for_test(test, &self.c.batch.id).to_owned();
-                if !remote.test(&src, &self.c.context).await? {
-                    return Ok(());
-                }
-                if self.c.policy(failed) {
-                    if self.transcoding() {
-                        self.transcode(
-                            &src,
-                            &remote.remote_temp_video_for_test(test, &self.c.batch.id).to_owned(),
-                        )
-                        .await?;
-                    }
-                    self.pull(&src, Some(test)).await?;
-                }
-                self.remove(&src).await
-            }
-            .await,
-        )
-    }
     fn transcoding(&self) -> bool {
         self.c.device.supports_transcoding()
             && self
@@ -217,6 +292,8 @@ impl ScreenRecordingListener {
                 .transcoding
                 .enabled
     }
+}
+impl ScreenRecordingListener {
     async fn healthy(&self) -> bool {
         let healthy = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let out = healthy.clone();
@@ -256,7 +333,10 @@ impl AppleTestRunListener for ScreenRecordingListener {
         Box::pin(self.stop())
     }
     fn after_test_run(&self) -> VendorFuture<'_, ()> {
-        Box::pin(self.stop())
+        Box::pin(async move {
+            let stopped = self.stop().await;
+            self.settle().await.and(stopped)
+        })
     }
     fn test_started<'a>(&'a self, test: &'a Test) -> VendorFuture<'a, ()> {
         Box::pin(async move {
@@ -270,10 +350,20 @@ impl AppleTestRunListener for ScreenRecordingListener {
             *self.last.lock().unwrap_or_else(|e| e.into_inner()) = Some(src.clone());
             let c = self.c.clone();
             let logger = self.logger.clone();
+            let stopping = self.stopping.lock().unwrap_or_else(|e| e.into_inner()).clone();
             let job = c.device.services().runtime.clone().spawn_cancellable(Box::new(move |signal| {
                 Box::pin(async move {
                     let mut c = c;
                     c.context.cancellation = signal;
+                    if let Some(stopping) = stopping {
+                        // D80: the previous test's recording is stopped off the event path; this one starts after it,
+                        // as it did when that stop ran before this callback.
+                        tokio::select! {
+                            biased;
+                            reason = c.context.cancellation.cancelled() => return Err(VendorError::Cancelled(reason)),
+                            _ = stopping.join() => {}
+                        }
+                    }
                     let pidfile = c.device.remote_file_manager().remote_video_pidfile();
                     let done = await_removal(
                         c.context.clock.as_ref(),
@@ -334,7 +424,10 @@ impl AppleTestRunListener for ScreenRecordingListener {
     }
     fn test_run_failed<'a>(&'a self, _: &'a str, _: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
-            self.catch_transfer(
+            // The ended tests' videos go first, as when they were pulled inline; their failure waits for after_test_run.
+            self.pending.settle().await;
+            let media = self.media();
+            media.catch_transfer(
                 async {
                     if !self.healthy().await {
                         self.c.log(
@@ -350,11 +443,11 @@ impl AppleTestRunListener for ScreenRecordingListener {
                         if !self.c.device.remote_file_manager().test(&src, &self.c.context).await? {
                             return Ok(());
                         }
-                        if self.transcoding() {
-                            self.transcode(&src, &format!("{src}.tmp")).await?;
+                        if media.transcoding() {
+                            media.transcode(&src, &format!("{src}.tmp")).await?;
                         }
-                        self.pull(&src, None).await?;
-                        self.remove(&src).await?;
+                        media.pull(&src, None).await?;
+                        media.remove(&src).await?;
                     }
                     Ok(())
                 }

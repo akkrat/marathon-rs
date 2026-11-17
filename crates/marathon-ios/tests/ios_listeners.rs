@@ -129,6 +129,8 @@ async fn video_policy_matrix_and_ignored_pull_boolean_emit_attachment() -> TestR
                 1 => l.test_failed(&test, 0, 0, None).await.map_err(|e| format!("{e:?}"))?,
                 _ => l.test_ignored(&test, 0, 0).await.map_err(|e| format!("{e:?}"))?,
             }
+            // D80: the pull runs after the callback, off the event path.
+            l.settle().await.map_err(|e| format!("{e:?}"))?;
             let attach = policy == ScreenRecordingPolicy::OnAny || outcome == 1;
             assert_eq!(collector.get(&test).is_some(), attach);
             assert_eq!(bridge.pulls.lock().unwrap().len(), usize::from(attach));
@@ -162,7 +164,9 @@ async fn video_transfer_only_catch_and_missing_file_skip_removal() -> TestResult
             })
         });
         h.worker.commands.lock().unwrap().clear();
-        let result = l.test_failed(&test, 0, 0, None).await;
+        l.test_failed(&test, 0, 0, None).await.map_err(|e| format!("{e:?}"))?;
+        // D80: a non-transfer failure of the pull surfaces when the batch's videos are settled.
+        let result = l.settle().await;
         assert_eq!(result.is_err(), mode == 3);
         assert!(!h.worker.commands.lock().unwrap().iter().any(|c| c[0] == "rm"));
         if mode == 2 {
@@ -365,6 +369,7 @@ async fn two_tests_keep_the_recorder_alive_until_stop_and_attach_both_videos() -
         event.wait().await.map_err(|e| format!("{e:?}"))?;
         l.test_passed(test, 0, 0).await.map_err(|e| format!("{e:?}"))?;
     }
+    l.settle().await.map_err(|e| format!("{e:?}"))?;
     {
         let r = recorder.lock().unwrap();
         assert_eq!(
@@ -438,6 +443,7 @@ async fn fast_recorder_exit_keeps_failed_stop_from_blocking_next_recording() -> 
         event.wait().await.map_err(|e| format!("{e:?}"))?;
         l.test_passed(test, 0, 0).await.map_err(|e| format!("{e:?}"))?;
     }
+    l.settle().await.map_err(|e| format!("{e:?}"))?;
     assert_eq!((starts.load(Ordering::SeqCst), pid.lock().unwrap().clone()), (2, None));
     assert!(h.clock.now() - begin < 10_000);
     let cmds = h.worker.commands.lock().unwrap().clone();
@@ -746,8 +752,11 @@ async fn unsupported_sdk_warns_twice_and_disabled_is_silent() -> TestResult {
     }
     Ok(())
 }
+/// Kotlin pulls inside the test-ended callback, so a non-transfer failure of the pull stopped the composite there.
+/// D80 pulls off the event path: the next listeners still see the test end, and the failure fails the run when the
+/// recorder's `after_test_run` settles its videos.
 #[tokio::test(start_paused = true)]
-async fn non_transfer_failure_aborts_composite_before_next_listener() -> TestResult {
+async fn non_transfer_failure_reaches_the_next_listener_and_fails_after_test_run_d80() -> TestResult {
     struct Next(Arc<AtomicUsize>);
     impl AppleTestRunListener for Next {
         fn test_failed<'a>(
@@ -771,8 +780,9 @@ async fn non_transfer_failure_aborts_composite_before_next_listener() -> TestRes
     let c = context(&h, d.clone());
     let test = c.batch.tests[0].clone();
     let next = Arc::new(AtomicUsize::new(0));
+    let recorder = Arc::new(ScreenRecordingListener::new(c));
     let composite = marathon_apple::listener::CompositeTestRunListener {
-        listeners: vec![Arc::new(ScreenRecordingListener::new(c)), Arc::new(Next(next.clone()))],
+        listeners: vec![recorder.clone(), Arc::new(Next(next.clone()))],
     };
     *h.worker.before.lock().unwrap() = Arc::new(|cmd| {
         Box::pin(async move {
@@ -783,8 +793,12 @@ async fn non_transfer_failure_aborts_composite_before_next_listener() -> TestRes
             }))
         })
     });
-    assert!(composite.test_failed(&test, 0, 0, None).await.is_err());
-    assert_eq!(next.load(Ordering::SeqCst), 0);
+    composite
+        .test_failed(&test, 0, 0, None)
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(next.load(Ordering::SeqCst), 1);
+    assert!(recorder.after_test_run().await.is_err());
     h.finish(&[d]).await;
     Ok(())
 }
@@ -825,6 +839,7 @@ async fn failed_or_null_transcode_still_pulls_and_only_failed_result_logs_error(
             })
         });
         l.test_failed(&test, 0, 0, None).await.map_err(|e| format!("{e:?}"))?;
+        l.settle().await.map_err(|e| format!("{e:?}"))?;
         assert_eq!(bridge.pulls.lock().unwrap().len(), 1);
         assert!(collector.get(&test).is_some());
         assert_eq!(

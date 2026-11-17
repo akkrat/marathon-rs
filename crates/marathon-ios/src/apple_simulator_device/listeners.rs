@@ -16,6 +16,8 @@ use marathon_core::{
 
 /// 5.3 constructs its recorder first, registering its attachment providers before the log's.
 pub struct SimulatorListeners {
+    /// Settles the recorder's test-end transfers (D80); it runs first in `after_test_run`, before the results.
+    pub artifacts: Arc<dyn AppleTestRunListener>,
     pub recorder: Arc<dyn AppleTestRunListener>,
     pub recorder_attachments: Vec<Arc<dyn AttachmentProvider>>,
     pub device_log: Arc<dyn AppleTestRunListener>,
@@ -44,6 +46,7 @@ impl SimulatorListenerFactory for MinimalSimulatorListenerFactory {
         _: VendorContext,
     ) -> VendorResult<SimulatorListeners> {
         Ok(SimulatorListeners {
+            artifacts: Arc::new(Empty),
             recorder: Arc::new(Empty),
             recorder_attachments: vec![],
             device_log: Arc::new(Empty),
@@ -123,6 +126,7 @@ impl AppleSimulatorDevice {
             attachment_providers: attachments,
         })?;
         let listeners: Vec<Arc<dyn AppleTestRunListener>> = vec![
+            extra.artifacts,
             Arc::new(RetireOnFailure(self.me.clone())),
             Arc::new(results),
             Arc::new(TestRunListenerAdapter { listener: log }),

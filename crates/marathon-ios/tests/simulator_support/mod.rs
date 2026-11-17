@@ -365,9 +365,12 @@ pub fn failing() -> CommandResult {
     }
 }
 
+/// Awaited before output line `n` is sent, and with `n` = the line count after the last one.
+pub type Pace = Arc<dyn Fn(usize) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>;
 #[derive(Clone, Default)]
 pub struct OutputPlan {
     pub lines: Vec<String>,
+    pub pace: Option<Pace>,
     pub exit_status: Option<Option<i32>>,
     pub termination: Option<marathon_apple::cmd::base_command::CommandTermination>,
     pub delay_millis: u64,
@@ -412,14 +415,22 @@ impl BatchScript {
             let exit = base.exit_code.clone();
             let scope = base.scope.clone();
             let lines = plan.lines;
+            let pace = plan.pace;
             let failure = plan.failure;
             let hang = plan.hang;
             let status = plan.exit_status.unwrap_or(Some(65));
             let termination = plan.termination;
             let delay = plan.delay_millis;
             let pump = Runtime.spawn(Box::pin(async move {
-                for line in lines {
+                let count = lines.len();
+                for (n, line) in lines.into_iter().enumerate() {
+                    if let Some(pace) = &pace {
+                        pace(n).await;
+                    }
                     stdout.send(line).await?;
+                }
+                if let Some(pace) = &pace {
+                    pace(count).await;
                 }
                 if hang {
                     scope.cancelled().await;

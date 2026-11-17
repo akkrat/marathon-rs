@@ -2,6 +2,7 @@
 use marathon_error::FailureKind;
 pub mod data_container_clear;
 pub mod device_log;
+pub mod pending;
 pub mod screenshot;
 pub mod video;
 
@@ -116,10 +117,12 @@ impl SimulatorListenerFactory for ProductionSimulatorListenerFactory {
             &c.device.info().device_features,
             &c.device.services().vendor.screen_record_configuration,
         );
+        let mut artifacts: Arc<dyn AppleTestRunListener> = Arc::new(Empty);
         let (recorder, recorder_attachments): (Arc<dyn AppleTestRunListener>, Vec<Arc<dyn AttachmentProvider>>) =
             match selected {
                 Some(DeviceFeature::Video) => {
                     let l = Arc::new(video::ScreenRecordingListener::new(c.clone()));
+                    artifacts = Arc::new(pending::ArtifactBarrier(l.pending()));
                     (l.clone(), vec![l.attachments.clone()])
                 }
                 Some(DeviceFeature::Screenshot) => {
@@ -129,6 +132,7 @@ impl SimulatorListenerFactory for ProductionSimulatorListenerFactory {
                 None => (Arc::new(Empty), vec![]),
             };
         Ok(SimulatorListeners {
+            artifacts,
             recorder,
             recorder_attachments,
             device_log: Arc::new(device_log::DeviceLogListener::new(c.clone())),

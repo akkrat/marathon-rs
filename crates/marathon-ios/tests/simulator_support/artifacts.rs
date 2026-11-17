@@ -143,6 +143,7 @@ impl SimulatorListenerFactory for Factory {
     ) -> VendorResult<SimulatorListeners> {
         let provider = Arc::new(AttachmentProviderDelegate::default());
         Ok(SimulatorListeners {
+            artifacts: Arc::new(Empty),
             recorder: Arc::new(Recorder {
                 provider: provider.clone(),
                 file: self.file.clone(),
