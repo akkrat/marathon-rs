@@ -10,7 +10,7 @@ use marathon_core::{
     executor::shared::{SharedDeferred, Signal},
     model::{AttachmentType, TestResult as Outcome},
     runtime::VendorFuture,
-    vendor::VendorContext,
+    vendor::{Device, VendorContext},
 };
 use marathon_error::FailureKind;
 use marathon_ios::apple_simulator_device::AppleSimulatorDevice;
@@ -334,6 +334,57 @@ async fn a_slow_recording_stop_does_not_hold_back_the_next_test_d80() -> TestRes
             .unwrap()
             .iter()
             .any(|r| r.2.starts_with("Previous video recording didn't finish"))
+    );
+    h.finish(&[d]).await;
+    Ok(())
+}
+
+/// Waits on the test clock for the debug listener to log that `test` has started.
+async fn handled_start(h: &Harness, test: &str) {
+    let suffix = format!("#{test}");
+    while !h
+        .logs
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|r| r.2.starts_with("testStarted") && r.2.ends_with(&suffix))
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    }
+}
+
+/// D80 lets test2's recording wait in its own task for test1's stop. The simulator is disposed of while it waits;
+/// once that stop ends, the waiting start must not record on a disposed simulator.
+#[tokio::test(start_paused = true)]
+async fn a_recording_waiting_for_the_previous_stop_never_starts_after_disposal_d80() -> TestResult {
+    let Setup {
+        h,
+        d,
+        script,
+        bridge,
+        worker,
+    } = setup().await?;
+    bridge.release.complete(Ok(()));
+    let release = SharedDeferred::new();
+    *worker.slow_stop.lock().unwrap() = Some(release.clone());
+    {
+        let mut plan = script.plan.lock().unwrap();
+        plan.lines = failed(1).into_iter().chain([passed(2)[0].clone()]).collect();
+        plan.hang = true;
+    }
+    let batch = spawn_batch(&h, d.clone(), h.services.context.clone());
+    worker.stop_entered.wait().await.map_err(|e| format!("{e:?}"))?;
+    handled_start(&h, "test2").await;
+    d.dispose().await.map_err(|e| format!("{e:?}"))?;
+    let disposed_at = h.clock.now();
+    release.complete(Ok(()));
+    let _ = batch.await?;
+    // Detached work, if any, runs out on the test clock: await_removal waits up to 10 s.
+    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+    let recordings = worker.recordings.lock().unwrap().clone();
+    assert!(
+        recordings.iter().all(|(test, _)| test != "test2"),
+        "{recordings:?}, disposed at {disposed_at}"
     );
     h.finish(&[d]).await;
     Ok(())

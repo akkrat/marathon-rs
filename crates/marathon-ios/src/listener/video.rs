@@ -98,13 +98,18 @@ impl ScreenRecordingListener {
         }
     }
     async fn stop(&self) -> VendorResult<()> {
+        // A recording still waiting for the previous stop is ended first, so it cannot start once that stop is done.
+        let job = self.job.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(job) = job {
+            job.cancel(marathon_apple::cmd::cancelled("Recording finished"));
+            let _ = job.join().await;
+        }
         let stopping = self.stopping.lock().unwrap_or_else(|e| e.into_inner()).take();
         if let Some(stopping) = stopping {
             // Its failure is reported with its test's video.
             let _ = stopping.join().await;
         }
-        let job = self.job.lock().unwrap_or_else(|e| e.into_inner()).take();
-        stop_recording(&self.c, &self.logger, job).await
+        stop_recording(&self.c, &self.logger, None).await
     }
     async fn ended(&self, test: &Test, failed: bool) -> VendorResult<()> {
         // D80: the stop, transcode and pull run beside the next tests instead of holding back their events (U201).
@@ -137,6 +142,23 @@ impl ScreenRecordingListener {
             }),
         );
         Ok(())
+    }
+}
+/// A recording start's cancellation: its own (a stop) or its batch's.
+struct Linked {
+    own: Arc<dyn CancellationSignal>,
+    batch: Arc<dyn CancellationSignal>,
+}
+impl CancellationSignal for Linked {
+    fn reason(&self) -> Option<marathon_core::error::Cancellation> {
+        self.own.reason().or_else(|| self.batch.reason())
+    }
+    fn cancelled(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = marathon_core::error::Cancellation> + Send + '_>> {
+        Box::pin(async move {
+            tokio::select! { biased; reason = self.own.cancelled() => reason, reason = self.batch.cancelled() => reason }
+        })
     }
 }
 /// Kotlin's stop(): ends `job`, the recording's start, then the recorder whose pid is in the pidfile.
@@ -354,7 +376,12 @@ impl AppleTestRunListener for ScreenRecordingListener {
             let job = c.device.services().runtime.clone().spawn_cancellable(Box::new(move |signal| {
                 Box::pin(async move {
                     let mut c = c;
-                    c.context.cancellation = signal;
+                    // D80: the start can wait for the previous test's stop, so it also ends with the batch: a batch
+                    // cancelled or disposed of while it waits starts no recording.
+                    c.context.cancellation = Arc::new(Linked {
+                        own: signal,
+                        batch: c.context.cancellation.clone(),
+                    });
                     if let Some(stopping) = stopping {
                         // D80: the previous test's recording is stopped off the event path; this one starts after it,
                         // as it did when that stop ran before this callback.
