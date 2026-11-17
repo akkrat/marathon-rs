@@ -13,15 +13,17 @@ them, as each entry says.
 ### Check before you upgrade
 
 - **Probability flakiness without history (D71):** with `flakinessStrategy: probability`, history that cannot be read
-  (analytics disabled, a backend that could not be set up, a failed success-rate query) no longer gives every test
-  `maxCount` extra runs; it adds none and logs one warning saying why. If a job relied on disabled analytics to run every
-  test several times, switch it to `flakinessStrategy: {type: fixed, count: N}` (D72).
+  (analytics disabled, an InfluxDB backend that could not be set up, or a failed success-rate query until a later
+  refresh answers) no longer gives every test `maxCount` extra runs; it adds none and logs one warning saying why. A
+  Graphite backend that cannot be set up still fails the run, as before. If a job relied on disabled analytics to run
+  every test several times, switch it to `flakinessStrategy: {type: fixed, count: N}` (D72).
 - **`fixed` is native-only (D72):** the Kotlin marathon and 0.13.0 reject a Marathonfile that uses `type: fixed`. Remove
   it before rolling back to either.
 - **Fewer executions in reports (D69, D70, D75):** a test that has finished is no longer run again, a batch whose
   Android device is lost keeps the tests that finished, and a JUnit3 test with an array-valued annotation in a multi-dex
   APK is listed once. Reports, dashboards and checks that count executions, uncompleted attempts or tests can show lower
-  numbers. A run with a small `uncompletedTestRetryQuota` that used to fail after an adb outage can now pass.
+  numbers. A run with a small `uncompletedTestRetryQuota` that used to fail after an adb outage can now pass. A strict-mode
+  retry that D69 refunds can let another test of the pool be retried, which can change that test's outcome.
 - **`fast: false` reports follow the verdict (D77):** with `executionStrategy.fast: false`, the summary's first block, the
   per-test result files, JUnit and HTML show the run that decided a test's verdict (its first pass under `ANY_SUCCESS`,
   its first failure under `ALL_SUCCESS`), not its last run, so they agree with the exit code. A test's place in the JUnit
@@ -40,8 +42,8 @@ upgrading from an older version.
 
 ### Runs and queue
 
-- A run whose test queue fails now ends at once with exit 1 (0 with `ignoreFailures`), writes its reports and logs
-  `Marathon run failed` with the cause, instead of hanging until it is killed. A console that refuses a progress line
+- A run whose test queue fails now ends, instead of hanging, with exit 1 (0 with `ignoreFailures`), writes its reports and logs
+  `Marathon run failed` with the cause; its devices stop as at a normal end of the run. A console that refuses a progress line
   no longer stops the run: the line is lost, the test is still reported, and one warning is logged, shown with
   `debug: true` (D68, U168).
 - A test that has finished is no longer run again. Dropped are: a strict-mode retry granted to the attempt that
@@ -84,8 +86,9 @@ upgrading from an older version.
 ### Flakiness and results
 
 - **Flakiness copies without history** (D71): with `flakinessStrategy: probability`, a run whose test history cannot be
-  read (analytics disabled, a backend that could not be set up, or a failed success-rate query) no longer gives every
-  test `maxCount` extra runs; it adds none and logs one warning saying why. Tests missing from working history still
+  read (analytics disabled, an InfluxDB backend that could not be set up, or a failed success-rate query until a later
+  refresh answers) no longer gives every test `maxCount` extra runs; it adds none and logs one warning saying why. A
+  Graphite backend that cannot be set up still fails the run. Tests missing from working history still
   use `defaults.successRate`. If you relied on disabled analytics to run every test several times, use `fixed` below.
 - **`flakinessStrategy: fixed`** (D72): a new strategy type, `{type: fixed, count: N}`, schedules every test `N + 1`
   times whatever the history says, for stabilization jobs. It is allowed with `executionStrategy.mode: ALL_SUCCESS`, so
@@ -101,19 +104,21 @@ upgrading from an older version.
 
 ### Evidence
 
-- Every fix has a witness test that failed with the fix temporarily reverted, as each WP's findings record
+- Every fix has a witness test that failed with the fix temporarily reverted, as each change's findings document records
   ([x61](docs/wp/x61-findings.md)–[x72](docs/wp/x72-findings.md)). Whole runs use the Stub vendor (D68, D77), the fake
   adb with the virtual-clock reconnect harness (D70, U170, U197), and fakes of the Apple worker and its SSH sessions (D74,
   U183). Device-level tests order events with gates and listener signals; no sleep decides an outcome.
 - The JVM recordings are unedited. D69 sets aside exactly the three queue recordings of C45–C47, and a negative test pins
   the steps where they differ. Narrow allowances compare the rest: D77 moves only the final flag of tracked runs in
-  `fast: false` rows (22 progress rows and 13 queue flags), and D75 drops exactly the 8 recorded repeats of one fixture
-  APK; negative tests show that neither hides anything else.
+  `fast: false` rows (22 progress rows and 13 queue flags), D75 drops exactly the 8 recorded repeats of one fixture
+  APK, D76 removes exactly one recorded bundle push from two iOS rows, and two D74 tests assert the
+  JVM's recorded lease value beside the native one instead of equating them; negative tests show that none hides
+  anything else.
 - No registered native golden changed. One golden was added,
   `fixtures/contract/virtual-runs/android-lost-after-start.json`: the result files of an Android batch lost after it
   started (D70, U197), reviewed as a new file.
-- Each WP had one or two review rounds by another model, recorded with their findings and fixes in its findings document.
-- CI runs the repository gate on macOS and Linux; it passes at f2a16d3e, the code of this release candidate. x61–x66
+- Each change had one or two review rounds by another model, recorded with their findings and fixes in its findings document.
+- CI runs the repository gate on macOS and Linux; it passes at f2a16d3e, the code of this release candidate. The first six changes of the batch
   also passed it locally and on a Linux build box before merging. Two CI failures on `main` during the batch were races
   that only tests could hit, fixed in a test (U198) and in the console's filter reload (U199); the released binary was
   not affected by either.

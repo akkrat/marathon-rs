@@ -1746,7 +1746,7 @@ Approved 2026-11-15 (project owner's decision), with `ALL_SUCCESS` allowed by a 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the [x62 findings](wp/x62-findings.md).
 
 **Migration action:** none for existing configurations, which keep their meaning. A Marathonfile that uses `fixed`
-cannot be read by the Kotlin marathon.
+cannot be read by the Kotlin marathon or by 0.13.0; remove it before rolling back to either.
 
 ## D74 — An Apple device's preparation and connections end with it
 
