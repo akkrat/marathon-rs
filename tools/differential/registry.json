@@ -1702,6 +1702,30 @@
       "inputs": {
         "fixtures/oracle/android-runner-probes.jsonl": "91928197f415d9aaeb400cef489f103f39074d357563a852964fbd8f5ab09e6b"
       }
+    },
+    {
+      "id": "android-lost-after-start",
+      "state": "active",
+      "owner": "x68",
+      "transport": "adb",
+      "comparison": "native golden of the result files of a batch lost after it started; virtual-clock run, not whole CLI",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed native contract golden"
+      ],
+      "native": [
+        "-p",
+        "marathon-android",
+        "--test",
+        "reconnect_test"
+      ],
+      "evidence": [
+        "fixtures/contract/virtual-runs/android-lost-after-start.json"
+      ],
+      "inputs": {
+        "fixtures/contract/virtual-runs/android-lost-after-start.json": "0978a2e5f82e57516dc37b30a252b82aae7f2759f7a9d4fdd85642b57b984804",
+        "fixtures/fake-adb/android-reconnect/script/same-server.json": "c72d4e6c0a0e92a2860286aa255652f31c946a68cc7f2c3feceb251a96c00682"
+      }
     }
   ]
 }

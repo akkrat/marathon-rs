@@ -29,7 +29,10 @@ use marathon_core::{
     analytics::{BackendFactory, MetricsSetup},
     construction::{MetricsBackends, RunInputs, construct},
     error::*,
-    executor::{CoreExecutor, hooks::RuntimeHooks},
+    executor::{
+        CoreExecutor,
+        hooks::{ClockMode, Draw, Ids, RuntimeHooks, Tape},
+    },
     logging::host_millis,
     model::*,
     runtime::*,
@@ -289,6 +292,8 @@ pub struct Observed {
     pub received: Vec<(bool, String, DeviceRef, bool, i64)>,
     /// Fake-adb warnings per server (a strict fake records one for any unmatched command or broken session).
     pub warnings: Vec<usize>,
+    /// With `Options::results`, the run's output files by path.
+    pub files: BTreeMap<String, Vec<u8>>,
 }
 
 /// Requests of one serial in a server's transcript whose service contains `needle`.
@@ -444,9 +449,16 @@ struct Options {
     /// U197: the runner is held at the start of this class's test until the core has accounted for its batch, and a
     /// server or state event waits until it is held there.
     hold_at: Option<&'static str>,
+    /// The hold comes after the listener that gives the batch's results, which has then recorded the test's start, rather
+    /// than first in the chain.
+    hold_behind: bool,
     /// `batchingStrategy: fixed-size` with this size.
     batch_size: Option<i32>,
+    /// Keep the run's output files, made reproducible: the wall clock is frozen at [`WALL`] and batch IDs are numbered.
+    results: bool,
 }
+/// The frozen wall clock of a run that keeps its output files, as the native goldens' probe has it.
+const WALL: i64 = 1_577_836_800_000;
 
 fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observed {
     let Options {
@@ -454,7 +466,9 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
         quota,
         while_unstarted,
         hold_at,
+        hold_behind,
         batch_size,
+        results,
     } = options;
     let hold = hold_at.map(|class| {
         Arc::new(HeldTest {
@@ -536,7 +550,36 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
             Box::pin(async move {
                 let logging = Arc::new(Mutex::new(LogSettings::default()));
                 let console = RecordingConsole::new(logging.clone());
-                let hooks = RuntimeHooks::live();
+                let hooks = if results {
+                    let mut tape = Tape {
+                        wall: ClockMode::Frozen(WALL),
+                        monotonic: ClockMode::Frozen(0),
+                        ..Tape::default()
+                    };
+                    for (label, prefix) in [
+                        ("core.TestBatch.id", "00000000-0000-0000-0000-"),
+                        ("core.AllureReporter.uuid", "10000000-0000-0000-0000-"),
+                    ] {
+                        tape.ids.insert(
+                            label.into(),
+                            Ids::Pattern {
+                                prefix: prefix.into(),
+                                width: 12,
+                                hex: false,
+                                suffix: String::new(),
+                                start: 1,
+                            },
+                        );
+                    }
+                    // The only device, each time the provider lends it.
+                    tape.draws.insert(
+                        "android.AdamDeviceProvider.borrow".into(),
+                        vec![Draw::Key("emulator-5554".into()); 16],
+                    );
+                    RuntimeHooks::taped(tape, &core.clock())
+                } else {
+                    RuntimeHooks::live()
+                };
                 let barriers = hooks.barriers();
                 let metrics = MetricsBackends {
                     setup: Arc::new(NoMetricsSetup) as Arc<dyn MetricsSetup>,
@@ -553,7 +596,12 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
                     vendor: Box::new(move |dependencies| {
                         Box::pin(async move {
                             let tap_clock = dependencies.clock.clone();
+                            // The recorder comes first in the chain and profiling last.
                             let slots = match &log_hold {
+                                Some(hold) if hold_behind => ListenerSlots {
+                                    profiling: Some(Arc::new(HeldTestFactory(hold.clone()))),
+                                    ..ListenerSlots::default()
+                                },
                                 Some(hold) => ListenerSlots {
                                     recorder: Some(Arc::new(HeldTestFactory(hold.clone()))),
                                     ..ListenerSlots::default()
@@ -584,7 +632,11 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
                     hooks,
                     barriers,
                     timer: None,
-                    wall: Arc::new(host_millis),
+                    wall: if results {
+                        Arc::new(|| WALL)
+                    } else {
+                        Arc::new(host_millis)
+                    },
                     exit: None,
                     signal_trigger: None,
                     signal_hooks: Default::default(),
@@ -737,6 +789,7 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
                     events: Vec::new(),
                     received: Vec::new(),
                     warnings: Vec::new(),
+                    files: BTreeMap::new(),
                 })
             })
         },
@@ -757,8 +810,29 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
         observed.transcripts.push(server.transcript());
         observed.warnings.push(server.warnings());
     }
+    if results {
+        observed.files = files_under(output.path());
+    }
     drop(output);
     observed
+}
+
+/// Every file under `root`, by its path relative to it.
+fn files_under(root: &Path) -> BTreeMap<String, Vec<u8>> {
+    let mut files = BTreeMap::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in checked(std::fs::read_dir(&dir)) {
+            let path = checked(entry).path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                let relative = checked(path.strip_prefix(root)).to_string_lossy().into_owned();
+                files.insert(relative, checked(std::fs::read(&path)));
+            }
+        }
+    }
+    files
 }
 
 /// The device-list lines of the provider, as the CLI's debug log prints them.
@@ -1666,4 +1740,159 @@ fn a_finished_test_of_a_batch_lost_while_it_ran_is_not_run_again_u197() {
         "runs of T00 and T01"
     );
     assert_eq!(logged(&observed, "onReturnBatch"), 0);
+}
+
+/// A test that fails, after `started` for it.
+fn failed(class: &str) -> String {
+    format!(
+        "{}INSTRUMENTATION_STATUS: class={class}\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: stack=java.lang.AssertionError: expected\nINSTRUMENTATION_STATUS_CODE: -2\n",
+        started(class)
+    )
+}
+/// Where the result files of `a_batch_lost_after_it_started_writes_what_ran_u197` are pinned. Rewritten, not compared,
+/// with `MARATHON_BLESS_VIRTUAL_RUNS=1`; review the diff.
+const LOST_AFTER_START_GOLDEN: &str = "contract/virtual-runs/android-lost-after-start.json";
+/// The run's result files as the golden holds them: JSON parsed, text as is, the fake server's port and the output and
+/// repository directories replaced. Static report assets and the Allure environment (an echo of the configuration, with
+/// local paths) are left out.
+fn golden_view(files: &BTreeMap<String, Vec<u8>>, port: u16) -> Value {
+    let root = checked(std::fs::canonicalize(fixture(".")))
+        .to_string_lossy()
+        .into_owned();
+    let normalize = |text: &str| {
+        text.replace(&format!("127.0.0.1:{port}:"), "127.0.0.1:PORT:")
+            .replace(&format!("127.0.0.1-{port}-"), "127.0.0.1-PORT-")
+            .replace(&root, "<fixtures>")
+    };
+    let mut view = serde_json::Map::new();
+    for (path, bytes) in files {
+        if path.ends_with(".min.css")
+            || path.ends_with(".min.js")
+            || path.starts_with("html/timeline/chart.")
+            || path.ends_with("environment.xml")
+        {
+            continue;
+        }
+        let text = normalize(&checked(String::from_utf8(bytes.clone())));
+        let value = if path.ends_with(".json") {
+            checked(serde_json::from_str(&text))
+        } else {
+            Value::String(text)
+        };
+        view.insert(normalize(path), value);
+    }
+    Value::Object(view)
+}
+
+/// U197 (D70), the result files of a batch lost after it started, pinned as a golden. The batch of `T00`..`T03` runs on
+/// the only device: `T00` passes, `T01` fails, `T02` is in flight and `T03` has not started when the device leaves, and
+/// the core hears of it first, with `T02`'s start recorded. `T00` and `T01` keep their results and are not run again;
+/// `T02` and `T03` are reported uncompleted once, `T02` ended when the batch was, and pass when the device is back.
+#[test]
+fn a_batch_lost_after_it_started_writes_what_ran_u197() {
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (mut script, _, index) = load("same-server");
+    let rules = script["shell"].as_array_mut().unwrap();
+    let parse = rules
+        .iter_mut()
+        .find(|rule| rule["regex"].as_str().is_some_and(|r| r.ends_with("-e log true")))
+        .unwrap();
+    parse["stdout"] = json!(format!(
+        "{}{}{}{}INSTRUMENTATION_CODE: -1\n",
+        passed("com.example.T00"),
+        passed("com.example.T01"),
+        passed("com.example.T02"),
+        passed("com.example.T03")
+    ));
+    let all = r"^am instrument .* -e class com\.example\.T00#test,com\.example\.T01#test,com\.example\.T02#test,com\.example\.T03#test ";
+    let rest = r"^am instrument .* -e class com\.example\.T02#test,com\.example\.T03#test ";
+    rules.insert(
+        0,
+        json!({"regex": all, "times": 1, "hang": true,
+            "stdout": format!("{}{}{}", passed("com.example.T00"), failed("com.example.T01"), started("com.example.T02"))}),
+    );
+    rules.insert(
+        1,
+        json!({"regex": rest, "times": 1,
+            "stdout": format!("{}{}INSTRUMENTATION_CODE: -1\n", passed("com.example.T02"), passed("com.example.T03"))}),
+    );
+    let events = [(14_000, "offline"), (40_000, "device")]
+        .into_iter()
+        .map(|(at_ms, state)| Event {
+            server: 0,
+            at_ms,
+            connect: false,
+            serial: "emulator-5554".into(),
+            kill: None,
+            state: Some(state),
+        })
+        .collect();
+    let observed = run_with(
+        vec![(script, events, index)],
+        Options {
+            hold_at: Some("com.example.T02"),
+            hold_behind: true,
+            batch_size: Some(4),
+            results: true,
+            ..Options::default()
+        },
+    );
+    // A failed test fails the run.
+    assert!(
+        matches!(observed.result, Some(Ok(false))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed
+            .result
+            .as_ref()
+            .map(|r| r.as_ref().map_err(|e| e.failure().clone()))
+    );
+    assert_eq!(observed.received.iter().filter(|r| !r.0).count(), 1);
+    assert_eq!(logged(&observed, "onReturnBatch"), 0);
+    assert_eq!(observed.warnings, [0]);
+    let port = observed.received[0]
+        .1
+        .split(':')
+        .nth(1)
+        .and_then(|p| p.parse().ok())
+        .unwrap();
+    let view = golden_view(&observed.files, port);
+    // What the golden must show, checked here too so that a wrong one cannot be blessed: each test's records, in the
+    // order the core reports a batch's (finished, uncompleted, failed), none with a negative duration.
+    let raw: Vec<(String, String, i64)> = view["test_result/raw.json"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| {
+            (
+                r["class"].as_str().unwrap().to_owned(),
+                r["status"].as_str().unwrap().to_owned(),
+                r["duration"].as_i64().unwrap(),
+            )
+        })
+        .collect();
+    let expected: Vec<(String, String, i64)> = [
+        ("T00", "PASSED"),
+        ("T02", "INCOMPLETE"),
+        ("T03", "INCOMPLETE"),
+        ("T01", "FAILURE"),
+        ("T02", "PASSED"),
+        ("T03", "PASSED"),
+    ]
+    .into_iter()
+    .map(|(class, status)| (class.to_owned(), status.to_owned(), 0))
+    .collect();
+    assert_eq!(raw, expected);
+    let path = fixture(LOST_AFTER_START_GOLDEN);
+    let actual = checked(serde_json::to_string_pretty(&view)) + "\n";
+    if std::env::var_os("MARATHON_BLESS_VIRTUAL_RUNS").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        checked(std::fs::create_dir_all(checked(path.parent().ok_or("no parent"))));
+        checked(std::fs::write(&path, actual));
+        return;
+    }
+    let golden = checked(std::fs::read_to_string(&path));
+    assert!(
+        actual == golden,
+        "result files differ from {LOST_AFTER_START_GOLDEN}; rerun with MARATHON_BLESS_VIRTUAL_RUNS=1 and review the diff"
+    );
 }

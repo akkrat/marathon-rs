@@ -51,3 +51,10 @@ registered with `native_only: true`, with no historical JVM golden or verificati
 record; historical capture rejects it. The other 17 adapters retain their JVM
 evidence and validation. Its stream lives under `tools/differential/scenarios/`;
 existing copied fixtures are unchanged.
+
+`android-lost-after-start` (x68, D70) is not a CLI adapter. A batch lost after it
+started needs the core to hear of the loss before the runner does, which only a
+listener hold on the virtual clock can arrange, so the virtual-clock reconnect
+harness (`marathon-android --test reconnect_test`) pins that run's result files in
+`fixtures/contract/virtual-runs/android-lost-after-start.json`. Rewrite it with
+`MARATHON_BLESS_VIRTUAL_RUNS=1` on that test, and review the diff.

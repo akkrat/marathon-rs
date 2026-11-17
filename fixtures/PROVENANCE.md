@@ -1220,6 +1220,16 @@ raw input units stay in each row. Valid-input rows continue to use the unchanged
 original oracle. No copied resource or original oracle table was edited.
 
 
+## WP x68 native result golden
+
+`contract/virtual-runs/android-lost-after-start.json` is generated, not copied: the result files (per-test JSON,
+`raw.json`, JUnit, Allure results, HTML pages, device and bill files) of `reconnect_test.rs`'s
+`a_batch_lost_after_it_started_writes_what_ran_u197`, a virtual-clock run with the wall clock frozen at
+2020-01-01T00:00:00Z and numbered batch and Allure IDs. JSON files are stored parsed; the fake server's port reads `PORT`.
+Static report assets and the Allure environment are left out. Rewrite it with `MARATHON_BLESS_VIRTUAL_RUNS=1 cargo test
+-p marathon-android --test reconnect_test a_batch_lost_after_it_started_writes_what_ran_u197` and review the diff; never
+edit it by hand.
+
 ## WP 8.3 native decoding expectations
 
 - `phase8/d57-yaml.json`: five hand-reviewed replacement-count overrides for encoded-surrogate byte inputs in `oracle/yaml-review-corpus.jsonl`. Inputs and original oracle rows remain unchanged.

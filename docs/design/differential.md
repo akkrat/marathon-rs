@@ -83,6 +83,7 @@ configuration, and updating that configuration requires a macOS re-bless.
 | `ios-media`, `ios-screenshot` | Video/transcode/device logs and A19 leftover; exact decoded GIF frames and timing; all report references |
 | `android-smoke`, `android-two-devices`, `android-remote` | Passing local discovery; two-device setup/install plus pass/fail/ignored batch; remote discovery plus execution; complete reports, shell output and final ADB state |
 | `android-instrumentation-eof` | Native instrumentation starts a test, then closes without a result; Marathon-generated EOF wording in JUnit, Allure, per-test JSON and HTML, with full transport and final-state checks |
+| `android-lost-after-start` (registry row, not a CLI adapter) | D70/U197: a batch lost after it started, with a passed, a failed, an in-flight and an unstarted test; its result files from the virtual-clock reconnect harness, pinned in `fixtures/contract/virtual-runs/` (`MARATHON_BLESS_VIRTUAL_RUNS=1` rewrites them) |
 | Each vendor's `-ignore` and `-parse` | Failure suppression stays on stderr with CLI exit 0; named `.yml`, seeded output and parse/provider side effects |
 | `ios-pass`, `macos-pass` | Passing Apple CLI exit 0; Android passing is `android-smoke` |
 

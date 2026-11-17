@@ -101,6 +101,14 @@ for name,owner,transport,package,test,paths,scope in [
   'owner JVM runner loss/timeout/crash and callback contracts'),
 ]:
     active(name,owner,transport,scope,target(package,test),paths,paths)
+# x68 (D70, U197): a batch lost after it started can only be ordered with a listener hold on the virtual clock, which
+# the whole-CLI probe lacks, so its result files are pinned by a native golden of the reconnect harness.
+golden = 'fixtures/contract/virtual-runs/android-lost-after-start.json'
+active('android-lost-after-start','x68','adb',
+       'native golden of the result files of a batch lost after it started; virtual-clock run, not whole CLI',
+       target('marathon-android','reconnect_test'),[golden],
+       [golden,'fixtures/fake-adb/android-reconnect/script/same-server.json'])
+rows[-1]['prerequisites'] = ['offline Rust toolchain', 'committed native contract golden']
 # Pin the old evidence as immutable, explicitly reduced inventories, not upgraded goldens.
 legacy = []
 for pattern in ['fixtures/fake-worker/apple/*/expected/**/*','fixtures/fake-adb/android-two-devices/expected/*',

@@ -1,0 +1,467 @@
+{
+  "allure-results/10000000-0000-0000-0000-000000000001-result.json": {
+    "uuid": "10000000-0000-0000-0000-000000000001",
+    "historyId": "d5b74335c02c226fcd85b2ebe5cd2257",
+    "fullName": "com.example.T00.test",
+    "labels": [
+      {
+        "name": "host",
+        "value": "127.0.0.1:PORT:emulator-5554"
+      },
+      {
+        "name": "package",
+        "value": "com.example"
+      },
+      {
+        "name": "testClass",
+        "value": "com.example.T00"
+      },
+      {
+        "name": "testMethod",
+        "value": "test"
+      },
+      {
+        "name": "suite",
+        "value": "com.example.T00"
+      }
+    ],
+    "links": [],
+    "name": "test",
+    "status": "passed",
+    "stage": "scheduled",
+    "steps": [],
+    "attachments": [],
+    "parameters": [],
+    "start": 1577836800000,
+    "stop": 1577836800000
+  },
+  "allure-results/10000000-0000-0000-0000-000000000002-result.json": {
+    "uuid": "10000000-0000-0000-0000-000000000002",
+    "historyId": "9af26bf464d76c0f98f8f3f0644180a3",
+    "fullName": "com.example.T02.test",
+    "labels": [
+      {
+        "name": "host",
+        "value": "127.0.0.1:PORT:emulator-5554"
+      },
+      {
+        "name": "package",
+        "value": "com.example"
+      },
+      {
+        "name": "testClass",
+        "value": "com.example.T02"
+      },
+      {
+        "name": "testMethod",
+        "value": "test"
+      },
+      {
+        "name": "suite",
+        "value": "com.example.T02"
+      }
+    ],
+    "links": [],
+    "name": "test",
+    "status": "broken",
+    "stage": "scheduled",
+    "steps": [],
+    "attachments": [],
+    "parameters": [],
+    "start": 1577836800000,
+    "stop": 1577836800000
+  },
+  "allure-results/10000000-0000-0000-0000-000000000003-result.json": {
+    "uuid": "10000000-0000-0000-0000-000000000003",
+    "historyId": "83c23763e2dec703981a7cc07219c704",
+    "fullName": "com.example.T03.test",
+    "labels": [
+      {
+        "name": "host",
+        "value": "127.0.0.1:PORT:emulator-5554"
+      },
+      {
+        "name": "package",
+        "value": "com.example"
+      },
+      {
+        "name": "testClass",
+        "value": "com.example.T03"
+      },
+      {
+        "name": "testMethod",
+        "value": "test"
+      },
+      {
+        "name": "suite",
+        "value": "com.example.T03"
+      }
+    ],
+    "links": [],
+    "name": "test",
+    "status": "broken",
+    "statusDetails": {
+      "known": false,
+      "muted": false,
+      "flaky": false,
+      "message": "Test didn't complete. Either the test results are missing due to timeout or testing runtime crashed",
+      "trace": "Test didn't complete. Either the test results are missing due to timeout or testing runtime crashed"
+    },
+    "stage": "scheduled",
+    "steps": [],
+    "attachments": [],
+    "parameters": [],
+    "start": 1577836800000,
+    "stop": 1577836800000
+  },
+  "allure-results/10000000-0000-0000-0000-000000000004-result.json": {
+    "uuid": "10000000-0000-0000-0000-000000000004",
+    "historyId": "86b2c4d1b6071f138fdd88c912799837",
+    "fullName": "com.example.T01.test",
+    "labels": [
+      {
+        "name": "host",
+        "value": "127.0.0.1:PORT:emulator-5554"
+      },
+      {
+        "name": "package",
+        "value": "com.example"
+      },
+      {
+        "name": "testClass",
+        "value": "com.example.T01"
+      },
+      {
+        "name": "testMethod",
+        "value": "test"
+      },
+      {
+        "name": "suite",
+        "value": "com.example.T01"
+      }
+    ],
+    "links": [],
+    "name": "test",
+    "status": "failed",
+    "statusDetails": {
+      "known": false,
+      "muted": false,
+      "flaky": false,
+      "message": "java.lang.AssertionError: expected",
+      "trace": "java.lang.AssertionError: expected"
+    },
+    "stage": "scheduled",
+    "steps": [],
+    "attachments": [],
+    "parameters": [],
+    "start": 1577836800000,
+    "stop": 1577836800000
+  },
+  "allure-results/10000000-0000-0000-0000-000000000005-result.json": {
+    "uuid": "10000000-0000-0000-0000-000000000005",
+    "historyId": "9af26bf464d76c0f98f8f3f0644180a3",
+    "fullName": "com.example.T02.test",
+    "labels": [
+      {
+        "name": "host",
+        "value": "127.0.0.1:PORT:emulator-5554"
+      },
+      {
+        "name": "package",
+        "value": "com.example"
+      },
+      {
+        "name": "testClass",
+        "value": "com.example.T02"
+      },
+      {
+        "name": "testMethod",
+        "value": "test"
+      },
+      {
+        "name": "suite",
+        "value": "com.example.T02"
+      }
+    ],
+    "links": [],
+    "name": "test",
+    "status": "passed",
+    "stage": "scheduled",
+    "steps": [],
+    "attachments": [],
+    "parameters": [],
+    "start": 1577836800000,
+    "stop": 1577836800000
+  },
+  "allure-results/10000000-0000-0000-0000-000000000006-result.json": {
+    "uuid": "10000000-0000-0000-0000-000000000006",
+    "historyId": "83c23763e2dec703981a7cc07219c704",
+    "fullName": "com.example.T03.test",
+    "labels": [
+      {
+        "name": "host",
+        "value": "127.0.0.1:PORT:emulator-5554"
+      },
+      {
+        "name": "package",
+        "value": "com.example"
+      },
+      {
+        "name": "testClass",
+        "value": "com.example.T03"
+      },
+      {
+        "name": "testMethod",
+        "value": "test"
+      },
+      {
+        "name": "suite",
+        "value": "com.example.T03"
+      }
+    ],
+    "links": [],
+    "name": "test",
+    "status": "passed",
+    "stage": "scheduled",
+    "steps": [],
+    "attachments": [],
+    "parameters": [],
+    "start": 1577836800000,
+    "stop": 1577836800000
+  },
+  "bill/omni/127.0.0.1-PORT-emulator-5554.json": {
+    "device": {
+      "operatingSystem": {
+        "version": "33"
+      },
+      "serialNumber": "127.0.0.1:PORT:emulator-5554",
+      "model": "Android SDK built for x86",
+      "manufacturer": "Google",
+      "networkState": "CONNECTED",
+      "deviceFeatures": [
+        "VIDEO",
+        "SCREENSHOT"
+      ],
+      "healthy": true
+    },
+    "pool": {
+      "name": "omni"
+    },
+    "start": 1577836800000,
+    "end": 1577836800000,
+    "duration": 0
+  },
+  "devices/omni/127.0.0.1-PORT-emulator-5554.json": {
+    "operatingSystem": {
+      "version": "33"
+    },
+    "serialNumber": "127.0.0.1:PORT:emulator-5554",
+    "model": "Android SDK built for x86",
+    "manufacturer": "Google",
+    "networkState": "CONNECTED",
+    "deviceFeatures": [
+      "VIDEO",
+      "SCREENSHOT"
+    ],
+    "healthy": true
+  },
+  "html/index.html": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta content=\"width=device-width, initial-scale=1, maximum-scale=1\" name=viewport>\n    <meta charset=\"utf-8\">\n    <title>Composer</title>\n    <link href=\"app.min.css\" rel=\"stylesheet\">\n    <script>\n      window.mainData = {\"title\":\"x1-reconnect\",\"total_failed\":1,\"total_flaky\":0,\"total_ignored\":0,\"total_passed\":3,\"total_duration_millis\":0,\"average_duration_millis\":0,\"max_duration_millis\":0,\"min_duration_millis\":0,\"pools\":[{\"id\":\"omni\",\"tests\":[{\"id\":\"com.example.T00.test\",\"package_name\":\"com.example\",\"filename\":\"com.example.T00.test.html\",\"class_name\":\"T00\",\"name\":\"test\",\"duration_millis\":0,\"status\":\"passed\",\"deviceId\":\"127.0.0.1-PORT-emulator-5554\"},{\"id\":\"com.example.T01.test\",\"package_name\":\"com.example\",\"filename\":\"com.example.T01.test.html\",\"class_name\":\"T01\",\"name\":\"test\",\"duration_millis\":0,\"status\":\"failed\",\"deviceId\":\"127.0.0.1-PORT-emulator-5554\"},{\"id\":\"com.example.T02.test\",\"package_name\":\"com.example\",\"filename\":\"com.example.T02.test.html\",\"class_name\":\"T02\",\"name\":\"test\",\"duration_millis\":0,\"status\":\"passed\",\"deviceId\":\"127.0.0.1-PORT-emulator-5554\"},{\"id\":\"com.example.T03.test\",\"package_name\":\"com.example\",\"filename\":\"com.example.T03.test.html\",\"class_name\":\"T03\",\"name\":\"test\",\"duration_millis\":0,\"status\":\"passed\",\"deviceId\":\"127.0.0.1-PORT-emulator-5554\"}],\"passed_count\":3,\"failed_count\":1,\"ignored_count\":0,\"duration_millis\":0,\"devices\":[{\"apiLevel\":\"33\",\"isTable\":false,\"serial\":\"127.0.0.1-PORT-emulator-5554\",\"modelName\":\"Android SDK built for x86\"}]}]}\n      // window.mainData / window.suite / window.test={ json }\n\n\n    </script>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script src=\"app.min.js\" type=\"text/javascript\"></script>\n    \n    <div class=\"copy content\">Generated with&nbsp;❤️&nbsp;&nbsp;by Juno at 00:00:00 UTC, Jan 1 2020</div>\n  </body>\n</html>\n",
+  "html/pools/omni.html": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta content=\"width=device-width, initial-scale=1, maximum-scale=1\" name=viewport>\n    <meta charset=\"utf-8\">\n    <title>Composer</title>\n    <link href=\"../app.min.css\" rel=\"stylesheet\">\n    <script>\n      window.pool = {\"id\":\"omni\",\"tests\":[{\"id\":\"com.example.T00.test\",\"package_name\":\"com.example\",\"filename\":\"com.example.T00.test.html\",\"class_name\":\"T00\",\"name\":\"test\",\"duration_millis\":0,\"status\":\"passed\",\"deviceId\":\"127.0.0.1-PORT-emulator-5554\"},{\"id\":\"com.example.T01.test\",\"package_name\":\"com.example\",\"filename\":\"com.example.T01.test.html\",\"class_name\":\"T01\",\"name\":\"test\",\"duration_millis\":0,\"status\":\"failed\",\"deviceId\":\"127.0.0.1-PORT-emulator-5554\"},{\"id\":\"com.example.T02.test\",\"package_name\":\"com.example\",\"filename\":\"com.example.T02.test.html\",\"class_name\":\"T02\",\"name\":\"test\",\"duration_millis\":0,\"status\":\"passed\",\"deviceId\":\"127.0.0.1-PORT-emulator-5554\"},{\"id\":\"com.example.T03.test\",\"package_name\":\"com.example\",\"filename\":\"com.example.T03.test.html\",\"class_name\":\"T03\",\"name\":\"test\",\"duration_millis\":0,\"status\":\"passed\",\"deviceId\":\"127.0.0.1-PORT-emulator-5554\"}],\"passed_count\":3,\"failed_count\":1,\"ignored_count\":0,\"duration_millis\":0,\"devices\":[{\"apiLevel\":\"33\",\"isTable\":false,\"serial\":\"127.0.0.1-PORT-emulator-5554\",\"modelName\":\"Android SDK built for x86\"}]}\n      // window.mainData / window.suite / window.test={ json }\n\n\n    </script>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script src=\"../app.min.js\" type=\"text/javascript\"></script>\n    \n    <div class=\"copy content\">Generated with&nbsp;❤️&nbsp;&nbsp;by Juno at 00:00:00 UTC, Jan 1 2020</div>\n  </body>\n</html>\n",
+  "html/pools/omni/127.0.0.1-PORT-emulator-5554/com.example.T00.test.html": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta content=\"width=device-width, initial-scale=1, maximum-scale=1\" name=viewport>\n    <meta charset=\"utf-8\">\n    <title>Composer</title>\n    <link href=\"../../../app.min.css\" rel=\"stylesheet\">\n    <script>\n      window.test = {\"pool_id\":\"omni\",\"package_name\":\"com.example\",\"class_name\":\"T00\",\"name\":\"test\",\"id\":\"com.example.T00.test\",\"filename\":\"com.example.T00.test.html\",\"duration_millis\":0,\"status\":\"passed\",\"deviceId\":\"127.0.0.1-PORT-emulator-5554\",\"diagnostic_video\":true,\"diagnostic_screenshots\":true,\"screenshot\":\"\",\"videos\":[],\"log_file\":\"\"}\n      // window.mainData / window.suite / window.test={ json }\n\n\n    </script>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script src=\"../../../app.min.js\" type=\"text/javascript\"></script>\n    \n    <div class=\"copy content\">Generated with&nbsp;❤️&nbsp;&nbsp;by Juno at 00:00:00 UTC, Jan 1 2020</div>\n  </body>\n</html>\n",
+  "html/pools/omni/127.0.0.1-PORT-emulator-5554/com.example.T01.test.html": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta content=\"width=device-width, initial-scale=1, maximum-scale=1\" name=viewport>\n    <meta charset=\"utf-8\">\n    <title>Composer</title>\n    <link href=\"../../../app.min.css\" rel=\"stylesheet\">\n    <script>\n      window.test = {\"pool_id\":\"omni\",\"package_name\":\"com.example\",\"class_name\":\"T01\",\"name\":\"test\",\"id\":\"com.example.T01.test\",\"filename\":\"com.example.T01.test.html\",\"duration_millis\":0,\"status\":\"failed\",\"stacktrace\":\"java.lang.AssertionError: expected\",\"deviceId\":\"127.0.0.1-PORT-emulator-5554\",\"diagnostic_video\":true,\"diagnostic_screenshots\":true,\"screenshot\":\"\",\"videos\":[],\"log_file\":\"\"}\n      // window.mainData / window.suite / window.test={ json }\n\n\n    </script>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script src=\"../../../app.min.js\" type=\"text/javascript\"></script>\n    <div class=\"content\"><div class=\"card log\"><div class=\"log__default\">java.lang.AssertionError: expected</div>\n</div></div>\n\n    <div class=\"copy content\">Generated with&nbsp;❤️&nbsp;&nbsp;by Juno at 00:00:00 UTC, Jan 1 2020</div>\n  </body>\n</html>\n",
+  "html/pools/omni/127.0.0.1-PORT-emulator-5554/com.example.T02.test.html": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta content=\"width=device-width, initial-scale=1, maximum-scale=1\" name=viewport>\n    <meta charset=\"utf-8\">\n    <title>Composer</title>\n    <link href=\"../../../app.min.css\" rel=\"stylesheet\">\n    <script>\n      window.test = {\"pool_id\":\"omni\",\"package_name\":\"com.example\",\"class_name\":\"T02\",\"name\":\"test\",\"id\":\"com.example.T02.test\",\"filename\":\"com.example.T02.test.html\",\"duration_millis\":0,\"status\":\"passed\",\"deviceId\":\"127.0.0.1-PORT-emulator-5554\",\"diagnostic_video\":true,\"diagnostic_screenshots\":true,\"screenshot\":\"\",\"videos\":[],\"log_file\":\"\"}\n      // window.mainData / window.suite / window.test={ json }\n\n\n    </script>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script src=\"../../../app.min.js\" type=\"text/javascript\"></script>\n    \n    <div class=\"copy content\">Generated with&nbsp;❤️&nbsp;&nbsp;by Juno at 00:00:00 UTC, Jan 1 2020</div>\n  </body>\n</html>\n",
+  "html/pools/omni/127.0.0.1-PORT-emulator-5554/com.example.T03.test.html": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta content=\"width=device-width, initial-scale=1, maximum-scale=1\" name=viewport>\n    <meta charset=\"utf-8\">\n    <title>Composer</title>\n    <link href=\"../../../app.min.css\" rel=\"stylesheet\">\n    <script>\n      window.test = {\"pool_id\":\"omni\",\"package_name\":\"com.example\",\"class_name\":\"T03\",\"name\":\"test\",\"id\":\"com.example.T03.test\",\"filename\":\"com.example.T03.test.html\",\"duration_millis\":0,\"status\":\"passed\",\"deviceId\":\"127.0.0.1-PORT-emulator-5554\",\"diagnostic_video\":true,\"diagnostic_screenshots\":true,\"screenshot\":\"\",\"videos\":[],\"log_file\":\"\"}\n      // window.mainData / window.suite / window.test={ json }\n\n\n    </script>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script src=\"../../../app.min.js\" type=\"text/javascript\"></script>\n    \n    <div class=\"copy content\">Generated with&nbsp;❤️&nbsp;&nbsp;by Juno at 00:00:00 UTC, Jan 1 2020</div>\n  </body>\n</html>\n",
+  "html/pools/omni/127.0.0.1-PORT-emulator-5554/logs/com.example.T00.test.html": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta content=\"width=device-width, initial-scale=1, maximum-scale=1\" name=viewport>\n    <meta charset=\"utf-8\">\n    <title>Composer</title>\n    <link href=\"../../../../app.min.css\" rel=\"stylesheet\">\n    <script>\n      window.logs = {\"pool_id\":\"omni\",\"test_id\":\"com.example.T00.test\",\"display_name\":\"test\",\"device_id\":\"127.0.0.1-PORT-emulator-5554\",\"log_path\":\"../\"}\n      // window.mainData / window.suite / window.test={ json }\n\n\n    </script>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script src=\"../../../../app.min.js\" type=\"text/javascript\"></script>\n    \n    <div class=\"copy content\">Generated with&nbsp;❤️&nbsp;&nbsp;by Juno at 00:00:00 UTC, Jan 1 2020</div>\n  </body>\n</html>\n",
+  "html/pools/omni/127.0.0.1-PORT-emulator-5554/logs/com.example.T01.test.html": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta content=\"width=device-width, initial-scale=1, maximum-scale=1\" name=viewport>\n    <meta charset=\"utf-8\">\n    <title>Composer</title>\n    <link href=\"../../../../app.min.css\" rel=\"stylesheet\">\n    <script>\n      window.logs = {\"pool_id\":\"omni\",\"test_id\":\"com.example.T01.test\",\"display_name\":\"test\",\"device_id\":\"127.0.0.1-PORT-emulator-5554\",\"log_path\":\"../\"}\n      // window.mainData / window.suite / window.test={ json }\n\n\n    </script>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script src=\"../../../../app.min.js\" type=\"text/javascript\"></script>\n    \n    <div class=\"copy content\">Generated with&nbsp;❤️&nbsp;&nbsp;by Juno at 00:00:00 UTC, Jan 1 2020</div>\n  </body>\n</html>\n",
+  "html/pools/omni/127.0.0.1-PORT-emulator-5554/logs/com.example.T02.test.html": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta content=\"width=device-width, initial-scale=1, maximum-scale=1\" name=viewport>\n    <meta charset=\"utf-8\">\n    <title>Composer</title>\n    <link href=\"../../../../app.min.css\" rel=\"stylesheet\">\n    <script>\n      window.logs = {\"pool_id\":\"omni\",\"test_id\":\"com.example.T02.test\",\"display_name\":\"test\",\"device_id\":\"127.0.0.1-PORT-emulator-5554\",\"log_path\":\"../\"}\n      // window.mainData / window.suite / window.test={ json }\n\n\n    </script>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script src=\"../../../../app.min.js\" type=\"text/javascript\"></script>\n    \n    <div class=\"copy content\">Generated with&nbsp;❤️&nbsp;&nbsp;by Juno at 00:00:00 UTC, Jan 1 2020</div>\n  </body>\n</html>\n",
+  "html/pools/omni/127.0.0.1-PORT-emulator-5554/logs/com.example.T03.test.html": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta content=\"width=device-width, initial-scale=1, maximum-scale=1\" name=viewport>\n    <meta charset=\"utf-8\">\n    <title>Composer</title>\n    <link href=\"../../../../app.min.css\" rel=\"stylesheet\">\n    <script>\n      window.logs = {\"pool_id\":\"omni\",\"test_id\":\"com.example.T03.test\",\"display_name\":\"test\",\"device_id\":\"127.0.0.1-PORT-emulator-5554\",\"log_path\":\"../\"}\n      // window.mainData / window.suite / window.test={ json }\n\n\n    </script>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script src=\"../../../../app.min.js\" type=\"text/javascript\"></script>\n    \n    <div class=\"copy content\">Generated with&nbsp;❤️&nbsp;&nbsp;by Juno at 00:00:00 UTC, Jan 1 2020</div>\n  </body>\n</html>\n",
+  "html/timeline/index.html": "<!DOCTYPE html>\n<html lang=\"en\">\n\n<head>\n  <meta charset=\"utf-8\">\n  <title>Test Execution</title>\n\n  <link href='https://fonts.googleapis.com/css?family=Muli' rel='stylesheet' type='text/css'>\n  <link href='chart.css' rel='stylesheet' type='text/css'>\n</head>\n\n<body>\n\n<p id=\"testChart\"></p>\n\n<script src=\"https://momentjs.com/downloads/moment.js\" type=\"text/javascript\"></script>\n<script charset=\"utf-8\" src=\"https://d3js.org/d3.v3.min.js\"></script>\n\n<script>\n    moment.locale('en');\n\n\n\n</script>\n<script src=\"chart.js\"></script>\n<script src=\"iframeResizer.contentWindow.min.js\"></script>\n\n<script type=\"text/javascript\">\n    var dataset = {\"passedTests\":3,\"failedTests\":3,\"ignoredTests\":0,\"executionStats\":{\"idleTimeMillis\":0,\"averageTestExecutionTimeMillis\":0},\"measures\":[{\"measure\":\"127.0.0.1:PORT:emulator-5554\",\"stats\":{\"idleTimeMillis\":0,\"averageTestExecutionTimeMillis\":0},\"data\":[{\"testName\":\"T00.test\",\"metricType\":\"PASSED\",\"startDate\":1577836800000,\"endDate\":1577836800000,\"expectedValue\":0.0,\"variance\":0.0},{\"testName\":\"T02.test\",\"metricType\":\"INCOMPLETE\",\"startDate\":1577836800000,\"endDate\":1577836800000,\"expectedValue\":0.0,\"variance\":0.0},{\"testName\":\"T03.test\",\"metricType\":\"INCOMPLETE\",\"startDate\":1577836800000,\"endDate\":1577836800000,\"expectedValue\":0.0,\"variance\":0.0},{\"testName\":\"T01.test\",\"metricType\":\"FAILURE\",\"startDate\":1577836800000,\"endDate\":1577836800000,\"expectedValue\":0.0,\"variance\":0.0},{\"testName\":\"T02.test\",\"metricType\":\"PASSED\",\"startDate\":1577836800000,\"endDate\":1577836800000,\"expectedValue\":0.0,\"variance\":0.0},{\"testName\":\"T03.test\",\"metricType\":\"PASSED\",\"startDate\":1577836800000,\"endDate\":1577836800000,\"expectedValue\":0.0,\"variance\":0.0},{\"testName\":\"DEVICE_PREPARE\",\"metricType\":\"DEVICE_PREPARE\",\"startDate\":1577836800000,\"endDate\":1577836800000,\"expectedValue\":0.0,\"variance\":0.0},{\"testName\":\"DEVICE_PREPARE\",\"metricType\":\"DEVICE_PREPARE\",\"startDate\":1577836800000,\"endDate\":1577836800000,\"expectedValue\":0.0,\"variance\":0.0},{\"testName\":\"DEVICE_PROVIDER_INIT\",\"metricType\":\"DEVICE_PROVIDER_INIT\",\"startDate\":1577836800000,\"endDate\":1577836800000,\"expectedValue\":0.0,\"variance\":0.0},{\"testName\":\"DEVICE_PROVIDER_INIT\",\"metricType\":\"DEVICE_PROVIDER_INIT\",\"startDate\":1577836800000,\"endDate\":1577836800000,\"expectedValue\":0.0,\"variance\":0.0}]}]}\n\n\n\n</script>\n\n<script>\n    var chart = testsChart();\n    d3.select(\"#testChart\")\n        .datum(dataset)\n        .call(chart);\n\n\n\n</script>\n</body>\n</html>\n",
+  "test_result/omni/127.0.0.1-PORT-emulator-5554/com.example.T00#test.json": {
+    "test": {
+      "pkg": "com.example",
+      "clazz": "T00",
+      "method": "test",
+      "metaProperties": []
+    },
+    "device": {
+      "operatingSystem": {
+        "version": "33"
+      },
+      "serialNumber": "127.0.0.1:PORT:emulator-5554",
+      "model": "Android SDK built for x86",
+      "manufacturer": "Google",
+      "networkState": "DISCONNECTED",
+      "deviceFeatures": [
+        "VIDEO",
+        "SCREENSHOT"
+      ],
+      "healthy": false
+    },
+    "testBatchId": "00000000-0000-0000-0000-000000000001",
+    "status": "PASSED",
+    "startTime": 1577836800000,
+    "endTime": 1577836800000,
+    "attachments": [],
+    "isTimeInfoAvailable": true
+  },
+  "test_result/omni/127.0.0.1-PORT-emulator-5554/com.example.T01#test.json": {
+    "test": {
+      "pkg": "com.example",
+      "clazz": "T01",
+      "method": "test",
+      "metaProperties": []
+    },
+    "device": {
+      "operatingSystem": {
+        "version": "33"
+      },
+      "serialNumber": "127.0.0.1:PORT:emulator-5554",
+      "model": "Android SDK built for x86",
+      "manufacturer": "Google",
+      "networkState": "DISCONNECTED",
+      "deviceFeatures": [
+        "VIDEO",
+        "SCREENSHOT"
+      ],
+      "healthy": false
+    },
+    "testBatchId": "00000000-0000-0000-0000-000000000001",
+    "status": "FAILURE",
+    "startTime": 1577836800000,
+    "endTime": 1577836800000,
+    "stacktrace": "java.lang.AssertionError: expected",
+    "attachments": [],
+    "isTimeInfoAvailable": true
+  },
+  "test_result/omni/127.0.0.1-PORT-emulator-5554/com.example.T02#test.json": {
+    "test": {
+      "pkg": "com.example",
+      "clazz": "T02",
+      "method": "test",
+      "metaProperties": []
+    },
+    "device": {
+      "operatingSystem": {
+        "version": "33"
+      },
+      "serialNumber": "127.0.0.1:PORT:emulator-5554",
+      "model": "Android SDK built for x86",
+      "manufacturer": "Google",
+      "networkState": "CONNECTED",
+      "deviceFeatures": [
+        "VIDEO",
+        "SCREENSHOT"
+      ],
+      "healthy": true
+    },
+    "testBatchId": "00000000-0000-0000-0000-000000000002",
+    "status": "PASSED",
+    "startTime": 1577836800000,
+    "endTime": 1577836800000,
+    "attachments": [],
+    "isTimeInfoAvailable": true
+  },
+  "test_result/omni/127.0.0.1-PORT-emulator-5554/com.example.T03#test.json": {
+    "test": {
+      "pkg": "com.example",
+      "clazz": "T03",
+      "method": "test",
+      "metaProperties": []
+    },
+    "device": {
+      "operatingSystem": {
+        "version": "33"
+      },
+      "serialNumber": "127.0.0.1:PORT:emulator-5554",
+      "model": "Android SDK built for x86",
+      "manufacturer": "Google",
+      "networkState": "CONNECTED",
+      "deviceFeatures": [
+        "VIDEO",
+        "SCREENSHOT"
+      ],
+      "healthy": true
+    },
+    "testBatchId": "00000000-0000-0000-0000-000000000002",
+    "status": "PASSED",
+    "startTime": 1577836800000,
+    "endTime": 1577836800000,
+    "attachments": [],
+    "isTimeInfoAvailable": true
+  },
+  "test_result/raw.json": [
+    {
+      "package": "com.example",
+      "class": "T00",
+      "method": "test",
+      "metaProperties": [],
+      "deviceSerial": "127.0.0.1:PORT:emulator-5554",
+      "status": "PASSED",
+      "ignored": false,
+      "success": true,
+      "timestamp": 1577836800000,
+      "duration": 0
+    },
+    {
+      "package": "com.example",
+      "class": "T02",
+      "method": "test",
+      "metaProperties": [],
+      "deviceSerial": "127.0.0.1:PORT:emulator-5554",
+      "status": "INCOMPLETE",
+      "ignored": false,
+      "success": false,
+      "timestamp": 1577836800000,
+      "duration": 0
+    },
+    {
+      "package": "com.example",
+      "class": "T03",
+      "method": "test",
+      "metaProperties": [],
+      "deviceSerial": "127.0.0.1:PORT:emulator-5554",
+      "status": "INCOMPLETE",
+      "ignored": false,
+      "success": false,
+      "timestamp": 1577836800000,
+      "duration": 0
+    },
+    {
+      "package": "com.example",
+      "class": "T01",
+      "method": "test",
+      "metaProperties": [],
+      "deviceSerial": "127.0.0.1:PORT:emulator-5554",
+      "status": "FAILURE",
+      "ignored": false,
+      "success": false,
+      "timestamp": 1577836800000,
+      "duration": 0
+    },
+    {
+      "package": "com.example",
+      "class": "T02",
+      "method": "test",
+      "metaProperties": [],
+      "deviceSerial": "127.0.0.1:PORT:emulator-5554",
+      "status": "PASSED",
+      "ignored": false,
+      "success": true,
+      "timestamp": 1577836800000,
+      "duration": 0
+    },
+    {
+      "package": "com.example",
+      "class": "T03",
+      "method": "test",
+      "metaProperties": [],
+      "deviceSerial": "127.0.0.1:PORT:emulator-5554",
+      "status": "PASSED",
+      "ignored": false,
+      "success": true,
+      "timestamp": 1577836800000,
+      "duration": 0
+    }
+  ],
+  "tests/omni/marathon_junit_report.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><testsuite xsi:noNamespaceSchemaLocation=\"https://raw.githubusercontent.com/jenkinsci/xunit-plugin/ae25da5089d4f94ac6c4669bf736e4d416cc4665/src/main/resources/org/jenkinsci/plugins/xunit/types/model/xsd/junit-10.xsd\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" name=\"omni\" tests=\"4\" failures=\"1\" errors=\"0\" time=\"0.0\" skipped=\"0\" timestamp=\"2020-01-01T00:00:00\"><testcase name=\"test\" time=\"0.0\" classname=\"com.example.T00\"></testcase><testcase name=\"test\" time=\"0.0\" classname=\"com.example.T01\"><failure><![CDATA[java.lang.AssertionError: expected]]></failure></testcase><testcase name=\"test\" time=\"0.0\" classname=\"com.example.T02\"></testcase><testcase name=\"test\" time=\"0.0\" classname=\"com.example.T03\"></testcase></testsuite>"
+}
