@@ -174,8 +174,8 @@ JUnit, HTML) by the run `fast: true` would have stopped at: its first pass under
 from them should read `raw.json`, which lists every run.
 
 [D79](deviations.md#d79--a-simulator-shut-down-during-its-boot-wait-is-booted-again-at-once) needs no action. An iOS
-simulator that is shut down or crashes while marathon waits for it to boot is booted again after the 10 s retry pause,
-not after `bootWait` (240 s); one that stays booting is still waited for until `bootWait`.
+simulator that is shut down or crashes while marathon waits for it to boot, once it has been seen booting, is booted again
+within a poll and the 10 s retry pause, not after `bootWait` (240 s); one that stays booting is still waited for until `bootWait`.
 
 ### A finite `uncompletedTestRetryQuota` (D47)
 

@@ -6,8 +6,8 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ### iOS and macOS
 
-- iOS: a simulator that is shut down or crashes while marathon waits for it to boot is booted again after the 10 s retry
-  pause, not after `bootWait` (240 s by default). A simulator that stays booting is still waited for until `bootWait`,
+- iOS: a simulator that is shut down or crashes while marathon waits for it to boot, once it has been seen booting, is
+  booted again within a poll and the 10 s retry pause, not after `bootWait` (240 s by default). A simulator that stays booting is still waited for until `bootWait`,
   and the readiness-probe times under the known limits are unchanged (D79).
 
 ## 0.14.0-rc.1
