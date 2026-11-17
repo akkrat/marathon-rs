@@ -136,9 +136,11 @@ pub fn junit_xml(pool: &PoolSummary) -> String {
         if !r.is_ignored()
             && let Some((_, retries)) = pool.retries.iter().find(|(key, _)| key == r)
         {
+            // D78: only the runs that did not pass, for a passed test too. Kotlin lists a passed test's passing runs as
+            // empty flakyFailure elements, which report tools count as failed runs of a stable test.
             for retry in retries
                 .iter()
-                .filter(|e| e.test_result.status != TestStatus::Incomplete && (!failure || !e.test_result.is_success()))
+                .filter(|e| e.test_result.status != TestStatus::Incomplete && !e.test_result.is_success())
             {
                 let tag = if failure { "rerunFailure" } else { "flakyFailure" };
                 out.push('<');

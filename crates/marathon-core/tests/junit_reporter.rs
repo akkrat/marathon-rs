@@ -45,7 +45,11 @@ fn parity(id: &str, expected: &str) {
     let jvm = row(id);
     assert_eq!(
         checked(std::fs::read(actual)),
-        bytes(&jvm["files"]["tests/myPool/marathon_junit_report.xml"])
+        d78_native_junit(
+            &jvm["input"],
+            "myPool",
+            &bytes(&jvm["files"]["tests/myPool/marathon_junit_report.xml"])
+        )
     );
 }
 #[test]
@@ -68,6 +72,86 @@ fn with_multiple_execution_of_the_same_test_from_failure_to_passed_should_genera
 fn with_multiple_execution_of_the_same_test_from_passed_to_failure_should_generate_correct_report() {
     parity("pass-fail", "passed_to_failed_test");
 }
+
+/// D78: the test case of `com.example#test1` whose runs are `(status, final, stack trace)`, built from the
+/// `fail-pass` row's events.
+fn d78_case(runs: &[(&str, bool, Option<&str>)]) -> String {
+    use marathon_core::report::junit_xml;
+    let mut input = row("fail-pass")["input"].clone();
+    let template = input["tests"][1].clone();
+    input["tests"] = runs
+        .iter()
+        .map(|&(status, last, trace)| {
+            let mut event = template.clone();
+            event["final"] = last.into();
+            let result = event["result"].as_object_mut().unwrap();
+            result.insert("status".into(), status.into());
+            result.remove("stacktrace");
+            if let Some(trace) = trace {
+                result.insert("stacktrace".into(), trace.into());
+            }
+            event
+        })
+        .collect();
+    let report = report(&input);
+    let pool = report
+        .summary()
+        .pools
+        .iter()
+        .find(|p| p.pool_id.name == "myPool")
+        .unwrap();
+    let xml = junit_xml(pool);
+    xml[xml.find("<testcase").unwrap()..xml.rfind("</testsuite>").unwrap()].to_owned()
+}
+const CASE: &str = "<testcase name=\"test1\" time=\"11.919\" classname=\"com.example\">";
+
+/// D78: a test that passed every run (`flakinessStrategy: fixed`, say) is not flaky, so it lists no runs. Kotlin
+/// listed each extra passing run as an empty `flakyFailure`.
+#[test]
+fn passed_test_whose_copies_all_passed_has_no_flaky_failure() {
+    let case = d78_case(&[
+        ("PASSED", false, None),
+        ("PASSED", false, Some("")),
+        ("PASSED", true, None),
+    ]);
+    assert_eq!(case, format!("{CASE}</testcase>"));
+}
+
+/// D78: a passed test lists its failed run, with its trace, and not its other passing run.
+#[test]
+fn passed_test_with_one_failed_copy_has_exactly_that_flaky_failure() {
+    let case = d78_case(&[
+        ("PASSED", false, None),
+        ("FAILURE", false, Some("boom")),
+        ("PASSED", true, None),
+    ]);
+    assert_eq!(
+        case,
+        format!(
+            "{CASE}<flakyFailure type=\"rerun exception\"><stackTrace><![CDATA[boom]]></stackTrace></flakyFailure>\
+             </testcase>"
+        )
+    );
+}
+
+/// A failed test lists only its other failed runs as `rerunFailure`, as Kotlin did; D78 leaves this branch as it was.
+#[test]
+fn failed_test_with_mixed_copies_has_rerun_failure_only_for_failed_runs() {
+    let case = d78_case(&[
+        ("PASSED", false, Some("p")),
+        ("FAILURE", false, Some("f1")),
+        ("PASSED", false, None),
+        ("FAILURE", true, Some("last")),
+    ]);
+    assert_eq!(
+        case,
+        format!(
+            "{CASE}<failure><![CDATA[last]]></failure><rerunFailure type=\"rerun exception\"><stackTrace>\
+             <![CDATA[f1]]></stackTrace></rerunFailure></testcase>"
+        )
+    );
+}
+
 #[test]
 fn sample_android_junit_xml_is_valid() {
     validate(&fixture("android_sample"));

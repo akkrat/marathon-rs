@@ -363,3 +363,67 @@ fn raw_metadata_strings_keep_null_distinctions_and_unescaped_contents() -> Resul
     );
     Ok(())
 }
+
+/// D78: the allowance edits exactly the JVM rows whose passed tests had passing runs, and removes nothing but those
+/// runs' `flakyFailure` elements.
+#[test]
+fn d78_allowance_removes_only_the_flaky_failures_of_passing_runs() {
+    let mut changed = Vec::new();
+    for r in rows() {
+        let Some(files) = r["files"].as_object() else { continue };
+        for (name, data) in files {
+            let Some(pool) = name
+                .strip_prefix("tests/")
+                .and_then(|n| n.strip_suffix("/marathon_junit_report.xml"))
+            else {
+                continue;
+            };
+            let jvm = String::from_utf8(bytes(data)).unwrap();
+            let native = String::from_utf8(d78_native_junit(&r["input"], pool, &bytes(data))).unwrap();
+            if native == jvm {
+                continue;
+            }
+            for tag in [
+                "<testcase",
+                "<failure>",
+                "<skipped",
+                "<rerunFailure",
+                "<stackTrace><![CDATA[x",
+            ] {
+                assert_eq!(
+                    native.matches(tag).count(),
+                    jvm.matches(tag).count(),
+                    "{}: {tag}",
+                    r["id"]
+                );
+            }
+            let removed = jvm.matches("<flakyFailure").count() - native.matches("<flakyFailure").count();
+            changed.push(format!("{} {removed}", text(&r["id"])));
+        }
+    }
+    assert_eq!(changed, ["fail-json 2", "xml-edges 1", "rv-retried 1"]);
+    let r = row("xml-edges");
+    let data = bytes(&r["files"]["tests/myPool/marathon_junit_report.xml"]);
+    let native = String::from_utf8(d78_native_junit(&r["input"], "myPool", &data)).unwrap();
+    // The ignored run and the failed final stay; the passing run with an empty trace goes.
+    assert!(native.ends_with(
+        "<testcase name=\"retry\" time=\"11.919\" classname=\"com.example\"><flakyFailure type=\"rerun exception\">\
+         </flakyFailure><flakyFailure type=\"rerun exception\"><stackTrace><![CDATA[]]></stackTrace></flakyFailure>\
+         </testcase></testsuite>"
+    ));
+}
+
+/// D78: a recording whose passed test case does not list one `flakyFailure` per run is not edited to fit.
+#[test]
+#[should_panic(expected = "D78: a flakyFailure per run")]
+fn d78_allowance_rejects_a_recording_that_does_not_match_its_runs() {
+    let r = row("xml-edges");
+    let mut input = r["input"].clone();
+    // Drop the passing run of the passed `retry`, so its case holds one element too many.
+    input["tests"].as_array_mut().unwrap().remove(1);
+    d78_native_junit(
+        &input,
+        "myPool",
+        &bytes(&r["files"]["tests/myPool/marathon_junit_report.xml"]),
+    );
+}

@@ -503,11 +503,78 @@ pub fn without_delegate(mut data: Vec<u8>) -> Vec<u8> {
     }
     data
 }
+/// D78: the JVM lists every other run of a passed test as a `flakyFailure`, passing runs included; this program lists
+/// only the runs that did not pass. Returns the recorded JUnit file `jvm` of `pool_name` without exactly the
+/// `flakyFailure` elements of passing runs. The runs come from the row's `input`, paired as the summary pairs them: the
+/// other events of the same test that are not incomplete, keyed by the final result (an equal final shares the last
+/// equal one's runs). Every passed test case must hold exactly as many `flakyFailure` elements as it has runs, so a
+/// recording this does not describe fails instead of being edited.
+pub fn d78_native_junit(input: &Value, pool_name: &str, jvm: &[u8]) -> Vec<u8> {
+    const OPEN: &str = "<flakyFailure type=\"rerun exception\">";
+    const CLOSE: &str = "</flakyFailure>";
+    let text = String::from_utf8(jvm.to_vec()).expect("UTF-8 JUnit");
+    let events: Vec<&Value> = input["tests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["pool"] == pool_name)
+        .collect();
+    let status = |i: usize| events[i]["result"]["status"].as_str().unwrap();
+    let finals: Vec<usize> = (0..events.len())
+        .filter(|&i| events[i]["final"] == true && status(i) != "INCOMPLETE")
+        .collect();
+    let mut runs: Vec<(usize, Vec<usize>)> = Vec::new();
+    for &f in &finals {
+        let attempts = (0..events.len())
+            .filter(|&i| i != f && events[i]["result"]["test"] == events[f]["result"]["test"])
+            .collect();
+        match runs
+            .iter_mut()
+            .find(|(k, _)| events[*k]["result"] == events[f]["result"])
+        {
+            Some(entry) => entry.1 = attempts,
+            None => runs.push((f, attempts)),
+        }
+    }
+    let starts: Vec<usize> = text.match_indices("<testcase").map(|(i, _)| i).collect();
+    assert_eq!(starts.len(), finals.len(), "D78: one test case per final result");
+    let mut out = text[..starts.first().copied().unwrap_or(text.len())].to_owned();
+    for (n, &f) in finals.iter().enumerate() {
+        let case = &text[starts[n]..starts.get(n + 1).copied().unwrap_or(text.len())];
+        if status(f) != "PASSED" {
+            out.push_str(case);
+            continue;
+        }
+        let (_, attempts) = runs
+            .iter()
+            .find(|(k, _)| events[*k]["result"] == events[f]["result"])
+            .unwrap();
+        let attempts: Vec<usize> = attempts
+            .iter()
+            .copied()
+            .filter(|&i| status(i) != "INCOMPLETE")
+            .collect();
+        let elements: Vec<usize> = case.match_indices(OPEN).map(|(i, _)| i).collect();
+        assert_eq!(elements.len(), attempts.len(), "D78: a flakyFailure per run of {case}");
+        let mut at = 0;
+        for (&start, &run) in elements.iter().zip(&attempts) {
+            let end = start + case[start..].find(CLOSE).expect("closed flakyFailure") + CLOSE.len();
+            out.push_str(&case[at..start]);
+            if status(run) != "PASSED" {
+                out.push_str(&case[start..end]);
+            }
+            at = end;
+        }
+        out.push_str(&case[at..]);
+    }
+    out.into_bytes()
+}
 pub fn compare_scenario(id: &str) {
     let expected = row(id);
     let (temp, stdout, warnings) = generate(id);
     let actual = manifest(&temp.0);
     let files = expected["files"].as_object().unwrap();
+    let input = &expected["input"];
     assert_eq!(
         actual.keys().collect::<Vec<_>>(),
         files.keys().collect::<Vec<_>>(),
@@ -534,6 +601,12 @@ pub fn compare_scenario(id: &str) {
                 checked(serde_json::to_string(&expected)),
                 "{id}: {name}"
             );
+        } else if let Some(pool) = name
+            .strip_prefix("tests/")
+            .and_then(|n| n.strip_suffix("/marathon_junit_report.xml"))
+        {
+            let expected = d78_native_junit(input, pool, &expected);
+            assert_eq!(actual[name], expected, "byte boundary {id}: {name}");
         } else {
             assert_eq!(actual[name], expected, "byte boundary {id}: {name}");
         }
