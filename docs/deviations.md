@@ -1654,7 +1654,9 @@ Native builds now do the following, with no configuration change:
   not yet run are uncompleted and charged one attempt. That is what the runner reports when it sees the loss first. When
   the run heard of the loss before the runner did, the whole batch used to come back, so its finished tests ran again
   and all its tests were charged; the Kotlin marathon has the same race. Nothing more of such a batch is sent to the
-  device.
+  device. The test in progress ends when the batch does, as a failed run ends it. A test whose end the listeners are
+  still handling at that moment counts with its status, but may lack the screen capture and profiling files attached
+  as it ends.
 
 Once an instrumentation has been sent its batch is charged as before, even if the device leaves a moment later: its
 tests that had not finished are uncompleted, never given back uncharged. A healthy run sends the same commands, in the

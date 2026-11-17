@@ -23,9 +23,9 @@ used by the tests the runner always wins, because the fake ends a device's sessi
   after the first submission, so the two are equivalent.
 - `withdraw_unstarted` on `Started` takes the handle under the record's lock, releases the lock, upgrades the handle and
   calls the listener's `results_so_far` — the same call, and so the same results, as D70's `Parked` path and the runner's
-  own close: `TestResultsListener::results` on a copy of the accumulated results. Finished and failed tests keep their
-  status; the test in progress (`Incomplete` in the accumulator) and every test of the batch with no result, including
-  those of later D28 instrumentations, are uncompleted. It then re-takes the lock and, if the batch is still `Started`
+  own close: `TestResultsListener::results` on a copy of the accumulator, ended as a run failure would end it (review
+  round 1, below). Finished and failed tests keep their status; the test in progress (`Incomplete` in the accumulator)
+  and every test of the batch with no result, including those of later D28 instrumentations, are uncompleted. It then re-takes the lock and, if the batch is still `Started`
   (or parked meanwhile), marks it `Withdrawn` and completes the batch's result with the snapshot, and answers `false`, so
   `account_for` reports `CompletedTestBatch`. This is exactly what the Parked path does at a closed gate.
 - Fallbacks: no handle (a test executor such as `outage_batch_test.rs`'s `Submitting`), a listener already dropped, a
@@ -119,13 +119,100 @@ could hear it second; with no device lost nothing changes, so no comparator allo
 - A snapshot taken while one `TestEnded` is being handled by the listener chain can count that test as finished before
   the listeners after the results listener (`AdamScreenCaptureTestRunListener`, `ProfilingRunListener`) have attached
   their files to it; that test's result then lacks those attachments. It is reported once, with the right status. Only
-  runs with adam screen capture or profiling, and only in that moment, are affected.
+  runs with adam screen capture or profiling, and only in that moment, are affected. Since review round 1 this is in
+  D70's text and pinned by a test (below).
 - iOS and macOS are untouched (the trait default).
 
 ## Golden diffs
 
-None.
+Round 0: none. Review round 1 adds a new golden, `fixtures/contract/virtual-runs/android-lost-after-start.json`; no
+existing golden changed (`fixtures/contract/native-v1` is untouched). See "Review round 1 (Sol)", S-x68-2, for what it
+holds and why it is not a whole-CLI case.
 
 ## Incidental bugs
 
 None found.
+
+## Review round 1 (Sol)
+
+Verdict: merge after fixes. The D70 extension, the weak registration, the lock order, the withdrawal checks and
+`hold_at` were judged sound, and D77 unnecessary.
+
+### S-x68-1 (Medium): live snapshots kept zero end times — fixed
+
+`results_so_far` built the snapshot from a plain copy of the accumulated results, so the test in flight kept the
+`end_time` of 0 that `TemporalTestResult::new` gives it until a `TestEnded` or a run end. A snapshot that became the
+batch's result therefore carried `start = <time>, end = 0`, a negative duration in every reporter that subtracts them.
+
+What the runner's own close does for such a test: every instrumentation ends with `TestRunEnded` or `TestRunFailed` (the
+parser's `transform` at the stream's end, or the runner's stuck, adb-error and producer-failure paths), and the
+accumulator's `test_run_ended`/`test_run_failed` call `fill_end_time`, which ends every test without an end at the
+timer's current time. The status stays `Incomplete` and the stack trace stays as it was (D25 adds one only for a broken
+stream). The fix mirrors exactly that on the copy: `TestRunResultsAccumulator::ended_copy` (core, Rust-only) clones the
+accumulator and runs `fill_end_time` on the clone; `results_so_far` builds the results from it. So the uncompleted
+tests with no record start where the last test ended, as after a run failure. Completed results already have an end and
+are not touched; the accumulator itself is unchanged. The only extra cost is a timer read per unended test, and only
+when a snapshot is taken (device loss, or the gate).
+
+D70's `Parked` path uses the same `results_so_far`, so it gets the same treatment. It had no such case in practice: a
+batch parks between instrumentations, after the previous one's `TestRunEnded` or `TestRunFailed` has ended every test.
+
+Witness: `outage_batch_test::a_test_in_flight_when_the_batch_is_lost_ends_then_u197`. The probe now can sit after the
+results listener (`Reached::behind`, the profiling slot), so when it hears `two` start the accumulator has recorded it;
+the accumulator's timer is the live `SystemTimer`, so times are nonzero. It asserts `two`'s end is at or after its start,
+which is after `one`'s, and that `two` is its own record (no generated stack trace). With the copy's end times reverted
+to the accumulator's, it fails: `the test in flight has no end: ... start_time: 1794909519235, end_time: 0`.
+
+### S-x68-2 (Medium): no reviewed golden for the changed result contract — fixed, with a different harness
+
+The native goldens (`fixtures/contract/native-v1`, `tools/differential/run bless`) are whole-CLI runs of the
+`differential_cli` probe on the real scheduler clock. Its only ordering seam is a fixed list of entry barriers; it has
+no listener hold and no virtual clock. The U197 path needs the core to hear of the loss before the runner, and the fake
+adb ends a device's sessions as it goes offline, so in a CLI run the runner always hears first and the result is D28's,
+not this one. So no CLI case can produce it deterministically without a new production seam. The narrowest sound
+alternative: the virtual-clock reconnect harness, which already drives the real provider, core, runner, listeners and
+the standard reporters, keeps the run's output files and compares them with a committed golden.
+
+- `reconnect_test.rs` `Options::results`: the run uses taped hooks as the native probe does (wall clock frozen at
+  2020-01-01T00:00:00Z, monotonic frozen, numbered `core.TestBatch.id` and `core.AllureReporter.uuid`, the provider's
+  borrow draw answered with the only device) and returns the output directory's files. `Options::hold_behind` puts the
+  hold after the results listener.
+- `a_batch_lost_after_it_started_writes_what_ran_u197`: one batch of `T00` (passes), `T01` (fails), `T02` (in flight,
+  held after its start is recorded) and `T03` (not started); the device goes offline, its grace ends in a disconnect
+  and the core's Terminate, and it returns at 40 s to run `T02` and `T03`, which pass. The test checks the run's outcome
+  (failed, because `T01` failed), one disconnect, no `onReturnBatch`, no fake warnings, and `raw.json`'s records in
+  order with no negative duration; then it compares the normalized files with the golden.
+- The golden, `fixtures/contract/virtual-runs/android-lost-after-start.json`: per-test JSON, `raw.json`, JUnit, Allure
+  results, HTML pages, device and bill files; JSON parsed, the fake's port as `PORT`. Static report assets and the
+  Allure environment (an echo of the configuration with local paths) are left out. `MARATHON_BLESS_VIRTUAL_RUNS=1`
+  rewrites it. Registered as the `android-lost-after-start` row of `tools/differential/registry.json` (owner x68,
+  regenerated with `make_registry.py`), and described in `fixtures/PROVENANCE.md`, `tools/differential/README.md` and
+  `docs/design/differential.md`.
+
+Golden-diff note (new file, reviewed): `raw.json` holds `T00` PASSED, `T02` INCOMPLETE, `T03` INCOMPLETE, `T01` FAILURE
+(the core's order for one batch: finished, uncompleted, failed), then `T02` and `T03` PASSED from the second batch, all
+with duration 0 under the frozen clock. `T00` and `T01` appear once each: the lost batch's finished and failed tests are
+kept, not run again. JUnit has four test cases with one failure (`java.lang.AssertionError: expected`) and the final
+`T02`/`T03` passes; HTML and Allure agree. `T02`'s uncompleted record has no stack trace (the accumulator's own record,
+as after a run failure that is not a broken stream), while `T03`'s has the generic "Test didn't complete" text. The
+per-test JSON of `T00`/`T01` shows the device as it was when the batch ended (`DISCONNECTED`, unhealthy), as D28's
+runner-first report does.
+
+Each fix fails the golden test when reverted: without S-x68-1, `raw.json` has `T02` INCOMPLETE with duration
+`-1577836800000`; without the U197 snapshot (`Started` uses no handle), the batch comes back (`onReturnBatch` logged
+once, expected 0). Three consecutive runs gave the same files.
+
+### Attachments at the snapshot boundary — documented and pinned
+
+D70's text in `docs/deviations.md` now says that a test whose end the listeners are still handling when the batch ends
+counts with its status but may lack the screen capture and profiling files attached as it ends.
+`outage_batch_test::a_test_ending_when_the_batch_is_lost_counts_without_later_attachments_u197` holds the runner in a
+listener after the results one at `one`'s `TestEnded`, ends the batch, checks `one` is finished with no attachments,
+releases the listener, which then attaches a file to `one`, and checks the completed result is unchanged.
+
+### Run in round 1
+
+`cargo fmt --check`; `cargo clippy -p marathon-android -p marathon-core --all-targets -- -D warnings`;
+`cargo test -p marathon-android`, `-p marathon-core` and `-p marathon-cli` (results in the final report);
+`python3 -I tools/differential/make_registry.py --check`; the registry's `validate_registry`;
+`python3 -I tools/differential/test_evidence.py` (after building the YAML helper).
