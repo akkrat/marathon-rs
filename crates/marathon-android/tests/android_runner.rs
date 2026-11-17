@@ -1952,13 +1952,11 @@ fn debug_listener_uses_android_target_and_plain_test_name_x56() {
 }
 
 const COVERAGE_DIRECTORY: &str = "/sdcard/Android/data/com.example/files/coverage";
+type LogLines = Arc<Mutex<Vec<(Level, String)>>>;
 /// A runtime whose log lines the test can read.
 fn logged_runtime(
     runtime: Arc<marathon_android::services::AndroidRuntime>,
-) -> (
-    Arc<marathon_android::services::AndroidRuntime>,
-    Arc<Mutex<Vec<(Level, String)>>>,
-) {
+) -> (Arc<marathon_android::services::AndroidRuntime>, LogLines) {
     let lines = Arc::new(Mutex::new(vec![]));
     let sink = lines.clone();
     let log: marathon_core::ServiceLog =
