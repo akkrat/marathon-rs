@@ -358,7 +358,11 @@ impl TracingOutput {
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "exit preparation stopped"))
     }
     pub fn configure(&self, configurator: Configurator, debug: bool) -> Result<(), reload::Error> {
-        self.filter.reload(filter(configurator, debug))?;
+        // U199: the reload rebuilds every callsite's cached interest. While this is the only registered dispatcher,
+        // tracing-core asks the calling thread's default dispatcher for it, which is `Dispatch::none` (never) unless
+        // this output is the global default. Scoping the reload to this output keeps already registered callsites,
+        // such as the crash line's, enabled.
+        tracing::dispatcher::with_default(&self.dispatch, || self.filter.reload(filter(configurator, debug)))?;
         self.compact.store(
             matches!(configurator, Configurator::Apple { compact_output: true }),
             Ordering::Relaxed,
