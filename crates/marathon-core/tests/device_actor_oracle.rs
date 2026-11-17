@@ -78,8 +78,13 @@ fn accepted(row: &mut Value) {
     for entry in trace.iter_mut() {
         match entry["log"]["message"].as_str() {
             Some("CoroutineContext closing due to unrecoverable error") => entry["log"]["message"] = HANDLER.into(),
-            Some("Error DeferredCoroutine was cancelled") => {
-                entry["log"]["message"] = "Error task was cancelled".into()
+            // x77: the initialize task's own cancellation (K1) is one WARN line, the
+            // reason left to the throwable. Only that exact ERROR record is mapped.
+            Some("Error DeferredCoroutine was cancelled")
+                if entry["log"]["level"] == "ERROR" && entry["log"]["throwable"][0]["class"] == "job-cancelled" =>
+            {
+                entry["log"]["level"] = "WARN".into();
+                entry["log"]["message"] = "Device preparation has been cancelled".into();
             }
             _ => {}
         }

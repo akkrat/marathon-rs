@@ -503,7 +503,18 @@ impl Shared {
             .await;
             match result {
                 Ok(()) => shared.transition(DeviceEvent::Complete),
-                // `catch (e: Exception)` also catches this task's own cancellation (K1)
+                // `catch (e: Exception)` also catches this task's own cancellation (K1).
+                // Kotlin logs that at ERROR as "Error <message>" next to the same
+                // message in the cause; a signal or the run's end is an orderly stop,
+                // so it is logged once at WARN, as a cancel mid-batch is (x77).
+                Err(OperationError::Cancelled(reason)) if context.job.cancellation_signal().reason().is_some() => {
+                    shared.log(
+                        Level::WARN,
+                        "Device preparation has been cancelled".into(),
+                        Some(reason.failure().clone()),
+                    );
+                    shared.transition(DeviceEvent::Terminate);
+                }
                 Err(error) => {
                     let failure = match error {
                         OperationError::Cancelled(reason) => reason.failure().clone(),

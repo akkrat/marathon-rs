@@ -626,7 +626,7 @@ fn each_prepare_attempt_passes_its_own_barrier() {
 }
 
 /// Cancelled while waiting for admission: the vendor is never called and the token
-/// stays unconsumed; the task's own cancellation is logged as K1 has it.
+/// stays unconsumed; the task's own cancellation is logged once at WARN (K1, x77).
 #[test]
 fn cancellation_before_barrier_admission_leaves_the_token_unconsumed() {
     let verified = Arc::new(std::sync::Mutex::new(None));
@@ -651,7 +651,7 @@ fn cancellation_before_barrier_admission_leaves_the_token_unconsumed() {
         [
             "Debug initialize serial-1",
             "Debug terminate serial-1",
-            "Error Error task was cancelled"
+            "Warn Device preparation has been cancelled"
         ]
     );
     assert_eq!(outcome.describe(), ["Terminated"]);
@@ -663,17 +663,48 @@ fn cancellation_before_barrier_admission_leaves_the_token_unconsumed() {
 }
 
 #[test]
-fn terminate_during_preparation_logs_the_task_cancellation_as_an_error() {
-    // K1: catch (e: Exception) also catches the initialize task's own cancellation.
+fn terminate_during_preparation_logs_the_task_cancellation_as_a_warning() {
+    // K1: catch (e: Exception) also catches the initialize task's own cancellation;
+    // x77 logs it once at WARN instead of Kotlin's "Error <message>" at ERROR.
     let outcome = run_scenario("terminate during preparation");
     assert_eq!(
         texts(&outcome),
         [
             "Debug initialize serial-1",
             "Debug terminate serial-1",
-            "Error Error task was cancelled"
+            "Warn Device preparation has been cancelled"
         ]
     );
+}
+
+/// x77: a signal (or the run's end) cancels the actor's parent during `prepare`. The
+/// line was `ERROR Error Cancelled by a signal error=cancelled: Cancelled by a signal`.
+#[test]
+fn parent_cancellation_during_preparation_is_one_warning_with_the_reason_as_its_cause() {
+    for reason in ["Cancelled by a signal", "Job was cancelled"] {
+        let outcome = scenario(PoolMode::Open, move |run| {
+            Box::pin(async move {
+                run.start(ScriptedDevice::stub(Stub::timed(5000, 5000)));
+                run.send(DeviceEvent::Initialize);
+                run.run_current().await;
+                run.parent.cancel(marathon_core::executor::shared::requested(reason));
+                run.run_current().await;
+                run.advance_until_idle().await;
+            })
+        });
+        let logs = outcome.logs();
+        let line = logs
+            .iter()
+            .find(|r| r.level == marathon_logging::Level::WARN)
+            .unwrap_or_else(|| panic!("no WARN line: {:?}", texts(&outcome)));
+        assert_eq!(line.message, "Device preparation has been cancelled");
+        assert_eq!(line.cause.as_ref().and_then(|c| c.message.as_deref()), Some(reason));
+        assert!(
+            logs.iter().all(|r| r.level != marathon_logging::Level::ERROR),
+            "{:?}",
+            texts(&outcome)
+        );
+    }
 }
 
 // R1-claude-5: Kotlin's `Notify(retryWorkers: Set<String>)` is a data class over a Set.
