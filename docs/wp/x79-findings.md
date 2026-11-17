@@ -108,6 +108,7 @@ New `artifact_listeners/coverage.rs` (no Kotlin source):
 | this branch, same app | exit 0, 3 passed, 3 `.ec` (328 bytes, JaCoCo header `01c0c010`, `com/example/cov/Calc` inside); each per-test JSON has a `COVERAGE` attachment for its own `testBatchId`; the device folder is removed after each pull |
 | this branch, `applicationPmClear` and `testApplicationPmClear` on | 3 `.ec`, no ERROR |
 | this branch, debuggable fixture app (`app-debug.apk`) | `.ec` per batch, as before |
+| with a file-sync pull of `Android/data/<app>/files` (S-x79-1) | before the review fix: 0 `.ec`, 3 ERROR lines; after it: 3 `.ec`, no ERROR |
 | this branch, non-debuggable app built without JaCoCo | exit 0, 3 ERROR lines (`Code coverage of batch … is missing: … because it doesn't exist`), no `.ec`, no `COVERAGE` attachment |
 
 ## Not verified
