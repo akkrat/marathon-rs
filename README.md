@@ -6,9 +6,11 @@ Marathondevices, CLI and report formats, apart from the approved differences in
 [the deviations guide](docs/deviations.md). A Marathonfile must set a finite `uncompletedTestRetryQuota`.
 
 **0.13.0 is the current release; 0.11.0 was the first public release.** 0.13.0 drops JVM artefacts under the Phase 8
-contract (D55–D65) and changes SIGQUIT and console completion handling (D66, D67). The Kotlin tests are ported or marked not
-applicable with a reason, differential suites compare whole runs with the JVM program, and 0.13.0's release candidates ran on
-real iOS, macOS and Android hosts, as the changelog records. Outside this repository the maintainer also ran it beside the
+contract (D55–D65) and changes SIGQUIT and console completion handling (D66, D67). 0.14.0-rc.1 is a release candidate
+with run-stability and device-handling fixes (D68–D77); so far it has been tested only with fakes and test harnesses;
+its real-host runs are pending. The Kotlin tests are ported or marked not applicable with a reason, differential suites compare whole
+runs with the JVM program, and 0.13.0's release candidates ran on real iOS, macOS and Android hosts, as the changelog
+records. Outside this repository the maintainer also ran it beside the
 JVM build on private CI farms, which cannot be checked here.
 No isolated shadow or canary results are recorded in this repository. Trial it in a
 disposable environment and keep your JVM distribution for rollback. See the

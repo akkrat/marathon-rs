@@ -126,10 +126,10 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 | cancel runs with SIGINT or SIGTERM, or take a run's reports as a sign that it finished ([D52](deviations.md#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit)) | A cancelled run writes its reports and terminates its devices whatever `debug` says, and exits with 130 or 143 within 25 s. A second signal exits at once. | Allow 25 s before killing it, and read the exit code to tell whether a run finished. [See below](#cancelling-a-run). |
 
 These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D22, D23, D26, D28–D30, D34, D36, D37, D40, D42, D45, D49,
-D51, D53, D54, D64, D65 and D66. D65 can include a previously missed late pool, lengthen a run and correct its reports and
+D51, D53, D54, D64–D66, D68–D70 and D74–D77. D65 can include a previously missed late pool, lengthen a run and correct its reports and
 existing exit status; it needs no configuration change. D66 turns a SIGQUIT, which used to end the run at once, into a
-logged state dump; a wrapper that sends SIGQUIT and then SIGTERM now gets the dump, then D52's reports and exit status. D2, D3, D6, D8–D12, D14, D20, D24 and D25 have an action of their own, described in their entries and in the sections
-below.
+logged state dump; a wrapper that sends SIGQUIT and then SIGTERM now gets the dump, then D52's reports and exit status. D2, D3, D6, D8–D12, D14, D20, D24, D25, D67, D71 and D72 have an action of their own, described in their entries and in the
+sections below.
 
 D67 gives ordinary console completion one shared 60-second flush/drain deadline.
 Signals during the run keep their existing bounds: a one-second output watchdog,
@@ -137,6 +137,8 @@ immediate second-signal exit and unchanged D66 SIGQUIT behavior. After the run
 finishes, SIGINT/SIGTERM are not acted on during console completion. This window
 already existed for about two seconds; a stalled console can now hold exit for
 up to 60 seconds. A wrapper needing a hard stop then must use SIGKILL.
+
+The D68–D77 notes below apply when moving from 0.13.0 to 0.14.0-rc.1 as well as from Kotlin; D71 is in the table above.
 
 D68 and D69 need no configuration change. With D68 a run whose test queue
 fails ends with exit 1 (0 with `ignoreFailures: true`), its reports and a
@@ -154,7 +156,7 @@ after it started keeps the tests that finished, so the reports of such a run can
 D72 adds a native-only `flakinessStrategy` type, `fixed`, for stabilization jobs that run every test a set number of
 times, and allows it with `executionStrategy.mode: ALL_SUCCESS` (all runs must pass). Existing configurations keep
 their meaning, and `probability` with `ALL_SUCCESS` is still rejected; a Marathonfile that uses `fixed` cannot be read
-by the Kotlin marathon.
+by the Kotlin marathon or by 0.13.0, so remove it before rolling back to either.
 
 D74 needs no action. Disposing of an iOS simulator now stops its preparation and waits for it, up to 70 s, so a stopped
 preparation no longer sends commands to a simulator that has been disposed of. iOS and macOS now release the worker
