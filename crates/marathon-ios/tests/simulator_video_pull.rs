@@ -392,7 +392,8 @@ async fn a_recording_waiting_for_the_previous_stop_never_starts_after_disposal_d
 
 /// A test that runs twice in one batch records to the same remote file both times. Its first transfer moves, pulls and
 /// removes that file, so the repeat's recording must start only after it, or the transfer takes or deletes the
-/// repeat's recording. The first pull is held until the repeat has passed.
+/// repeat's recording. The first pull is held while the repeat starts; the repeat ends only once it is recording, so
+/// its own stop never cancels a start that is still waiting.
 #[tokio::test(start_paused = true)]
 async fn a_repeated_test_records_again_only_after_its_first_video_is_collected_d80() -> TestResult {
     let Setup {
@@ -400,20 +401,26 @@ async fn a_repeated_test_records_again_only_after_its_first_video_is_collected_d
         d,
         script,
         bridge,
-        worker: _,
+        worker,
     } = setup().await?;
     let (entered, release) = (bridge.entered.clone(), bridge.release.clone());
     script.plan.lock().unwrap().lines = passed(1).into_iter().chain(passed(1)).collect();
     script.plan.lock().unwrap().pace = Some(Arc::new(move |n| {
-        let (entered, release) = (entered.clone(), release.clone());
+        let (entered, release, worker) = (entered.clone(), release.clone(), worker.clone());
         Box::pin(async move {
             match n {
-                3 => {
+                // The repeat starts while the first video is being pulled.
+                2 => {
                     let _ = entered.wait().await;
-                    tokio::time::sleep(std::time::Duration::from_millis(SECOND_TEST_MILLIS)).await;
                 }
-                4 => {
+                3 => {
+                    // On the paused clock this returns once nothing else can run: the repeat's start has been
+                    // handled and its recording job has gone as far as it can while the pull is held.
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     release.complete(Ok(()));
+                    while worker.recordings.lock().unwrap().len() < 2 {
+                        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    }
                 }
                 _ => {}
             }
