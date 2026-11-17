@@ -59,6 +59,8 @@ pub struct ScreenRecordingListener {
     pub attachments: Arc<AttachmentProviderDelegate>,
     /// The last ended test's stop (D80), which the next recording and every later stop wait for.
     stopping: Mutex<Option<Arc<dyn VendorTask>>>,
+    /// Each remote video's last queued transfer: a test that runs again in the batch records to the same file.
+    collecting: Mutex<std::collections::HashMap<String, Arc<dyn VendorTask>>>,
     pending: Arc<PendingArtifacts>,
 }
 /// The transfer side of the listener, owned so that a test's video can be collected off the event path (D80).
@@ -78,6 +80,7 @@ impl ScreenRecordingListener {
             last: Mutex::new(None),
             attachments: Arc::default(),
             stopping: Mutex::new(None),
+            collecting: Mutex::default(),
             pending: Arc::default(),
         }
     }
@@ -131,8 +134,14 @@ impl ScreenRecordingListener {
             stop
         };
         let media = self.media();
+        let src = self
+            .c
+            .device
+            .remote_file_manager()
+            .remote_video_for_test(test, &self.c.batch.id)
+            .to_owned();
         let test = test.clone();
-        self.pending.submit(
+        let collected = self.pending.submit(
             runtime.as_ref(),
             self.c.context.cancellation.clone(),
             Box::pin(async move {
@@ -141,6 +150,10 @@ impl ScreenRecordingListener {
                 media.collect(&test, failed).await
             }),
         );
+        self.collecting
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(src, collected);
         Ok(())
     }
 }
@@ -373,6 +386,12 @@ impl AppleTestRunListener for ScreenRecordingListener {
             let c = self.c.clone();
             let logger = self.logger.clone();
             let stopping = self.stopping.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let collecting = self
+                .collecting
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&src)
+                .cloned();
             let job = c.device.services().runtime.clone().spawn_cancellable(Box::new(move |signal| {
                 Box::pin(async move {
                     let mut c = c;
@@ -382,13 +401,14 @@ impl AppleTestRunListener for ScreenRecordingListener {
                         own: signal,
                         batch: c.context.cancellation.clone(),
                     });
-                    if let Some(stopping) = stopping {
-                        // D80: the previous test's recording is stopped off the event path; this one starts after it,
-                        // as it did when that stop ran before this callback.
+                    // D80: the previous test's recording is stopped off the event path; this one starts after it, as it
+                    // did when that stop ran before this callback. A test that ran before in this batch also waits for
+                    // its earlier video to be moved, pulled and removed, since both recordings use one remote file.
+                    for before in stopping.into_iter().chain(collecting) {
                         tokio::select! {
                             biased;
                             reason = c.context.cancellation.cancelled() => return Err(VendorError::Cancelled(reason)),
-                            _ = stopping.join() => {}
+                            _ = before.join() => {}
                         }
                     }
                     let pidfile = c.device.remote_file_manager().remote_video_pidfile();

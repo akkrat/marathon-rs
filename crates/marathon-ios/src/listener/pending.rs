@@ -20,17 +20,18 @@ pub struct PendingArtifacts {
 }
 impl PendingArtifacts {
     /// `cancellation` is the batch's: once it is cancelled, items not yet started are skipped, and their
-    /// cancellation is not reported, since the batch reports its own.
+    /// cancellation is not reported, since the batch reports its own. Returns the item's task, which ends once the
+    /// item and every item before it have.
     pub fn submit(
         &self,
         runtime: &dyn VendorRuntime,
         cancellation: Arc<dyn CancellationSignal>,
         work: VendorFuture<'static, ()>,
-    ) {
+    ) -> Arc<dyn VendorTask> {
         let mut last = self.last.lock().unwrap_or_else(|e| e.into_inner());
         let previous = last.take();
         let error = self.error.clone();
-        *last = Some(runtime.spawn(Box::pin(async move {
+        let task = runtime.spawn(Box::pin(async move {
             if let Some(previous) = previous
                 && let Err(e) = previous.join().await
             {
@@ -48,7 +49,9 @@ impl PendingArtifacts {
                 keep(&error, e);
             }
             Ok(())
-        })));
+        }));
+        *last = Some(task.clone());
+        task
     }
     /// Waits for every item submitted so far. A failure is kept for `take_error`, so that the waiting listener's
     /// neighbours still run.

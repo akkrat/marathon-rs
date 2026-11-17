@@ -389,3 +389,58 @@ async fn a_recording_waiting_for_the_previous_stop_never_starts_after_disposal_d
     h.finish(&[d]).await;
     Ok(())
 }
+
+/// A test that runs twice in one batch records to the same remote file both times. Its first transfer moves, pulls and
+/// removes that file, so the repeat's recording must start only after it, or the transfer takes or deletes the
+/// repeat's recording. The first pull is held until the repeat has passed.
+#[tokio::test(start_paused = true)]
+async fn a_repeated_test_records_again_only_after_its_first_video_is_collected_d80() -> TestResult {
+    let Setup {
+        h,
+        d,
+        script,
+        bridge,
+        worker: _,
+    } = setup().await?;
+    let (entered, release) = (bridge.entered.clone(), bridge.release.clone());
+    script.plan.lock().unwrap().lines = passed(1).into_iter().chain(passed(1)).collect();
+    script.plan.lock().unwrap().pace = Some(Arc::new(move |n| {
+        let (entered, release) = (entered.clone(), release.clone());
+        Box::pin(async move {
+            match n {
+                3 => {
+                    let _ = entered.wait().await;
+                    tokio::time::sleep(std::time::Duration::from_millis(SECOND_TEST_MILLIS)).await;
+                }
+                4 => {
+                    release.complete(Ok(()));
+                }
+                _ => {}
+            }
+        })
+    }));
+    let (outcome, _) = run(&h, &d).await;
+    outcome.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(bridge.pulled.lock().unwrap().len(), 2);
+    let commands = h.worker.commands.lock().unwrap().clone();
+    let video = "/tmp/marathon/a/Tests-Suite-test1-";
+    let starts: Vec<_> = commands
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.last().is_some_and(|a| a.contains("nohup") && a.contains(video)))
+        .map(|(n, _)| n)
+        .collect();
+    let removals: Vec<_> = commands
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.first().is_some_and(|a| a == "rm") && c.last().is_some_and(|a| a.starts_with(video)))
+        .map(|(n, _)| n)
+        .collect();
+    assert_eq!((starts.len(), removals.len()), (2, 2), "{commands:?}");
+    assert!(
+        removals[0] < starts[1],
+        "the repeat recorded before the first video was collected: {commands:?}"
+    );
+    h.finish(&[d]).await;
+    Ok(())
+}
