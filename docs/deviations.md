@@ -1885,6 +1885,54 @@ Approved 2026-11-17 (project owner's decision). See
 files or JUnit now sees each test as the exit code does. A tool that took the final record as a test's last run
 should read `raw.json`, which lists every run.
 
+## D78 — JUnit lists only the runs of a passed test that did not pass
+
+In the JUnit report (`tests/<pool>/marathon_junit_report.xml`) a test's case can list its other runs: a test that
+passed lists them as `flakyFailure`, a test that failed as `rerunFailure`, each with the run's stack trace. In the
+Surefire convention JUnit tools follow, a `flakyFailure` is a failed run of a test that finally passed, and a
+`rerunFailure` a failed rerun of a test that finally failed. The Kotlin marathon filters a failed test's runs that way,
+but lists every other run of a passed test, passing runs included, as an empty `flakyFailure` (incomplete runs are left
+out in both cases) ([C88](known-kotlin-bugs.md)). A test that passed all three runs of
+`flakinessStrategy: {type: fixed, count: 2}` ([D72](#d72--flakinessstrategy-fixed-for-stabilization-jobs)), or all
+its probability copies, then has two `flakyFailure` elements, and a CI tool that counts them reports a stable test as
+flaky twice.
+
+Native builds list as `flakyFailure` only the runs of a passed test that did not pass, each with its stack trace as
+before. A run is listed when its status is failure, ignored or assumption failure, the same rule the `rerunFailure`
+list of a failed test has always used; a passing run is not listed.
+
+```text
+runs PASSED PASSED PASSED (fixed, count: 2)
+Kotlin:  <testcase ...><flakyFailure type="rerun exception"></flakyFailure>
+                       <flakyFailure type="rerun exception"></flakyFailure></testcase>
+native:  <testcase ...></testcase>
+runs FAILURE PASSED PASSED
+Kotlin:  two flakyFailure elements, the first with the failure's trace
+native:  one flakyFailure element, with the failure's trace
+```
+
+What changes: only the number of `flakyFailure` elements in the JUnit case of a passed test that had passing runs
+besides its final one.
+
+What does not change: a failed test's `<failure>` and `rerunFailure` elements, skipped and incomplete handling, the
+order and attributes of test cases, the suite's `tests`, `failures`, `skipped` and `time`, `raw.json`, the per-test
+result files, Allure (every run), the HTML report, the timeline and the summary, including its `Raw:` line.
+
+Evidence: `junit_reporter::passed_test_whose_copies_all_passed_has_no_flaky_failure`,
+`passed_test_with_one_failed_copy_has_exactly_that_flaky_failure` and
+`failed_test_with_mixed_copies_has_rerun_failure_only_for_failed_runs`. The JVM reporter recordings are compared with
+a D78 allowance that removes only the `flakyFailure` elements of passing runs, in exactly three rows
+(`reporters::d78_allowance_removes_only_the_flaky_failures_of_passing_runs`,
+`d78_allowance_rejects_a_recording_that_does_not_match_its_runs`).
+
+Approved 2026-11-17 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
+[x75 findings](wp/x75-findings.md).
+
+**Migration action:** a CI step or dashboard that counted `flakyFailure` elements as the number of extra runs of a
+passed test must read `test_result/raw.json` instead, which lists every run. A step that reads them as failed runs, as
+JUnit tools do, needs no change.
+
 ## D79 — A simulator shut down during its boot wait is booted again at once
 
 When marathon prepares a simulator it boots it and waits up to `timeoutConfiguration.bootWait` (240 s by default),

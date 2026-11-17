@@ -4,6 +4,14 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## Unreleased
 
+### Reports
+
+- **JUnit no longer lists a passed test's passing runs as `flakyFailure` (D78):** a test that passed every run, for
+  example all runs of `flakinessStrategy: {type: fixed, count: N}`, had an empty `flakyFailure` element per extra run,
+  so JUnit tools showed a stable test as flaky. A passed test now lists only its runs that did not pass, with their
+  stack traces; a failed test's `rerunFailure` elements are unchanged. A CI step that counted `flakyFailure` elements
+  as the number of extra runs should read `test_result/raw.json`, which lists every run.
+
 ### iOS and macOS
 
 - iOS: a simulator that is shut down or crashes while marathon waits for it to boot, once it has been seen booting, is
