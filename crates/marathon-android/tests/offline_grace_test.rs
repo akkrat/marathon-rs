@@ -488,6 +488,51 @@ fn a_blip_fails_only_the_batch_and_later_batches_wait_d41() {
     });
 }
 
+/// x77: a pull that broke off is blamed on the connection when a grace began after the pull started, even if the device
+/// is back by the time the failure is looked at, which the server's list alone would call the reply's fault. A probe that
+/// cannot be made says that, not that the server is away.
+#[test]
+fn a_cut_off_request_counts_a_grace_since_it_started_x77() {
+    let _ports = shared_ports();
+    run_with_stopped_clock(configuration(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(base_script(27, vec![])).await;
+            let provider = AdamDeviceProvider::new(change_runtime(&runtime, &[server.port()]))?;
+            provider.initialize(context.clone()).await?;
+            let device = connected(&provider).await;
+            logcat_streams(&[(&server, 1)]).await;
+            let android = provider.android_device(&device).unwrap();
+            let before = android.grace_periods();
+
+            checked(server.set_device_state(SERIAL, "offline"));
+            until(|| in_grace(&device)).await;
+            checked(server.set_device_state(SERIAL, "device"));
+            logcat_streams(&[(&server, 2)]).await;
+            until(|| !in_grace(&device)).await;
+
+            let signal = context.cancellation.clone();
+            assert_eq!(
+                android.lost_connection(signal.clone(), before).await.as_deref(),
+                Some("the device briefly lost its connection")
+            );
+            assert_eq!(android.lost_connection(signal, android.grace_periods()).await, None);
+
+            let cancelled = marathon_core::executor::Signal::new();
+            cancelled.cancel(marathon_core::executor::shared::requested("test"));
+            assert_eq!(
+                android
+                    .lost_connection(cancelled, android.grace_periods())
+                    .await
+                    .as_deref(),
+                Some("the device's state could not be checked before the request was cancelled")
+            );
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
 /// The lines a runtime's components log, for tests that check wording. Every record still goes to the runtime's own log.
 #[derive(Clone, Default)]
 struct Captured(Arc<std::sync::Mutex<Vec<String>>>);
@@ -574,7 +619,7 @@ fn a_batch_failed_in_a_grace_that_ends_in_a_disconnect_says_so_x77() {
             assert_eq!(
                 captured.starting("Batch "),
                 [format!(
-                    "Batch on {serial} failed because the device was briefly offline; keeping the device"
+                    "Batch on {serial} failed because the device briefly lost its connection; keeping the device"
                 )]
             );
             logcat_streams(&[(&server, 2)]).await;
@@ -599,8 +644,8 @@ fn a_batch_failed_in_a_grace_that_ends_in_a_disconnect_says_so_x77() {
             assert_eq!(
                 lines[1..],
                 [format!(
-                    "Batch on {serial} failed because the device went offline and did not return in time; it has \
-                     been disconnected"
+                    "Batch on {serial} failed because the device lost its connection and did not return in time; it \
+                     has been disconnected"
                 )],
                 "{lines:?}"
             );

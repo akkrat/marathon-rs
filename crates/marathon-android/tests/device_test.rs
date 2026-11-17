@@ -349,8 +349,8 @@ fn folder_pull_uses_shell_listing_breadth_first() {
 }
 
 /// x77: adb's sync reports a transport that closed mid-reply as an unsupported protocol. A pull cut off because the device
-/// went offline says so, where it used to blame the device's sync support; one cut off while the server still lists the
-/// device as `device` keeps that text.
+/// went offline, or is listed in another state, says so, where it used to blame the device's sync support; one cut off
+/// while the server still lists the device as `device` keeps that text.
 #[test]
 fn a_pull_cut_off_by_an_offline_device_blames_the_connection_x77() {
     let temp = checked(tempfile::tempdir());
@@ -381,38 +381,50 @@ fn a_pull_cut_off_by_an_offline_device_blames_the_connection_x77() {
                 format!("Device {serial} does not support sync: file transfer")
             );
 
-            let pulling = {
-                let (device, local, context) = (device.clone(), local.clone(), context.clone());
-                tokio::spawn(async move {
-                    device
-                        .pull_file("/sdcard/hung.mp4", &format!("{local}/hung.mp4"), context)
-                        .await
-                })
-            };
-            let received = || {
-                server
-                    .transcript()
-                    .iter()
-                    .any(|r| r["type"] == "sync" && r["path"] == "/sdcard/hung.mp4" && r["op"] != "STAT")
-            };
-            checked(
-                tokio::time::timeout(std::time::Duration::from_secs(60), async {
-                    while !received() {
-                        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-                    }
-                })
-                .await,
-            );
-            checked(server.set_device_state("emulator-5554", "offline"));
-            let error = checked(checked(
-                tokio::time::timeout(std::time::Duration::from_secs(60), pulling).await,
-            ))
-            .unwrap_err();
-            assert_eq!(
-                message(error),
-                format!("File transfer from device {serial} broke off because the device is briefly offline")
-            );
-            checked(server.set_device_state("emulator-5554", "device"));
+            // The state the session is dropped for is the one the server then lists, so each case names its own.
+            let cases = [
+                ("offline", "the device is briefly offline"),
+                ("connecting", "the device is briefly connecting"),
+                ("unauthorized", "the adb server lists the device as unauthorized"),
+                ("recovery", "the adb server lists the device as recovery"),
+            ];
+            for (round, (state, why)) in cases.into_iter().enumerate() {
+                let pulling = {
+                    let (device, local, context) = (device.clone(), local.clone(), context.clone());
+                    tokio::spawn(async move {
+                        device
+                            .pull_file("/sdcard/hung.mp4", &format!("{local}/hung.mp4"), context)
+                            .await
+                    })
+                };
+                let received = || {
+                    server
+                        .transcript()
+                        .iter()
+                        .filter(|r| r["type"] == "sync" && r["path"] == "/sdcard/hung.mp4" && r["op"] != "STAT")
+                        .count()
+                        > round
+                };
+                checked(
+                    tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                        while !received() {
+                            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                        }
+                    })
+                    .await,
+                );
+                checked(server.set_device_state("emulator-5554", state));
+                let error = checked(checked(
+                    tokio::time::timeout(std::time::Duration::from_secs(60), pulling).await,
+                ))
+                .unwrap_err();
+                assert_eq!(
+                    message(error),
+                    format!("File transfer from device {serial} broke off because {why}"),
+                    "{state}"
+                );
+                checked(server.set_device_state("emulator-5554", "device"));
+            }
             finish(server, device).await;
             Ok(())
         })

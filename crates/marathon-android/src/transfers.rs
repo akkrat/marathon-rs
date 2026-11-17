@@ -36,6 +36,7 @@ impl AndroidDevice {
         }
     }
     pub async fn pull_file(&self, remote: &str, local: &str, context: VendorContext) -> VendorResult<()> {
+        let blips = self.grace_periods();
         let result = self
             .measurement()
             .measure_file_transfer(
@@ -120,7 +121,7 @@ impl AndroidDevice {
             // x77: adb's sync reports a transport that closed mid-reply as an unsupported protocol, so a pull during an
             // `offline` blamed the device's sync support.
             Err(e) if e.failure().kind == FailureKind::Adb(AdbKind::UnsupportedSyncProtocol) => {
-                let message = match self.lost_connection(context.cancellation.clone()).await {
+                let message = match self.lost_connection(context.cancellation.clone(), blips).await {
                     Some(why) => format!(
                         "File transfer from device {} broke off because {why}",
                         self.serial_number()

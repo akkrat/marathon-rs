@@ -76,9 +76,36 @@ enum LossCause {
     Passing(&'static str),
     /// The server lists it as `device`, so the tracker sees no change and would never connect it again (N15).
     Listed,
-    /// No longer on the list, or in another state.
-    Unlisted,
+    /// No longer on the list (`None`), or listed in another state that is not passing, such as `unauthorized`.
+    Unlisted(Option<DeviceState>),
 }
+/// D41's passing states, as adb names them, for log lines.
+fn passing_text(state: Option<DeviceState>) -> &'static str {
+    match state {
+        Some(DeviceState::Offline) => "the device is briefly offline",
+        Some(DeviceState::Connecting) => "the device is briefly connecting",
+        Some(DeviceState::Authorizing) => "the device is briefly authorizing",
+        _ => "the device is briefly not ready",
+    }
+}
+/// adb's name for a state, for log lines.
+fn state_name(state: DeviceState) -> &'static str {
+    match state {
+        DeviceState::Offline => "offline",
+        DeviceState::Bootloader => "bootloader",
+        DeviceState::Device => "device",
+        DeviceState::Host => "host",
+        DeviceState::Recovery => "recovery",
+        DeviceState::Rescue => "rescue",
+        DeviceState::Sideload => "sideload",
+        DeviceState::Unauthorized => "unauthorized",
+        DeviceState::Authorizing => "authorizing",
+        DeviceState::Connecting => "connecting",
+        DeviceState::Unknown => "unknown",
+    }
+}
+/// x77: the grace counter moved while a request ran, for a grace of any passing state.
+const LOST_BRIEFLY: &str = "the device briefly lost its connection";
 pub trait AndroidBatchExecutor: Send + Sync {
     fn execute<'a>(
         &'a self,
@@ -744,28 +771,31 @@ impl AndroidDevice {
     async fn passing_loss(&self, signal: Arc<dyn CancellationSignal>) -> Option<&'static str> {
         match self.loss_cause(signal).await {
             LossCause::Passing(why) => Some(why),
-            LossCause::Listed | LossCause::Unlisted => None,
+            LossCause::Listed | LossCause::Unlisted(_) => None,
         }
     }
     async fn loss_cause(&self, signal: Arc<dyn CancellationSignal>) -> LossCause {
         const SERVER: &str = "the adb server is away";
-        const DEVICE: &str = "the device is briefly offline";
         // U170: a device whose restoration after the server's return is still running counts as still in the outage, as
         // it did while the restorations ran inside the tracking loop, before the server's gate opened.
         if !self.adb_server_available() || self.inner.tracker.is_restoring(self.adb_serial()) {
             return LossCause::Passing(SERVER);
         }
         if self.is_held() {
-            return LossCause::Passing(DEVICE);
+            return LossCause::Passing(passing_text(self.inner.tracker.get_state(self.adb_serial())));
         }
         let devices = match self.request(ListDevicesRequest, None, signal).await {
-            Err(_) => return LossCause::Passing(SERVER),
+            // Counted as the server's absence, as D22 has it; the line says only what is known.
+            Err(VendorError::Cancelled(_)) => {
+                return LossCause::Passing("the device's state could not be checked before the request was cancelled");
+            }
+            Err(_) => return LossCause::Passing("the adb server did not answer"),
             Ok(devices) => devices,
         };
         match devices.iter().find(|d| d.serial == self.adb_serial()).map(|d| d.state) {
-            Some(state) if is_passing(state) => LossCause::Passing(DEVICE),
+            Some(state) if is_passing(state) => LossCause::Passing(passing_text(Some(state))),
             Some(DeviceState::Device) => LossCause::Listed,
-            _ => LossCause::Unlisted,
+            state => LossCause::Unlisted(state),
         }
     }
     /// D49: a request was rejected or closed before its reply, and the server still lists this device as `device`. If the
@@ -788,15 +818,22 @@ impl AndroidDevice {
         Ok(true)
     }
     /// x77: why a request that broke off mid-protocol, as adb's sync does when the transport closes, lost its device, if
-    /// it did: the device has been disconnected, or [`Self::loss_cause`] says so. `None` for a device the server still
-    /// lists as `device`, where the reply itself was at fault.
-    pub(crate) async fn lost_connection(&self, signal: Arc<dyn CancellationSignal>) -> Option<&'static str> {
+    /// it did: the device has been disconnected, a grace began since `blips` was read (the device may be back by now),
+    /// or [`Self::loss_cause`] says so. `None` for a device the server still lists as `device`, where the reply itself
+    /// was at fault.
+    pub async fn lost_connection(&self, signal: Arc<dyn CancellationSignal>, blips: u32) -> Option<String> {
         if self.is_disconnected() {
-            return Some("the device has been disconnected");
+            return Some("the device has been disconnected".into());
+        }
+        if self.grace_periods() != blips {
+            return Some(LOST_BRIEFLY.into());
         }
         match self.loss_cause(signal).await {
-            LossCause::Passing(why) => Some(why),
-            LossCause::Unlisted => Some("the device has left the adb server's list"),
+            LossCause::Passing(why) => Some(why.into()),
+            LossCause::Unlisted(None) => Some("the device has left the adb server's list".into()),
+            LossCause::Unlisted(Some(state)) => {
+                Some(format!("the adb server lists the device as {}", state_name(state)))
+            }
             LossCause::Listed => None,
         }
     }
@@ -1135,9 +1172,8 @@ impl Device for AndroidDevice {
                         // fails: retiring the last device of a pool would end the run before it returns. A grace period
                         // that began during the batch counts, as the server's answer no longer shows it.
                         Err(VendorError::DeviceLost(failure)) => {
-                            const WENT_OFFLINE: &str = "the device was briefly offline";
                             let passing = if device.inner.tracker.blips(device.adb_serial()) != blips {
-                                Some(WENT_OFFLINE)
+                                Some(LOST_BRIEFLY)
                             } else {
                                 match device.loss_cause(signal).await {
                                     LossCause::Passing(why) => Some(why),
@@ -1146,15 +1182,15 @@ impl Device for AndroidDevice {
                                     LossCause::Listed if device.survives_request_loss(&context).await? => {
                                         Some("a request was lost, while the device is listed and answers")
                                     }
-                                    LossCause::Listed | LossCause::Unlisted => None,
+                                    LossCause::Listed | LossCause::Unlisted(_) => None,
                                 }
                             };
                             match passing {
                                 // x77: a grace that ended in a disconnect wakes this batch only after the device has
                                 // been dropped, so the device is not kept, whatever the reason was.
                                 Some(why) if device.is_disconnected() => {
-                                    let cause = if why == WENT_OFFLINE {
-                                        "the device went offline and did not return in time"
+                                    let cause = if why == LOST_BRIEFLY {
+                                        "the device lost its connection and did not return in time"
                                     } else {
                                         "the device was lost"
                                     };
