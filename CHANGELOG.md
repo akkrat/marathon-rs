@@ -40,7 +40,7 @@ The section for a version becomes the text of its GitHub release, which carries 
   passed/failed line, the per-test result file, JUnit and HTML used to show a test's last run, so under `ANY_SUCCESS` a
   test that passed once but failed last was listed as failed although the run exited 0 (and the mirror image under
   `ALL_SUCCESS`). They now show the run `fast: true` would have stopped at: the first pass under `ANY_SUCCESS`, the
-  first failure under `ALL_SUCCESS`, otherwise the last run. Exit codes, retries, the `Raw:` line, `raw.json` and
+  first failure under `ALL_SUCCESS`, otherwise the run that completes the test. Exit codes, retries, the `Raw:` line, `raw.json` and
   Allure are unchanged, and so is everything with `fast: true`.
 - Android: a JUnit3 test with an array-valued annotation, such as Kotlin's `@Throws`, in a test APK with several dex files
   is now listed and run once, not once per re-scan of the dex files that include it (D75).

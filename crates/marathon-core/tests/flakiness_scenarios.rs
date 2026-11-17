@@ -274,8 +274,23 @@ fn d77_fast_and_not_fast_track_the_same_final_record() {
             record
         };
         assert_eq!(record(&fast), record(&slow), "{mode:?} {answers:?}");
-        let first = |outcome: &Outcome| summary(outcome).lines().take(3).collect::<Vec<_>>().join("\n");
+        // The first block up to the flakiness overhead, which counts the runs and so differs by design; the failed-tests
+        // list is part of it.
+        let first = |outcome: &Outcome| {
+            summary(outcome)
+                .lines()
+                .take_while(|line| !line.contains("Flakiness overhead") && !line.trim_start().starts_with("Raw:"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
         assert_eq!(first(&fast), first(&slow), "{mode:?} {answers:?}");
+        if matches!(mode, ExecutionMode::AllSuccess) && answers[..3].contains(&Failure) {
+            assert!(
+                first(&slow).contains("SimpleTest"),
+                "failed-tests list compared: {}",
+                first(&slow)
+            );
+        }
         assert_eq!(
             format!("{:?}", fast.value),
             format!("{:?}", slow.value),

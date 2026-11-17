@@ -132,3 +132,21 @@ Not run, per the batch rules: `scripts/check.sh`, `scripts/remote-check.sh`, `ca
 ## Incidental bugs
 
 None found.
+
+## Review round 1 (Muse)
+
+Verdict: merge after fixes; no code defect. Muse verified the shadow's equivalence with `fast: true` beyond the witnesses
+(hand-built sequences and every sequence of up to five operations in both modes), that nothing deciding retries or the
+exit reads it, the consumer table, the allowance's narrowness and the witnesses' failures without the fix, and
+recommended accepting the first-pass side effect. All four findings fixed:
+
+- **M-x70-1**: PLAN's D72 row still said C87 makes the summary and final result follow the last run. It now says that
+  since D77 the first failure is the final result.
+- **M-x70-2**: PLAN's D77 row, the changelog and the migration note said "otherwise the last run"; they now say the run
+  that completes the test, which covers a final incomplete, and PLAN notes that a test no run decided whose runs were not
+  all reported has no final result.
+- **M-x70-3**: `progress_oracle`'s replay now also counts the rows whose replayed tracks differ from the JVM's recorded
+  final flags and pins that count at 22, so a widened allowance fails.
+- **M-x70-4**: `d77_fast_and_not_fast_track_the_same_final_record` compares the summary's whole first block up to the
+  flakiness overhead (which counts runs and differs by design), so the failed-tests list is included; an assertion pins
+  that it is.

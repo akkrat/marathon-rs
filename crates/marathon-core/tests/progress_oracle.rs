@@ -128,8 +128,12 @@ fn d77_moves_only_the_final_flag_of_non_fast_rows() {
 fn every_state_event_mode_and_fast_setting_replays_the_jvm() {
     run(|core| {
         Box::pin(async move {
+            // M-x70-3: the replay must also disagree with the JVM's own final flags exactly where D77 moves them, so a
+            // widened allowance cannot pass unnoticed.
+            let mut against_recorded = 0;
             for line in RECORDED.lines() {
-                let row = native_expected(serde_json::from_str(line).unwrap());
+                let recorded: Value = serde_json::from_str(line).unwrap();
+                let row = native_expected(recorded.clone());
                 let mut original = test("method");
                 original.meta_properties.push(MetaProperty {
                     name: "original".into(),
@@ -232,12 +236,19 @@ fn every_state_event_mode_and_fast_setting_replays_the_jvm() {
                     "{line}"
                 );
                 assert_eq!(json!(tracks), row["tracks"], "{line}");
+                if json!(tracks) != recorded["tracks"] {
+                    against_recorded += 1;
+                }
                 assert_eq!(
                     json!(order),
                     marathon_test_support::recorded_logs::native_logs(&row["effects"]),
                     "{line}"
                 );
             }
+            assert_eq!(
+                against_recorded, 22,
+                "replayed tracks that differ from the recorded final flags"
+            );
             Ok(())
         })
     });

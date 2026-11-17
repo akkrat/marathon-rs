@@ -168,7 +168,7 @@ its app is no longer pushed to the worker a second time after the app; the files
 [D77](deviations.md#d77--the-final-result-of-a-test-agrees-with-its-verdict) needs no action. With
 `executionStrategy.fast: false`, a test with several runs is reported (summary's first block, per-test result file,
 JUnit, HTML) by the run `fast: true` would have stopped at: its first pass under `ANY_SUCCESS`, its first failure under
-`ALL_SUCCESS`, otherwise its last run. These reports now agree with the exit code. A tool that read a test's last run
+`ALL_SUCCESS`, otherwise the run that completes it. These reports now agree with the exit code. A tool that read a test's last run
 from them should read `raw.json`, which lists every run.
 
 ### A finite `uncompletedTestRetryQuota` (D47)
