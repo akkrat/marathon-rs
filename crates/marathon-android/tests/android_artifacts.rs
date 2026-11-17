@@ -863,7 +863,14 @@ fn scenario(mode: &'static str) {
                     .filter(|s| !s.starts_with("host:transport:") && s != "shell:logcat -v long")
                     .collect::<Vec<_>>()
             };
-            assert_eq!(services(server.transcript()), services(reference), "{mode}");
+            let mut reference = services(reference);
+            if mode == "filesync-coverage" {
+                // D81 allowance: the file-sync listener no longer handles coverage (the coverage listener does, without
+                // `run-as`). Kotlin's coverage rows go: its shell commands on the coverage folders and the two sync
+                // sessions that pulled the coverage file; `/sdcard/screenshots` is empty and pulls nothing.
+                reference.retain(|s| !s.contains("coverage") && s != "sync:");
+            }
+            assert_eq!(services(server.transcript()), reference, "{mode}");
             if let Some(attachments) = attachments {
                 let values = attachments.get(&test()).unwrap_or_default();
                 let observed: Value = checked(serde_json::from_str(&checked(
@@ -1542,6 +1549,95 @@ fn a_folder_push_fails_when_its_leftover_cannot_be_removed_d27() {
                 )
             );
             assert!(!nested, "the fresh folder was pushed inside the leftover");
+            Ok(())
+        })
+    });
+}
+/// D81: a coverage file path per instrumentation; later instrumentations of a batch (D28) get their own name.
+#[test]
+fn coverage_file_names_and_commands_d81() {
+    use marathon_android::artifact_listeners::coverage::CoverageFile;
+    let first = CoverageFile::new("/sdcard/", "com.example", "b1", 0);
+    assert_eq!(
+        first.remote(),
+        "/sdcard/Android/data/com.example/files/coverage/coverage-b1.ec"
+    );
+    assert_eq!(
+        first.prepare_command(),
+        "rm -rf /sdcard/Android/data/com.example/files/coverage; mkdir -p /sdcard/Android/data/com.example/files/coverage && { chmod o+rwx /sdcard/Android/data/com.example /sdcard/Android/data/com.example/files /sdcard/Android/data/com.example/files/coverage 2>/dev/null; true; }"
+    );
+    assert_eq!(
+        first.remove_command(),
+        "rm -rf /sdcard/Android/data/com.example/files/coverage"
+    );
+    assert_eq!(
+        CoverageFile::new("/sdcard", "com.example", "b1", 1).name,
+        "coverage-b1-2.ec"
+    );
+    assert_eq!(
+        CoverageFile::new("/sdcard", "com.example", "b1", 2).name,
+        "coverage-b1-3.ec"
+    );
+}
+/// D81: every test the instrumentation started names the pulled file, and so does the merged result of a
+/// parameterised test, which the results listener looks up without the index.
+#[test]
+fn coverage_is_attached_to_every_started_test_and_merged_parameterised_result_d81() {
+    use marathon_android::artifact_listeners::coverage::{CoverageFile, CoverageTestRunListener};
+    let mut c = configuration();
+    let temp = output(&mut c);
+    run(c, move |runtime, context| {
+        Box::pin(async move {
+            let _temp = temp;
+            let mut script = base_script(30, vec![]);
+            script["devices"][0]["files"] = json!([{
+                "path": "/sdcard/Android/data/com.example/files/coverage/coverage-batch.ec",
+                "content": "jacoco"
+            }]);
+            shell(
+                &mut script,
+                "rm -rf /sdcard/Android/data/com.example/files/coverage",
+                "",
+            );
+            let mut server = server(script).await;
+            let device = device(&server, runtime);
+            device.setup(context.clone()).await?;
+            let listener = Arc::new(CoverageTestRunListener::new(artifacts(&device)));
+            let attachments = collector(listener.clone());
+            let id = |name: &str| TestIdentifier {
+                class_name: js("pkg.clazz"),
+                test_name: js(name),
+            };
+            for name in ["method", "param[0]", "param[1]", "method"] {
+                listener
+                    .on_event_in(&E::TestStarted { id: id(name) }, context.clone())
+                    .await?;
+            }
+            let file = CoverageFile::new("/sdcard", "com.example", "batch", 0);
+            listener.on_coverage_in(&file, context.clone()).await?;
+            let named = |method: &str| {
+                attachments
+                    .get(&Test {
+                        pkg: js("pkg"),
+                        clazz: js("clazz"),
+                        method: js(method),
+                        meta_properties: vec![],
+                    })
+                    .unwrap_or_default()
+            };
+            for method in ["method", "param[0]", "param[1]", "param"] {
+                let found = named(method);
+                assert_eq!(found.len(), 1, "{method}: {found:?}");
+                assert_eq!(found[0].kind, AttachmentType::Coverage);
+                assert!(found[0].file.ends_with("device-files/pool/coverage/coverage-batch.ec"));
+                assert_eq!(checked(tokio::fs::read_to_string(&found[0].file).await), "jacoco");
+            }
+            // A second instrumentation's pull attaches only to the tests it started.
+            let second = CoverageFile::new("/sdcard", "com.example", "batch", 1);
+            listener.on_coverage_in(&second, context.clone()).await?;
+            assert_eq!(named("method").len(), 1);
+            checked(device.dispose().await);
+            checked(server.shutdown().await);
             Ok(())
         })
     });

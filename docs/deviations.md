@@ -2033,6 +2033,59 @@ Approved 2026-11-17 (project owner's decision). See
 **Migration action:** none. A job that checked iOS test durations or video attachments sees them for every test of a
 batch, not only for those after a fast transfer.
 
+## D81 — Android code coverage needs no `run-as`
+
+With `isCodeCoverageEnabled: true` the Kotlin marathon has the instrumentation write
+`/data/data/<app>/coverage/coverage-<batch>.ec`, creates that folder with `run-as <app> mkdir` before each batch, and
+copies it out with `run-as` afterwards (an APP_DATA file-sync entry). `run-as` only works for a debuggable app. For a
+non-debuggable one the folder is never created, the test runner cannot open the file, nothing is pulled, and nothing is
+logged above DEBUG: the run passes and has no coverage (C89).
+
+The native run writes coverage to the app's own folder in shared storage, which the app can write without permission
+and the shell can read:
+
+```text
+coverageFile  <external storage>/Android/data/<app>/files/coverage/coverage-<batch>.ec
+pulled to     <outputDir>/device-files/<pool>/coverage/coverage-<batch>.ec
+```
+
+- **Before each instrumentation**, after `pm clear` (which would remove it), one shell command removes the folder,
+  creates it and opens it to the app:
+  `rm -rf <dir>; mkdir -p <dir> && { chmod o+rwx <app dir> <app dir>/files <dir> 2>/dev/null; true; }`. A folder the
+  shell creates there belongs to the shell with mode 2770 and group `ext_data_rw`; `o+rwx` lets the app in and the
+  set-group-ID bit gives the app's file that group, which the shell has. On API 29 and older, where shared storage
+  derives its permissions, the `chmod` changes nothing and is not needed.
+- **After each instrumentation that was sent**, the file is pulled over sync, the folder is removed from the device,
+  and the file is attached to every test the instrumentation started, as an attachment of type `COVERAGE` named
+  `coverage`. The per-test result file (`test_result/<pool>/<serial>/<test>.json`) lists it under `attachments`, next to
+  its `testBatchId`; Allure lists it as well. A parameterised test's merged result gets it too.
+- **A batch with several instrumentations** ([D28](#d28--each-instrumentation-runs-only-its-own-tests)) writes one file
+  per instrumentation: `coverage-<batch>.ec`, then `coverage-<batch>-2.ec` and so on. Kotlin gave two instrumentations
+  of the same app one file name.
+- **Failures are errors.** A folder that cannot be created, and a file that is missing, empty or cannot be pulled, log an
+  ERROR naming the batch and the path, for example
+  `Code coverage of batch <id> is missing: <path> was not written or could not be pulled (<reason>)`. Those tests then
+  have no `COVERAGE` attachment. The run's outcome and exit code do not change. A batch that is cancelled is not pulled.
+
+Coverage is no longer a file-sync entry and no longer uses `run-as`, for debuggable apps too. Kotlin copied the whole
+`/data/data/<app>/coverage` folder; only the coverage file is pulled now. The shell leaves
+`<external storage>/Android/data/<app>` and its `files` folder in place, open to the app, when it created them.
+
+Evidence: `android_runner::coverage_is_written_to_shared_storage_pulled_and_attached_without_run_as_d81`,
+`missing_coverage_is_an_error_and_attaches_nothing_d81`, `a_coverage_directory_that_cannot_be_created_is_an_error_d81`,
+`each_instrumentation_of_a_batch_writes_its_own_coverage_file_d81_d28`,
+`android_artifacts::coverage_is_attached_to_every_started_test_and_merged_parameterised_result_d81`. The recorded Kotlin
+file-sync scenario is compared with a D81 allowance that drops its coverage rows. On an API 36 emulator a
+non-debuggable app with JaCoCo offline instrumentation gave one readable `.ec` per batch, where 0.14.0-rc.1 gave none.
+
+Requested 2026-11-17 by the project owner. See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
+[x79 findings](wp/x79-findings.md).
+
+**Migration action:** none for most jobs: the `.ec` files land where they did. A tool that reads attachment types from
+the per-test result files or Allure should accept `COVERAGE`. A job that made its app debuggable only to get coverage
+can stop doing so.
+
 ## Other accepted text differences
 
 [PLAN §3.10](../PLAN.md#310-accepted-differences-same-behaviour-different-text)

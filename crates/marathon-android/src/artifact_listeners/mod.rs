@@ -1,6 +1,7 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/BaseAndroidDevice.kt:236-335
 use marathon_error::FailureKind;
 pub mod adam_capture;
+pub mod coverage;
 pub mod file_sync;
 pub mod profiling;
 pub mod screenshot;

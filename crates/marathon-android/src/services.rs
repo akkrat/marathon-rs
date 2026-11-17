@@ -39,7 +39,7 @@ impl AndroidRuntime {
             .into_iter()
             .map(|f| Arc::new(AndroidTestBundle::new(f, &cwd)))
             .collect();
-        let file_sync = effective_file_sync(&configuration, dependencies.configuration.is_code_coverage_enabled);
+        let file_sync = effective_file_sync(&configuration);
         Ok(Arc::new(Self {
             log: dependencies.log.clone(),
             dependencies,

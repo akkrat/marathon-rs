@@ -3,7 +3,10 @@
 use marathon_error::{AdbKind, FailureKind, InjectedKind};
 mod support;
 use marathon_adb::testrunner::TestEvent as E;
-use marathon_android::{arguments, device::AndroidBatchExecutor, listener_factory::*, listeners::*, runner::*};
+use marathon_android::{
+    arguments, artifact_listeners::coverage::CoverageFile, device::AndroidBatchExecutor, listener_factory::*,
+    listeners::*, runner::*,
+};
 use marathon_config::vendor::TestAccessConfiguration;
 use marathon_core::{
     error::*,
@@ -262,10 +265,15 @@ fn request_escapes_only_ascii_spaces_and_keeps_null() {
                     tests: vec![test("null"), test("space name")],
                     id: "batch".into(),
                 },
+                Some(&CoverageFile::new("/sdcard", "com.example", "batch", 0)),
             )?;
             let text = request.command().to_owned();
             assert!(text.contains("-e class pkg.Clazz,pkg.Clazz#space\\ name"));
-            assert!(text.contains("/coverage/coverage-batch.ec"));
+            assert!(text.contains(" -e coverage true "), "{text}");
+            assert!(
+                text.contains(" -e coverageFile /sdcard/Android/data/com.example/files/coverage/coverage-batch.ec "),
+                "{text}"
+            );
             assert_eq!(request.socket_idle_timeout, Some(i64::MAX));
             d.dispose().await?;
             checked(server.shutdown().await);
@@ -1937,6 +1945,280 @@ fn debug_listener_uses_android_target_and_plain_test_name_x56() {
             );
             assert!(logs[0].2.ends_with("test = pkg.Tests#testOne"));
             assert!(logs[1].2.ends_with("trace = java.lang.AssertionError: external"));
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
+const COVERAGE_DIRECTORY: &str = "/sdcard/Android/data/com.example/files/coverage";
+/// A runtime whose log lines the test can read.
+fn logged_runtime(
+    runtime: Arc<marathon_android::services::AndroidRuntime>,
+) -> (
+    Arc<marathon_android::services::AndroidRuntime>,
+    Arc<Mutex<Vec<(Level, String)>>>,
+) {
+    let lines = Arc::new(Mutex::new(vec![]));
+    let sink = lines.clone();
+    let log: marathon_core::ServiceLog =
+        Arc::new(move |_, level, message, _| sink.lock().unwrap().push((level, message.to_owned())));
+    let mut dependencies = runtime.dependencies.clone();
+    dependencies.log = log.clone();
+    (
+        Arc::new(marathon_android::services::AndroidRuntime {
+            dependencies,
+            configuration: runtime.configuration.clone(),
+            file_sync: runtime.file_sync.clone(),
+            bundles: runtime.bundles.clone(),
+            identifier: runtime.identifier.clone(),
+            executor: runtime.executor.clone(),
+            log,
+        }),
+        lines,
+    )
+}
+/// A batch of one test through the whole executor with coverage on, on a device whose app writes `written` (if any)
+/// as its coverage file. Returns the batch's results, the shell commands and the ERROR lines.
+fn coverage_run(
+    written: Option<&'static str>,
+    pm_clear: bool,
+) -> (Arc<TestBatchResults>, Vec<String>, Vec<String>, tempfile::TempDir) {
+    let temp = checked(tempfile::tempdir());
+    let mut c = config();
+    c.is_code_coverage_enabled = true;
+    c.output_dir = PathBuf::from(temp.path().to_string_lossy().into_owned());
+    android(&mut c).application_pm_clear = pm_clear;
+    let out = Arc::new(Mutex::new(None));
+    let sink = out.clone();
+    run(c, move |runtime, context| {
+        Box::pin(async move {
+            let (runtime, lines) = logged_runtime(runtime);
+            let mut s = base_script(30, vec!["shell_v2", "cmd", "abb_exec", "sendrecv_v2"]);
+            s["shell"].as_array_mut().unwrap().extend([
+                json!({"prefix":"am instrument","stdout":completes("pkg.Clazz","method")}),
+                json!({"prefix":"pm clear com.example","stdout":"Success"}),
+                json!({"prefix":format!("rm -rf {COVERAGE_DIRECTORY}"),"stdout":""}),
+            ]);
+            if let Some(content) = written {
+                s["devices"][0]["files"] =
+                    json!([{"path":format!("{COVERAGE_DIRECTORY}/coverage-batch.ec"),"content":content}]);
+            }
+            let mut server = server(s).await;
+            let d = device(&server, runtime.clone());
+            d.setup(context.clone()).await?;
+            register(&runtime, &[test("method")]);
+            let deferred = Arc::new(SharedDeferred::default());
+            AndroidRunnerExecutor {
+                slots: ListenerSlots::default(),
+            }
+            .execute(
+                &d,
+                runtime.dependencies.configuration.clone(),
+                DevicePoolId { name: "pool".into() },
+                Arc::new(TestBatch {
+                    tests: vec![test("method")],
+                    id: "batch".into(),
+                }),
+                deferred.clone(),
+                context,
+            )
+            .await?;
+            let results = checked(deferred.wait().await);
+            let commands = commands(&server);
+            assert_eq!(server.warnings(), 0, "{commands:?}");
+            d.dispose().await?;
+            checked(server.shutdown().await);
+            let errors = lines
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(level, _)| *level == Level::ERROR)
+                .map(|(_, message)| message.clone())
+                .collect();
+            *sink.lock().unwrap() = Some((results, commands, errors));
+            Ok(())
+        })
+    });
+    let (results, commands, errors) = out.lock().unwrap().take().unwrap();
+    (results, commands, errors, temp)
+}
+/// D81 (C89): no `run-as`. The app's shared-storage directory is prepared after `pm clear`, the instrumentation writes
+/// there, and the file is pulled into the pool's `coverage` folder, attached to the test and removed from the device.
+#[test]
+fn coverage_is_written_to_shared_storage_pulled_and_attached_without_run_as_d81() {
+    let (results, commands, errors, temp) = coverage_run(Some("jacoco"), true);
+    assert!(errors.is_empty(), "{errors:?}");
+    assert!(!commands.iter().any(|c| c.contains("run-as")), "{commands:?}");
+    let position = |prefix: &str| {
+        commands
+            .iter()
+            .position(|c| c.starts_with(prefix))
+            .unwrap_or_else(|| panic!("{prefix} missing from {commands:?}"))
+    };
+    let prepare = format!(
+        "rm -rf {COVERAGE_DIRECTORY}; mkdir -p {COVERAGE_DIRECTORY} && {{ chmod o+rwx /sdcard/Android/data/com.example /sdcard/Android/data/com.example/files {COVERAGE_DIRECTORY} 2>/dev/null; true; }}"
+    );
+    assert!(commands.contains(&prepare), "{commands:?}");
+    assert!(position("pm clear com.example") < position(&prepare));
+    let instrument = &commands[position("am instrument")];
+    assert!(position(&prepare) < position("am instrument"));
+    assert!(
+        instrument.contains(&format!(" -e coverageFile {COVERAGE_DIRECTORY}/coverage-batch.ec ")),
+        "{instrument}"
+    );
+    let removed = commands
+        .iter()
+        .rposition(|c| *c == format!("rm -rf {COVERAGE_DIRECTORY}"))
+        .unwrap();
+    assert!(position("am instrument") < removed);
+    let local = temp.path().join("device-files/pool/coverage/coverage-batch.ec");
+    assert_eq!(checked(std::fs::read_to_string(&local)), "jacoco");
+    let result = &results.finished[0];
+    let coverage: Vec<_> = result
+        .attachments
+        .iter()
+        .filter(|a| a.kind == AttachmentType::Coverage)
+        .collect();
+    assert_eq!(coverage.len(), 1, "{:?}", result.attachments);
+    assert_eq!(coverage[0].name, Some("coverage".into()));
+    assert_eq!(
+        checked(std::fs::canonicalize(&coverage[0].file)),
+        checked(std::fs::canonicalize(&local))
+    );
+}
+/// D81: coverage that was asked for and is missing is an ERROR, the test result names no file, and the run goes on.
+#[test]
+fn missing_coverage_is_an_error_and_attaches_nothing_d81() {
+    let (results, commands, errors, temp) = coverage_run(None, false);
+    assert_eq!(results.finished.len(), 1);
+    assert!(
+        results.finished[0]
+            .attachments
+            .iter()
+            .all(|a| a.kind != AttachmentType::Coverage)
+    );
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0].starts_with(&format!(
+            "Code coverage of batch batch is missing: {COVERAGE_DIRECTORY}/coverage-batch.ec was not written or could not be pulled ("
+        )),
+        "{}",
+        errors[0]
+    );
+    assert!(!commands.iter().any(|c| c.starts_with("pm clear")), "{commands:?}");
+    assert!(
+        !temp
+            .path()
+            .join("device-files/pool/coverage/coverage-batch.ec")
+            .exists()
+    );
+}
+/// D81: a directory that cannot be created is an ERROR when it fails, not only when its file is found missing.
+#[test]
+fn a_coverage_directory_that_cannot_be_created_is_an_error_d81() {
+    let (_, _, errors, _temp) = {
+        let temp = checked(tempfile::tempdir());
+        let mut c = config();
+        c.is_code_coverage_enabled = true;
+        c.output_dir = PathBuf::from(temp.path().to_string_lossy().into_owned());
+        let out = Arc::new(Mutex::new(vec![]));
+        let sink = out.clone();
+        run(c, move |runtime, context| {
+            Box::pin(async move {
+                let (runtime, lines) = logged_runtime(runtime);
+                let mut s = base_script(30, vec!["shell_v2", "cmd", "abb_exec", "sendrecv_v2"]);
+                s["shell"].as_array_mut().unwrap().extend([
+                    json!({"prefix":format!("rm -rf {COVERAGE_DIRECTORY};"),"stdout":"mkdir: Permission denied\n","exit_code":1}),
+                    json!({"prefix":"am instrument","stdout":completes("pkg.Clazz","method")}),
+                    json!({"exact":format!("rm -rf {COVERAGE_DIRECTORY}"),"stdout":""}),
+                ]);
+                let mut server = server(s).await;
+                let d = device(&server, runtime.clone());
+                d.setup(context.clone()).await?;
+                register(&runtime, &[test("method")]);
+                let deferred = Arc::new(SharedDeferred::default());
+                AndroidRunnerExecutor {
+                    slots: ListenerSlots::default(),
+                }
+                .execute(
+                    &d,
+                    runtime.dependencies.configuration.clone(),
+                    DevicePoolId { name: "pool".into() },
+                    Arc::new(TestBatch {
+                        tests: vec![test("method")],
+                        id: "batch".into(),
+                    }),
+                    deferred.clone(),
+                    context,
+                )
+                .await?;
+                assert_eq!(checked(deferred.wait().await).finished.len(), 1);
+                assert_eq!(server.warnings(), 0);
+                d.dispose().await?;
+                checked(server.shutdown().await);
+                *sink.lock().unwrap() = lines
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|(level, _)| *level == Level::ERROR)
+                    .map(|(_, message)| message.clone())
+                    .collect();
+                Ok(())
+            })
+        });
+        let errors = out.lock().unwrap().clone();
+        ((), (), errors, temp)
+    };
+    assert_eq!(errors.len(), 2, "{errors:?}");
+    assert_eq!(
+        errors[0],
+        format!(
+            "Unable to create the coverage directory {COVERAGE_DIRECTORY} of batch batch: exit code 1, mkdir: Permission denied"
+        )
+    );
+    assert!(
+        errors[1].starts_with("Code coverage of batch batch is missing: "),
+        "{}",
+        errors[1]
+    );
+}
+/// D81 with D28: each instrumentation of a batch writes its own file, pulled before the next one's `pm clear`; two for
+/// the same application package used to write one file.
+#[test]
+fn each_instrumentation_of_a_batch_writes_its_own_coverage_file_d81_d28() {
+    let mut c = config();
+    c.is_code_coverage_enabled = true;
+    run(c, |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(script("INSTRUMENTATION_CODE: -1\n", false)).await;
+            let d = device(&server, runtime.clone());
+            d.setup(context.clone()).await?;
+            let (one, two) = two_instrumentations(&runtime);
+            AndroidDeviceTestRunner { device: &d }
+                .execute(
+                    runtime.dependencies.configuration.clone(),
+                    Arc::new(TestBatch {
+                        tests: vec![one, two],
+                        id: "batch".into(),
+                    }),
+                    &Events::default(),
+                    context,
+                )
+                .await?;
+            let commands = instrumentations(&server);
+            assert_eq!(commands.len(), 2);
+            assert!(
+                commands[0].contains("/files/coverage/coverage-batch.ec "),
+                "{}",
+                commands[0]
+            );
+            assert!(
+                commands[1].contains("/files/coverage/coverage-batch-2.ec "),
+                "{}",
+                commands[1]
+            );
+            d.dispose().await?;
             checked(server.shutdown().await);
             Ok(())
         })

@@ -280,6 +280,8 @@ pub enum AttachmentType {
     Video,
     Log,
     Profiling,
+    /// D81: the coverage file of the test's instrumentation run (Android). Native only.
+    Coverage,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExecutionCommand {

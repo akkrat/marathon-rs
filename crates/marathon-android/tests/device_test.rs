@@ -159,8 +159,10 @@ fn test_remote_video_with_long_file_name() {
 fn test_allure_configuration() {
     effective(true, false)
 }
+/// D81 replaces Kotlin's testCodecovConfiguration, which pinned coverage as an APP_DATA file-sync entry pulled with
+/// `run-as` (C89): coverage has its own listener and adds no entry.
 #[test]
-fn test_codecov_configuration() {
+fn coverage_is_not_a_file_sync_entry_d81() {
     effective(false, true)
 }
 fn effective(allure: bool, coverage: bool) {
@@ -170,25 +172,21 @@ fn effective(allure: bool, coverage: bool) {
     a.allure_configuration.enabled = allure;
     a.allure_configuration.relative_results_directory = js("/allure-results");
     a.allure_configuration.path_root = PathRoot::AppData;
-    let expected = if allure {
-        FileSyncEntry {
+    let expected: Vec<FileSyncEntry> = if allure {
+        vec![FileSyncEntry {
             relative_path: a.allure_configuration.relative_results_directory.clone(),
             path_root: a.allure_configuration.path_root,
             aggregation_mode: AggregationMode::TestRun,
-        }
+        }]
     } else {
-        FileSyncEntry {
-            relative_path: js("coverage"),
-            path_root: PathRoot::AppData,
-            aggregation_mode: AggregationMode::Pool,
-        }
+        vec![]
     };
     run(c, move |runtime, context| {
         Box::pin(async move {
             let server = server(base_script(27, vec![])).await;
             let device = device(&server, runtime.clone());
             device.setup(context).await?;
-            assert_eq!(runtime.file_sync.pull, vec![expected]);
+            assert_eq!(runtime.file_sync.pull, expected);
             expect_setup(&commands(&server));
             finish(server, device).await;
             Ok(())

@@ -4,6 +4,7 @@ use marathon_logging::Level;
 
 use crate::{
     arguments::ArgumentsFactory,
+    artifact_listeners::coverage::{self, CoverageFile},
     device::{AndroidBatchExecutor, AndroidDevice},
     listeners::*,
     models::*,
@@ -118,6 +119,7 @@ impl AndroidDeviceTestRunner<'_> {
         configuration: &Configuration,
         info: &InstrumentationInfo,
         batch: &TestBatch,
+        coverage: Option<&CoverageFile>,
     ) -> VendorResult<TestRunnerRequest> {
         let c = android_configuration(configuration)?;
         let tests: Vec<String> = batch
@@ -150,15 +152,8 @@ impl AndroidDeviceTestRunner<'_> {
             info.instrumentation_package.clone(),
             InstrumentOptions {
                 clazz: tests,
-                coverage_file: configuration.is_code_coverage_enabled.then(|| {
-                    format!(
-                        "/data/data/{}/coverage/coverage-{}.ec",
-                        info.application_package.to_owned(),
-                        batch.id.to_owned()
-                    )
-                    .as_str()
-                    .into()
-                }),
+                // D81: in the app's shared storage, which needs no `run-as` (C89).
+                coverage_file: coverage.map(|file| file.remote().as_str().into()),
                 overrides: ArgumentsFactory { device: self.device }.generate(
                     configuration.is_code_coverage_enabled,
                     &c.instrumentation_args,
@@ -205,6 +200,7 @@ impl AndroidDeviceTestRunner<'_> {
         &self,
         c: &Configuration,
         info: &InstrumentationInfo,
+        coverage: Option<&CoverageFile>,
         context: VendorContext,
     ) -> VendorResult<()> {
         let a = android_configuration(c)?;
@@ -265,15 +261,8 @@ impl AndroidDeviceTestRunner<'_> {
                 );
             }
         }
-        if c.is_code_coverage_enabled {
-            let package = info.application_package.to_owned();
-            self.device
-                .safe_execute_shell_command(
-                    &format!("run-as {package} mkdir /data/data/{package}/coverage"),
-                    "",
-                    context,
-                )
-                .await?;
+        if let Some(coverage) = coverage {
+            coverage::prepare(self.device, coverage, context).await?;
         }
         Ok(())
     }
@@ -369,7 +358,15 @@ impl AndroidDeviceTestRunner<'_> {
                 tests,
                 id: batch.id.clone(),
             };
-            let request = self.prepare_request(&configuration, &info, &batch)?;
+            let coverage = configuration.is_code_coverage_enabled.then(|| {
+                CoverageFile::new(
+                    &self.device.external_storage_mount(),
+                    &info.application_package.to_owned(),
+                    &batch.id,
+                    index,
+                )
+            });
+            let request = self.prepare_request(&configuration, &info, &batch, coverage.as_ref())?;
             if count > 1 {
                 listener
                     .on_instrumentation_tests_in(&batch.tests, context.clone())
@@ -382,6 +379,7 @@ impl AndroidDeviceTestRunner<'_> {
                 let info = &info;
                 let ignored = &ignored;
                 let configuration = &configuration;
+                let coverage = coverage.as_ref();
                 let raw = &raw;
                 let child = VendorContext {
                     cancellation: signal,
@@ -391,7 +389,7 @@ impl AndroidDeviceTestRunner<'_> {
                     if first {
                         self.notify_ignored(ignored, listener, &child).await?;
                     }
-                    self.clear_data(configuration, info, child.clone()).await?;
+                    self.clear_data(configuration, info, coverage, child.clone()).await?;
                     if *announced {
                         listener.before_next_instrumentation_in(info, child.clone()).await?;
                     } else {
@@ -481,6 +479,16 @@ impl AndroidDeviceTestRunner<'_> {
                         .await
                 }
                 Err(e) => Err(e),
+            };
+            // D81: before the next instrumentation's `pm clear` would remove the file. Only an instrumentation that was
+            // sent can have written one; a cancelled batch is not waited for.
+            let result = match (result, &coverage, &channel) {
+                (Ok(()), Some(file), Some(_)) => listener.on_coverage_in(file, context.clone()).await,
+                (result, Some(file), Some(_)) if context.cancellation.reason().is_none() => {
+                    let _ = listener.on_coverage_in(file, context.clone()).await;
+                    result
+                }
+                (result, ..) => result,
             };
             // A run failure leaves the later instrumentations to run. An error, a lost device or a cancellation does
             // not, and their tests are then the uncompleted ones of the batch's single result.

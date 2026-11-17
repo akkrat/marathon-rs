@@ -154,7 +154,8 @@ pub fn is_ignored(test: &Test) -> bool {
         .any(|s| p.name == (*s))
     })
 }
-pub fn effective_file_sync(c: &AndroidConfiguration, coverage: bool) -> FileSyncConfiguration {
+/// D81: coverage is no longer one of these entries; the coverage listener pulls it without `run-as`.
+pub fn effective_file_sync(c: &AndroidConfiguration) -> FileSyncConfiguration {
     let mut result = FileSyncConfiguration {
         pull: Vec::new(),
         push: c.file_sync_configuration.push.clone(),
@@ -172,13 +173,6 @@ pub fn effective_file_sync(c: &AndroidConfiguration, coverage: bool) -> FileSync
             relative_path: c.allure_configuration.relative_results_directory.clone(),
             path_root: c.allure_configuration.path_root,
             aggregation_mode: AggregationMode::TestRun,
-        });
-    }
-    if coverage {
-        add(FileSyncEntry {
-            relative_path: "coverage".into(),
-            path_root: PathRoot::AppData,
-            aggregation_mode: AggregationMode::Pool,
         });
     }
     result

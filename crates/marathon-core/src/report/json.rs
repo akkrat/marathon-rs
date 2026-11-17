@@ -197,6 +197,7 @@ impl<'a> AttachmentJson<'a> {
                 AttachmentType::Video => "VIDEO",
                 AttachmentType::Log => "LOG",
                 AttachmentType::Profiling => "PROFILING",
+                AttachmentType::Coverage => "COVERAGE",
             },
             name: attachment.name.as_deref(),
         }

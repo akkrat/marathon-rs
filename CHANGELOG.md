@@ -31,6 +31,15 @@ The section for a version becomes the text of its GitHub release, which carries 
   kept, and names the device; and a file pull cut off by an offline or lost device says so instead of blaming the
   device's sync support.
 
+### Android
+
+- **Code coverage works for a non-debuggable app (D81):** with `isCodeCoverageEnabled: true`, coverage used to be
+  written to the app's private data and copied out with `run-as`, which only a debuggable app allows; a non-debuggable
+  app's run passed with no coverage and no warning. The instrumentation now writes
+  `<external storage>/Android/data/<app>/files/coverage/coverage-<batch>.ec`, which marathon prepares and pulls without
+  `run-as` into `device-files/<pool>/coverage/` as before. A coverage file that is missing or cannot be pulled is an
+  ERROR naming the batch, and each test's result file lists its batch's file as a `COVERAGE` attachment.
+
 ## 0.14.0-rc.1
 
 The first release candidate of 0.14.0, a pre-release for trial runs. It fixes run-stability and Android, iOS and macOS

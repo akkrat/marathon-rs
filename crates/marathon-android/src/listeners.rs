@@ -69,6 +69,15 @@ pub trait AndroidTestRunListener: Send + Sync {
     ) -> VendorFuture<'a, ()> {
         self.on_event(event)
     }
+    /// D81: the instrumentation that wrote this coverage file has ended, before the next one clears any data and before
+    /// `after_test_run_in`. Only when coverage is on and the instrumentation was sent.
+    fn on_coverage_in<'a>(
+        &'a self,
+        _file: &'a crate::artifact_listeners::coverage::CoverageFile,
+        _context: marathon_core::vendor::VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
     fn after_test_run_in(&self, _context: marathon_core::vendor::VendorContext) -> VendorFuture<'_, ()> {
         self.after_test_run()
     }
@@ -164,6 +173,18 @@ impl AndroidTestRunListener for CompositeTestRunListener {
                 for listener in &self.listeners {
                     listener.on_event_in(event, context.clone()).await?;
                 }
+            }
+            Ok(())
+        })
+    }
+    fn on_coverage_in<'a>(
+        &'a self,
+        file: &'a crate::artifact_listeners::coverage::CoverageFile,
+        context: marathon_core::vendor::VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            for listener in &self.listeners {
+                listener.on_coverage_in(file, context.clone()).await?;
             }
             Ok(())
         })

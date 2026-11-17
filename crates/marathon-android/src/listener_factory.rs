@@ -185,6 +185,20 @@ pub fn create(
             .create(device, configuration, &pool, &batch)?
             .listener
     };
+    // D81: installed whenever coverage is on, before the collector is built, so its attachments reach the results.
+    let coverage: Arc<dyn AndroidTestRunListener> = if configuration.is_code_coverage_enabled {
+        let listener = Arc::new(crate::artifact_listeners::coverage::CoverageTestRunListener::new(
+            crate::artifact_listeners::ArtifactContext {
+                device: device.clone(),
+                pool: pool.clone(),
+                batch: batch.clone(),
+            },
+        ));
+        providers.push(listener.clone());
+        listener
+    } else {
+        Arc::new(NoOpTestRunListener)
+    };
     let attachments = TestResultsListener::collector(&providers)?;
     let log_runtime = runtime.clone();
     let accumulator = TestRunResultsAccumulator::new(deps.timer.clone(), Arc::new(marathon_core::logging::host_millis))
@@ -217,6 +231,7 @@ pub fn create(
             screen,
             file_sync,
             profiling,
+            coverage,
         ],
     })
 }

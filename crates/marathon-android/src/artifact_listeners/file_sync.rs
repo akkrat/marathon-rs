@@ -47,7 +47,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
             let device = &self.artifacts.device;
             let package = info.map(|i| i.application_package.to_owned());
             *lock(&self.packages) = package.iter().cloned().collect();
-            // The provider owns the effective user + Allure + coverage set (6.5 P3).
+            // The provider owns the effective user + Allure set (6.5 P3; coverage has its own listener since D81).
             for entry in &device.runtime().file_sync.pull {
                 let relative = entry.relative_path.to_owned();
                 if entry.path_root == PathRoot::AppData && package.is_none() {

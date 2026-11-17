@@ -248,6 +248,7 @@ fn attachment_type(kind: AttachmentType) -> (&'static str, &'static str) {
         AttachmentType::Video => ("Video", "video/mp4"),
         AttachmentType::Log => ("Log", "text/plain"),
         AttachmentType::Profiling => ("Profiling", "application/octet-stream"),
+        AttachmentType::Coverage => ("Coverage", "application/octet-stream"),
     }
 }
 /// `retained` is already filtered through the shared attachment emptiness service.
