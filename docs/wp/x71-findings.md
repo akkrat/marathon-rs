@@ -19,14 +19,16 @@ The condition is that this test's console is the only live dispatcher when it is
 same binary already hit the callsite: rare in the parallel suite, and certain when two crash runs go one after the other
 in one process (reproduced: the second run's stdout lacks the line).
 
-The released binary is not affected: `main.rs` sets the console as the global default before anything configures it, so
-`get_default` returns the console.
+The released binary is not affected: it creates exactly one dispatch (`TracingOutput`'s is the workspace's only
+`Dispatch::new`), `main.rs` sets it as the global default before anything configures it and returns early if that fails,
+so every default `get_default` can return there is that console.
 
 ## Fix
 
 `TracingOutput::configure` performs the reload inside `tracing::dispatcher::with_default(&self.dispatch, ..)`, so the
 single-dispatcher rebuild asks this console. With several dispatchers registered tracing-core iterates the registered list
-as before, so nothing else changes.
+as before, so nothing changes on that path. `with_default` also resets the thread's dispatch re-entry flag, so
+`configure` should not be called from inside a subscriber callback; no caller does.
 
 ## Verified
 
@@ -35,6 +37,18 @@ as before, so nothing else changes.
   test thread and then emitting the same `error!` callsite in scope. Without the fix the second console's output lacks
   the line (fails at "second console lost the line"); with it both have it.
 - `cargo test -p marathon-cli`, fmt, clippy; the gates at merge.
+
+## Not covered
+
+A callsite hit for the first time outside any dispatcher scope while exactly one dispatcher is registered still gets its
+interest from `Dispatch::none` (tracing-core's registration uses the same path). Every macro site in the repository emits
+inside `with_default`, and queued records bypass the cache, so nothing is exposed today (M-x71-1).
+
+## Review round 1 (Muse)
+
+Verdict: merge. Four Low notes, all documentation: M-x71-1 (above), M-x71-2 (re-entry flag, noted under Fix), M-x71-3
+(why the released binary is safe, sharpened above), M-x71-4 (the witness must stay its binary's only console-creating
+test; stated in its header).
 
 ## Incidental bugs
 

@@ -1,7 +1,8 @@
 //! U199: reconfiguring a console must not disable callsites that an earlier console registered.
 //!
 //! Its own test binary on purpose: the failure needs this console to be the only registered dispatcher, which other
-//! tests running in parallel in a shared binary would hide.
+//! tests running in parallel in a shared binary would hide. Keep this the binary's only test that creates a console;
+//! a second one running alongside would make it pass without the fix.
 
 use std::{
     io::Write,
