@@ -101,6 +101,7 @@ impl TemporalResults {
     }
 }
 /// D28: an instrumentation of a batch that is over, and why it failed, if it did.
+#[derive(Clone)]
 struct FinishedInstrumentation {
     tests: Vec<Test>,
     failure: Option<String>,
@@ -332,6 +333,31 @@ impl TestRunResultsAccumulator {
             }
         }
         Ok(())
+    }
+    /// D70 (U197, not in Kotlin): a copy for the results so far of a batch whose device left while it ran, as a run
+    /// failure now would leave them: a test without an end, the one in progress, ends now. The accumulator is unchanged,
+    /// and the copy's diagnostic records go nowhere.
+    pub fn ended_copy(&self) -> ClockResult<Self> {
+        let mut copy = Self {
+            timer: self.timer.clone(),
+            wall: self.wall.clone(),
+            creation_time: self.creation_time,
+            name: self.name.clone(),
+            temporal_test_results: self.temporal_test_results.clone(),
+            run_metrics: self.run_metrics.clone(),
+            is_run_complete: self.is_run_complete,
+            count_dirty: self.count_dirty,
+            status_counts: self.status_counts,
+            expected_test_count: self.expected_test_count,
+            elapsed_time: self.elapsed_time,
+            run_failure_message: self.run_failure_message.clone(),
+            finished_instrumentations: self.finished_instrumentations.clone(),
+            current_instrumentation: self.current_instrumentation.clone(),
+            tests_of_earlier_runs: self.tests_of_earlier_runs,
+            logs: Vec::new(),
+        };
+        copy.fill_end_time()?;
+        Ok(copy)
     }
     pub fn test_run_failed(&mut self, message: String) -> ClockResult<()> {
         self.run_failure_message = Some(message);

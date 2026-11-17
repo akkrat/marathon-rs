@@ -9,7 +9,7 @@ mod support;
 use marathon_android::{
     device::{AndroidBatchExecutor, AndroidDevice},
     listener_factory::{AndroidListenerFactory, InstalledListener, ListenerSlots},
-    listeners::AndroidTestRunListener,
+    listeners::{AndroidTestRunListener, to_test},
     provider::AdamDeviceProvider,
     runner::AndroidRunnerExecutor,
     services::AndroidRuntime,
@@ -21,6 +21,7 @@ use marathon_core::{
         Signal,
         shared::{SharedDeferred, requested},
     },
+    listener::{AttachmentListener, AttachmentProvider},
     model::*,
     runtime::{Deferred, VendorFuture},
     vendor::{DeviceEvent, DeviceProvider, DeviceRef, VendorContext},
@@ -453,10 +454,16 @@ fn a_cancel_ends_an_instrumentation_waiting_at_the_gate_d70() {
     });
 }
 
-/// U197: what the runner has reached, told by a listener that comes before the one that gives the batch's results. One
-/// per batch, so that a test can see it freed with the batch's other listeners.
+/// U197: what the runner has reached, told by a listener that comes before the one that gives the batch's results, or
+/// after it with `behind`. One per batch, so that a test can see it freed with the batch's other listeners.
 #[derive(Default)]
 struct Reached {
+    /// The probe comes after the listener that gives the results, as the screen capture and profiling listeners do, so
+    /// what it has heard of, that listener has handled.
+    behind: bool,
+    /// The test whose end holds the runner until released; the probe then attaches a file to it, as those listeners do.
+    hold_at_end_of: Option<&'static str>,
+    attached: AtomicUsize,
     /// The test whose start this waits for, and whether it has started.
     in_flight: &'static str,
     started: AtomicBool,
@@ -468,7 +475,13 @@ struct Reached {
     holding: AtomicBool,
     release: tokio::sync::Notify,
 }
-struct Probe(Arc<Reached>);
+struct Probe(Arc<Reached>, std::sync::Mutex<Vec<Arc<dyn AttachmentListener>>>);
+impl AttachmentProvider for Probe {
+    fn register_listener(&self, listener: Arc<dyn AttachmentListener>) -> VendorResult<()> {
+        self.1.lock().unwrap().push(listener);
+        Ok(())
+    }
+}
 impl AndroidTestRunListener for Probe {
     fn on_event<'a>(&'a self, event: &'a TestEvent) -> VendorFuture<'a, ()> {
         Box::pin(async move {
@@ -479,6 +492,20 @@ impl AndroidTestRunListener for Probe {
             }
             if matches!(event, TestEvent::TestRunEnded { .. }) && self.0.hold_at_run_end {
                 self.hold().await;
+            }
+            if let TestEvent::TestEnded { id, .. } = event
+                && Some(id.test_name.as_str()) == self.0.hold_at_end_of
+            {
+                self.hold().await;
+                let attachment = Attachment {
+                    file: PathBuf::from("/dev/null"),
+                    kind: AttachmentType::Profiling,
+                    name: None,
+                };
+                for listener in self.1.lock().unwrap().iter() {
+                    listener.on_attachment(&to_test(id), attachment.clone())?;
+                    self.0.attached.fetch_add(1, Ordering::SeqCst);
+                }
             }
             Ok(())
         })
@@ -511,11 +538,11 @@ impl AndroidListenerFactory for ProbeFactory {
         _: &DevicePoolId,
         _: &BatchRef,
     ) -> VendorResult<InstalledListener> {
-        let probe = Arc::new(Probe(self.reached.clone()));
+        let probe = Arc::new(Probe(self.reached.clone(), Default::default()));
         *self.made.lock().unwrap() = Some(Arc::downgrade(&probe));
         Ok(InstalledListener {
-            listener: probe,
-            attachments: None,
+            listener: probe.clone(),
+            attachments: Some(probe),
         })
     }
 }
@@ -566,10 +593,19 @@ fn lost_while_running(
                 reached: reached.clone(),
                 made: Default::default(),
             });
+            // The recorder comes first in the chain and profiling last.
+            let slot: Arc<dyn AndroidListenerFactory> = factory.clone();
             let executor = Arc::new(AndroidRunnerExecutor {
-                slots: ListenerSlots {
-                    recorder: Some(factory.clone()),
-                    ..ListenerSlots::default()
+                slots: if reached.behind {
+                    ListenerSlots {
+                        profiling: Some(slot),
+                        ..ListenerSlots::default()
+                    }
+                } else {
+                    ListenerSlots {
+                        recorder: Some(slot),
+                        ..ListenerSlots::default()
+                    }
                 },
             });
             let provider = AdamDeviceProvider::new(runtime_with(&runtime, &[server.port()], executor))?;
@@ -755,6 +791,93 @@ fn a_batch_lost_as_an_instrumentation_ends_starts_nothing_more_u197() {
                 assert!(matches!(outcome(running).await, Err(VendorError::Cancelled(_))));
                 assert_eq!(reached.announced.load(Ordering::SeqCst), 1);
                 assert_eq!(kept(&result.completed().unwrap().unwrap()), expected);
+                Ok(())
+            })
+        },
+    );
+    assert_eq!(sent, 1);
+}
+
+/// U197: the test in flight when the device is lost ends then, as the run failure that would follow ends it: its result
+/// must not reach the result files with no end (0, so a negative duration). The probe comes after the listener that gives
+/// the results, so `two`'s start is recorded there when the device is lost.
+#[test]
+fn a_test_in_flight_when_the_batch_is_lost_ends_then_u197() {
+    let rule = json!({
+        "regex": "^am instrument.* -e class pkg.Clazz#one,pkg.Clazz#two ",
+        "stdout": format!("{}{}{}", instrumented("one"), ended("one"), instrumented("two")),
+        "hang": true,
+    });
+    let reached = Reached {
+        in_flight: "two",
+        behind: true,
+        ..Reached::default()
+    };
+    let sent = lost_while_running(
+        vec![rule],
+        &["one", "two"],
+        &[],
+        reached,
+        |r| r.started.load(Ordering::SeqCst),
+        |_, device, batch, result, running, signal, _| {
+            Box::pin(async move {
+                assert!(!device.0.withdraw_unstarted(&batch));
+                let results = result.completed().expect("completed with what ran").unwrap();
+                let expected = (vec!["one".to_owned()], vec![], vec!["two".to_owned()]);
+                assert_eq!(kept(&results), expected);
+                let (one, two) = (&results.finished[0], &results.uncompleted[0]);
+                assert!(one.start_time > 0 && one.end_time >= one.start_time, "{one:?}");
+                assert!(two.start_time >= one.start_time, "{two:?}");
+                assert!(two.end_time >= two.start_time, "the test in flight has no end: {two:?}");
+                // `two`'s own record, not a test with no result, which would start where `one` ended.
+                assert!(two.stacktrace.is_none(), "{two:?}");
+                signal.cancel(requested("device terminated"));
+                assert!(matches!(outcome(running).await, Err(VendorError::Cancelled(_))));
+                Ok(())
+            })
+        },
+    );
+    assert_eq!(sent, 1);
+}
+
+/// U197: a device lost while a test's end is still going through the listeners ends the batch with that test finished,
+/// but without the files that the listeners after the results one (screen capture, profiling) attach to it as it ends.
+/// The test is reported once, with its status; a file attached afterwards does not reach the completed result.
+#[test]
+fn a_test_ending_when_the_batch_is_lost_counts_without_later_attachments_u197() {
+    let rule = json!({
+        "regex": "^am instrument.* -e class pkg.Clazz#one,pkg.Clazz#two ",
+        "stdout": format!("{}{}{}", instrumented("one"), ended("one"), instrumented("two")),
+        "hang": true,
+    });
+    let reached = Reached {
+        in_flight: "two",
+        behind: true,
+        hold_at_end_of: Some("one"),
+        ..Reached::default()
+    };
+    let sent = lost_while_running(
+        vec![rule],
+        &["one", "two"],
+        &[],
+        reached,
+        |r| r.holding.load(Ordering::SeqCst),
+        |reached, device, batch, result, running, signal, _| {
+            Box::pin(async move {
+                assert!(!device.0.withdraw_unstarted(&batch));
+                let results = result.completed().expect("completed with what ran").unwrap();
+                let expected = (vec!["one".to_owned()], vec![], vec!["two".to_owned()]);
+                assert_eq!(kept(&results), expected);
+                assert!(results.finished[0].attachments.is_empty());
+                // Released, the probe attaches its file to `one`; the completed result stays as it was.
+                reached.release.notify_one();
+                until(|| reached.started.load(Ordering::SeqCst) || running.is_finished()).await;
+                assert_eq!(reached.attached.load(Ordering::SeqCst), 1);
+                signal.cancel(requested("device terminated"));
+                assert!(matches!(outcome(running).await, Err(VendorError::Cancelled(_))));
+                let after = result.completed().unwrap().unwrap();
+                assert_eq!(kept(&after), expected);
+                assert!(after.finished[0].attachments.is_empty());
                 Ok(())
             })
         },

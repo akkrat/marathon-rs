@@ -422,13 +422,14 @@ impl AndroidTestRunListener for TestResultsListener {
     fn on_event<'a>(&'a self, event: &'a TestEvent) -> VendorFuture<'a, ()> {
         self.accumulator.on_event(event)
     }
-    /// D70: on a copy, as merging parameterised results changes the ones it merges.
+    /// D70: on a copy, as merging parameterised results changes the ones it merges, and with the test in progress ended
+    /// now, as the run failure that would follow ends it: it must not reach the result files without an end (U197).
     fn results_so_far(&self) -> VendorResult<Option<TestBatchResults>> {
         self.accumulator
             .update(|a| {
-                self.results(a, |a| {
-                    let mut copy = a.temporal_test_results.clone();
-                    self.merge_parameterised_results(&mut copy)
+                let mut copy = a.ended_copy()?;
+                self.results(&mut copy, |c| {
+                    self.merge_parameterised_results(&mut c.temporal_test_results)
                 })
             })
             .map(Some)
