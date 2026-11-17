@@ -75,7 +75,7 @@ instead of being run again, and the batch's tests are charged once only if they 
 already approved rule ("a batch partly run keeps what it ran", and D28's report when the runner sees the loss first) to
 the moments D70 left out; there is no new behaviour class, no configuration field and no new contract surface. So it is
 recorded as an extension of D70 (PLAN §3.11 row, `docs/deviations.md` D70 section, `docs/migration.md`, PLAN decisions
-list), not as D77, which stays unused. The owner may prefer a separate D77; the text moves over unchanged if so.
+list), not as a new D-row. The owner accepted that; D77 went to WP x70 (C87).
 
 ## Verified, and how
 
