@@ -675,7 +675,7 @@ async fn a_replacement_whose_predecessor_fails_to_dispose_is_announced_and_relea
     v(p.join_pending().await)?;
     Ok(())
 }
-/// Signals each time a disposal starts waiting for a cancelled batch, once watching.
+/// Signals each time a disposal starts waiting for a cancelled batch (its 70 s bound), once watching.
 struct NotifyJoin {
     inner: Arc<dyn marathon_core::runtime::VendorClock>,
     watching: std::sync::atomic::AtomicBool,
@@ -706,7 +706,9 @@ impl marathon_core::runtime::VendorClock for NotifyJoin {
         millis: i64,
         body: marathon_core::runtime::VendorTimeoutBody<'a>,
     ) -> marathon_core::runtime::VendorFuture<'a, Option<()>> {
-        if self.watching.load(Ordering::SeqCst) {
+        if self.watching.load(Ordering::SeqCst)
+            && Some(millis) == marathon_macos::device::CANCELLED_BATCH_TIMEOUT.to_millis()
+        {
             self.entered.notify_one();
         }
         self.inner.with_timeout_or_null(parent, millis, body)

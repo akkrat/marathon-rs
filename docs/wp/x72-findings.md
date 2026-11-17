@@ -29,7 +29,9 @@ removes it from the registry) or not at all. Lock order is map then registry; no
 
 1. Every lease is released exactly once (D74): by termination for a Mac in the map, by `connect` for a Mac that never
    joined it, by `connect` for a replaced Mac (A89).
-2. After termination no Mac is added to the map or the registry, and none is announced.
+2. After termination no Mac is added to the map or the registry, and no announcement is delivered. A Mac registered
+   just before termination may still have its announcement task spawned; the closed channel rejects it (M-x72-1), and
+   termination removes the Mac from the registry.
 3. Without a termination nothing changes: the same order of insert, predecessor disposal, release, registry removal,
    registration and announcement.
 
@@ -53,3 +55,9 @@ mutex.
 ## Incidental bugs
 
 None.
+
+## Review round 1 (Muse)
+
+Verdict: merge. Two Low notes, both taken: M-x72-1 (an announcement task spawned just before termination fails on the
+closed channel and is never delivered; invariant 2 now says "delivered"), M-x72-2 (the test clock wrapper signals only
+for the cancelled-batch wait, 70 s, so another caller cannot fire it early).
