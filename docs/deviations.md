@@ -1885,6 +1885,51 @@ Approved 2026-11-17 (project owner's decision). See
 files or JUnit now sees each test as the exit code does. A tool that took the final record as a test's last run
 should read `raw.json`, which lists every run.
 
+## D79 — A simulator shut down during its boot wait is booted again at once
+
+When marathon prepares a simulator it boots it and waits up to `timeoutConfiguration.bootWait` (240 s by default),
+polling it every second. Two attempts are made, 10 s apart. In the Kotlin marathon the wait ends only when the
+simulator is booted or `bootWait` has run out. A simulator that is shut down during that wait (`xcrun simctl shutdown`
+or a crash) never boots by itself, so it was polled
+for the rest of `bootWait` and only then booted again by the second attempt: 4 minutes lost with the defaults
+([A108](known-kotlin-bugs.md)).
+
+The native boot wait remembers whether it has read the simulator as booting (its device.plist state 3). When a later poll
+reads it as Shutdown, the attempt ends there as a failed boot, logged as
+
+```text
+WARN … Simulator <udid> on worker <id> failed to boot: it shut down while booting after <ms> ms, attempt 1 of 2
+```
+
+and the existing retry follows: device.plist already says Shutdown, so no `simctl shutdown` is sent, and after the
+10 s retry pause `simctl boot` boots it again. If the second attempt also fails the simulator leaves its pool, as
+before, with the same reason.
+
+What does not change:
+
+- a Shutdown read before the first booting read keeps the Kotlin wait, so a device.plist that still says Shutdown just
+  after `simctl boot` returns, or a simulator still being created, does not end the attempt early;
+- a simulator that stays booting, including one whose readiness probe keeps failing (D38, D46), is still waited for
+  until `bootWait`, so the D38 times in the changelog's known limits are unchanged;
+- the number of attempts, the retry pause, the commands sent (only their timing), and D74's stop when the simulator
+  is disposed of during its preparation.
+
+Evidence: a real 0.14.0-rc.1 run on a local iOS 26.4 simulator shut down at the first poll of its boot wait logged
+237 polls over 240 s, then `it has not booted within 240 s, its state is SHUTDOWN after 240010 ms, attempt 1 of 2`,
+and booted on the second attempt 15 s later. The tests
+`simulator_prepare::a_simulator_shut_down_during_its_boot_wait_is_booted_again_after_one_poll_d79` (the reboot
+follows the shutdown within one poll interval plus the retry pause, with a 60 s `bootWait`),
+`a_simulator_that_stays_booting_is_still_waited_for_until_boot_wait_d79` and
+`a_shutdown_state_before_the_first_booting_read_does_not_end_the_boot_wait_d79` pin the new and the kept behaviour.
+
+Approved 2026-11-17 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
+[x78 findings](wp/x78-findings.md).
+
+**Migration action:** none. A simulator that is shut down while marathon boots it now costs about 10 s, not
+`bootWait`. Do not shut simulators down on purpose during a run to make marathon reboot them: each such shutdown still
+uses one of the two attempts.
+
 ## Other accepted text differences
 
 [PLAN §3.10](../PLAN.md#310-accepted-differences-same-behaviour-different-text)

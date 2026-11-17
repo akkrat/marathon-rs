@@ -2,6 +2,14 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
+## Unreleased
+
+### iOS and macOS
+
+- iOS: a simulator that is shut down or crashes while marathon waits for it to boot is booted again after the 10 s retry
+  pause, not after `bootWait` (240 s by default). A simulator that stays booting is still waited for until `bootWait`,
+  and the readiness-probe times under the known limits are unchanged (D79).
+
 ## 0.14.0-rc.1
 
 The first release candidate of 0.14.0, a pre-release for trial runs. It fixes run-stability and Android, iOS and macOS

@@ -173,6 +173,10 @@ JUnit, HTML) by the run `fast: true` would have stopped at: its first pass under
 `ALL_SUCCESS`, otherwise the run that completes it. These reports now agree with the exit code. A tool that read a test's last run
 from them should read `raw.json`, which lists every run.
 
+[D79](deviations.md#d79--a-simulator-shut-down-during-its-boot-wait-is-booted-again-at-once) needs no action. An iOS
+simulator that is shut down or crashes while marathon waits for it to boot is booted again after the 10 s retry pause,
+not after `bootWait` (240 s); one that stays booting is still waited for until `bootWait`.
+
 ### A finite `uncompletedTestRetryQuota` (D47)
 
 Add one line at the top level of every Marathonfile, on Android, iOS and macOS alike:
