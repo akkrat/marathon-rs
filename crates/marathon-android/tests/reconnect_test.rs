@@ -72,6 +72,9 @@ const HELD_NOW: &str = "logcat -c";
 /// A hang catcher, not a timing assertion. A scenario that waits out D48's 180 s steps the virtual clock through about
 /// 190,000 ms, which took more than 120 s of real time on a loaded macOS CI runner while 22 other scenarios ran (U180).
 const RUN_TIMEOUT: Duration = Duration::from_secs(480);
+/// U197: how late (virtual) a loss may come while the runner has not reached the listener hold. Only a stall catcher: the
+/// later events move with it.
+const HOLD_LATE_MILLIS: i64 = 120_000;
 /// How long (real time) a due event may hold the virtual clock while its state is not reached.
 const HOLD: Duration = Duration::from_secs(20);
 
@@ -199,6 +202,13 @@ pub struct Event {
     pub kill: Option<Option<Duration>>,
     /// D41: instead of a device event, what adb reports for the serial changes; see `apply_state`.
     pub state: Option<&'static str>,
+}
+
+impl Event {
+    /// The device or its server goes away, rather than coming (back).
+    fn is_loss(&self) -> bool {
+        !self.connect && !matches!(self.state, Some("device" | "listed"))
+    }
 }
 
 /// The script with the fake's real-time behaviour removed: no timeline and no `delay_ms` on test runs.
@@ -443,11 +453,12 @@ fn run_losing_requests(loaded: Vec<(Value, Vec<Event>, usize)>, lost_requests: i
 struct Options {
     lost_requests: i64,
     quota: Option<i32>,
-    /// D70: a server or state event waits until a batch on that server is in its four seconds, before the runner
-    /// submits anything, so that the batch it catches has not started.
+    /// D70: every loss waits until a batch on that server is in its four seconds, before the runner submits anything, so
+    /// that the batch it catches has not started.
     while_unstarted: bool,
-    /// U197: the runner is held at the start of this class's test until the core has accounted for its batch, and a
-    /// server or state event waits until it is held there.
+    /// U197: the runner is held at the start of this class's test until the core has accounted for its batch, and every
+    /// loss (server, state or device event) waits until it is held there, however fast setup was; the events after it
+    /// move by the time it waited past its own.
     hold_at: Option<&'static str>,
     /// The hold comes after the listener that gives the batch's results, which has then recorded the test's start, rather
     /// than first in the chain.
@@ -667,6 +678,8 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
                 };
                 let mut now = 0;
                 let mut next_event = 0;
+                // U197: how late the last event that waited for the listener hold came; later events move by as much.
+                let mut shift = 0;
                 let mut held_since: Option<std::time::Instant> = None;
                 let mut applied = (listed.values().filter(|n| **n > 0).count(), 0);
                 let deadline = std::time::Instant::now() + RUN_TIMEOUT;
@@ -683,14 +696,21 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
                     // setup (its logcat stream is open), and a device about to drop is in the hung step of prepare
                     // (`logcat -c`) while the devices that are never dropped have started a batch. Until then virtual time is held (for
                     // `HOLD`, then it keeps stepping), so an event is applied at its time, late only on a stall, never early.
-                    while next_event < events.len() && events[next_event].at_ms <= now {
+                    // A loss also waits for the scenario's own moment (`while_unstarted`, `hold_at`), whichever branch it takes.
+                    let mut waiting_for_hold = false;
+                    while next_event < events.len() && events[next_event].at_ms + shift <= now {
                         let event = &events[next_event];
+                        let due = event.at_ms + shift;
                         let received = checked_lock(&tap);
                         let delivered = (
                             received.iter().filter(|r| r.0).count(),
                             received.iter().filter(|r| !r.0).count(),
                         );
                         drop(received);
+                        // The runner reaches the hold only after its batch's four virtual seconds, so this wait needs the
+                        // clock to go on, and may end after the event's time; the events after it move by as much.
+                        let awaits_hold =
+                            event.is_loss() && gate_hold.as_ref().is_some_and(|h| !h.holding.load(Ordering::SeqCst));
                         let ready = delivered.0 >= applied.0
                             && delivered.1 >= applied.1
                             && listed
@@ -700,23 +720,29 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
                                     requests(&driven[*server], serial, "logcat -v long") >= *times
                                 })
                             && (event.connect
-                                || ((event.kill.is_some() || event.state.is_some())
-                                    && healthy_started()
+                                || (healthy_started()
+                                    && (event.kill.is_some()
+                                        || event.state.is_some()
+                                        || requests(&driven[event.server], &event.serial, HELD_NOW) >= 1)
                                     && (!while_unstarted
+                                        || !event.is_loss()
                                         || checked_lock(&gate_delaying).contains(&driven[event.server].port()))
-                                    && gate_hold.as_ref().is_none_or(|h| h.holding.load(Ordering::SeqCst)))
-                                || (requests(&driven[event.server], &event.serial, HELD_NOW) >= 1
-                                    && healthy_started()));
+                                    && !awaits_hold));
                         if !ready {
+                            let late = if awaits_hold { HOLD_LATE_MILLIS } else { MAX_LATE_MILLIS };
                             assert!(
-                                now - event.at_ms <= MAX_LATE_MILLIS,
+                                now - due <= late,
                                 "event {} {} (server {}) still not ready {} virtual ms after its time; delivered {delivered:?}, expected {applied:?}",
                                 if event.connect { "connect" } else { "disconnect" },
                                 event.serial,
                                 event.server,
-                                now - event.at_ms
+                                now - due
                             );
+                            waiting_for_hold = awaits_hold;
                             break;
+                        }
+                        if gate_hold.is_some() && event.is_loss() {
+                            shift = now - event.at_ms;
                         }
                         let server = &driven[event.server];
                         if let Some(restart_after) = event.kill {
@@ -752,9 +778,11 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
                     let barrier = events[next_event..]
                         .iter()
                         .find(|e| !e.connect)
-                        .map(|e| e.at_ms - STEP_MILLIS)
+                        .map(|e| e.at_ms + shift - STEP_MILLIS)
                         .filter(|barrier| now >= *barrier && !healthy_started());
-                    if barrier.is_some() || (next_event < events.len() && events[next_event].at_ms <= now) {
+                    if barrier.is_some()
+                        || (!waiting_for_hold && next_event < events.len() && events[next_event].at_ms + shift <= now)
+                    {
                         let since = *held_since.get_or_insert_with(std::time::Instant::now);
                         if since.elapsed() < HOLD {
                             replay
