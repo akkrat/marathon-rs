@@ -488,6 +488,129 @@ fn a_blip_fails_only_the_batch_and_later_batches_wait_d41() {
     });
 }
 
+/// The lines a runtime's components log, for tests that check wording. Every record still goes to the runtime's own log.
+#[derive(Clone, Default)]
+struct Captured(Arc<std::sync::Mutex<Vec<String>>>);
+impl Captured {
+    fn wrap(&self, runtime: &AndroidRuntime) -> marathon_core::ServiceLog {
+        let (lines, inner) = (self.0.clone(), runtime.log.clone());
+        Arc::new(move |component, level, message, error| {
+            lines.lock().unwrap().push(message.to_owned());
+            inner(component, level, message, error)
+        })
+    }
+    fn starting(&self, prefix: &str) -> Vec<String> {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|l| l.starts_with(prefix))
+            .cloned()
+            .collect()
+    }
+}
+
+/// x77: a batch that fails in a grace which then runs out returns only after the disconnect, and its line says so and
+/// names the device. It used to say `Batch failed because the device was briefly offline; keeping the device`. A grace
+/// that ends with the device back still keeps it, and now names it too.
+#[test]
+fn a_batch_failed_in_a_grace_that_ends_in_a_disconnect_says_so_x77() {
+    let _ports = shared_ports();
+    run_with_driven_clock(configuration(), |runtime, context, clock| {
+        Box::pin(async move {
+            let mut server = server(base_script(27, vec![])).await;
+            let lost = Arc::new(Lost::default());
+            let captured = Captured::default();
+            let runtime = {
+                let changed = with_executor(&runtime, &[server.port()], lost.clone());
+                let log = captured.wrap(&changed);
+                Arc::new(AndroidRuntime {
+                    dependencies: changed.dependencies.clone(),
+                    configuration: changed.configuration.clone(),
+                    file_sync: changed.file_sync.clone(),
+                    bundles: changed.bundles.clone(),
+                    identifier: changed.identifier.clone(),
+                    executor: changed.executor.clone(),
+                    log,
+                })
+            };
+            let provider = AdamDeviceProvider::new(runtime.clone())?;
+            provider.initialize(context.clone()).await?;
+            let device = connected(&provider).await;
+            let serial = provider.android_device(&device).unwrap().serial_number();
+            logcat_streams(&[(&server, 1)]).await;
+            let batch = || {
+                let device = device.clone();
+                let configuration = runtime.dependencies.configuration.clone();
+                let context = context.clone();
+                tokio::spawn(async move {
+                    device
+                        .0
+                        .execute(
+                            configuration,
+                            DevicePoolId { name: "pool".into() },
+                            Arc::new(TestBatch {
+                                tests: vec![],
+                                id: "batch".into(),
+                            }),
+                            Arc::new(SharedDeferred::default()),
+                            context,
+                        )
+                        .await
+                })
+            };
+            let outcome = |running: tokio::task::JoinHandle<VendorResult<()>>| async move {
+                checked(checked(tokio::time::timeout(Duration::from_secs(60), running).await))
+            };
+
+            // A grace the device returns from: kept, and named.
+            let running = batch();
+            until(|| lost.1.load(Ordering::SeqCst) >= 1).await;
+            checked(server.set_device_state(SERIAL, "offline"));
+            until(|| in_grace(&device)).await;
+            lost.0.notify_one();
+            checked(server.set_device_state(SERIAL, "device"));
+            assert!(matches!(outcome(running).await, Err(VendorError::BatchExecution(_))));
+            assert_eq!(
+                captured.starting("Batch "),
+                [format!(
+                    "Batch on {serial} failed because the device was briefly offline; keeping the device"
+                )]
+            );
+            logcat_streams(&[(&server, 2)]).await;
+            until(|| !in_grace(&device)).await;
+
+            // A grace that runs out: the batch returns after the disconnect, which its line reports.
+            let running = batch();
+            until(|| lost.1.load(Ordering::SeqCst) >= 2).await;
+            let offline_at = context.clock.now_millis();
+            checked(server.set_device_state(SERIAL, "offline"));
+            until(|| in_grace(&device)).await;
+            lost.0.notify_one();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            assert!(!running.is_finished());
+            clock.advance_to(offline_at + 10_500).await;
+            let DeviceEvent::Disconnected(gone) = event(&provider).await else {
+                panic!("disconnect")
+            };
+            assert_eq!(gone, device);
+            assert!(matches!(outcome(running).await, Err(VendorError::BatchExecution(_))));
+            let lines = captured.starting("Batch ");
+            assert_eq!(
+                lines[1..],
+                [format!(
+                    "Batch on {serial} failed because the device went offline and did not return in time; it has \
+                     been disconnected"
+                )],
+                "{lines:?}"
+            );
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
 /// D22 with D41: a server outage during a grace period closes that grace, and its window decides. A device still offline
 /// when the window ends is disconnected there and then, with no second grace on top of the outage's bound, and only once.
 #[test]

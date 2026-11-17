@@ -206,6 +206,10 @@ impl AndroidDevice {
     pub(crate) fn set_return_wait_used(&self, millis: i64) {
         self.inner.return_wait_used.store(millis, Ordering::Release);
     }
+    /// D24: the provider has dropped this device object.
+    fn is_disconnected(&self) -> bool {
+        self.inner.lost.load(Ordering::Acquire)
+    }
     fn is_live(&self) -> bool {
         !self.inner.lost.load(Ordering::Acquire)
             && self.inner.tracker.get_state(self.adb_serial()) == Some(DeviceState::Device)
@@ -783,6 +787,19 @@ impl AndroidDevice {
         self.inner.tracker.count_request_loss(serial);
         Ok(true)
     }
+    /// x77: why a request that broke off mid-protocol, as adb's sync does when the transport closes, lost its device, if
+    /// it did: the device has been disconnected, or [`Self::loss_cause`] says so. `None` for a device the server still
+    /// lists as `device`, where the reply itself was at fault.
+    pub(crate) async fn lost_connection(&self, signal: Arc<dyn CancellationSignal>) -> Option<&'static str> {
+        if self.is_disconnected() {
+            return Some("the device has been disconnected");
+        }
+        match self.loss_cause(signal).await {
+            LossCause::Passing(why) => Some(why),
+            LossCause::Unlisted => Some("the device has left the adb server's list"),
+            LossCause::Listed => None,
+        }
+    }
     fn is_gate_closed(&self) -> bool {
         !self.adb_server_available() || self.is_held() || self.inner.tracker.is_restoring(self.adb_serial())
     }
@@ -1118,8 +1135,9 @@ impl Device for AndroidDevice {
                         // fails: retiring the last device of a pool would end the run before it returns. A grace period
                         // that began during the batch counts, as the server's answer no longer shows it.
                         Err(VendorError::DeviceLost(failure)) => {
+                            const WENT_OFFLINE: &str = "the device was briefly offline";
                             let passing = if device.inner.tracker.blips(device.adb_serial()) != blips {
-                                Some("the device was briefly offline")
+                                Some(WENT_OFFLINE)
                             } else {
                                 match device.loss_cause(signal).await {
                                     LossCause::Passing(why) => Some(why),
@@ -1132,10 +1150,31 @@ impl Device for AndroidDevice {
                                 }
                             };
                             match passing {
+                                // x77: a grace that ended in a disconnect wakes this batch only after the device has
+                                // been dropped, so the device is not kept, whatever the reason was.
+                                Some(why) if device.is_disconnected() => {
+                                    let cause = if why == WENT_OFFLINE {
+                                        "the device went offline and did not return in time"
+                                    } else {
+                                        "the device was lost"
+                                    };
+                                    device.log(
+                                        Level::WARN,
+                                        &format!(
+                                            "Batch on {} failed because {cause}; it has been disconnected",
+                                            device.serial_number()
+                                        ),
+                                        Some(&failure),
+                                    );
+                                    Err(VendorError::BatchExecution(failure))
+                                }
                                 Some(why) => {
                                     device.log(
                                         Level::WARN,
-                                        &format!("Batch failed because {why}; keeping the device"),
+                                        &format!(
+                                            "Batch on {} failed because {why}; keeping the device",
+                                            device.serial_number()
+                                        ),
                                         Some(&failure),
                                     );
                                     Err(VendorError::BatchExecution(failure))
