@@ -25,7 +25,10 @@ use marathon_core::{
 };
 use marathon_error::{ConfigKind, FailureKind};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 
 /// The production implementation owns ConnectionFactory leases. Recording worlds replace only transport I/O.
 pub trait MacosConnections: Send + Sync {
@@ -55,6 +58,9 @@ pub struct AppleMacosProvider {
     pub registry: Arc<AppleDeviceRegistry>,
     connections: Arc<dyn MacosConnections>,
     devices: Mutex<IndexMap<String, Arc<MacosDevice>>>,
+    /// U200: set by termination while it holds `devices`, and read by `connect` under the same lock, so a Mac either
+    /// joins the map and registry before termination takes them or never joins them.
+    terminated: AtomicBool,
     /// Every device constructed, for `join_pending`, including one whose setup failed or that was replaced.
     retained: Mutex<Vec<Arc<MacosDevice>>>,
     leases: Mutex<Vec<Executor>>,
@@ -78,6 +84,7 @@ impl AppleMacosProvider {
             registry,
             connections,
             devices: Mutex::default(),
+            terminated: AtomicBool::new(false),
             retained: Mutex::default(),
             leases: Mutex::default(),
             channel: SharedChannel::new(),
@@ -237,11 +244,27 @@ impl AppleMacosProvider {
         }
     }
     async fn connect(&self, device: Arc<MacosDevice>, _context: &VendorContext) -> VendorResult<()> {
-        let previous = self
-            .devices
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(device.info().serial_number, device.clone());
+        let previous = {
+            let mut devices = self.devices.lock().unwrap_or_else(|e| e.into_inner());
+            if self.terminated.load(Ordering::SeqCst) {
+                None
+            } else {
+                Some(devices.insert(device.info().serial_number, device.clone()))
+            }
+        };
+        let Some(previous) = previous else {
+            // U200: termination came first and will not see this Mac, so its disposal and lease stay here.
+            self.log(
+                Level::DEBUG,
+                format!(
+                    "Provider terminated; disposing {} instead of connecting it",
+                    device.udid()
+                ),
+            );
+            let disposed = device.dispose().await;
+            self.release_logged(device.executor()).await;
+            return disposed;
+        };
         let mut disposed = Ok(());
         if let Some(previous) = previous {
             self.log(
@@ -255,7 +278,16 @@ impl AppleMacosProvider {
             // is registered and announced; the (fatal) error is returned afterwards, so it still ends the run.
             self.registry.remove(&DeviceRef(previous));
         }
-        let event = DeviceEvent::Connected(self.registry.register(device));
+        // U200: a termination that ran while the predecessor was disposed of has taken this Mac with the map and
+        // disposes of it; it must not then be registered or announced.
+        let registered = {
+            let _devices = self.devices.lock().unwrap_or_else(|e| e.into_inner());
+            (!self.terminated.load(Ordering::SeqCst)).then(|| self.registry.register(device))
+        };
+        let Some(registered) = registered else {
+            return disposed;
+        };
+        let event = DeviceEvent::Connected(registered);
         let channel = self.channel.clone();
         self.tasks.spawn(&*self.options.dependencies.io, async move {
             channel.try_send(event).map_err(|e| {
@@ -385,7 +417,11 @@ impl DeviceProvider for AppleMacosProvider {
             self.channel.close(None);
             // D74: termination takes the Macs out first, so a repeated call after a fatal disposal finds none to release
             // again.
-            let devices = std::mem::take(&mut *self.devices.lock().unwrap_or_else(|e| e.into_inner()));
+            let devices = {
+                let mut devices = self.devices.lock().unwrap_or_else(|e| e.into_inner());
+                self.terminated.store(true, Ordering::SeqCst);
+                std::mem::take(&mut *devices)
+            };
             let results = futures_util::future::join_all(devices.into_values().map(|device| async move {
                 // A82 for macOS (D74): the release follows the disposal whatever its outcome; the disposal's error wins.
                 let disposed = device.dispose().await;

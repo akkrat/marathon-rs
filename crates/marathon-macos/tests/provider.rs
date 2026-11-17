@@ -675,3 +675,139 @@ async fn a_replacement_whose_predecessor_fails_to_dispose_is_announced_and_relea
     v(p.join_pending().await)?;
     Ok(())
 }
+/// Signals each time a disposal starts waiting for a cancelled batch, once watching.
+struct NotifyJoin {
+    inner: Arc<dyn marathon_core::runtime::VendorClock>,
+    watching: std::sync::atomic::AtomicBool,
+    entered: tokio::sync::Notify,
+}
+impl marathon_core::runtime::VendorClock for NotifyJoin {
+    fn delay(
+        &self,
+        millis: i64,
+        cancellation: Arc<dyn marathon_core::runtime::CancellationSignal>,
+    ) -> marathon_core::runtime::VendorFuture<'_, ()> {
+        self.inner.delay(millis, cancellation)
+    }
+    fn now_millis(&self) -> i64 {
+        self.inner.now_millis()
+    }
+    fn with_timeout<'a>(
+        &'a self,
+        parent: Arc<dyn marathon_core::runtime::CancellationSignal>,
+        millis: i64,
+        body: marathon_core::runtime::VendorTimeoutBody<'a>,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        self.inner.with_timeout(parent, millis, body)
+    }
+    fn with_timeout_or_null<'a>(
+        &'a self,
+        parent: Arc<dyn marathon_core::runtime::CancellationSignal>,
+        millis: i64,
+        body: marathon_core::runtime::VendorTimeoutBody<'a>,
+    ) -> marathon_core::runtime::VendorFuture<'a, Option<()>> {
+        if self.watching.load(Ordering::SeqCst) {
+            self.entered.notify_one();
+        }
+        self.inner.with_timeout_or_null(parent, millis, body)
+    }
+}
+/// U200: a termination that runs while a replacement waits for its predecessor's disposal takes the new Mac with the
+/// map; the replacement then neither registers nor announces it, and each lease is released once.
+#[tokio::test]
+async fn a_termination_during_a_replacement_keeps_the_new_mac_out_of_the_registry_u200() -> R {
+    use marathon_core::vendor::DeviceRef;
+    let mut h = Harness::new("")?;
+    Arc::make_mut(&mut h.options.vendor).devices_file = None;
+    std::fs::write(
+        h.root.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: host}]\n",
+    )?;
+    let clock = Arc::new(NotifyJoin {
+        inner: h.options.dependencies.clock.clone(),
+        watching: false.into(),
+        entered: tokio::sync::Notify::new(),
+    });
+    h.options.dependencies.clock = clock.clone();
+    let (p, c) = h.provider();
+    v(p.initialize(h.context.clone()).await)?;
+    v(p.join_pending().await)?;
+    let old = p.snapshot().remove(0);
+    v(
+        marathon_core::vendor::Device::prepare(&*old, h.options.dependencies.configuration.clone(), h.context.clone())
+            .await,
+    )?;
+    // A running batch makes the old Mac's disposal wait for it.
+    let running = Running::install(&h, vec![]);
+    let batch = tokio::spawn(support::batch(old.clone(), h.context.clone()));
+    tokio::time::timeout(std::time::Duration::from_secs(60), running.opened.notified()).await?;
+    clock.watching.store(true, Ordering::SeqCst);
+    let replacing = {
+        let (p, context) = (p.clone(), h.context.clone());
+        tokio::spawn(async move { p.initialize(context).await })
+    };
+    // The replacement is waiting for the old Mac's disposal: terminate now.
+    tokio::time::timeout(std::time::Duration::from_secs(60), clock.entered.notified()).await?;
+    clock.watching.store(false, Ordering::SeqCst);
+    let new = p.snapshot().remove(0);
+    assert!(!Arc::ptr_eq(&old, &new));
+    v(p.terminate().await)?;
+    assert_eq!(
+        c.releases.load(Ordering::SeqCst),
+        1,
+        "termination released the new Mac's lease"
+    );
+    running.release.notify_one();
+    v(v(
+        tokio::time::timeout(std::time::Duration::from_secs(60), replacing).await?
+    )?)?;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(60), batch).await?;
+    assert_eq!(c.releases.load(Ordering::SeqCst), 2, "the old Mac's lease, once");
+    assert!(
+        p.registry.lookup(&DeviceRef(old.clone())).is_err(),
+        "old Mac left the registry"
+    );
+    assert!(
+        p.registry.lookup(&DeviceRef(new.clone())).is_err(),
+        "new Mac not registered after termination"
+    );
+    assert!(p.snapshot().is_empty());
+    loop {
+        match v(tokio::time::timeout(std::time::Duration::from_secs(60), p.subscribe().receive()).await?)? {
+            Some(DeviceEvent::Connected(device)) => {
+                assert_ne!(device, DeviceRef(new.clone()), "new Mac announced after termination")
+            }
+            Some(_) => {}
+            None => break,
+        }
+    }
+    v(p.terminate().await)?;
+    assert_eq!(c.releases.load(Ordering::SeqCst), 2);
+    v(p.join_pending().await)?;
+    Ok(())
+}
+/// U200: a Mac whose setup ends after termination is disposed of and its lease released by `connect`, instead of
+/// joining a map termination has already emptied.
+#[tokio::test]
+async fn a_mac_set_up_after_termination_is_released_not_connected_u200() -> R {
+    let mut h = Harness::new("")?;
+    Arc::make_mut(&mut h.options.vendor).devices_file = None;
+    std::fs::write(
+        h.root.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: host}]\n",
+    )?;
+    let (p, c) = h.provider();
+    v(p.initialize(h.context.clone()).await)?;
+    v(p.join_pending().await)?;
+    v(p.terminate().await)?;
+    assert_eq!(c.releases.load(Ordering::SeqCst), 1);
+    // A setup that finishes after termination, as one still running when the run ends.
+    let _ = p.initialize(h.context.clone()).await;
+    assert_eq!(c.creates.load(Ordering::SeqCst), 2);
+    assert_eq!(c.releases.load(Ordering::SeqCst), 2, "the late Mac's lease is released");
+    assert!(p.snapshot().is_empty(), "the late Mac did not join the map");
+    v(p.terminate().await)?;
+    assert_eq!(c.releases.load(Ordering::SeqCst), 2);
+    v(p.join_pending().await)?;
+    Ok(())
+}
