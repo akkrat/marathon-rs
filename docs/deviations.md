@@ -1648,17 +1648,26 @@ Native builds now do the following, with no configuration change:
   before it starts its batch is charged as before, so its retries still run out. A batch given back is not a test that
   ended, so [D48](#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)'s wait goes on: a device that keeps
   coming back and leaving before it starts its batch still ends the pool at the limit.
+- **A batch that has started keeps what it ran, wherever the device leaves it** (extended 2026-11-17,
+  [U197](found-bugs.md)). A device given up while an instrumentation runs, or between two instrumentations away from the
+  gate, also ends its batch with what ran so far: finished and failed tests count, and the test in progress and those
+  not yet run are uncompleted and charged one attempt. That is what the runner reports when it sees the loss first. When
+  the run heard of the loss before the runner did, the whole batch used to come back, so its finished tests ran again
+  and all its tests were charged; the Kotlin marathon has the same race. Nothing more of such a batch is sent to the
+  device.
 
-Once an instrumentation has been sent its batch is charged as before, even if the device leaves a moment later. A device
-given up in the moment between an instrumentation's end and the wait for the next one can still have its whole batch
-returned and charged, as before. A healthy run sends the same commands, in the same order, and logs the same lines.
+Once an instrumentation has been sent its batch is charged as before, even if the device leaves a moment later: its
+tests that had not finished are uncompleted, never given back uncharged. A healthy run sends the same commands, in the
+same order, and logs the same lines.
 After an outage or a grace period between two instrumentations of a batch, the next instrumentation's commands come once
 the device is back, where they used to come during the outage and fail. The reports of a run with an outage hold fewer
 uncompleted attempts, and a run with a small `uncompletedTestRetryQuota` can pass where it failed. New debug lines:
 `Batch <id> waits for its adb server or device before its next instrumentation`, `Rejecting batch <id>: device <serial>
-left before starting it` and `pool <pool>: device <serial> left before starting test batch <id>`. Approved 2026-11-15
-(project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
-[U160 and U166](found-bugs.md) and the [x63 findings](wp/x63-findings.md).
+left before starting it` and `pool <pool>: device <serial> left before starting test batch <id>`; with the extension,
+`Batch <id> has no results so far; accounted for as before`, only when those results cannot be read. Approved 2026-11-15
+(project owner's decision); the extension for a batch that has started, 2026-11-17 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [U160, U166 and U197](found-bugs.md), and the
+[x63](wp/x63-findings.md) and [x68](wp/x68-findings.md) findings.
 
 **Migration action:** none.
 

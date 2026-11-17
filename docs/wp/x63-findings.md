@@ -125,7 +125,7 @@ None.
 - A device lost while its runner was between instrumentations but not at a gate, or during an instrumentation, can still
   have its whole batch returned by the core's `Terminate` before the vendor reports, so finished tests of that batch run
   again. This is the existing Terminate-first race (Kotlin's too), now narrowed to the moments outside the gates; not
-  fixed here.
+  fixed here. Recorded as U197 and fixed in WP x68 (`docs/wp/x68-findings.md`).
 
 ## Review round 1 (Sol)
 

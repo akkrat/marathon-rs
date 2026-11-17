@@ -4,6 +4,11 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## Unreleased
 
+- **Android: a test that finished is not run again when its device is lost later in the batch** (D70, U197). A device
+  lost while a batch runs, during an instrumentation or between two of them, ends that batch with what ran: its finished
+  and failed tests count, and only the test in progress and those not yet run are run again, each charged one attempt
+  of `uncompletedTestRetryQuota`. Before, the whole batch could come back, so its finished tests ran again and every
+  test of it was charged. Reports of such a run can show fewer executions. No configuration change.
 - A run whose test queue fails now ends at once with exit 1 (0 with `ignoreFailures`), writes its reports and logs
   `Marathon run failed` with the cause, instead of hanging until it is killed. A console that refuses a progress line
   no longer stops the run: the line is lost, the test is still reported, and one warning is logged (D68).

@@ -148,7 +148,8 @@ finished can leave fewer executions in the reports.
 
 [D70](deviations.md#d70--an-adb-outage-does-not-charge-or-break-tests-that-never-started) needs no action. After an adb
 server outage or a brief `offline`, a batch that never started is no longer charged, so tests that used to fail without
-running now run, and each instrumentation of a batch waits for the device as the first did.
+running now run, and each instrumentation of a batch waits for the device as the first did. A batch whose device is lost
+after it started keeps the tests that finished, so the reports of such a run can show fewer executions.
 
 D72 adds a native-only `flakinessStrategy` type, `fixed`, for stabilization jobs that run every test a set number of
 times, and allows it with `executionStrategy.mode: ALL_SUCCESS` (all runs must pass). Existing configurations keep
