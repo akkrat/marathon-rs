@@ -391,12 +391,14 @@ impl DeviceProvider for AppleMacosProvider {
                 let disposed = device.dispose().await;
                 let released = self.connections.release(device.executor()).await;
                 let outcome = disposed.and(released);
+                // M-x69-2: the Mac has left the map and its lease is released, so it leaves the registry too, even on a
+                // fatal disposal.
+                self.registry.remove(&DeviceRef(device.clone()));
                 if let Err(error) = outcome
                     && error.failure().kind.is_fatal()
                 {
                     return Err(error);
                 }
-                self.registry.remove(&DeviceRef(device.clone()));
                 self.log(Level::DEBUG, format!("Disposed device {}", device.udid()));
                 Ok(())
             }))

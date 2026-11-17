@@ -56,3 +56,15 @@ an injected clock produces. Ledger-only fix; no golden changed, no CHANGELOG ent
   remains is that the disposed new simulator stays in the device map and the registry until a later registration or
   termination; `borrow` skips it (D44). The concrete simulator cannot fail that disposal while `register` holds a clone,
   so only the generic device seam reaches it. Not changed, per the brief.
+- **U200: `connect` has no termination guard** (M-x69-1). A termination overlapping `connect` can leave a disposed new
+  Mac in the registry. No lease is released twice and no announcement is delivered. Recorded as U200, not fixed.
+
+## Review round 1 (Muse)
+
+Verdict: merge. Two Low findings, both pre-existing.
+
+- **M-x69-1**: recorded as U200 (above).
+- **M-x69-2** (fixed): a fatal disposal at termination returned before `registry.remove`, so a Mac that had left the map
+  and released its lease stayed in the registry. The removal now comes before the fatal return. Witness: the registry
+  assertion added to `a_fatal_disposal_still_releases_the_lease_and_a_repeated_termination_releases_nothing_more_d74`,
+  which fails with the old order.

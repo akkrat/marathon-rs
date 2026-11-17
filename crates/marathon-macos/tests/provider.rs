@@ -590,6 +590,13 @@ async fn a_fatal_disposal_still_releases_the_lease_and_a_repeated_termination_re
     assert!(matches!(&outcome, Err(error) if error.failure().kind.is_fatal()));
     // A82 for macOS: the lease is released although the disposal failed.
     assert_eq!(c.releases.load(Ordering::SeqCst), 1);
+    // M-x69-2: the Mac leaves the registry with its lease, although the disposal failed.
+    assert!(
+        p.registry
+            .lookup(&marathon_core::vendor::DeviceRef(device.clone()))
+            .is_err(),
+        "Mac left the registry"
+    );
     v(p.terminate().await)?;
     assert_eq!(c.releases.load(Ordering::SeqCst), 1);
     clock.armed.store(false, Ordering::SeqCst);
