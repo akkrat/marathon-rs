@@ -2,31 +2,87 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
-## Unreleased
+## 0.14.0-rc.1
 
-- **Android: a test that finished is not run again when its device is lost later in the batch** (D70, U197). A device
-  lost while a batch runs, during an instrumentation or between two of them, ends that batch with what ran: its finished
-  and failed tests count, and only the test in progress and those not yet run are run again, each charged one attempt
-  of `uncompletedTestRetryQuota`. Before, the whole batch could come back, so its finished tests ran again and every
-  test of it was charged. Reports of such a run can show fewer executions. No configuration change.
+The first release candidate of 0.14.0, a pre-release for trial runs. It fixes run-stability and Android, iOS and macOS
+device-handling bugs found after 0.13.0, with the approved differences D68–D72 and D74–D77 (D73 was reserved and not
+used). The inputs, CLI, exit-code policy, result-data and worker-command contracts are unchanged except as listed below:
+D72 adds a `flakinessStrategy` type, and the other differences change which runs happen and what reports show for
+them, as each entry says.
+
+### Check before you upgrade
+
+- **Probability flakiness without history (D71):** with `flakinessStrategy: probability`, history that cannot be read
+  (analytics disabled, a backend that could not be set up, a failed success-rate query) no longer gives every test
+  `maxCount` extra runs; it adds none and logs one warning saying why. If a job relied on disabled analytics to run every
+  test several times, switch it to `flakinessStrategy: {type: fixed, count: N}` (D72).
+- **`fixed` is native-only (D72):** the Kotlin marathon and 0.13.0 reject a Marathonfile that uses `type: fixed`. Remove
+  it before rolling back to either.
+- **Fewer executions in reports (D69, D70, D75):** a test that has finished is no longer run again, a batch whose
+  Android device is lost keeps the tests that finished, and a JUnit3 test with an array-valued annotation in a multi-dex
+  APK is listed once. Reports, dashboards and checks that count executions, uncompleted attempts or tests can show lower
+  numbers. A run with a small `uncompletedTestRetryQuota` that used to fail after an adb outage can now pass.
+- **`fast: false` reports follow the verdict (D77):** with `executionStrategy.fast: false`, the summary's first block, the
+  per-test result files, JUnit and HTML show the run that decided a test's verdict (its first pass under `ANY_SUCCESS`,
+  its first failure under `ALL_SUCCESS`), not its last run, so they agree with the exit code. A test's place in the JUnit
+  and HTML order can move. Read `raw.json` for every run.
+- **A failed queue exits instead of hanging (D68):** a run whose test queue fails now ends with exit 1 (0 with
+  `ignoreFailures: true`), writes its reports and logs `Marathon run failed` with the cause, where it used to hang until
+  killed. A console that refuses a progress line no longer stops the run; that line is lost.
+- **Logs and worker checks:** an SSH session closed only after KILL now logs a warning with `debug: false` (U183). An iOS
+  unit-test bundle built inside its app is pushed to the worker once, so a wrapper that counts transfers sees one fewer
+  (D76). Disposing of an iOS simulator can take up to 70 s longer while it stops a stuck preparation (D74).
+
+See [Changes that need action](docs/migration.md#changes-that-need-action) for the migration table and
+[the deviations guide](docs/deviations.md#d68--a-failed-queue-ends-the-run-a-failed-progress-line-does-not) for each
+approved difference. The 0.13.0 and 0.12.0 requirements, including a finite `uncompletedTestRetryQuota`, still apply when
+upgrading from an older version.
+
+### Runs and queue
+
 - A run whose test queue fails now ends at once with exit 1 (0 with `ignoreFailures`), writes its reports and logs
   `Marathon run failed` with the cause, instead of hanging until it is killed. A console that refuses a progress line
-  no longer stops the run: the line is lost, the test is still reported, and one warning is logged (D68).
+  no longer stops the run: the line is lost, the test is still reported, and one warning is logged, shown with
+  `debug: true` (D68, U168).
 - A test that has finished is no longer run again. Dropped are: a strict-mode retry granted to the attempt that
   completed the test, which returns its retry quota; copies of a completed test in a batch whose device left before
   starting it, which keep theirs; and a copy of a completed test that comes back incomplete, which is reported once as
   before. A failed copy beside a retried copy of the same test is now reported too. Reports can show fewer executions
   (D69).
-- **Android: devices returning after an adb outage or a brief `offline` no longer delay other devices** (U170). A device
-  that came back is checked and has its logcat and reverse port forwards restored alongside the others, up to 8 at a time
-  per adb server, so one that does not answer no longer holds up another device's 10 s grace or keeps the rest of its
-  server waiting. After an adb server restart each device takes new tests as soon as its own restoring is done. Commands
-  and results are unchanged. No configuration change.
-- **Android: an adb outage no longer fails tests that never ran** (D70). When an adb server stays away, or a device stays
+
+### Android
+
+- **A test that finished is not run again when its device is lost later in the batch** (D70, U197). A device
+  lost while a batch runs, during an instrumentation or between two of them, ends that batch with what ran: its finished
+  and failed tests count, and only the test in progress and those not yet run are run again, each charged one attempt
+  of `uncompletedTestRetryQuota`. Before, the whole batch could come back, so its finished tests ran again and every
+  test of it was charged. Reports of such a run can show fewer executions. No configuration change.
+- **An adb outage no longer fails tests that never ran** (D70, U160, U166). When an adb server stays away, or a device stays
   `offline`, until its device is given up, a batch the device was waiting to start goes back to the queue without using
   up any of `uncompletedTestRetryQuota`, so with a small quota those tests now run later instead of failing. In a batch of
   several test APKs, each instrumentation now waits for the device to return, and one given up between them keeps the
   results of the part that ran. No configuration change.
+- **Devices returning after an adb outage or a brief `offline` no longer delay other devices** (U170). A device
+  that came back is checked and has its logcat and reverse port forwards restored alongside the others, up to 8 at a time
+  per adb server, so one that does not answer no longer holds up another device's 10 s grace or keeps the rest of its
+  server waiting. After an adb server restart each device takes new tests as soon as its own restoring is done. Commands
+  and results are unchanged. No configuration change.
+- A JUnit3 test with an array-valued annotation, such as Kotlin's `@Throws`, in a test APK with several dex files
+  is now listed and run once, not once per re-scan of the dex files that include it (D75).
+
+### iOS and macOS
+
+- iOS: a unit-test bundle built inside its app is no longer pushed to the worker again after the app, saving one transfer
+  per simulator setup; the files on the worker are unchanged (D76).
+- iOS: disposing of a simulator now stops a preparation still running on it and waits for it, up to 70 s, so a stuck
+  preparation no longer sends commands to a simulator that is gone (D74, U179).
+- iOS and macOS: worker connections that stayed open until marathon exited, those of a device replaced after a lost worker
+  or otherwise, or whose setup or disposal failed, are now closed, at the latest when the run ends (D74).
+- A session that only ended after marathon sent KILL now logs a warning, also with `debug: false`, naming the command and
+  saying the process may still be running on the worker (U183).
+
+### Flakiness and results
+
 - **Flakiness copies without history** (D71): with `flakinessStrategy: probability`, a run whose test history cannot be
   read (analytics disabled, a backend that could not be set up, or a failed success-rate query) no longer gives every
   test `maxCount` extra runs; it adds none and logs one warning saying why. Tests missing from working history still
@@ -42,16 +98,65 @@ The section for a version becomes the text of its GitHub release, which carries 
   `ALL_SUCCESS`). They now show the run `fast: true` would have stopped at: the first pass under `ANY_SUCCESS`, the
   first failure under `ALL_SUCCESS`, otherwise the run that completes the test. Exit codes, retries, the `Raw:` line, `raw.json` and
   Allure are unchanged, and so is everything with `fast: true`.
-- Android: a JUnit3 test with an array-valued annotation, such as Kotlin's `@Throws`, in a test APK with several dex files
-  is now listed and run once, not once per re-scan of the dex files that include it (D75).
-- iOS: a unit-test bundle built inside its app is no longer pushed to the worker again after the app, saving one transfer
-  per simulator setup; the files on the worker are unchanged (D76).
-- iOS: disposing of a simulator now stops a preparation still running on it and waits for it, up to 70 s, so a stuck
-  preparation no longer sends commands to a simulator that is gone (D74).
-- iOS and macOS: worker connections that stayed open until marathon exited, those of a device replaced after a lost worker
-  or otherwise, or whose setup or disposal failed, are now closed, at the latest when the run ends (D74).
-- A session that only ended after marathon sent KILL now logs a warning, also with `debug: false`, naming the command and
-  saying the process may still be running on the worker.
+
+### Evidence
+
+- Every fix has a witness test that failed with the fix temporarily reverted, as each WP's findings record
+  ([x61](docs/wp/x61-findings.md)–[x72](docs/wp/x72-findings.md)). Whole runs use the Stub vendor (D68, D77), the fake
+  adb with the virtual-clock reconnect harness (D70, U170, U197), and fakes of the Apple worker and its SSH sessions (D74,
+  U183). Device-level tests order events with gates and listener signals; no sleep decides an outcome.
+- The JVM recordings are unedited. D69 sets aside exactly the three queue recordings of C45–C47, and a negative test pins
+  the steps where they differ. Narrow allowances compare the rest: D77 moves only the final flag of tracked runs in
+  `fast: false` rows (22 progress rows and 13 queue flags), and D75 drops exactly the 8 recorded repeats of one fixture
+  APK; negative tests show that neither hides anything else.
+- No registered native golden changed. One golden was added,
+  `fixtures/contract/virtual-runs/android-lost-after-start.json`: the result files of an Android batch lost after it
+  started (D70, U197), reviewed as a new file.
+- Each WP had one or two review rounds by another model, recorded with their findings and fixes in its findings document.
+- CI runs the repository gate on macOS and Linux; it passes at f2a16d3e, the code of this release candidate. x61–x66
+  also passed it locally and on a Linux build box before merging. Two CI failures on `main` during the batch were races
+  that only tests could hit, fixed in a test (U198) and in the console's filter reload (U199); the released binary was
+  not affected by either.
+- 0.14.0-rc.1 has not yet run on real devices, simulators, Macs or the private CI farms; no fix of this batch was tested
+  on a real emulator, adb server outage, simulator or worker. Those runs are pending and will be recorded before 0.14.0.
+
+### Known limits
+
+- There is no Windows, Intel Mac, Linux on ARM or universal build. The macOS binary requests macOS 11.0 or later; versions
+  older than the build and test hosts are not tested.
+- The macOS binary is ad-hoc signed and not notarised; see the note on quarantine in the
+  [migration guide](docs/migration.md#install-the-native-entry-point).
+- The static Linux binary is checked at release time with `version` and `--help` in an Alpine container, and
+  0.13.0-rc.1 ran on real emulators and a CI farm. musl's resolver asks DNS directly,
+  so an adb host given as a name that only the system's own name service knows, such as a `.local` name, is not found;
+  use `localhost` or an address.
+- The `xctest` test parser needs a `libxctest-parser` library that you supply (D20). The differential suites run it with a
+  stand-in file, so what the library itself does is not covered by them. The archives do not contain it, and this project's
+  licence does not cover it.
+- The real macOS UI XCTest scenario could not be completed on macOS 27 and is not part of that evidence
+  ([U103](docs/found-bugs.md)).
+- No isolated shadow or canary results are recorded in this repository. Trial it in a disposable environment and keep your
+  JVM distribution for [rollback](docs/migration.md#trial-and-rollback).
+- An emulator that restarted during an adb outage (D22) repeats its failing batches until `uncompletedTestRetryQuota` runs
+  out.
+- A cancelled run on a worker whose SSH server ignores signals can leave xcodebuild running there. A close that needed KILL
+  logs a warning naming the command, also with `debug: false` (D30, U183); the process itself is not ended.
+- A failed readiness probe can cost a simulator 26 to 30 minutes with the defaults while another simulator keeps the pool alive.
+  If only the probe hangs and needs KILL it takes about 33 minutes. On the last device the run ends 180 s (D48's wait) after the
+  simulator left the pool, or after a test result it reports later, with "remaining tests will not run": about 9 to 11
+  minutes after its first boot, or about 3 minutes after a loss if the probe starts failing at a re-setup (D38).
+- A failed xcodebuild close retires its simulator, and a pool whose last device it was waits (D48), then ends (D30).
+- An Android device that left its pool but not adb's list, after a failed prepare or D49's limit, returns only if the list changes,
+  so a pool waiting for it uses up the limit for nothing (D48).
+- A test whose end the listeners are still handling when its Android device is lost counts with its status but can lack
+  the screen capture and profiling files attached as it ends (D70).
+- A Graphite backend that cannot be set up still fails the run, where an InfluxDB one falls back to no history (D71).
+- A JUnit3 `TestCase` method that also carries `@Test` is still listed twice, by both discovery rules, as in Kotlin (D75).
+- A remote parse cut after other text, before its first status atom, can't be told from output that is not the
+  instrumentation protocol: it gives no tests for that bundle and is not retried. With several bundles the run goes on
+  without them (D25).
+- Apple event/line scheduling can move a boundary line between per-test and batch logs (A20). The Phase 8 differential
+  harness gates that interleaving; production retains it ([WP 8.12](docs/wp/8.12-test-changes.md#differential-only-eventline-gates)).
 
 ## 0.13.0
 
