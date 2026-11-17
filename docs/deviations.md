@@ -2059,7 +2059,8 @@ pulled to     <outputDir>/device-files/<pool>/coverage/coverage-<batch>.ec
 - **After each instrumentation that was sent**, the file is pulled over sync, the folder is removed from the device,
   and the file is attached to every test the instrumentation started, as an attachment of type `COVERAGE` named
   `coverage`. The per-test result file (`test_result/<pool>/<serial>/<test>.json`) lists it under `attachments`, next to
-  its `testBatchId`; Allure lists it as well. A parameterised test's merged result gets it too.
+  its `testBatchId`, as the absolute path of the pulled file on the host, as for every attachment (never the device
+  path); Allure lists it as well. A parameterised test's merged result gets it too.
 - **A batch with several instrumentations** ([D28](#d28--each-instrumentation-runs-only-its-own-tests)) writes one file
   per instrumentation: `coverage-<batch>.ec`, then `coverage-<batch>-2.ec` and so on. Kotlin gave two instrumentations
   of the same app one file name.
@@ -2080,7 +2081,7 @@ Evidence: `android_runner::coverage_is_written_to_shared_storage_pulled_and_atta
 file-sync scenario is compared with a D81 allowance that drops its coverage rows. On an API 36 emulator a
 non-debuggable app with JaCoCo offline instrumentation gave one readable `.ec` per batch, where 0.14.0-rc.1 gave none.
 
-Requested 2026-11-17 by the project owner. See
+Approved 2026-11-17 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
 [x79 findings](wp/x79-findings.md).
 

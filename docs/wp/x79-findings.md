@@ -1,6 +1,6 @@
 # WP x79: Android code coverage without `run-as` (D81, C89)
 
-Base: `573a962d` (tag 0.14.0-rc.1). Requested 2026-11-17 by the project owner, from an issue filed against the Kotlin
+Base: `573a962d` (tag 0.14.0-rc.1). Requested and approved 2026-11-17 by the project owner, from an issue filed against the Kotlin
 marathon. Deviation D81; Kotlin bug C89.
 
 ## Problem
@@ -119,13 +119,17 @@ New `artifact_listeners/coverage.rs` (no Kotlin source):
 - A real batch with two test APKs (D28); covered by fakes only.
 - Work profiles and secondary users: `$EXTERNAL_STORAGE` is the shell's user 0 storage.
 
-## Open questions for the owner
+## Owner's decisions (2026-11-17)
 
-- `raw.json` lists every run (retries included) but has no batch id, so a retried run's coverage can only be found from
-  the per-test file of the final run, or from the log file name. Adding `testBatchId` (or the coverage path) to each
-  `raw.json` entry is a result-data change touching many goldens; not done here.
-- The ERROR does not change the exit code. A flag that fails the run when coverage is missing would be a new
-  configuration field.
+- The device path and the `COVERAGE` attachment are confirmed. The attachment names the pulled file on the host, under
+  `<outputDir>/device-files/<pool>/coverage/`, never the device path. Like every attachment it is written as an
+  absolute path (PLAN §3.4).
+- A batch id in `raw.json`: a separate, low-priority follow-up. A coverage map needs only the coverage of a test's
+  final, passing run, which its per-test result file names; with batches of one, a retry is a new batch with its own
+  file.
+- Missing coverage does not change the exit code and gets no configuration field: a coverage map is a separate job that
+  marks tests without coverage itself, and a non-zero exit would hide the test results. The ERROR line naming the batch
+  is enough.
 
 ## Review round 1 (Sol, gpt-6.1-sol)
 
