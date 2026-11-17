@@ -17,6 +17,11 @@ The section for a version becomes the text of its GitHub release, which carries 
 - iOS: a simulator that is shut down or crashes while marathon waits for it to boot, once it has been seen booting, is
   booted again within a poll and the 10 s retry pause, not after `bootWait` (240 s by default). A simulator that stays booting is still waited for until `bootWait`,
   and the readiness-probe times under the known limits are unchanged (D79).
+- **iOS videos and durations survive a slow worker link (D80):** with video recording on, a test's recorder stop,
+  transcode and pull no longer hold back the handling of the batch's next test. Before, a slow transfer could leave the
+  next test without a video and with a reported duration of 0 (JUnit `time`, result file, `raw.json`, HTML), and the
+  recorder stop alone shortened each following test's duration by a few seconds on a remote worker (U201). Videos are
+  still all pulled and attached before the batch is reported.
 
 ### Logs
 

@@ -1978,6 +1978,50 @@ Approved 2026-11-17 (project owner's decision). See
 `bootWait`. Do not shut simulators down on purpose during a run to make marathon reboot them: each such shutdown still
 uses one of the two attempts.
 
+## D80 — A slow video transfer doesn't cost the next test its video or its time
+
+With iOS video recording on, the Kotlin marathon handles the end of a test by stopping the recorder on the worker,
+transcoding the video when transcoding is on, pulling it and removing it, all inside the listener callback. The
+xcodebuild events of a batch reach the listeners one at a time, so the next test's start and end wait for all of that.
+The next test's recording starts only when its start is handled, and its result is timed from when its start and end
+were handled ([U201](found-bugs.md)). On a slow link the next test can run to its end before its start is handled: it
+gets no video, or one cut at the start, and a duration of 0 in its result file, JUnit `time`, `raw.json` and the HTML
+report. A real remote run of 0.14.0-rc.1 lost the second test's video and reported 0.0 s for a 7.7 s test: the first
+test's recorder took 3.4 s to stop, its transcode 4.5 s and its pull 14.5 s. Even with a fast pull, the stop alone
+shortened every following test's reported time by about 3 s on that worker.
+
+Native builds handle a test's end without waiting for the worker:
+
+- The recorder of the test that ended is stopped by a task of its own. The next test's recording starts after that
+  stop, as it did before, so one recording runs at a time and the "Previous video recording didn't finish yet" warning
+  keeps its meaning.
+- The transcode, pull and removal follow the stop in a queue per batch, one test at a time in the order the tests ended,
+  beside the batch's later tests.
+- Before the batch's results are built, `after_test_run` waits for the queue, so every video is attached to its test
+  as before; the xcresult pull still comes after the videos, and the device takes no other batch before they are done.
+- A failure of the stop or pull other than a transfer failure ("Can't pull video", unchanged) no longer ends the batch's
+  event handling at that test; the batch fails from `after_test_run` with it, after its other listeners have run.
+- A cancelled batch starts none of its queued items; an item already running ends as before, within the same
+  cancelled-batch bound ([D52](#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit),
+  [D74](#d74--an-apple-devices-preparation-and-connections-end-with-it)).
+
+What changes for a run: on a slow worker the tests after the first keep their videos and their durations. The worker
+commands are the same; the stop, transcode and pull of one test can now come after the next test's recording command.
+A batch that fails at the end of a test, or a batch-failure video, is unchanged. Screenshot recording (GIF) and macOS
+have no transfer at a test's end and are unchanged; Android pulls its videos over adb and keeps Kotlin's order.
+
+Evidence: `simulator_video_pull::a_slow_video_pull_does_not_hold_back_the_next_test_d80` (the first pull held until the
+second test has run 7.7 s and passed) and `a_slow_recording_stop_does_not_hold_back_the_next_test_d80` (the first stop
+held the same way) fail without the change with a duration of 0 ms; `a_cancelled_batch_skips_queued_video_work_d80`;
+the vendor differential replays pass unchanged.
+
+Approved 2026-11-17 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
+[x76 findings](wp/x76-findings.md).
+
+**Migration action:** none. A job that checked iOS test durations or video attachments sees them for every test of a
+batch, not only for those after a fast transfer.
+
 ## Other accepted text differences
 
 [PLAN §3.10](../PLAN.md#310-accepted-differences-same-behaviour-different-text)
