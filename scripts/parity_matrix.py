@@ -801,6 +801,9 @@ def generate(root: pathlib.Path, existing):
                 name = re.sub(r"[^a-zA-Z0-9]+", "_", name).strip("_").lower()
                 suite = suites.get(r[2], "models_test")
                 tail = ["ported", f"crates/marathon-android/tests/{suite}.rs::{name}", tail[2]]
+            # WP x79: D81 takes coverage out of file sync; the Rust test pins that instead.
+            if (r[2], r[3]) == ("BaseAndroidDeviceTest", "testCodecovConfiguration"):
+                tail = ["n/a", "x79: D81 (coverage is no file-sync entry; device_test.rs::coverage_is_not_a_file_sync_entry_d81)", ""]
         if r[6] == "6.6a":
             namespace = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", r[2]).lower()
             name = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", r[3]).lower()
