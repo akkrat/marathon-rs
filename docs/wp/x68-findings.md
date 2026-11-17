@@ -216,3 +216,95 @@ releases the listener, which then attaches a file to `one`, and checks the compl
 `cargo test -p marathon-android`, `-p marathon-core` and `-p marathon-cli` (results in the final report);
 `python3 -I tools/differential/make_registry.py --check`; the registry's `validate_registry`;
 `python3 -I tools/differential/test_evidence.py` (after building the YAML helper).
+
+## Review round 2 (Sol)
+
+S-x68-1 and the attachment item were closed. S-x68-2 stayed open because the golden scenario was nondeterministic; the
+cause is S-x68-3.
+
+### S-x68-3 (Medium): a loss could pass the listener hold — fixed
+
+The reconnect harness applied a due loss when either of two branches held: the state/server branch, which also
+required the `while_unstarted` and `hold_at` conditions, or the `logcat -c` branch (`HELD_NOW`), which required only
+that setup had sent `logcat -c` and a batch had begun. Every device sends `logcat -c` in setup, so the second branch let
+the loss through without the scenario's own condition. Round 1's claim that "the `offline` event waits until the runner
+is held there" was therefore wrong whenever setup was slow.
+
+Reproduced before the fix: the golden test failed in 1 of 5 and 1 of 4 standalone runs. With the requests and logs
+dumped, the failing run's batch began at 11.2 s virtual (setup had taken long against the stepping clock), so the
+14 s `offline` came during its four seconds, before anything was submitted. The batch was then the D70 unstarted case,
+not the U197 one.
+
+The fix, in `reconnect_test.rs` only:
+
+- A loss (`Event::is_loss`: a disconnect, a server kill, or the states other than `device` and `listed`) waits for
+  `while_unstarted` and `hold_at` whichever branch makes it ready. A return still takes either branch as before: D70's
+  `a_batch_held_through_a_grace_that_ends_in_a_disconnect_is_not_charged_d70` depended on the `logcat -c` branch for its
+  `device` event, because no batch is in its four seconds once the device is gone.
+- While a loss waits for the hold, the clock keeps stepping instead of being held for `HOLD`: the runner reaches the hold
+  only after its batch's four virtual seconds. The wait is bounded by `HOLD_LATE_MILLIS` (120 s virtual), a stall
+  catcher, instead of `MAX_LATE_MILLIS`.
+- When such a loss comes after its time, every later event moves by the same amount (`shift`), so the scripted
+  intervals stay as written: with the worst case below the return came at 44 s instead of 40 s, still 26 s after the
+  loss and so after the 10 s grace's disconnect.
+
+The order is now fixed by the run's own state, not by host speed: the loss cannot come before the runner is held at
+`T02`'s start (or `T01`'s), and the return cannot come before the loss.
+
+Exposure of the other witnesses that use these gates:
+
+- `a_finished_test_of_a_batch_lost_while_it_ran_is_not_run_again_u197` (`hold_at`): the same exposure, fixed by the
+  same change.
+- `a_batch_held_through_a_grace_that_ends_in_a_disconnect_is_not_charged_d70` (`while_unstarted`, state event on
+  `emulator-5554`): exposed. Its `offline` could come through the `logcat -c` branch while the batch was between its
+  four seconds and the runner's first submission, so the batch caught could have started. Fixed by the same change.
+- `a_batch_held_by_a_server_that_is_given_up_is_not_charged_d70` (`while_unstarted`, server kill): not exposed. A kill
+  has no serial, so the `logcat -c` branch never counted for it.
+- The `outage_batch_test.rs` U197 witnesses do not use the harness. They hold their own listeners and call
+  `withdraw_unstarted` directly, so no scheduled event can come early.
+
+Worst case, forced: with a temporary 2.5 s real-time pause before the first batch starts (removed before commit), the
+first batch began at the barrier just before the loss (13.95 s). The loss waited for the hold until about 18 s, the
+return moved to 44 s, and both U197 witnesses passed. Both D70 witnesses passed with the same pause.
+
+### Is there a product hang? No
+
+The stall was "the re-run batch waits in the hold for a decision". To check that the product decides a batch whose
+device goes offline and comes back before its first instrumentation, the golden scenario ran once without the hold and
+with `while_unstarted`, which puts the loss exactly in that window (a temporary test, not committed). The run ended by
+itself at 352 s virtual. The batch waited at the gate ("waits for its adb server or device before its next
+instrumentation"). The 10 s grace ended in a disconnect, and the core's `Terminate` rejected the batch with no attempt
+charged (`Rejecting batch …: device … left before starting it`, one `onRejectBatch`). The device returned at 40 s and
+the batch ran again. Its scripted hang at `T02` ended by the 300 s output timeout ("Test got stuck"), with `T02` and
+`T03` uncompleted, and a third batch ran them. So D70's withdrawal, D41's grace and the D22 gate all decided. Only the
+test's hold waits with no limit, and it waits for a decision that, in that order, no later event would make.
+
+### Reversal witnesses rerun
+
+Each was run 3 times, all with the same result, and every run ended without a stall:
+
+- U197 snapshot disabled (`withdraw_unstarted` answers `false` on `Started` without using the handle): the golden test
+  fails at `assert_eq!(logged(&observed, "onReturnBatch"), 0)`, `left: 1, right: 0`. The batch is returned once.
+  `a_finished_test_of_a_batch_lost_while_it_ran_is_not_run_again_u197` fails with `runs of T00 and T01`,
+  `left: (2, 2), right: (1, 2)`.
+- S-x68-1 reverted (`ended_copy` without `fill_end_time`): the golden test fails at the `raw.json` check:
+  `("T02", "INCOMPLETE", -1577836800000)` where `("T02", "INCOMPLETE", 0)` is expected.
+
+Round 1's "stalled" disabled-snapshot run was this flake: the loss came before the hold.
+
+### Repeat runs (standalone, in a row, after the fix)
+
+| Test | Passed |
+|---|---|
+| `a_batch_lost_after_it_started_writes_what_ran_u197` | 20/20 |
+| `a_finished_test_of_a_batch_lost_while_it_ran_is_not_run_again_u197` | 10/10 |
+| `a_batch_held_through_a_grace_that_ends_in_a_disconnect_is_not_charged_d70` | 10/10 |
+| `a_batch_held_by_a_server_that_is_given_up_is_not_charged_d70` | 10/10 |
+
+The golden is unchanged.
+
+### Run in round 2
+
+`cargo fmt --check`; `cargo clippy -p marathon-android --all-targets -- -D warnings`; `cargo test -p marathon-android`
+(17 suites, 273 passed, none failed; `reconnect_test.rs` 27/27, `outage_batch_test.rs` 9/9); the local checks. Only the
+test harness changed, so the core and CLI suites were not rerun in this round.
