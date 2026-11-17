@@ -13,8 +13,11 @@ use marathon_error::{AdbKind, FailureKind, InjectedKind};
 mod support;
 
 use marathon_adb::server::{FakeAdbServer, Script, ServerOptions};
+use marathon_adb::testrunner::TestEvent;
 use marathon_android::{
     device::{AndroidBatchExecutor, AndroidDevice},
+    listener_factory::{AndroidListenerFactory, InstalledListener, ListenerSlots},
+    listeners::AndroidTestRunListener,
     runner::AndroidRunnerExecutor,
     services::create_services_with_executor,
 };
@@ -46,7 +49,7 @@ use std::{
     rc::Rc,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicI64, Ordering},
+        atomic::{AtomicBool, AtomicI64, Ordering},
     },
     time::Duration,
 };
@@ -80,6 +83,48 @@ struct VirtualDuration {
     lost_requests: Arc<AtomicI64>,
     /// D70: the server ports of the batches in their four seconds, which come before the runner submits anything.
     delaying: Delaying,
+    /// U197: the batch whose test is held at its start, given the batch's result.
+    hold: Option<Arc<HeldTest>>,
+}
+/// U197: holds the runner at the start of one test until the core has accounted for that test's batch, as when the core
+/// hears that the device is gone before the runner hears its stream end. The fake ends a device's sessions as it goes, so
+/// without this the runner would always report first. Once only.
+struct HeldTest {
+    class: &'static str,
+    result: Mutex<Option<Arc<Deferred<TestBatchResults>>>>,
+    holding: AtomicBool,
+}
+impl AndroidTestRunListener for HeldTest {
+    fn on_event<'a>(&'a self, event: &'a TestEvent) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            if let TestEvent::TestStarted { id } = event
+                && id.class_name == self.class
+                && !self.holding.swap(true, Ordering::SeqCst)
+            {
+                let result = checked_lock(&self.result).take();
+                if let Some(result) = result {
+                    // Completed or cancelled: either way the core has decided.
+                    let _ = result.wait().await;
+                }
+            }
+            Ok(())
+        })
+    }
+}
+struct HeldTestFactory(Arc<HeldTest>);
+impl AndroidListenerFactory for HeldTestFactory {
+    fn create(
+        &self,
+        _: &AndroidDevice,
+        _: &marathon_config::Configuration,
+        _: &DevicePoolId,
+        _: &BatchRef,
+    ) -> VendorResult<InstalledListener> {
+        Ok(InstalledListener {
+            listener: self.0.clone(),
+            attachments: None,
+        })
+    }
 }
 type Delaying = Arc<Mutex<Vec<u16>>>;
 /// Takes its port off `delaying` however the delay ends.
@@ -117,6 +162,11 @@ impl AndroidBatchExecutor for VirtualDuration {
             let delay = Delay(self.delaying.clone(), port);
             self.clock.delay(TEST_MILLIS, context.cancellation.clone()).await?;
             drop(delay);
+            if let Some(hold) = &self.hold
+                && !hold.holding.load(Ordering::SeqCst)
+            {
+                *checked_lock(&hold.result) = Some(result.clone());
+            }
             if self.lost_requests.fetch_sub(1, Ordering::SeqCst) > 0 {
                 return Err(marathon_android::execution_error(VendorError::Other(Failure {
                     kind: FailureKind::Adb(AdbKind::RequestRejected),
@@ -188,7 +238,7 @@ fn load(name: &str) -> (Value, Vec<Event>, usize) {
     (script, events, 0)
 }
 
-fn marathonfile(ports: &[u16], output: &Path, quota: Option<i32>) -> Vec<u8> {
+fn marathonfile(ports: &[u16], output: &Path, quota: Option<i32>, batch_size: Option<i32>) -> Vec<u8> {
     let apk = |name: &str| {
         fixture(&format!("vendor-android/apk/{name}"))
             .to_string_lossy()
@@ -220,6 +270,9 @@ fn marathonfile(ports: &[u16], output: &Path, quota: Option<i32>) -> Vec<u8> {
     });
     if let Some(quota) = quota {
         file["uncompletedTestRetryQuota"] = json!(quota);
+    }
+    if let Some(size) = batch_size {
+        file["batchingStrategy"] = json!({"type": "fixed-size", "size": size});
     }
     file.to_string().into_bytes()
 }
@@ -388,6 +441,11 @@ struct Options {
     /// D70: a server or state event waits until a batch on that server is in its four seconds, before the runner
     /// submits anything, so that the batch it catches has not started.
     while_unstarted: bool,
+    /// U197: the runner is held at the start of this class's test until the core has accounted for its batch, and a
+    /// server or state event waits until it is held there.
+    hold_at: Option<&'static str>,
+    /// `batchingStrategy: fixed-size` with this size.
+    batch_size: Option<i32>,
 }
 
 fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observed {
@@ -395,7 +453,17 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
         lost_requests,
         quota,
         while_unstarted,
+        hold_at,
+        batch_size,
     } = options;
+    let hold = hold_at.map(|class| {
+        Arc::new(HeldTest {
+            class,
+            result: Mutex::default(),
+            holding: AtomicBool::new(false),
+        })
+    });
+    let (log_hold, gate_hold) = (hold.clone(), hold.clone());
     let runtime = checked(tokio::runtime::Builder::new_multi_thread().enable_all().build());
     let mut servers = Vec::new();
     for (script, _, _) in &loaded {
@@ -457,8 +525,9 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
         analytics_tracking: false,
         bugsnag_reporting: false,
     };
-    let configuration =
-        checked(MarathonConfigurationLoader.parse_sync(&marathonfile(&ports, output.path(), quota), &context));
+    let configuration = checked(
+        MarathonConfigurationLoader.parse_sync(&marathonfile(&ports, output.path(), quota, batch_size), &context),
+    );
     let driven = servers.clone();
     // The executor's own watchdog must outlast RUN_TIMEOUT, or it fires first on a slow runner (U180).
     let observed = CoreExecutor::run_virtual_with_watchdog(
@@ -484,13 +553,21 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
                     vendor: Box::new(move |dependencies| {
                         Box::pin(async move {
                             let tap_clock = dependencies.clock.clone();
+                            let slots = match &log_hold {
+                                Some(hold) => ListenerSlots {
+                                    recorder: Some(Arc::new(HeldTestFactory(hold.clone()))),
+                                    ..ListenerSlots::default()
+                                },
+                                None => ListenerSlots::default(),
+                            };
                             let executor = Arc::new(VirtualDuration {
-                                inner: AndroidRunnerExecutor::default(),
+                                inner: AndroidRunnerExecutor { slots },
                                 clock: dependencies.clock.clone(),
                                 now: log_now,
                                 started: log_started,
                                 lost_requests,
                                 delaying: log_delaying,
+                                hold: log_hold,
                             });
                             let mut services = create_services_with_executor(dependencies, executor).await?;
                             services.provider = Arc::new(TappedProvider {
@@ -574,7 +651,8 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
                                 || ((event.kill.is_some() || event.state.is_some())
                                     && healthy_started()
                                     && (!while_unstarted
-                                        || checked_lock(&gate_delaying).contains(&driven[event.server].port())))
+                                        || checked_lock(&gate_delaying).contains(&driven[event.server].port()))
+                                    && gate_hold.as_ref().is_none_or(|h| h.holding.load(Ordering::SeqCst)))
                                 || (requests(&driven[event.server], &event.serial, HELD_NOW) >= 1
                                     && healthy_started()));
                         if !ready {
@@ -1493,4 +1571,99 @@ fn a_batch_held_by_a_server_that_is_given_up_is_not_charged_d70() {
     assert_eq!(observed.received.iter().filter(|r| !r.0).count(), 1);
     assert_eq!(logged(&observed, "onRejectBatch"), 1);
     nothing_charged(&observed);
+}
+
+/// The status atoms of one test of the recorded scripts up to its start, and to its end.
+fn started(class: &str) -> String {
+    format!(
+        "INSTRUMENTATION_STATUS: class={class}\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=2\nINSTRUMENTATION_STATUS_CODE: 1\n"
+    )
+}
+fn passed(class: &str) -> String {
+    format!(
+        "{}INSTRUMENTATION_STATUS: class={class}\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\n",
+        started(class)
+    )
+}
+/// `am instrument` requests of a run, other than test parsing, that run `class`'s test.
+fn instrumentations_of(observed: &Observed, class: &str) -> usize {
+    observed
+        .transcripts
+        .iter()
+        .flatten()
+        .filter(|r| {
+            r["type"] == "request"
+                && r["service"]
+                    .as_str()
+                    .is_some_and(|s| s.contains("am instrument") && !s.contains("-e log true") && s.contains(class))
+        })
+        .count()
+}
+
+/// U197 (D70), the whole run: the only device leaves while its batch of `T00` and `T01` is in `T01`, `T00` having passed,
+/// and the core hears of it before the runner does. The batch ends with what ran: `T00` counts and is not run again, and
+/// `T01` is uncompleted and runs once more when the device is back. The core used to return the whole batch, so `T00` ran
+/// twice.
+#[test]
+fn a_finished_test_of_a_batch_lost_while_it_ran_is_not_run_again_u197() {
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (mut script, _, index) = load("same-server");
+    let rules = script["shell"].as_array_mut().unwrap();
+    // Only `T00` and `T01`, so that they make the one batch of two.
+    let parse = rules
+        .iter_mut()
+        .find(|rule| rule["regex"].as_str().is_some_and(|r| r.ends_with("-e log true")))
+        .unwrap();
+    parse["stdout"] = json!(format!(
+        "{}{}INSTRUMENTATION_CODE: -1\n",
+        passed("com.example.T00"),
+        passed("com.example.T01")
+    ));
+    let both = r"^am instrument .* -e class com\.example\.T0[01]#test,com\.example\.T0[01]#test ";
+    // The batch's first run stops in `T01`; any later run of both passes.
+    rules.insert(
+        0,
+        json!({"regex": both, "times": 1, "hang": true,
+            "stdout": format!("{}{}", passed("com.example.T00"), started("com.example.T01"))}),
+    );
+    rules.insert(
+        1,
+        json!({"regex": both,
+            "stdout": format!("{}{}INSTRUMENTATION_CODE: -1\n", passed("com.example.T00"), passed("com.example.T01"))}),
+    );
+    let events = [(14_000, "offline"), (40_000, "device")]
+        .into_iter()
+        .map(|(at_ms, state)| Event {
+            server: 0,
+            at_ms,
+            connect: false,
+            serial: "emulator-5554".into(),
+            kill: None,
+            state: Some(state),
+        })
+        .collect();
+    let observed = run_with(
+        vec![(script, events, index)],
+        Options {
+            hold_at: Some("com.example.T01"),
+            batch_size: Some(2),
+            ..Options::default()
+        },
+    );
+    assert!(
+        matches!(observed.result, Some(Ok(true))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed.result.as_ref().map(|r| r.is_ok())
+    );
+    assert_eq!(observed.received.iter().filter(|r| !r.0).count(), 1);
+    assert_eq!(
+        (
+            instrumentations_of(&observed, "T00#test"),
+            instrumentations_of(&observed, "T01#test")
+        ),
+        (1, 2),
+        "runs of T00 and T01"
+    );
+    assert_eq!(logged(&observed, "onReturnBatch"), 0);
 }

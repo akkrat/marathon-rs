@@ -52,12 +52,16 @@ struct BatchRecord {
     /// Weak: a completed result holds the device, which holds this record. While the batch is parked, `execute` holds
     /// the result, so it can still be completed from here.
     result: Weak<Deferred<TestBatchResults>>,
+    /// U197: the listener that gives the batch's results, to end a started batch with what ran when the device leaves.
+    /// Weak for the same reason: the listener holds the device and the result.
+    results: Option<Weak<dyn crate::listeners::AndroidTestRunListener>>,
     stage: Stage,
 }
 enum Stage {
     /// No instrumentation of it has been submitted.
     Unstarted,
-    /// An instrumentation has been submitted, or the batch was accounted for without one.
+    /// An instrumentation has been submitted, or the batch was accounted for without one. The core taking it back now
+    /// ends it with what the listener has so far (U197).
     Started,
     /// Waiting at D22's or D41's gate for its next instrumentation, with what the earlier ones gave.
     Parked(TestBatchResults),
@@ -824,6 +828,7 @@ impl AndroidDevice {
         *record = Some(BatchRecord {
             batch: batch.clone(),
             result: Arc::downgrade(result),
+            results: None,
             stage: Stage::Unstarted,
         });
         true
@@ -831,9 +836,25 @@ impl AndroidDevice {
     fn end_batch(&self, batch: &BatchRef) {
         if let Some(r) = lock(&self.inner.batch).as_mut()
             && Arc::ptr_eq(&r.batch, batch)
-            && !matches!(r.stage, Stage::Withdrawn)
         {
-            r.stage = Stage::Done;
+            r.results = None;
+            if !matches!(r.stage, Stage::Withdrawn) {
+                r.stage = Stage::Done;
+            }
+        }
+    }
+    /// U197: `listener` gives `batch`'s results, so a device that leaves once the batch has started can end it with what
+    /// ran, as one waiting at the gate does. Called once, before the batch's first submission, by whoever owns the
+    /// listener; the device keeps only a weak handle to it. A batch other than the one `execute` has is ignored.
+    pub fn record_results_source(
+        &self,
+        batch: &BatchRef,
+        listener: Weak<dyn crate::listeners::AndroidTestRunListener>,
+    ) {
+        if let Some(r) = lock(&self.inner.batch).as_mut()
+            && Arc::ptr_eq(&r.batch, batch)
+        {
+            r.results = Some(listener);
         }
     }
     /// D70: an instrumentation of `batch` is about to be submitted, or the batch to be accounted for without one. From
@@ -862,7 +883,8 @@ impl AndroidDevice {
         context: &VendorContext,
     ) -> VendorResult<()> {
         if !self.is_gate_closed() && !self.inner.lost.load(Ordering::Acquire) {
-            return Ok(());
+            // U197: a batch the core ended while it ran sends nothing more, not even the next one's device commands.
+            return self.ensure_not_withdrawn(batch);
         }
         let started = lock(&self.inner.batch)
             .as_ref()
@@ -1142,32 +1164,72 @@ impl Device for AndroidDevice {
     /// done: the absence of test callbacks would not prove that none started. One parked at the gate after earlier
     /// instrumentations ran ends with what they gave, its remaining tests uncompleted, as when the device is lost there:
     /// giving back the whole batch would run those again.
+    ///
+    /// U197: one leaving while an instrumentation runs, or between instrumentations away from the gate, ends the same way,
+    /// with what its listener has so far: the test in progress and those not yet run are uncompleted. That is what the
+    /// runner reports when it sees the loss first; returning the whole batch would run its finished tests again. Without
+    /// a listener, or if it has no results, the batch is accounted for as before.
     fn withdraw_unstarted(&self, batch: &BatchRef) -> bool {
-        let mut record = lock(&self.inner.batch);
-        match record.as_mut() {
-            Some(r) if Arc::ptr_eq(&r.batch, batch) => match std::mem::replace(&mut r.stage, Stage::Withdrawn) {
-                Stage::Unstarted | Stage::Withdrawn => true,
-                Stage::Parked(results) => {
-                    if let Some(result) = r.result.upgrade() {
-                        result.complete(Ok(results));
+        let source = {
+            let mut record = lock(&self.inner.batch);
+            match record.as_mut() {
+                Some(r) if Arc::ptr_eq(&r.batch, batch) => match std::mem::replace(&mut r.stage, Stage::Withdrawn) {
+                    Stage::Unstarted | Stage::Withdrawn => return true,
+                    Stage::Parked(results) => {
+                        if let Some(result) = r.result.upgrade() {
+                            result.complete(Ok(results));
+                        }
+                        return false;
                     }
-                    false
+                    Stage::Started => {
+                        r.stage = Stage::Started;
+                        r.results.clone()
+                    }
+                    Stage::Done => {
+                        r.stage = Stage::Done;
+                        return false;
+                    }
+                },
+                // `execute` has not got this batch yet; it is the one the core runs, so the device has no later one.
+                _ => {
+                    *record = Some(BatchRecord {
+                        batch: batch.clone(),
+                        result: Weak::new(),
+                        results: None,
+                        stage: Stage::Withdrawn,
+                    });
+                    return true;
                 }
-                stage @ (Stage::Started | Stage::Done) => {
-                    r.stage = stage;
-                    false
-                }
-            },
-            // `execute` has not got this batch yet; it is the one the core runs, so the device has no later one.
-            _ => {
-                *record = Some(BatchRecord {
-                    batch: batch.clone(),
-                    result: Weak::new(),
-                    stage: Stage::Withdrawn,
-                });
-                true
+            }
+        };
+        // Outside the record's lock: the listener takes its own. Synchronous and without I/O, as on the core thread.
+        let snapshot = match source
+            .and_then(|listener| listener.upgrade())
+            .map(|l| l.results_so_far())
+        {
+            Some(Ok(Some(results))) => results,
+            Some(Err(error)) => {
+                self.log(
+                    Level::DEBUG,
+                    &format!("Batch {} has no results so far; accounted for as before", batch.id),
+                    Some(error.failure()),
+                );
+                return false;
+            }
+            _ => return false,
+        };
+        let mut record = lock(&self.inner.batch);
+        if let Some(r) = record.as_mut()
+            && Arc::ptr_eq(&r.batch, batch)
+            && matches!(r.stage, Stage::Started | Stage::Parked(_))
+        {
+            // From here nothing more of the batch is sent; the runner's own result, when it comes, loses to this one.
+            r.stage = Stage::Withdrawn;
+            if let Some(result) = r.result.upgrade() {
+                result.complete(Ok(snapshot));
             }
         }
+        false
     }
 }
 impl LogProducer for AndroidDevice {

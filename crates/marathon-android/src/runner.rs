@@ -556,9 +556,15 @@ impl AndroidBatchExecutor for AndroidRunnerExecutor {
         context: VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
-            let listener =
+            let listener = Arc::new(
                 crate::listener_factory::create(device, &configuration, pool, batch.clone(), result, &self.slots)
-                    .map_err(execution_error)?;
+                    .map_err(execution_error)?,
+            );
+            // U197: the device can end the batch with what ran if it leaves once the batch has started. The task below
+            // owns the listener; the device holds it weakly.
+            let source: Arc<dyn AndroidTestRunListener> = listener.clone();
+            device.record_results_source(&batch, Arc::downgrade(&source));
+            drop(source);
             let owned = device.clone();
             let (mut sender, receiver) = tokio::sync::oneshot::channel();
             // The task retains the cleanup owner; closing the waiter cancels the body.
@@ -572,7 +578,7 @@ impl AndroidBatchExecutor for AndroidRunnerExecutor {
                     ..context
                 };
                 let runner = AndroidDeviceTestRunner { device: &owned };
-                let run = runner.execute(configuration, batch, &listener, context.clone());
+                let run = runner.execute(configuration, batch, &*listener, context.clone());
                 tokio::pin!(run);
                 let outcome = tokio::select! {
                     outcome = &mut run => outcome,

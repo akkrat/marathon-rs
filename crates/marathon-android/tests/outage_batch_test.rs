@@ -233,7 +233,12 @@ fn test(method: &str) -> Test {
 fn two_instrumentations(runtime: &Arc<AndroidRuntime>) -> (Test, Test) {
     let (one, two) = (test("one"), test("two"));
     runtime.identifier.put(&one, &runtime.bundles[0]);
-    let second = Arc::new(marathon_android::models::AndroidTestBundle::new(
+    runtime.identifier.put(&two, &second_bundle());
+    (one, two)
+}
+/// A test APK other than the main one, so its tests are another instrumentation's (D28).
+fn second_bundle() -> Arc<marathon_android::models::AndroidTestBundle> {
+    Arc::new(marathon_android::models::AndroidTestBundle::new(
         marathon_android::dex_test_parser::DexTestBundleFiles {
             application: None,
             test_application: PathBuf::from(
@@ -245,9 +250,7 @@ fn two_instrumentations(runtime: &Arc<AndroidRuntime>) -> (Test, Test) {
             split_apks: vec![],
         },
         &PathBuf::from("/"),
-    ));
-    runtime.identifier.put(&two, &second);
-    (one, two)
+    ))
 }
 fn completes(method: &str) -> String {
     format!(
@@ -448,4 +451,313 @@ fn a_cancel_ends_an_instrumentation_waiting_at_the_gate_d70() {
             Ok(())
         })
     });
+}
+
+/// U197: what the runner has reached, told by a listener that comes before the one that gives the batch's results. One
+/// per batch, so that a test can see it freed with the batch's other listeners.
+#[derive(Default)]
+struct Reached {
+    /// The test whose start this waits for, and whether it has started.
+    in_flight: &'static str,
+    started: AtomicBool,
+    /// Which announcement of an instrumentation's tests (D28) holds the runner until released, counting from 1.
+    hold_at: usize,
+    /// Or whether the first instrumentation's end does.
+    hold_at_run_end: bool,
+    announced: AtomicUsize,
+    holding: AtomicBool,
+    release: tokio::sync::Notify,
+}
+struct Probe(Arc<Reached>);
+impl AndroidTestRunListener for Probe {
+    fn on_event<'a>(&'a self, event: &'a TestEvent) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            if let TestEvent::TestStarted { id } = event
+                && id.test_name == self.0.in_flight
+            {
+                self.0.started.store(true, Ordering::SeqCst);
+            }
+            if matches!(event, TestEvent::TestRunEnded { .. }) && self.0.hold_at_run_end {
+                self.hold().await;
+            }
+            Ok(())
+        })
+    }
+    fn on_instrumentation_tests_in<'a>(&'a self, _: &'a [Test], _: VendorContext) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            if self.0.announced.fetch_add(1, Ordering::SeqCst) + 1 == self.0.hold_at {
+                self.hold().await;
+            }
+            Ok(())
+        })
+    }
+}
+impl Probe {
+    async fn hold(&self) {
+        if !self.0.holding.swap(true, Ordering::SeqCst) {
+            self.0.release.notified().await;
+        }
+    }
+}
+struct ProbeFactory {
+    reached: Arc<Reached>,
+    made: std::sync::Mutex<Option<std::sync::Weak<Probe>>>,
+}
+impl AndroidListenerFactory for ProbeFactory {
+    fn create(
+        &self,
+        _: &AndroidDevice,
+        _: &Configuration,
+        _: &DevicePoolId,
+        _: &BatchRef,
+    ) -> VendorResult<InstalledListener> {
+        let probe = Arc::new(Probe(self.reached.clone()));
+        *self.made.lock().unwrap() = Some(Arc::downgrade(&probe));
+        Ok(InstalledListener {
+            listener: probe,
+            attachments: None,
+        })
+    }
+}
+fn instrumented(method: &str) -> String {
+    format!(
+        "INSTRUMENTATION_STATUS: class=pkg.Clazz\nINSTRUMENTATION_STATUS: test={method}\nINSTRUMENTATION_STATUS: numtests=2\nINSTRUMENTATION_STATUS_CODE: 1\n"
+    )
+}
+fn ended(method: &str) -> String {
+    format!(
+        "INSTRUMENTATION_STATUS: class=pkg.Clazz\nINSTRUMENTATION_STATUS: test={method}\nINSTRUMENTATION_STATUS_CODE: 0\n"
+    )
+}
+
+/// Runs `batch` (methods of `pkg.Clazz`, those in `second` under a second test APK) on a device whose fake answers
+/// `rules`, with `reached` told what the runner reaches. `scenario` gets the device, the batch, its result, the running
+/// `execute`, its cancel and the probe's weak handle, once `ready` holds; the server's `am instrument` count comes after.
+#[allow(clippy::type_complexity)]
+fn lost_while_running(
+    rules: Vec<serde_json::Value>,
+    methods: &[&str],
+    second: &[&str],
+    reached: Reached,
+    ready: fn(&Reached) -> bool,
+    scenario: impl FnOnce(
+        Arc<Reached>,
+        DeviceRef,
+        BatchRef,
+        Arc<Deferred<TestBatchResults>>,
+        tokio::task::JoinHandle<VendorResult<()>>,
+        Arc<Signal>,
+        std::sync::Weak<Probe>,
+    ) -> Scenario
+    + Send
+    + 'static,
+) -> usize {
+    let methods: Vec<String> = methods.iter().map(|m| m.to_string()).collect();
+    let second: Vec<String> = second.iter().map(|m| m.to_string()).collect();
+    let sent = Arc::new(AtomicUsize::new(0));
+    let count = sent.clone();
+    run_with_stopped_clock(runner_configuration(), move |runtime, context| {
+        Box::pin(async move {
+            let mut script = base_script(27, vec![]);
+            script["shell"].as_array_mut().unwrap().extend(rules);
+            let server = Arc::new(server(script).await);
+            let reached = Arc::new(reached);
+            let factory = Arc::new(ProbeFactory {
+                reached: reached.clone(),
+                made: Default::default(),
+            });
+            let executor = Arc::new(AndroidRunnerExecutor {
+                slots: ListenerSlots {
+                    recorder: Some(factory.clone()),
+                    ..ListenerSlots::default()
+                },
+            });
+            let provider = AdamDeviceProvider::new(runtime_with(&runtime, &[server.port()], executor))?;
+            provider.initialize(context.clone()).await?;
+            let device = connected(&provider).await;
+            logcat_streams(&[(&server, 1)]).await;
+            let android = provider.android_device(&device).unwrap();
+            let other = second_bundle();
+            let tests: Vec<Test> = methods
+                .iter()
+                .map(|m| {
+                    let t = test(m);
+                    if second.contains(m) {
+                        android.runtime().identifier.put(&t, &other);
+                    } else {
+                        android.runtime().identifier.put(&t, &android.runtime().bundles[0]);
+                    }
+                    t
+                })
+                .collect();
+            let batch = batch("batch", tests);
+            let result = SharedDeferred::new();
+            let signal = Signal::new();
+            let running = execute(
+                &device,
+                runtime.dependencies.configuration.clone(),
+                &batch,
+                result.clone(),
+                &VendorContext {
+                    cancellation: signal.clone(),
+                    ..context.clone()
+                },
+            );
+            until(|| ready(&reached) || running.is_finished()).await;
+            assert!(!running.is_finished(), "the batch ended before the device was lost");
+            let probe = factory.made.lock().unwrap().clone().unwrap();
+            scenario(reached, device, batch, result, running, signal, probe).await?;
+            count.store(instrumentations(&server).len(), Ordering::SeqCst);
+            provider.terminate().await?;
+            Ok(())
+        })
+    });
+    sent.load(Ordering::SeqCst)
+}
+
+/// What the core gets for a batch it took back once it started: what ran, by name.
+fn kept(results: &TestBatchResults) -> (Vec<String>, Vec<String>, Vec<String>) {
+    (
+        names(&results.finished),
+        names(&results.failed),
+        names(&results.uncompleted),
+    )
+}
+
+/// U197: a device lost while an instrumentation runs ends its batch with what ran: `one` passed and counts, `two`, in
+/// flight, and `three`, whose instrumentation never started, are uncompleted. The core used to return the whole batch, so
+/// `one` ran again. The runner, stopped afterwards, neither changes that result nor keeps the listeners, the device or the
+/// result alive.
+#[test]
+fn a_batch_lost_during_an_instrumentation_keeps_its_finished_tests_u197() {
+    let rule = json!({
+        "regex": "^am instrument.* -e class pkg.Clazz#one,pkg.Clazz#two ",
+        "stdout": format!("{}{}{}", instrumented("one"), ended("one"), instrumented("two")),
+        "hang": true,
+    });
+    let reached = Reached {
+        in_flight: "two",
+        ..Reached::default()
+    };
+    let sent = lost_while_running(
+        vec![rule],
+        &["one", "two", "three"],
+        &["three"],
+        reached,
+        |r| r.started.load(Ordering::SeqCst),
+        |_, device, batch, result, running, signal, probe| {
+            Box::pin(async move {
+                assert!(!device.0.withdraw_unstarted(&batch));
+                let results = result.completed().expect("completed with what ran").unwrap();
+                let expected = (
+                    vec!["one".to_owned()],
+                    vec![],
+                    vec!["two".to_owned(), "three".to_owned()],
+                );
+                assert_eq!(kept(&results), expected);
+                // The core then stops the device.
+                signal.cancel(requested("device terminated"));
+                assert!(matches!(outcome(running).await, Err(VendorError::Cancelled(_))));
+                assert_eq!(kept(&result.completed().unwrap().unwrap()), expected);
+                let cell = Arc::downgrade(&result);
+                drop((results, result));
+                assert!(cell.upgrade().is_none(), "the device keeps the batch's result");
+                assert!(probe.upgrade().is_none(), "the device keeps the batch's listeners");
+                Ok(())
+            })
+        },
+    );
+    assert_eq!(sent, 1);
+}
+
+/// U197: a device lost between two instrumentations of a batch while the way is clear, so not at D70's gate, ends the
+/// batch with what the first gave: `one` counts and `two` is uncompleted. The second instrumentation is not sent, even
+/// though the runner goes on until it is stopped.
+#[test]
+fn a_batch_lost_between_instrumentations_away_from_the_gate_keeps_what_ran_u197() {
+    let rules = ["one", "two"]
+        .into_iter()
+        .map(|method| {
+            json!({
+                "regex": format!("^am instrument.* -e class pkg.Clazz#{method} "),
+                "stdout": completes(method),
+            })
+        })
+        .collect();
+    let reached = Reached {
+        hold_at: 2,
+        ..Reached::default()
+    };
+    let sent = lost_while_running(
+        rules,
+        &["one", "two"],
+        &["two"],
+        reached,
+        |r| r.holding.load(Ordering::SeqCst),
+        |reached, device, batch, result, running, _, probe| {
+            Box::pin(async move {
+                assert!(!device.0.withdraw_unstarted(&batch));
+                let results = result.completed().expect("completed with what ran").unwrap();
+                let expected = (vec!["one".to_owned()], vec![], vec!["two".to_owned()]);
+                assert_eq!(kept(&results), expected);
+                // The runner goes on, and is refused before it sends the next instrumentation.
+                reached.release.notify_one();
+                let outcome = outcome(running).await;
+                assert!(
+                    matches!(outcome, Err(VendorError::Cancelled(_))),
+                    "{:?}",
+                    outcome.map_err(|e| e.failure().clone())
+                );
+                assert_eq!(kept(&result.completed().unwrap().unwrap()), expected);
+                let cell = Arc::downgrade(&result);
+                drop((results, result));
+                assert!(cell.upgrade().is_none(), "the device keeps the batch's result");
+                assert!(probe.upgrade().is_none(), "the device keeps the batch's listeners");
+                Ok(())
+            })
+        },
+    );
+    assert_eq!(sent, 1);
+}
+
+/// U197: the same as an instrumentation ends, before the runner gets to the next one's wait: the batch ends with what the
+/// first gave, and the next instrumentation is not even announced to the listeners.
+#[test]
+fn a_batch_lost_as_an_instrumentation_ends_starts_nothing_more_u197() {
+    let rules = ["one", "two"]
+        .into_iter()
+        .map(|method| {
+            json!({
+                "regex": format!("^am instrument.* -e class pkg.Clazz#{method} "),
+                "stdout": completes(method),
+            })
+        })
+        .collect();
+    let reached = Reached {
+        hold_at_run_end: true,
+        ..Reached::default()
+    };
+    let sent = lost_while_running(
+        rules,
+        &["one", "two"],
+        &["two"],
+        reached,
+        |r| r.holding.load(Ordering::SeqCst),
+        |reached, device, batch, result, running, _, _| {
+            Box::pin(async move {
+                assert!(!device.0.withdraw_unstarted(&batch));
+                let expected = (vec!["one".to_owned()], vec![], vec!["two".to_owned()]);
+                assert_eq!(
+                    kept(&result.completed().expect("completed with what ran").unwrap()),
+                    expected
+                );
+                reached.release.notify_one();
+                assert!(matches!(outcome(running).await, Err(VendorError::Cancelled(_))));
+                assert_eq!(reached.announced.load(Ordering::SeqCst), 1);
+                assert_eq!(kept(&result.completed().unwrap().unwrap()), expected);
+                Ok(())
+            })
+        },
+    );
+    assert_eq!(sent, 1);
 }
