@@ -1,7 +1,7 @@
 # Approved differences from Kotlin marathon
 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) is
-canonical. This guide covers D1–D77 (D73 was reserved and not used); implementation availability
+canonical. This guide covers D1–D81 (D73 was reserved and not used); implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
 shipped differences. D55–D67 ship in 0.13.0. D55–D65 remove JVM artefacts under
@@ -10,7 +10,8 @@ changes described below; D66 and D67 change signal and console handling. They ar
 fixes. D55–D65 first shipped in 0.13.0-rc.1 and D66 in 0.13.0-rc.2.
 PLAN §3.11 records no per-row approval dates for D55–D65. Its heading date,
 2026-10-12, is the section's original approval date. D68–D72 and D74–D77 ship in 0.14.0-rc.1, a release candidate of
-0.14.0; they fix run-stability and device-handling bugs and add a native-only flakiness strategy (D72). See the
+0.14.0; they fix run-stability and device-handling bugs and add a native-only flakiness strategy (D72). D78–D81 ship in
+0.14.0-rc.2: JUnit retry elements, the iOS boot wait and video transfers, and Android coverage without `run-as`. See the
 [changelog](../CHANGELOG.md).
 
 ## D1 — Crash and usage telemetry

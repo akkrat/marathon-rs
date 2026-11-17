@@ -2,7 +2,19 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
-## Unreleased
+## 0.14.0-rc.2
+
+Second release candidate of 0.14.0. It contains everything in 0.14.0-rc.1 (see its section in CHANGELOG.md), plus fixes for
+what that candidate's real-device runs found and Android code coverage for non-debuggable apps, with the approved
+differences D78–D81. Upgrading from 0.13.0 needs the checks in 0.14.0-rc.1's "Check before you upgrade", and also:
+
+- **JUnit `flakyFailure` (D78):** a passed test lists only its runs that did not pass. A step that counted these
+  elements as extra runs should read `test_result/raw.json`.
+- **iOS videos and durations (D80):** with video recording on a remote worker, tests after the first of a batch now keep
+  their videos and real durations, so reports can show more videos and longer times than before.
+- **Android coverage (D81):** with `isCodeCoverageEnabled: true`, the instrumentation writes its coverage file under the
+  app's external files directory instead of its private data, a missing coverage file is an ERROR, and each test's
+  result file lists a `COVERAGE` attachment. A non-debuggable app now produces coverage.
 
 ### Reports
 
@@ -39,6 +51,18 @@ The section for a version becomes the text of its GitHub release, which carries 
   `<external storage>/Android/data/<app>/files/coverage/coverage-<batch>.ec`, which marathon prepares and pulls without
   `run-as` into `device-files/<pool>/coverage/` as before. A coverage file that is missing or cannot be pulled is an
   ERROR naming the batch, and each test's result file lists its batch's file as a `COVERAGE` attachment.
+
+### Evidence
+
+- 0.14.0-rc.1 ran on real hosts before these changes: the static Linux build on two API 36 Android emulators (adb server
+  killed and an emulator lost mid-batch, brief `offline`, SIGTERM, and D71, D72 and D77 on the real runner), and the
+  macOS build on this project's Mac with iOS 18.6 and 26.4 simulators and macOS tests, locally and over SSH to a second
+  Mac as a real worker. Per-test results and reports matched 0.13.0-rc.1, and the D68–D77 cases behaved as documented.
+  Those runs found what D78–D80 and the log changes fix.
+- D78–D80 and the log changes were tested with fakes and test harnesses, each with a test that fails without its fix,
+  and reviewed by another model. D81 also ran on an API 36 emulator with a non-debuggable app: 0.14.0-rc.1 wrote no
+  coverage file and logged nothing; this candidate pulls one readable coverage file per batch.
+- Real-device runs of this candidate, and private CI farm runs, are pending and will be added before 0.14.0.
 
 ## 0.14.0-rc.1
 

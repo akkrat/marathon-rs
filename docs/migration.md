@@ -139,7 +139,7 @@ finishes, SIGINT/SIGTERM are not acted on during console completion. This window
 already existed for about two seconds; a stalled console can now hold exit for
 up to 60 seconds. A wrapper needing a hard stop then must use SIGKILL.
 
-The D68–D77 notes below apply when moving from 0.13.0 to 0.14.0-rc.1 as well as from Kotlin; D71 is in the table above.
+The D68–D81 notes below apply when moving from 0.13.0 to the 0.14.0 release candidates as well as from Kotlin; D71 is in the table above.
 
 D68 and D69 need no configuration change. With D68 a run whose test queue
 fails ends with exit 1 (0 with `ignoreFailures: true`), its reports and a
