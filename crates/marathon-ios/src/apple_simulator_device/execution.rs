@@ -6,6 +6,7 @@ use marathon_apple::{
     cmd::{
         failure,
         remote::ssh::sshj::error::{CONNECTION_EXCEPTION, ILLEGAL_STATE_EXCEPTION, TRANSPORT_EXCEPTION, is_instance},
+        retained_tasks::panic_as_error,
     },
     device::batch_failure_policy::BatchLoss,
 };
@@ -78,9 +79,17 @@ impl AppleSimulatorDevice {
         let batch_id = batch.id.clone();
         let caller_cancellation = context.cancellation.clone();
         self.retained.spawn(self.services.runtime.as_ref(), async move {
-            let outcome = device
-                .run_batch(configuration, pool, batch, output, &ctx, caller_cancellation)
-                .await;
+            // D84: a panic is this batch's error too, so that the caller and disposal hear of its end.
+            let outcome = match panic_as_error(async {
+                Ok(device
+                    .run_batch(configuration, pool, batch, output, &ctx, caller_cancellation)
+                    .await)
+            })
+            .await
+            {
+                Ok(outcome) => outcome,
+                Err(panic) => Err(RunError::from(panic)),
+            };
             let completion = outcome.clone().map_err(RunError::into_vendor);
             *running.outcome.lock().unwrap_or_else(|e| e.into_inner()) = Some(outcome);
             {
@@ -387,24 +396,38 @@ impl AppleSimulatorDevice {
                     cancellation: Signal::new(),
                     ..device.services.context.clone()
                 };
-                let outcome: VendorResult<()> = async {
-                    device.stop_and_join(running, preparations, &context).await?;
-                    if device.connected() {
-                        device
-                            .handle_lifecycle(&device.services.vendor.lifecycle_configuration.on_dispose, &context)
-                            .await?;
+                // D84: a panic is published to every caller too; the device is then as disposed as the panic left it.
+                let outcome = panic_as_error(async {
+                    let disposed: VendorResult<()> = async {
+                        device.stop_and_join(running, preparations, &context).await?;
+                        if device.connected() {
+                            device
+                                .handle_lifecycle(&device.services.vendor.lifecycle_configuration.on_dispose, &context)
+                                .await?;
+                        }
+                        Ok(())
                     }
-                    Ok(())
-                }
+                    .await;
+                    Ok(disposed)
+                })
                 .await;
-                if let Err(error) = outcome {
-                    device.log(
-                        Level::DEBUG,
-                        "Error closing command executor",
-                        Some(error.failure().clone()),
-                    );
+                match outcome {
+                    Ok(Ok(())) => {
+                        done.complete(Ok(()));
+                    }
+                    Ok(Err(error)) => {
+                        device.log(
+                            Level::DEBUG,
+                            "Error closing command executor",
+                            Some(error.failure().clone()),
+                        );
+                        done.complete(Ok(()));
+                    }
+                    Err(panic) => {
+                        device.log(Level::ERROR, "Disposal failed", Some(panic.failure().clone()));
+                        done.complete(Err(panic));
+                    }
                 }
-                done.complete(Ok(()));
                 Ok(())
             });
         }

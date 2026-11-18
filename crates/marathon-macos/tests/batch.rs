@@ -678,3 +678,21 @@ async fn cancelling_a_nonempty_macos_batch_does_not_warn_x57() -> R {
     );
     Ok(())
 }
+/// D84 (U206): the batch runs in a retained task that publishes its outcome to the cell `execute` waits on. A panic ended
+/// that task before it published anything, and `execute` waited for ever. It now ends with the panic, and disposal and
+/// the owner's drain are not held by it.
+#[tokio::test]
+async fn a_batch_that_panics_ends_with_the_panic_and_does_not_hold_disposal_d84() -> R {
+    const PROBE: &str = "D84 probe: the worker command panicked";
+    let h = Harness::new("")?;
+    let d = prepared(&h).await?;
+    *h.worker.fake.before.lock().unwrap() = Arc::new(|_| Box::pin(async { panic!("{PROBE}") }));
+    let outcome = timeout(Duration::from_secs(60), batch(d.clone(), h.context.clone())).await?;
+    assert!(
+        matches!(&outcome, Err(error) if error.failure().message.as_deref() == Some(PROBE)),
+        "{outcome:?}"
+    );
+    v(timeout(Duration::from_secs(60), d.dispose()).await?)?;
+    v(timeout(Duration::from_secs(60), d.join_pending()).await?)?;
+    Ok(())
+}

@@ -246,7 +246,9 @@ impl CoreExecutor {
         job
     }
 }
-fn panic_failure(payload: Box<dyn std::any::Any + Send>) -> Failure {
+/// A caught panic as the failure every task of the runtime reports it with. Public for vendor code that catches a
+/// panic itself, to publish it to a waiter (D84).
+pub fn panic_failure(payload: Box<dyn std::any::Any + Send>) -> Failure {
     let message = payload
         .downcast_ref::<&str>()
         .copied()

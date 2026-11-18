@@ -5,7 +5,7 @@ use crate::{
     apple_simulator_application_installer::AppleSimulatorApplicationInstaller,
     apple_simulator_media_importer::AppleSimulatorMediaImporter,
 };
-use marathon_apple::cmd::{cancelled, failure};
+use marathon_apple::cmd::{cancelled, failure, retained_tasks::panic_as_error};
 use marathon_config::vendor::LifecycleAction;
 use marathon_core::{error::LeavePoolReason, executor::shared::Signal};
 use marathon_error::{AppleKind, FailureKind};
@@ -68,31 +68,29 @@ impl AppleSimulatorDevice {
         let result = completed.clone();
         let running = job.clone();
         self.retained.spawn(self.services.runtime.as_ref(), async move {
-            let outcome = device
-                .services
-                .track
-                .track_device_preparing(
-                    || device.info().serial_number,
-                    Box::pin(async {
-                        device
-                            .prepare_body(started, keep, &ctx)
-                            .await
-                            .map_err(|error| match error {
-                                PrepareError::Vendor(error) => error,
-                                PrepareError::Boot(message) => {
-                                    VendorError::Other(failure(FailureKind::Apple(AppleKind::Boot), message))
-                                }
-                            })
-                    }),
-                )
-                .await
-                .map_err(|error| {
-                    if error.failure().kind == FailureKind::Apple(AppleKind::Boot) {
-                        PrepareError::Boot(error.failure().message.to_owned().unwrap_or_default())
-                    } else {
-                        PrepareError::Vendor(error)
-                    }
-                });
+            // D84: a panic is this preparation's error too, so that the caller and disposal hear of its end.
+            let outcome = panic_as_error(device.services.track.track_device_preparing(
+                || device.info().serial_number,
+                Box::pin(async {
+                    device
+                        .prepare_body(started, keep, &ctx)
+                        .await
+                        .map_err(|error| match error {
+                            PrepareError::Vendor(error) => error,
+                            PrepareError::Boot(message) => {
+                                VendorError::Other(failure(FailureKind::Apple(AppleKind::Boot), message))
+                            }
+                        })
+                }),
+            ))
+            .await
+            .map_err(|error| {
+                if error.failure().kind == FailureKind::Apple(AppleKind::Boot) {
+                    PrepareError::Boot(error.failure().message.to_owned().unwrap_or_default())
+                } else {
+                    PrepareError::Vendor(error)
+                }
+            });
             result.complete(Ok(outcome));
             device.state().preparations.retain(|p| !Arc::ptr_eq(p, &running));
             running.done.complete(Ok(()));

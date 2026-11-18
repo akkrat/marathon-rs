@@ -1081,14 +1081,13 @@ impl AppleSimulatorProvider {
         };
         let done = SharedDeferred::new();
         let result = done.clone();
-        self.update_tasks.spawn(self.services.runtime.as_ref(), async move {
-            result.complete(
+        // D84: published even if processing panics, since nothing else ends this wait.
+        self.update_tasks
+            .spawn_published(self.services.runtime.as_ref(), result, async move {
                 this.process(snapshot, caller)
                     .await
-                    .map_err(ProvisioningError::into_vendor),
-            );
-            Ok(())
-        });
+                    .map_err(ProvisioningError::into_vendor)
+            });
         done.wait().await.map(|_| ())
     }
     async fn dispatch<T: Clone + Send + Sync + 'static>(
@@ -1097,10 +1096,9 @@ impl AppleSimulatorProvider {
     ) -> VendorResult<T> {
         let done = SharedDeferred::new();
         let result = done.clone();
-        self.operations.spawn(self.services.runtime.as_ref(), async move {
-            result.complete(work.await);
-            Ok(())
-        });
+        // D84: published even if the work panics, since nothing else ends this wait.
+        self.operations
+            .spawn_published(self.services.runtime.as_ref(), result, work);
         done.wait().await.map(|value| (*value).clone())
     }
     async fn initialize_inner(self: Arc<Self>, caller: VendorContext) -> VendorResult<()> {
@@ -1269,10 +1267,11 @@ impl DeviceProvider for AppleSimulatorProvider {
             if start {
                 let this = self.this()?;
                 let result = done.clone();
-                self.operations.spawn(self.services.runtime.as_ref(), async move {
-                    result.complete(this.terminate_inner().await);
-                    Ok(())
-                });
+                // D84: published even if termination panics, since every caller waits on this.
+                self.operations
+                    .spawn_published(self.services.runtime.as_ref(), result, async move {
+                        this.terminate_inner().await
+                    });
             }
             done.wait().await.map(|_| ())
         })

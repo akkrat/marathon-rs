@@ -10,7 +10,9 @@ use marathon_apple::{
     apple_device_test_runner::{AppleDeviceTestRunner, RunError},
     bin::AppleBinaryEnvironment,
     cmd::{
-        CommandResult, failure, remote::ssh::sshj::config::SshLogging, retained_tasks::RetainedTasks,
+        CommandResult, failure,
+        remote::ssh::sshj::config::SshLogging,
+        retained_tasks::{RetainedTasks, panic_as_error},
         shared_transfers::SharedTransfers,
     },
     device::connection_factory::{Bridge, Executor},
@@ -394,8 +396,9 @@ impl MacosDevice {
             let first_complete = outcome_cell.clone();
             let complete = cell.clone();
             self.tasks.spawn(&*self.options.dependencies.io, async move {
+                // D84: a panic is published to the callers too.
                 let outcome = if let Some(batch) = running {
-                    device.join_cancelled(&batch).await
+                    panic_as_error(device.join_cancelled(&batch)).await
                 } else {
                     Ok(())
                 };
@@ -638,8 +641,8 @@ impl Device for MacosDevice {
                 let outcome = if let Some(reason) = running.cancellation.reason() {
                     Err(VendorError::Cancelled(reason))
                 } else {
-                    device
-                        .run(configuration, pool, batch, result, own_context, caller_cancellation)
+                    // D84: a panic is this batch's error too, so that the caller and disposal hear of its end.
+                    panic_as_error(device.run(configuration, pool, batch, result, own_context, caller_cancellation))
                         .await
                 };
                 {

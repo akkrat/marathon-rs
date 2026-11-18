@@ -3,7 +3,10 @@
 use marathon_logging::Level;
 
 use crate::{
-    cmd::{CommandSession, SessionScope, cancelled, failure, millis, remote::ssh::sshj::config::SshLogging},
+    cmd::{
+        CommandSession, SessionScope, cancelled, failure, millis, remote::ssh::sshj::config::SshLogging,
+        retained_tasks::panic_as_error,
+    },
     test::TestEvent,
 };
 use jcompat::jtime::Duration;
@@ -236,10 +239,12 @@ impl XcodebuildSession {
             let started = ctx.clock.now_millis();
             let clock = ctx.clock.clone();
             // The opener owns transport acquisition cleanup; never drop it at cancellation.
+            // D84: a panic in the opener, the consumer or the close is the session's error, so that the reader and
+            // `close` still hear of its end (U206).
             let opened = if let Some(reason) = this.cancellation.reason() {
                 Err(VendorError::Cancelled(reason))
             } else {
-                open(ctx.clone()).await
+                panic_as_error(open(ctx.clone())).await
             };
             let mut command = None;
             let result = match opened {
@@ -248,7 +253,7 @@ impl XcodebuildSession {
                     command = Some(value.clone());
                     tokio::select! { biased;
                         reason=this.cancellation.cancelled()=>Err(VendorError::Cancelled(reason)),
-                        result=consume(value, sender.clone(), ctx)=>result,
+                        result=panic_as_error(consume(value, sender.clone(), ctx))=>result,
                     }
                 }
                 Err(error) => Err(error),
@@ -284,7 +289,7 @@ impl XcodebuildSession {
                 }
             }
             let close_failure = if let Some(command) = command {
-                command.close().await.err().map(|e| e.failure().clone())
+                panic_as_error(command.close()).await.err().map(|e| e.failure().clone())
             } else {
                 None
             };
