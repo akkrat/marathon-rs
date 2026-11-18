@@ -1970,3 +1970,143 @@ fn a_queue_that_fails_while_its_pool_shuts_down_still_ends_the_run_d68() {
         });
     }
 }
+
+/// Holds the first Track of a test result until the gate opens, as a slow tracker backend would.
+struct HeldTrack(Arc<RecordingTracker>, Gate, std::sync::atomic::AtomicBool);
+impl marathon_core::wiring::Tracker for HeldTrack {
+    fn device_connected<'a>(&'a self, p: &'a DevicePoolId, d: &'a DeviceInfo) -> VendorFuture<'a, ()> {
+        marathon_core::wiring::Tracker::device_connected(self.0.as_ref(), p, d)
+    }
+    fn device_disconnected<'a>(&'a self, p: &'a DevicePoolId, d: &'a DeviceInfo) -> VendorFuture<'a, ()> {
+        marathon_core::wiring::Tracker::device_disconnected(self.0.as_ref(), p, d)
+    }
+    fn device_provider_init<'a>(
+        &'a self,
+        s: &'a str,
+        a: jcompat::jtime::Instant,
+        b: jcompat::jtime::Instant,
+    ) -> VendorFuture<'a, ()> {
+        marathon_core::wiring::Tracker::device_provider_init(self.0.as_ref(), s, a, b)
+    }
+    fn device_preparing<'a>(
+        &'a self,
+        s: &'a str,
+        a: jcompat::jtime::Instant,
+        b: jcompat::jtime::Instant,
+    ) -> VendorFuture<'a, ()> {
+        marathon_core::wiring::Tracker::device_preparing(self.0.as_ref(), s, a, b)
+    }
+    fn test<'a>(&'a self, p: &'a DevicePoolId, d: &'a DeviceInfo, r: &'a TestResult, f: bool) -> VendorFuture<'a, ()> {
+        let hold = !self.2.swap(true, std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async move {
+            if hold {
+                self.1.wait().await;
+            }
+            marathon_core::wiring::Tracker::test(self.0.as_ref(), p, d, r, f).await
+        })
+    }
+}
+
+/// D84, review round 1: a result delivered to a queue before a failure still reaches the Track. A's test1 ends first
+/// and its Track is held; B's test2 then ends and its result waits in the queue's mailbox. The device subscription
+/// fails while both are there. Cancelling the queue at once would discard B's result with the mailbox; the queue now
+/// takes what was delivered to it before it is stopped, and the run still ends with the subscription's cause.
+#[test]
+fn a_result_delivered_to_the_queue_before_a_failure_is_still_tracked_d84() {
+    scheduling_test(|h| {
+        Box::pin(async move {
+            let gate = Gate::default();
+            let run = Run::new_with_shard(
+                &h,
+                waiting(),
+                Arc::new(HeldTrack(h.tracker.clone(), gate.clone(), Default::default())),
+                tests(2, "marathon_core::execution::scheduler"),
+            );
+            h.run_current().await;
+            let a = device("serial-A", "test", 100, false);
+            let b = device("serial-B", "test", 200, false);
+            run.connect(&a);
+            run.connect(&b);
+            advance(&h, 300).await;
+            assert_eq!((a.batches().len(), b.batches().len()), (1, 1));
+            assert!(
+                h.tracker.events().is_empty(),
+                "A's Track is held: {:?}",
+                h.tracker.events()
+            );
+            run.provider.channel.close(Some(ise("device events failed")));
+            h.run_current().await;
+            gate.open();
+            h.advance_until_idle().await;
+            let tracked = h.tracker.events();
+            assert!(
+                tracked
+                    .iter()
+                    .any(|event| event.starts_with("test2 PASSED") && event.ends_with("on serial-B")),
+                "B's delivered result was not tracked: {tracked:?}"
+            );
+            match run.result.borrow().as_ref() {
+                Some((300, Err(VendorError::Other(cause)))) => {
+                    assert_eq!(cause.message.as_deref(), Some("device events failed"));
+                }
+                other => panic!("expected the subscription's cause at 300 ms, got {other:?}"),
+            }
+            assert_eq!(
+                run.scheduler.job().state(),
+                JobState::Completed(Completion::Cancelled(Cancellation::Requested(ise(
+                    "device events failed"
+                ))))
+            );
+            run.finish(&h).await;
+        })
+    });
+}
+
+/// D84, review round 1: `execute` unwinding (a panic in it, here its future dropped mid-run, which drops the same
+/// state) stops the detached pools. Before, nothing stopped them, and they ran on while the run finished.
+#[test]
+fn a_scheduler_that_stops_before_it_returns_stops_its_pools_d84() {
+    scheduling_test(|h| {
+        Box::pin(async move {
+            let run = Run::manual(
+                &h,
+                waiting(),
+                h.tracker.clone(),
+                tests(1, "marathon_core::execution::scheduler"),
+                Arc::new(Analytics::from_lookup(Arc::new(NoMetrics))),
+            );
+            let gate = Gate::default();
+            let (scheduler, stop) = (run.scheduler.clone(), gate.clone());
+            h.core.spawn(
+                run.parent.clone(),
+                Box::new(move |_| {
+                    Box::pin(async move {
+                        let execute = scheduler.execute();
+                        tokio::pin!(execute);
+                        let _ = futures_util::future::select(execute, Box::pin(stop.wait())).await;
+                        Ok(())
+                    })
+                }),
+            );
+            h.run_current().await;
+            let a = device("serial-A", "test", -1, false);
+            run.connect(&a);
+            advance(&h, 500).await;
+            assert_eq!(a.batches().len(), 1);
+            let (_, pool) = run.scheduler.pools().remove(0);
+            assert!(!pool.terminated());
+            gate.open();
+            h.run_current().await;
+            assert!(
+                matches!(
+                    run.scheduler.job().state(),
+                    JobState::Completed(Completion::Cancelled(_))
+                ),
+                "{}",
+                run.scheduler.state_dump()
+            );
+            assert!(pool.terminated(), "the pool still runs");
+            run.finish(&h).await;
+        })
+    });
+}

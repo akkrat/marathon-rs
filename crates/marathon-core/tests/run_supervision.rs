@@ -8,7 +8,7 @@
 use marathon_config::{Configuration, schema::BatchingStrategyConfiguration};
 use marathon_core::{
     error::*,
-    executor::shared::{SharedChannel, failure, requested},
+    executor::shared::{SharedChannel, SharedDeferred, Signal, failure, requested},
     model::{BatchRef, DeviceInfo, DevicePoolId, Test, TestBatchResults, TestStatus},
     runtime::{Deferred, EventChannel, VendorFuture},
     time::{ClockResult, Timer},
@@ -126,11 +126,34 @@ fn assert_failed_run(outcome: &Outcome, ends_before: i64) {
 /// A Stub device with one call changed.
 struct Hooked {
     inner: Arc<StubDevice>,
-    /// Panics when the pool reads the device's worker, as it does when the device asks for a batch.
+    /// Panics when the pool reads the device's worker, as it does when the device asks for a batch; completes
+    /// `panicking` first.
     worker_panics: bool,
+    panicking: Option<Arc<SharedDeferred<()>>>,
     /// Fails the provider's device channel this long after preparation starts, or cancels it if `cancel_events`.
     fail_events: Option<(Arc<SharedChannel<DeviceEvent>>, i64)>,
     cancel_events: bool,
+    /// What a cancelled batch does before its call returns.
+    after_cancel: AfterCancel,
+}
+#[derive(Default)]
+enum AfterCancel {
+    #[default]
+    Nothing,
+    /// Cleans up for this long, ignoring the cancellation, then sets the flag.
+    CleansUp(i64, Arc<AtomicBool>),
+    /// Waits until this is completed, as a call waiting for a connection that only the provider's termination closes.
+    WaitsFor(Arc<SharedDeferred<()>>),
+}
+fn hooked(inner: Arc<StubDevice>) -> Hooked {
+    Hooked {
+        inner,
+        worker_panics: false,
+        panicking: None,
+        fail_events: None,
+        cancel_events: false,
+        after_cancel: AfterCancel::Nothing,
+    }
 }
 impl Device for Hooked {
     fn info(&self) -> DeviceInfo {
@@ -141,6 +164,9 @@ impl Device for Hooked {
     }
     fn worker_id(&self) -> Option<String> {
         if self.worker_panics {
+            if let Some(panicking) = &self.panicking {
+                panicking.complete(Ok(()));
+            }
             panic!("{PROBE}: the pool's handler panicked");
         }
         self.inner.worker_id()
@@ -172,7 +198,25 @@ impl Device for Hooked {
         result: Arc<Deferred<TestBatchResults>>,
         context: VendorContext,
     ) -> VendorFuture<'a, ()> {
-        self.inner.execute(configuration, pool, batch, result, context)
+        Box::pin(async move {
+            let outcome = self
+                .inner
+                .execute(configuration, pool, batch, result, context.clone())
+                .await;
+            if let Err(VendorError::Cancelled(_)) = &outcome {
+                match &self.after_cancel {
+                    AfterCancel::Nothing => {}
+                    AfterCancel::CleansUp(millis, done) => {
+                        let _ = context.clock.delay(*millis, Signal::new()).await;
+                        done.store(true, Ordering::SeqCst);
+                    }
+                    AfterCancel::WaitsFor(released) => {
+                        let _ = released.wait().await;
+                    }
+                }
+            }
+            outcome
+        })
     }
     fn dispose(&self) -> VendorFuture<'_, ()> {
         self.inner.dispose()
@@ -224,10 +268,8 @@ fn a_queue_handler_cancelled_on_its_own_ends_the_run_with_the_cause_d84() {
 fn a_pool_that_panics_ends_the_run_with_the_panic_d84() {
     let (factory, script) = script();
     let ready = connect(|_| Hooked {
-        inner: stub("serial-2", "modelA", 8_000),
         worker_panics: true,
-        fail_events: None,
-        cancel_events: false,
+        ..hooked(stub("serial-2", "modelA", 8_000))
     });
     let outcome = scenario::drive(factory, script, None, ready);
     assert_failed_run(&outcome, SECOND_TEST_ENDS);
@@ -241,10 +283,8 @@ fn a_pool_that_panics_ends_the_run_with_the_panic_d84() {
 fn a_failed_device_subscription_stops_the_pools_before_the_run_ends_d84() {
     let (factory, script) = script();
     let ready = connect(|channel| Hooked {
-        inner: stub("serial-2", "modelZ", 600_000),
-        worker_panics: false,
         fail_events: Some((channel, 8_000)),
-        cancel_events: false,
+        ..hooked(stub("serial-2", "modelZ", 600_000))
     });
     let outcome = scenario::drive(factory, script, None, ready);
     assert_failed_run(&outcome, SECOND_TEST_ENDS);
@@ -257,10 +297,9 @@ fn a_failed_device_subscription_stops_the_pools_before_the_run_ends_d84() {
 fn a_cancelled_device_subscription_ends_the_run_with_the_cause_d84() {
     let (factory, script) = script();
     let ready = connect(|channel| Hooked {
-        inner: stub("serial-2", "modelZ", 600_000),
-        worker_panics: false,
         fail_events: Some((channel, 8_000)),
         cancel_events: true,
+        ..hooked(stub("serial-2", "modelZ", 600_000))
     });
     let outcome = scenario::drive(factory, script, None, ready);
     assert_failed_run(&outcome, SECOND_TEST_ENDS);
@@ -309,4 +348,125 @@ fn a_run_task_that_panics_fails_the_run_with_the_panic_d84() {
     assert!(matches!(outcome.value, Some(Ok(false))), "{:?}", outcome.value);
     assert_eq!(run_failure(&outcome), [format!("{PROBE}: the run task panicked")]);
     assert!(outcome.open_mailboxes.iter().all(|label| !label.ends_with("Actor")));
+}
+
+/// Before the run starts: a hooked device that fails the device channel at 3,000 ms, while `serial-1` and `serial-3`
+/// run test1 and test2 (1,000 to 6,000 ms); `serial-3` does `after_cancel` when its batch is cancelled. `terminate`
+/// runs when the provider is terminated.
+fn fail_while_running(after_cancel: AfterCancel, terminate: impl Fn() + Send + Sync + 'static) -> Option<Ready> {
+    let terminate = Arc::new(terminate);
+    Some(Box::new(move |built| {
+        let channel = built.provider.channel();
+        for device in [
+            Hooked {
+                fail_events: Some((channel, 3_000)),
+                ..hooked(stub("serial-2", "modelZ", 600_000))
+            },
+            Hooked {
+                after_cancel,
+                ..hooked(stub("serial-3", "modelA", 1_000))
+            },
+        ] {
+            assert!(built.provider.send(DeviceEvent::Connected(DeviceRef(Arc::new(device)))));
+        }
+        *built.provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
+            terminate();
+            Box::pin(async { Ok(()) })
+        }));
+    }))
+}
+
+fn logged(outcome: &Outcome, level: Level, text: &str) -> bool {
+    outcome
+        .lines
+        .iter()
+        .any(|line| matches!(line, Line::Log { level: l, message, .. } if *l == level && message.contains(text)))
+}
+
+/// D84, review round 1: the run waits for its devices to stop after a failure before it closes anything. `serial-3`'s
+/// cancelled batch takes 3 s to clean up; the provider is terminated, and the reports written, only after that.
+#[test]
+fn the_run_waits_for_a_cancelled_batch_to_clean_up_before_it_finishes_d84() {
+    let (factory, script) = script();
+    let cleaned = Arc::new(AtomicBool::new(false));
+    let cleaned_before_terminate = Arc::new(AtomicBool::new(false));
+    let (done, seen) = (cleaned.clone(), cleaned_before_terminate.clone());
+    let ready = fail_while_running(AfterCancel::CleansUp(3_000, cleaned.clone()), move || {
+        seen.store(done.load(Ordering::SeqCst), Ordering::SeqCst);
+    });
+    let outcome = scenario::drive(factory, script, None, ready);
+    assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
+    assert!(cleaned.load(Ordering::SeqCst));
+    assert!(
+        cleaned_before_terminate.load(Ordering::SeqCst),
+        "the provider was terminated while a cancelled batch was still cleaning up"
+    );
+    assert_eq!(outcome.completed_at, Some(6_000));
+    assert_eq!(run_failure(&outcome), [format!("{PROBE}: the device events failed")]);
+}
+
+/// D84, review round 1: a cancelled batch whose call only ends when the provider is terminated cannot hold the run for
+/// ever. The failure is logged when it happens; the run waits D52's limit (24 s) for the devices, then finishes, and its
+/// termination releases the call.
+#[test]
+fn a_device_call_waiting_for_the_runs_end_holds_it_only_for_a_limited_time_d84() {
+    let (factory, script) = script();
+    let released = SharedDeferred::new();
+    let release = released.clone();
+    let ready = fail_while_running(AfterCancel::WaitsFor(released.clone()), move || {
+        release.complete(Ok(()));
+    });
+    let outcome = scenario::drive(factory, script, None, ready);
+    assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
+    assert_eq!(outcome.completed_at, Some(3_000 + 24_000));
+    assert!(released.completed().is_some());
+    assert!(logged(
+        &outcome,
+        Level::ERROR,
+        "The run's own machinery failed; stopping the run"
+    ));
+    assert!(logged(
+        &outcome,
+        Level::ERROR,
+        "The pools and devices did not stop within 24 s of the failure; finishing the run anyway"
+    ));
+    assert_eq!(run_failure(&outcome), [format!("{PROBE}: the device events failed")]);
+}
+
+/// D84, review round 1: after the Scheduler has returned, while the run finishes, a late device starts a pool that then
+/// fails. The run had read success; it now fails with the pool's cause, and the late pool is stopped.
+#[test]
+fn a_pool_that_fails_while_the_run_finishes_fails_the_run_d84() {
+    let (factory, script) = script();
+    let ready: Option<Ready> = Some(Box::new(|built| {
+        let channel = built.provider.channel();
+        let panicking = SharedDeferred::new();
+        let late = Arc::new(Hooked {
+            worker_panics: true,
+            panicking: Some(panicking.clone()),
+            ..hooked(stub("serial-2", "modelZ", 1_000))
+        });
+        *built.provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
+            let (channel, late, panicking) = (channel.clone(), late.clone(), panicking.clone());
+            Box::pin(async move {
+                // Connects while the run terminates the provider, and holds the termination until the device's pool
+                // has asked for a batch, which panics.
+                let _ = channel.try_send(DeviceEvent::Connected(DeviceRef(late)));
+                let _ = panicking.wait().await;
+                Ok(())
+            })
+        }));
+    }));
+    let outcome = scenario::drive(factory, script, None, ready);
+    assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
+    assert!(matches!(outcome.value, Some(Ok(false))), "{:?}", outcome.value);
+    assert_eq!(run_failure(&outcome), [format!("{PROBE}: the pool's handler panicked")]);
+    let raw: Value = serde_json::from_str(&outcome.read("test_result/raw.json")).unwrap();
+    assert_eq!(raw.as_array().unwrap().len(), 2, "{raw}");
+    let alive = outcome
+        .open_mailboxes
+        .iter()
+        .filter(|label| label.ends_with("Actor"))
+        .collect::<Vec<_>>();
+    assert!(alive.is_empty(), "actors still alive after the run: {alive:?}");
 }

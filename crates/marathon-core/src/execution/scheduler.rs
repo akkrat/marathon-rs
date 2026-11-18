@@ -11,7 +11,7 @@ use crate::{
         DevicePoolMessage, FromScheduler,
         pool::{DevicePool, DevicePoolActor, PoolParts},
         progress::{PoolProgressAccumulator, ProgressServices},
-        queue::{QueueActor, SharedProgress},
+        queue::{QueueActor, QueueMessage, SharedProgress},
     },
     executor::{CoreExecutor, shared::*},
     model::{DevicePoolId, TestShard},
@@ -30,6 +30,11 @@ use marathon_logging::Level;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 const LOGGER: &str = "marathon_core::execution::scheduler";
+
+/// D84: how long the run waits for its pools, queues and devices to stop after an internal failure before it finishes
+/// anyway: D52's limit for the cleanup after a signal. A device call that waits for something only the run's end
+/// releases (the provider's termination) must not hold the run for ever.
+pub const FAILURE_STOP_LIMIT_MILLIS: i64 = crate::marathon::CANCEL_LIMIT_MILLIS;
 
 /// The Kotlin constructor's parameters, plus what the accumulators and actors need on core.
 /// `context` is the run's coroutine context: the subscription is its child.
@@ -54,6 +59,7 @@ pub struct Scheduler {
     inner: Rc<Inner>,
 }
 struct Inner {
+    myself: std::rc::Weak<Inner>,
     parts: SchedulerParts,
     /// `Job()`: detached, the parent of every pool actor and pool supervisor.
     job: JobRef,
@@ -64,8 +70,13 @@ struct Inner {
     /// D68: a console failure is logged once per run.
     console_warned: Rc<std::cell::Cell<bool>>,
     /// D68, D84: the first error the run's own machinery ended with: a pool's queue (set by the queue job's completion,
-    /// whether or not its pool is still there to hear of it), a pool, or the device subscription.
-    fatal: Rc<RefCell<Option<Failure>>>,
+    /// whether or not its pool is still there to hear of it), a pool, or the device subscription. Kept for the whole
+    /// run, so that a failure after `execute` has returned still reaches the run's outcome.
+    fatal: RefCell<Option<Failure>>,
+    /// D84: while `execute` waits, the job it waits under; a failure cancels it to end the wait. None before and after.
+    waiter: RefCell<Option<JobRef>>,
+    /// The device subscription, which a failure stops with the pools.
+    subscription: RefCell<Option<JobRef>>,
 }
 
 fn operation_to_vendor(error: OperationError) -> VendorError {
@@ -86,7 +97,8 @@ impl Scheduler {
         let job = parts.core.job(JobKind::Ordinary, None);
         let pooling = PoolingStrategy::from_config(&parts.configuration.pooling_strategy);
         Self {
-            inner: Rc::new(Inner {
+            inner: Rc::new_cyclic(|myself| Inner {
+                myself: myself.clone(),
                 parts,
                 job,
                 pools: RefCell::new(IndexMap::new()),
@@ -94,7 +106,9 @@ impl Scheduler {
                 pooling,
                 phase: std::cell::Cell::new("not-started"),
                 console_warned: Rc::default(),
-                fatal: Rc::default(),
+                fatal: RefCell::new(None),
+                waiter: RefCell::new(None),
+                subscription: RefCell::new(None),
             }),
         }
     }
@@ -139,30 +153,76 @@ impl Scheduler {
             .collect()
     }
 
+    /// D84: the first failure of the run's own machinery, also one after `execute` has returned (a pool that a late
+    /// device started while the run finishes). The run reads it once its reports are written.
+    pub fn failure(&self) -> Option<Failure> {
+        self.inner.fatal.borrow().clone()
+    }
+
     /// `true` if the scheduled tests passed. Without a pool before
     /// `deviceInitializationTimeoutMillis`, NoDevices with an empty message.
     pub async fn execute(&self) -> VendorResult<bool> {
-        let result = self.execute_inner().await;
-        // D84: whatever ended the wait (a failed subscription cancels the run's context, and with it every join above),
-        // a fatal error stops the pools and devices and is waited for, so nothing still runs while the reports are
-        // written. A D52 cancel records nothing here; its own path stops the run.
-        let fatal = self.inner.fatal.borrow_mut().take();
+        // D84: an unwind out of here (a panic) stops the detached pools, which nothing else would stop before the run
+        // finishes. A normal return disarms it: pools that join late keep D65's behaviour.
+        let mut unwinding = StopOnUnwind(Some(self.inner.clone()));
+        let context = &self.inner.parts.context;
+        // D84: the waits below run under this job, so that a failure, which cancels it, ends them whatever they wait on.
+        let waiter = self.inner.parts.core.job(JobKind::Ordinary, Some(context.job.clone()));
+        *self.inner.waiter.borrow_mut() = Some(waiter.clone());
+        let result = self.execute_inner(&waiter).await;
+        self.inner.waiter.borrow_mut().take();
+        waiter.cancel(requested("The scheduler has finished waiting"));
+        let fatal = self.inner.fatal.borrow().clone();
         let result = match fatal {
             Some(cause) => {
-                self.inner.phase.set("stopping-after-failure");
-                self.inner.job.cancel(Cancellation::Requested(cause.clone()));
-                let _ = self.inner.job.join().await;
+                self.stop_after_failure(&cause).await;
                 Err(VendorError::Other(cause))
             }
             None => result,
         };
+        unwinding.0.take();
         self.inner.phase.set("finished");
         result
     }
 
-    async fn execute_inner(&self) -> VendorResult<bool> {
+    /// D84: the devices were stopped when the failure was recorded. Each queue now takes what was delivered to it before
+    /// (a result sent before the failure reaches the reports), then everything is cancelled and waited for, within
+    /// D52's limit.
+    async fn stop_after_failure(&self, cause: &Failure) {
         let inner = &self.inner;
-        let context = inner.parts.context.clone();
+        inner.phase.set("stopping-after-failure");
+        let pools: Vec<DevicePool> = inner.pools.borrow().values().cloned().collect();
+        let stopping = async {
+            for pool in &pools {
+                let (taken, answer) = tokio::sync::oneshot::channel();
+                if pool.queue.try_send(QueueMessage::IsEmpty(taken)) {
+                    let queue = pool.queue.job();
+                    let _ = race(answer, queue.join()).await;
+                }
+            }
+            inner.job.cancel(Cancellation::Requested(cause.clone()));
+            let _ = inner.job.join().await;
+        };
+        let timer = inner.parts.core.job(JobKind::Ordinary, None);
+        let limit = inner.parts.core.clock();
+        let stopped = race(stopping, limit.delay(FAILURE_STOP_LIMIT_MILLIS, timer.clone())).await;
+        timer.cancel(requested("The pools have stopped"));
+        if let Either::Right(_) = stopped {
+            inner.job.cancel(Cancellation::Requested(cause.clone()));
+            inner.log(
+                Level::ERROR,
+                format!(
+                    "The pools and devices did not stop within {} s of the failure; finishing the run anyway",
+                    FAILURE_STOP_LIMIT_MILLIS / 1000
+                ),
+                None,
+            );
+        }
+    }
+
+    async fn execute_inner(&self, waiter: &JobRef) -> VendorResult<bool> {
+        let inner = &self.inner;
+        let context = inner.parts.core.context(waiter.clone());
         Inner::subscribe_on_devices(inner.clone());
         inner.phase.set("waiting-for-pools");
         let timeouts = inner.parts.core.timeouts();
@@ -238,6 +298,19 @@ impl Scheduler {
     }
 }
 
+/// D84: cancels the Scheduler's tree if `execute` unwinds instead of returning.
+struct StopOnUnwind(Option<Rc<Inner>>);
+impl Drop for StopOnUnwind {
+    fn drop(&mut self) {
+        if let Some(inner) = self.0.take() {
+            if let Ok(mut waiter) = inner.waiter.try_borrow_mut() {
+                waiter.take();
+            }
+            inner.job.cancel(requested("The scheduler stopped before it finished"));
+        }
+    }
+}
+
 /// `Job.cancel()` without a cause.
 fn job_was_cancelled() -> Cancellation {
     Cancellation::Requested(failure(FailureKind::JobCancelled, "Job was cancelled"))
@@ -253,9 +326,12 @@ fn text(parts: &[&dyn Fn(&mut String)]) -> String {
 
 impl Inner {
     fn debug(&self, message: String) {
+        self.log(Level::DEBUG, message, None);
+    }
+    fn log(&self, level: Level, message: String, cause: Option<Failure>) {
         let core = &self.parts.core;
         core.log_queue()
-            .log(LOGGER, core.clock().now_millis(), Level::DEBUG, message, None);
+            .log(LOGGER, core.clock().now_millis(), level, message, cause);
     }
 
     /// Launched in the run's context, not under `job`: a NoDevices timeout leaves it running.
@@ -297,23 +373,62 @@ impl Inner {
                 })
             }),
         );
-        // D84: a failed subscription fails the run's context, which ends `execute`'s waits, but not the detached pools.
+        // D84: a failed subscription fails the run's context, but not the detached pools.
         inner.fail_with(&subscription);
+        *inner.subscription.borrow_mut() = Some(subscription.clone());
         subscription
     }
 
-    /// D68, D84: `job` is part of the run's own machinery. If it ends with an error, every pool is stopped as a D52
-    /// cancel stops them, and the first such cause is kept for `execute`.
+    /// D68, D84: `job` is part of the run's own machinery. If it ends with an error, that is the run's failure.
     fn fail_with(&self, job: &JobRef) {
-        let fatal = self.fatal.clone();
-        let scheduler = Rc::downgrade(&self.job);
+        let inner = self.myself.clone();
         job.invoke_on_completion(Box::new(move |completion| {
-            let Completion::Failed(cause) = completion else { return };
-            fatal.borrow_mut().get_or_insert_with(|| cause.clone());
-            if let Some(job) = scheduler.upgrade() {
-                job.cancel(Cancellation::Requested(cause));
+            if let (Completion::Failed(cause), Some(inner)) = (completion, inner.upgrade()) {
+                inner.fail(cause);
             }
         }));
+    }
+
+    /// D68, D84: the first failure is kept and logged at once, before anything waits for the run to stop. While
+    /// `execute` waits, the devices and the subscription stop now, as a D52 cancel stops them, and the pools and queues
+    /// are left to take what was already delivered to them (`stop_after_failure`). After `execute` has returned
+    /// everything stops at once, and the run hears of the failure when its reports are written.
+    fn fail(&self, cause: Failure) {
+        if self.fatal.borrow().is_some() {
+            return;
+        }
+        *self.fatal.borrow_mut() = Some(cause.clone());
+        self.log(
+            Level::ERROR,
+            "The run's own machinery failed; stopping the run".into(),
+            Some(cause.clone()),
+        );
+        let reason = Cancellation::Requested(cause);
+        let subscription = self.subscription.borrow().clone();
+        if let Some(subscription) = subscription {
+            subscription.cancel(reason.clone());
+        }
+        let waiter = self.waiter.borrow().clone();
+        let Some(waiter) = waiter else {
+            self.job.cancel(reason);
+            return;
+        };
+        match self.pools.try_borrow() {
+            Ok(pools) => {
+                let pools: Vec<DevicePool> = pools.values().cloned().collect();
+                // The pools stay: a queue that replies to a closed pool ends there, with what is left in its mailbox.
+                for pool in pools {
+                    let queue = pool.queue.job();
+                    for child in pool.supervisor.children_snapshot() {
+                        if !Rc::ptr_eq(&child, &queue) {
+                            child.cancel(reason.clone());
+                        }
+                    }
+                }
+            }
+            Err(_) => self.job.cancel(reason.clone()),
+        }
+        waiter.cancel(reason);
     }
 
     fn on_device_disconnected(&self, device: DeviceRef) -> OperationResult<()> {

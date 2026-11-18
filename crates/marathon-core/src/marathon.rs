@@ -622,6 +622,11 @@ impl Marathon {
         };
 
         self.on_finish(task.job.cancellation_signal()).await?;
+        // D84: the run's machinery can still fail after the Scheduler has returned, in a pool a late device started while
+        // the run finished. That failure stopped it, and it is the run's outcome.
+        if let Some(cause) = scheduler.failure() {
+            return Err(VendorError::Other(cause));
+        }
         Ok(result)
     }
 
