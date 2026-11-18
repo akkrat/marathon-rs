@@ -51,6 +51,15 @@ The section for a version becomes the text of its GitHub release, which carries 
   for capacity. Metrics can be lost if the wait expires, the backend is cooling off, admission closes,
   the delivery task stops, or shutdown reaches its deadline. Gaps can affect the flakiness and duration history
   used by later runs (D86).
+- **A device that cannot be prepared leaves sooner (D87):** a device's preparation, the retries inside it and an iOS
+  simulator's replacements after a failed boot now share one deadline, the greater of `deviceInitializationTimeoutMillis`
+  and what one preparation can take with its retries at their limits (550 s on iOS, about 18 minutes on Android with an
+  app and its test app, 752 s on macOS, with the default timeouts). No retry or replacement starts after it, and nothing
+  already running is stopped, transfers included. An iOS simulator whose readiness probe never succeeds now leaves after
+  one replacement, in about 9 to 12 minutes instead of 26 to 33, an Android device whose install keeps timing out in about
+  19 minutes instead of 96, and a Mac whose commands hang in about 13 instead of 30 (estimates for those cases with the
+  defaults). Healthy runs, and a device that fails once and then gets ready, are unchanged. Raise
+  `deviceInitializationTimeoutMillis` to give slow devices longer (U209).
 
 ## 0.14.0
 

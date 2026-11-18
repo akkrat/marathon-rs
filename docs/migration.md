@@ -125,13 +125,14 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 | have devices that go `offline` often ([D41](deviations.md#d41--a-brief-offline-does-not-lose-the-device)) | A device gets up to 10 s to come back, at most 5 times per adb server in a run. The count is never reset. From the sixth `offline` on the device is disconnected at once, as in Kotlin. | Fix the transport. A device that drops more than five times in one run is lost for the rest of that run. |
 | filter adb shell commands or run Android through intermittent adb outages ([D85](deviations.md#d85--android-checks-the-boot-before-resuming-tests)) | Marathon reads `/proc/sys/kernel/random/boot_id` and writes, reads and removes a per-preparation marker under `/data/local/tmp`. A full reboot or a snapshot from before preparation gets fresh setup when the boot ID changes or the marker disappears. An unchanged kernel ID and marker can hide a restart of a shared-kernel container that preserves the marker while resetting other state. Marathon gives a still-listed device one more setup after preparation exhausts its retries, within the existing return deadline. | Allow the boot ID read and marker operations if you filter adb commands. Existing Marathonfiles need no changes. |
 | rely on a run failing quickly when it loses all its devices ([D48](deviations.md#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)) | A pool with tests left waits up to `deviceInitializationTimeoutMillis` (180 s by default), from when its last working device went away (or a test that device reports after leaving ended), for a device that comes back and gets ready before it ends, and then for the devices leaving to finish cleaning up. A killed emulator alone exits 1 after about 180 s, not 12.5 s. | Lower `deviceInitializationTimeoutMillis`, which also bounds the wait for the first device. |
+| have devices that need many slow retries before they get ready ([D87](deviations.md#d87--a-devices-preparation-has-one-deadline)) | A device's preparation, its retries and an iOS simulator's replacements after a failed boot share one deadline: the greater of `deviceInitializationTimeoutMillis` and one preparation's limits (550 s on iOS, 1,104 s on Android with an app and its test app, 752 s on macOS, with the defaults). No retry or replacement starts after it; nothing running is stopped. A device that keeps failing slowly leaves in about 9 to 12 minutes on iOS, 19 on Android and 13 on macOS (scenario estimates) instead of up to 33, 96 and 30. A preparation that fails at once keeps its 30 attempts with the default timeouts; shorter timeouts and wait can make the deadline shorter than those 30 attempts (290 s). | Raise `deviceInitializationTimeoutMillis` to give such devices longer; it also bounds the wait for the first device and D48's wait. |
 | use `fixed-size` batching with flaky copies or several test APKs, and set `testBatchTimeoutMillis` close to what a batch took ([D50](deviations.md#d50--a-rejected-test-does-not-use-a-batch-slot)) | Only the tests a batch accepts count against `size` and `durationMillis`, so batches that used to end early hold more tests and take longer. | Check `testBatchTimeoutMillis`. [See below](#batches-hold-more-tests-with-flaky-copies-or-several-test-apks). |
 | cancel runs with SIGINT or SIGTERM, or take a run's reports as a sign that it finished ([D52](deviations.md#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit)) | A cancelled run writes its reports and terminates its devices whatever `debug` says, and exits with 130 or 143 within 25 s. A second signal exits at once. | Allow 25 s before killing it, and read the exit code to tell whether a run finished. [See below](#cancelling-a-run). |
 
 These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D22, D23, D26, D28–D30, D34, D36, D37, D40, D42, D45, D49,
 D51, D53, D54, D64–D66, D68–D70, D74–D77 and D80–D84. D65 can include a previously missed late pool, lengthen a run and correct its reports and
 existing exit status; it needs no configuration change. D66 turns a SIGQUIT, which used to end the run at once, into a
-logged state dump; a wrapper that sends SIGQUIT and then SIGTERM now gets the dump, then D52's reports and exit status. D2, D3, D6, D8–D12, D14, D20, D24, D25, D67, D71, D72 and D78 have an action of their own, described in their entries and in the
+logged state dump; a wrapper that sends SIGQUIT and then SIGTERM now gets the dump, then D52's reports and exit status. D2, D3, D6, D8–D12, D14, D20, D24, D25, D67, D71, D72, D78 and D87 have an action of their own, described in their entries and in the
 sections below.
 
 D67 gives ordinary console completion one shared 60-second flush/drain deadline.
@@ -207,6 +208,15 @@ used to hang. iOS device monitoring that panics, or fails with no simulator avai
 with no devices after `deviceInitializationTimeoutMillis`; with simulators connected the run carries on, as before. In runs without a failure, a device that connects while
 the run finishes is no longer admitted, results that had reached a late pool's queue are now always in the reports,
 and a failing provider termination no longer skips the reports.
+
+[D87](deviations.md#d87--a-devices-preparation-has-one-deadline) bounds how long a device that cannot be prepared keeps its
+place: its preparation, the retries inside it and an iOS simulator's replacements after a failed boot share one deadline,
+the greater of `deviceInitializationTimeoutMillis` and what one preparation can take with its retries at their limits. No
+retry or replacement starts after it, and nothing running is stopped by it. A simulator whose readiness probe never
+succeeds now leaves after one replacement, in about 9 to 12 minutes, and an Android device whose install keeps timing out
+in about 19, where they took up to 33 and 96 minutes (scenario estimates with the defaults). Healthy runs and a device that
+fails once are unchanged, and a preparation that fails at once keeps its 30 attempts with the default timeouts; with
+shorter timeouts and a shorter `deviceInitializationTimeoutMillis` the deadline can be shorter than those attempts (290 s). To give slow devices longer, raise `deviceInitializationTimeoutMillis`.
 
 ### A finite `uncompletedTestRetryQuota` (D47)
 
