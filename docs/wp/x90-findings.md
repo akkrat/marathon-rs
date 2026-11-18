@@ -47,7 +47,7 @@ being disposed`, with its own deadline as the device's end for the cleanup) and 
 `cancelled_batch_millis` bound, after the batch and preparations, before the on-dispose lifecycle. The cancelled batch's
 own join (`join_cancelled`) is unchanged.
 
-**One deadline from a stop.** In `process`, the stop branch sets `Bound::at = now + 40 s` on the bridge's vendor clock
+**One deadline from a stop** (as first built; review round 1 below makes it a step runner that sees a stop in any phase, with the same limits). In `process`, the stop branch sets `Bound::at = now + 40 s` on the bridge's vendor clock
 (`STOP_CLEANUP_MILLIS`: D54's 15 s of steps, 20 s of listings, 5 s for the last reap). `Bound::run(real, vendor, body)`
 races a step against its own limit (real time for `ps`, the reap and the readers, vendor time for the 5 s steps) and what
 is left of the deadline, and against the device's deadline in the receipt, read at every step, so one given after the
@@ -146,3 +146,45 @@ None new (no U217). Out of scope and left as described: a Mac's sends are not re
 preparation runs under a context that is never cancelled; the Mac's disposal and lease release are x92's. An orphan
 that `ps` never saw (between two of D31's listings) is neither signalled nor counted by the confirmation; containing it
 needs rsync under a process group or a reaper of the bridge's own (a separate design).
+
+## Review round 1 (Sol 6.2 xhigh, REQUEST_CHANGES: 6 P2, 1 P3)
+
+The orchestrator asked for one primitive rather than six patches. It is two pieces, both in the bridge.
+
+**One watcher, one step runner.** `Inner::transfer` turns the `TransferStop` into a `Stopping` that one future watches
+for the transfer's whole life, beside the transfer's own work, which it owns: the stop's reason, its deadline (40 s from
+the stop, or the device's earlier one) and a notification on every change. Every wait of the transfer is a step of
+`Bound::run`: the look at the source and the binaries before rsync starts, its start, the run, a stall's steps, the
+reaps, the readers' joins, every process listing. A step races its own limit and, once there is a stop, what is left of
+the deadline, and it reads both again whenever the stop or the device's deadline changes (`TransferReceipt` notifies,
+and keeps the earliest deadline it is given), so an earlier deadline ends a step already under way. A step marked as one
+that a stop ends (the work before rsync starts, the stall's 5 s of grace, the readers' join before what rsync started
+has been ended) returns at the stop. The end of a transfer that saw a stop at any point is confirmed only by the stop's
+own cleanup: what rsync started ended (TERM, 5 s, KILL), rsync reaped, its output read or given up, and a listing that
+finds none of it.
+
+**One admission for rsync's start.** The thread that starts rsync checks, under the quarantine's lock, a gate (closed by
+a stop whose deadline passes first), the stop, and the destination's quarantine, and starts rsync under that lock; the
+quarantine is recorded under the same lock. rsync is started with `kill_on_drop`, so one that starts after its transfer
+gave up on it is killed when it is dropped. A transfer whose end could not be confirmed never returns a success: a
+stopped one returns its stop even when rsync exited 0, any other fails as a stall does (a receive returns `false`).
+`SharedTransfers` keeps only successes, so it never keeps such a send as the bundle's, and the next simulator's send
+reaches the bridge, which refuses the quarantined destination. `SharedTransfers` itself is unchanged; a destination
+quarantined by a send outside it (not a shared one) is not seen by its cache, which only shared sends fill.
+
+| Finding | Status | Witness (child process; fails on 7f5807d6) | On 7f5807d6 |
+|---|---|---|---|
+| 1 P2: a stop while an ended rsync's output is read confirmed the end with a listed child still holding the pipe | fixed | `a_stop_while_the_output_of_an_ended_rsync_is_read_ends_what_holds_it_before_confirming_d91` (rsync exits 0 after a listing has seen its child; the receipt is stopped once rsync is reaped): the receipt ends `Confirmed` only with the child gone; the send keeps its success | confirmed while the child ran |
+| 2 P2: a stop during a stall's cleanup was not bounded by 40 s | fixed | `a_stop_while_a_stall_is_being_ended_ends_it_within_the_stops_bound_d91` (clock 100×; the stall's first listing, 2 s here, under way; rsync and a child holding its output ignore TERM): returns `Cancelled` within 3 s of the stop (0.4 s bound) | about 15 s |
+| 3 P2: a send stuck before rsync starts held the worker | fixed | `a_stop_ends_a_send_stuck_before_rsync_starts_and_the_send_behind_it_goes_on_d91` (the look at the source never returns): `Cancelled` at once, receipt `Confirmed`, the queued send runs, rsync never started for the first | never returned (60 s guard) |
+| 4 P2: an earlier device deadline did not shorten a step under way | fixed | `an_earlier_deadline_from_the_device_ends_a_step_already_under_way_d91` (the stop's first listing takes 8 s; the device then asks for an end 1 s on): returns within 3 s | about 5 s (the step's own limit) |
+| 5 P2: a shared bundle whose send's end was not confirmed was reused | fixed | `a_shared_send_whose_end_is_not_confirmed_is_not_reused_d91` (rsync exits 0 on TERM; the readers' joins never end): the stopped send returns its stop; the next request for the bundle through `SharedTransfers` gets `LeavePool`, and rsync ran once | first send `Ok(true)`, kept and reused |
+| 6 P2: a receive waiting to start could start into a folder quarantined meanwhile | fixed | `a_receive_waiting_to_start_when_its_folder_is_quarantined_does_not_start_d91` (the second receive's blocking start-up is held while the first is stopped with a 1 s device deadline and quarantined): the second returns `false` and rsync started once | the second started rsync (60 s guard) |
+| 7 P3: the late-send witness proved only that the stop was delivered | fixed | `simulator_dispose.rs::a_send_to_a_disposed_simulator_is_stopped_before_it_starts_d91` now uses a bridge that starts a transfer unless its stop has come and counts what starts: none | passes on 7f5807d6, whose refusal it pins; fails on f7a02f59 (`Ok(true)`, a transfer started) |
+
+Each was checked in a scratch worktree of 7f5807d6 with only the new tests copied in (the P3 one also on f7a02f59).
+The test runtime `HeldJoins` now also holds the joins of chosen blocking calls and gates one until the test opens it;
+`counting_ps` counts listings and can be made slow.
+
+Note on the admission lock: it is a `std` mutex held while rsync is forked, inside the blocking thread that starts it;
+the bridge's own task takes it only to check or record a quarantine, for as long as a fork takes at worst.

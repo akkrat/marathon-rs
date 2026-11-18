@@ -2544,7 +2544,8 @@ echo $! > "$MRS_D31_ROOT/holder"
 trap '' TERM
 /bin/sleep 4
 echo 2 > "$MRS_D31_ROOT/slow"
-wc -l < "$MRS_D31_ROOT/ps-calls" > "$MRS_D31_ROOT/calls-before"
+wc -l < "$MRS_D31_ROOT/ps-calls" > "$MRS_D31_ROOT/calls-before.$$"
+mv "$MRS_D31_ROOT/calls-before.$$" "$MRS_D31_ROOT/calls-before"
 echo 'rsync(1): error: poll: timeout' >&2
 while :; do /bin/sleep 0.05; done
 "#,
