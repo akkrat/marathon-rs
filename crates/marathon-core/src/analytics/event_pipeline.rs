@@ -21,7 +21,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{mpsc, oneshot},
+    sync::{Notify, mpsc, oneshot},
     time::{Instant as Deadline, sleep_until},
 };
 
@@ -180,7 +180,7 @@ impl TrackerInternal for ExecutionReportGenerator {
 /// D51: when to leave a backend alone so it can recover from slow failures.
 #[derive(Clone, Copy)]
 pub struct BackendLimits {
-    /// Limit per send, and the total drain and close allowance for remote delivery.
+    /// Limit per send or admission wait, and the total drain and close allowance.
     pub send: Duration,
     pub slow_failure: Duration,
     pub cool_off: Duration,
@@ -203,10 +203,25 @@ const LOGGED_KINDS: usize = 8;
 #[derive(Default)]
 struct GuardState {
     kinds: HashSet<(FailureKind, Option<String>)>,
-    skip_until: Option<tokio::time::Instant>,
+    skip_until: Option<Deadline>,
     announced_skip: bool,
     failed: u64,
     skipped: u64,
+}
+impl GuardState {
+    fn cooling_off(&self) -> bool {
+        self.skip_until.is_some_and(|until| Deadline::now() < until)
+    }
+}
+#[derive(Default)]
+struct BackendState {
+    guard: Mutex<GuardState>,
+    changed: Notify,
+}
+impl BackendState {
+    fn lock(&self) -> std::sync::MutexGuard<'_, GuardState> {
+        self.guard.lock().unwrap_or_else(|e| e.into_inner())
+    }
 }
 /// D51: metrics are never worth a test run. Kotlin lets a tracker's exception end the queue actor,
 /// and a dead queue leaves the run hanging (U168). A remote backend's failure is logged once per kind and
@@ -217,7 +232,7 @@ pub struct BackendGuard {
     log: ServiceLog,
     logger: Component,
     limits: BackendLimits,
-    state: Mutex<GuardState>,
+    state: Arc<BackendState>,
 }
 impl BackendGuard {
     pub fn new(inner: Arc<dyn TrackerInternal>, log: ServiceLog, logger: Component, limits: BackendLimits) -> Self {
@@ -226,18 +241,15 @@ impl BackendGuard {
             log,
             logger,
             limits,
-            state: Mutex::default(),
+            state: Arc::default(),
         }
-    }
-    fn state(&self) -> std::sync::MutexGuard<'_, GuardState> {
-        self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
     fn failed(&self, failure: &Failure, slow: bool, counted: bool) {
         let (first_of_kind, announce) = {
-            let mut state = self.state();
+            let mut state = self.state.lock();
             state.failed += u64::from(counted);
             if slow {
-                state.skip_until = Some(tokio::time::Instant::now() + self.limits.cool_off);
+                state.skip_until = Some(Deadline::now() + self.limits.cool_off);
             }
             let first_of_kind = state.kinds.len() < LOGGED_KINDS
                 && state
@@ -246,6 +258,9 @@ impl BackendGuard {
             let announce = slow && !std::mem::replace(&mut state.announced_skip, true);
             (first_of_kind, announce)
         };
+        if slow {
+            self.state.changed.notify_waiters();
+        }
         if first_of_kind {
             let text = "Cannot send test metrics to the analytics backend; the run carries on. Each kind of failure is logged once";
             (self.log)(&self.logger, Level::WARN, text, Some(failure));
@@ -260,7 +275,7 @@ impl BackendGuard {
     }
     async fn close_backend(&self) -> OperationResult<()> {
         let (failed, skipped) = {
-            let state = self.state();
+            let state = self.state.lock();
             (state.failed, state.skipped)
         };
         if failed + skipped > 0 {
@@ -284,11 +299,8 @@ impl TrackerInternal for BackendGuard {
         Box::pin(async move {
             let counted = matches!(event, Event::Test(_));
             {
-                let mut state = self.state();
-                if state
-                    .skip_until
-                    .is_some_and(|until| tokio::time::Instant::now() < until)
-                {
+                let mut state = self.state.lock();
+                if state.cooling_off() {
                     state.skipped += u64::from(counted);
                     return Ok(());
                 }
@@ -330,43 +342,154 @@ impl TrackerInternal for BackendGuard {
     }
 }
 
-// One burst the size of InfluxDB v1's existing 1,000-point batch/channel (one point per event).
-// Graphite and InfluxDB v2 get the same bound despite sending one result per call.
+// At about 34 events/s this backlog fits D51's 30 s drain allowance for any backend.
+// More buffering would delay backpressure and leave a larger backlog at shutdown.
 const REMOTE_QUEUE_CAPACITY: usize = 1000;
 
 struct RemoteAdmission {
     shutdown: oneshot::Sender<Deadline>,
     sender: mpsc::Sender<Event>,
-    dropped: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Rejected {
+    WaitExpired,
+    CoolingOff,
+    Closing,
+    WorkerStopped,
+}
+impl Rejected {
+    fn reason(self) -> &'static str {
+        match self {
+            Self::WaitExpired => "the queue wait expired",
+            Self::CoolingOff => "the backend is cooling off",
+            Self::Closing => "admission has closed",
+            Self::WorkerStopped => "the delivery task stopped",
+        }
+    }
+}
+
+#[derive(Default)]
+struct RejectedCounts {
+    wait_expired: u64,
+    cooling_off: u64,
+    closing: u64,
+    worker_stopped: u64,
+}
+impl RejectedCounts {
+    fn total(&self) -> u64 {
+        self.wait_expired + self.cooling_off + self.closing + self.worker_stopped
+    }
+    fn add(&mut self, reason: Rejected) -> bool {
+        let first = self.total() == 0;
+        match reason {
+            Rejected::WaitExpired => self.wait_expired += 1,
+            Rejected::CoolingOff => self.cooling_off += 1,
+            Rejected::Closing => self.closing += 1,
+            Rejected::WorkerStopped => self.worker_stopped += 1,
+        }
+        first
+    }
 }
 
 /// D86: one ordered delivery task per backend. The report generator still takes each event inline.
 struct RemoteTracker {
     admission: Mutex<Option<RemoteAdmission>>,
     task: Arc<dyn VendorTask>,
-    close_limit: Duration,
+    state: Arc<BackendState>,
+    limits: BackendLimits,
+    rejected: Mutex<RejectedCounts>,
     log: ServiceLog,
     logger: Component,
 }
 
 impl RemoteTracker {
-    fn new(io: &dyn VendorRuntime, guard: BackendGuard) -> Self {
-        let (sender, receiver) = mpsc::channel(REMOTE_QUEUE_CAPACITY);
+    fn new(io: &dyn VendorRuntime, guard: BackendGuard, capacity: usize) -> Self {
+        let (sender, receiver) = mpsc::channel(capacity);
         let (shutdown, request) = oneshot::channel();
-        let close_limit = guard.limits.send;
+        let limits = guard.limits;
+        let state = guard.state.clone();
         let log = guard.log.clone();
         let logger = marathon_logging::LogSettings::default().component(module_path!());
         let task = io.spawn(Box::pin(Self::deliver(guard, receiver, request, logger.clone())));
         Self {
-            admission: Mutex::new(Some(RemoteAdmission {
-                shutdown,
-                sender,
-                dropped: 0,
-            })),
+            admission: Mutex::new(Some(RemoteAdmission { shutdown, sender })),
             task,
-            close_limit,
+            state,
+            limits,
+            rejected: Mutex::default(),
             log,
             logger,
+        }
+    }
+
+    fn with_admission<T>(
+        &self,
+        action: impl FnOnce(&mpsc::Sender<Event>, &mut GuardState) -> Result<T, Rejected>,
+    ) -> Result<T, Rejected> {
+        let admission = self.admission.lock().unwrap_or_else(|e| e.into_inner());
+        let sender = &admission.as_ref().ok_or(Rejected::Closing)?.sender;
+        if sender.is_closed() {
+            return Err(Rejected::WorkerStopped);
+        }
+        // Keep either transition from racing an enqueue, including an enqueue with a reserved permit.
+        let mut state = self.state.lock();
+        if state.cooling_off() {
+            return Err(Rejected::CoolingOff);
+        }
+        action(sender, &mut state)
+    }
+
+    async fn admit(&self, event: &Event) -> Result<(), Rejected> {
+        let waiting = self.with_admission(|sender, _| match sender.try_reserve() {
+            Ok(permit) => {
+                permit.send(event.clone());
+                Ok(None)
+            }
+            Err(mpsc::error::TrySendError::Full(())) => Ok(Some((sender.clone(), Deadline::now() + self.limits.send))),
+            Err(mpsc::error::TrySendError::Closed(())) => Err(Rejected::WorkerStopped),
+        })?;
+        let Some((sender, deadline)) = waiting else {
+            return Ok(());
+        };
+        let reserve = sender.reserve_owned();
+        let deadline = sleep_until(deadline);
+        tokio::pin!(reserve, deadline);
+        loop {
+            let changed = self.state.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            self.with_admission(|_, _| Ok(()))?;
+            tokio::select! {
+                biased;
+                _ = &mut changed => {}
+                _ = &mut deadline => {
+                    // The first expiry opens the same circuit as a slow send and releases other waiters.
+                    let result = self.with_admission(|_, state| {
+                        state.skip_until = Some(Deadline::now() + self.limits.cool_off);
+                        Err(Rejected::WaitExpired)
+                    });
+                    if result == Err(Rejected::WaitExpired) {
+                        self.state.changed.notify_waiters();
+                    }
+                    return result;
+                }
+                permit = &mut reserve => return self.with_admission(|_, _| {
+                    permit.map_err(|_| Rejected::WorkerStopped)?.send(event.clone());
+                    Ok(())
+                }),
+            }
+        }
+    }
+
+    fn record_rejection(&self, reason: Rejected) {
+        let first = self.rejected.lock().unwrap_or_else(|e| e.into_inner()).add(reason);
+        if first {
+            let text = format!(
+                "The analytics backend is dropping test metric events because {}",
+                reason.reason()
+            );
+            (self.log)(&self.logger, Level::WARN, &text, None);
         }
     }
 
@@ -402,18 +525,29 @@ impl RemoteTracker {
     }
 }
 
+impl Drop for RemoteTracker {
+    fn drop(&mut self) {
+        // Tracker clones can submit after close returns. The last owner has the complete count.
+        let counts = self.rejected.get_mut().unwrap_or_else(|e| e.into_inner());
+        let total = counts.total();
+        if total > 0 {
+            let text = format!(
+                "The analytics backend dropped {total} test metric events before admission: {} wait expired, {} cooling off, {} admission closed, {} delivery task stopped",
+                counts.wait_expired, counts.cooling_off, counts.closing, counts.worker_stopped,
+            );
+            (self.log)(&self.logger, Level::WARN, &text, None);
+        }
+    }
+}
+
 impl TrackerInternal for RemoteTracker {
     fn track<'a>(&'a self, event: &'a Event) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             // The production remote trackers only implement test metrics.
             if matches!(event, Event::Test(_))
-                && let Some(admission) = self.admission.lock().unwrap_or_else(|e| e.into_inner()).as_mut()
+                && let Err(reason) = self.admit(event).await
             {
-                match admission.sender.try_reserve() {
-                    Ok(permit) => permit.send(event.clone()),
-                    Err(mpsc::error::TrySendError::Full(())) => admission.dropped += 1,
-                    Err(mpsc::error::TrySendError::Closed(())) => {}
-                }
+                self.record_rejection(reason);
             }
             Ok(())
         })
@@ -422,19 +556,11 @@ impl TrackerInternal for RemoteTracker {
     fn close(&self) -> ServiceFuture<'_, ()> {
         Box::pin(async move {
             let admission = self.admission.lock().unwrap_or_else(|e| e.into_inner()).take();
-            if let Some(RemoteAdmission {
-                sender,
-                shutdown,
-                dropped,
-            }) = admission
-            {
+            if let Some(RemoteAdmission { sender, shutdown }) = admission {
                 // Set the one drain-and-close deadline before making the FIFO ready to finish.
-                let _ = shutdown.send(Deadline::now() + self.close_limit);
-                if dropped > 0 {
-                    let text = format!("The analytics queue was full; dropped {dropped} test metric events");
-                    (self.log)(&self.logger, Level::WARN, &text, None);
-                }
+                let _ = shutdown.send(Deadline::now() + self.limits.send);
                 drop(sender);
+                self.state.changed.notify_waiters();
             }
             self.task.join().await.map_err(operation_error)
         })
@@ -765,6 +891,7 @@ impl TrackerFactory {
                         Ok(Some(tracker)) => delegates.push(Arc::new(RemoteTracker::new(
                             self.io.as_ref(),
                             BackendGuard::new(tracker, self.log.clone(), self.logger.clone(), BackendLimits::default()),
+                            REMOTE_QUEUE_CAPACITY,
                         ))),
                         Ok(None) => {}
                         Err(failure) => match backend.request {
@@ -862,8 +989,191 @@ mod kind_tests {
 #[cfg(test)]
 mod remote_delivery_tests {
     use super::*;
+    use crate::executor::vendor_on_current_runtime;
     use jcompat::jtime::instant_of;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use tokio::sync::watch;
+
+    struct GatedBackend {
+        entered: Notify,
+        sends: AtomicUsize,
+        released: watch::Receiver<bool>,
+        panics: bool,
+    }
+
+    impl TrackerInternalAdapter for GatedBackend {
+        fn test<'a>(&'a self, _: &'a TestEvent) -> VendorFuture<'a, ()> {
+            Box::pin(async move {
+                self.sends.fetch_add(1, Ordering::Relaxed);
+                self.entered.notify_one();
+                let _ = self.released.clone().wait_for(|ready| *ready).await;
+                assert!(!self.panics, "injected delivery task panic");
+                Ok(())
+            })
+        }
+    }
+
+    fn test_event() -> Event {
+        let device = DeviceInfo {
+            operating_system: OperatingSystem { version: "1".into() },
+            serial_number: "serial-1".into(),
+            model: "device".into(),
+            manufacturer: "test".into(),
+            network_state: NetworkState::Connected,
+            device_features: vec![],
+            healthy: true,
+        };
+        Event::Test(TestEvent {
+            instant: instant_of(0, 0).unwrap(),
+            pool_id: DevicePoolId { name: "pool".into() },
+            device: device.clone(),
+            test_result: Arc::new(TestResult {
+                test: Test {
+                    pkg: "pkg".into(),
+                    clazz: "Clazz".into(),
+                    method: "test".into(),
+                    meta_properties: vec![],
+                },
+                device,
+                test_batch_id: "batch".into(),
+                status: TestStatus::Passed,
+                start_time: 0,
+                end_time: 1,
+                stacktrace: None,
+                attachments: vec![],
+            }),
+            final_result: true,
+        })
+    }
+
+    type Warnings = Arc<Mutex<Vec<String>>>;
+
+    async fn full_queue(panics: bool) -> (RemoteTracker, Arc<GatedBackend>, watch::Sender<bool>, Warnings) {
+        let (release, released) = watch::channel(false);
+        let backend = Arc::new(GatedBackend {
+            entered: Notify::new(),
+            sends: AtomicUsize::new(0),
+            released,
+            panics,
+        });
+        let warnings: Warnings = Arc::default();
+        let recorded = warnings.clone();
+        let guard = BackendGuard::new(
+            backend.clone(),
+            Arc::new(move |logger, level, text, _| {
+                if logger.name() == "marathon_core::analytics::event_pipeline" {
+                    assert_eq!(level, Level::WARN);
+                    recorded.lock().unwrap().push(text.into());
+                }
+            }),
+            marathon_logging::LogSettings::default().component("TrackerFactory"),
+            BackendLimits::default(),
+        );
+        let tracker = RemoteTracker::new(&vendor_on_current_runtime(), guard, 1);
+        let event = test_event();
+        tracker.track(&event).await.unwrap();
+        backend.entered.notified().await;
+        tracker.track(&event).await.unwrap();
+        (tracker, backend, release, warnings)
+    }
+
+    fn assert_rejections(warnings: &Warnings, first: &str, summary: &str) {
+        assert_eq!(
+            *warnings.lock().unwrap(),
+            [
+                format!("The analytics backend is dropping test metric events because {first}"),
+                format!("The analytics backend dropped {summary}"),
+            ],
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn admission_expiry_starts_cool_off_and_releases_other_waiters_d86() {
+        let (mut tracker, backend, release, warnings) = full_queue(false).await;
+        // Give admission the earlier deadline so this exercises its own expiry, rather than the send's.
+        tracker.limits.send = Duration::from_secs(10);
+        let event = test_event();
+        let start = Deadline::now();
+        {
+            let mut first = tracker.track(&event);
+            assert!(futures_util::poll!(first.as_mut()).is_pending());
+            tokio::time::advance(Duration::from_secs(5)).await;
+            let mut second = tracker.track(&event);
+            assert!(futures_util::poll!(second.as_mut()).is_pending());
+            tokio::time::timeout(Duration::from_secs(60), async {
+                first.await.unwrap();
+                second.await.unwrap();
+                tracker.track(&event).await.unwrap();
+            })
+            .await
+            .unwrap();
+        }
+        assert_eq!(start.elapsed(), Duration::from_secs(10));
+        assert_eq!(
+            warnings.lock().unwrap().len(),
+            1,
+            "the first drop is logged during the run"
+        );
+        release.send_replace(true);
+        tracker.close().await.unwrap();
+        assert_eq!(backend.sends.load(Ordering::Relaxed), 1);
+        drop(tracker);
+        assert_rejections(
+            &warnings,
+            "the queue wait expired",
+            "3 test metric events before admission: 1 wait expired, 2 cooling off, 0 admission closed, 0 delivery task stopped",
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn closing_wakes_waiters_and_counts_submissions_even_after_close_returns_d86() {
+        let (tracker, backend, release, warnings) = full_queue(false).await;
+        let event = test_event();
+        let start = Deadline::now();
+        {
+            let mut blocked = tracker.track(&event);
+            assert!(futures_util::poll!(blocked.as_mut()).is_pending());
+            let mut closing = tracker.close();
+            assert!(futures_util::poll!(closing.as_mut()).is_pending());
+            blocked.await.unwrap();
+            tracker.track(&event).await.unwrap();
+            release.send_replace(true);
+            closing.await.unwrap();
+        }
+        tracker.track(&event).await.unwrap();
+        tracker.close().await.unwrap();
+        assert_eq!(start.elapsed(), Duration::ZERO);
+        assert_eq!(backend.sends.load(Ordering::Relaxed), 2);
+        assert_eq!(warnings.lock().unwrap().len(), 1);
+        drop(tracker);
+        assert_rejections(
+            &warnings,
+            "admission has closed",
+            "3 test metric events before admission: 0 wait expired, 0 cooling off, 3 admission closed, 0 delivery task stopped",
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn panicking_delivery_wakes_waiters_and_counts_later_submissions_d86() {
+        let (tracker, _, release, warnings) = full_queue(true).await;
+        let event = test_event();
+        let start = Deadline::now();
+        {
+            let mut blocked = tracker.track(&event);
+            assert!(futures_util::poll!(blocked.as_mut()).is_pending());
+            release.send_replace(true);
+            blocked.await.unwrap();
+        }
+        tracker.track(&event).await.unwrap();
+        assert!(tracker.close().await.is_err());
+        assert_eq!(start.elapsed(), Duration::ZERO);
+        drop(tracker);
+        assert_rejections(
+            &warnings,
+            "the delivery task stopped",
+            "2 test metric events before admission: 0 wait expired, 0 cooling off, 0 admission closed, 2 delivery task stopped",
+        );
+    }
 
     struct SlowBackend {
         send: Duration,

@@ -270,6 +270,13 @@ struct IoRuntime {
     handle: tokio::runtime::Handle,
     tracker: Arc<Tracker>,
 }
+#[cfg(test)]
+pub(crate) fn vendor_on_current_runtime() -> impl VendorRuntime {
+    IoRuntime {
+        handle: tokio::runtime::Handle::current(),
+        tracker: Arc::default(),
+    }
+}
 impl IoRuntime {
     fn spawn_cancellable_tracked(&self, body: VendorTaskBody) -> (Arc<dyn VendorTask>, tokio::task::JoinHandle<()>) {
         let task = Arc::new(IoTask {

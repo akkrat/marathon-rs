@@ -290,10 +290,11 @@ pinned by `session_close_warns_in_every_configurator_with_debug_off`, the
 directive inventories and the CLI subscriber test. See
 [WP x65](../wp/x65-findings.md).
 
-`marathon_core::analytics::event_pipeline` warns when D86 drops new events from
-a full remote metrics queue or reaches the drain-and-close deadline. Each warning
-appears once per backend when its delivery task closes. The queue-full warning
-includes the count. These warnings remain visible with debug off.
+`marathon_core::analytics::event_pipeline` warns on the first D86 admission rejection
+and once more with the total and counts by cause when the last tracker owner releases
+it. The count covers submissions made during and after backend close. The
+drain-and-close timeout warns when its deadline expires. These warnings remain
+visible with debug off.
 
 ## What is gone
 

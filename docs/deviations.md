@@ -1034,7 +1034,7 @@ Native builds change four things:
   refused connection costs almost nothing, so it is tried for every test. The backend's close at the end of the run, where
   InfluxDB sends what it still holds, also gets 30 s, where Kotlin waits for as long as the server keeps answering. Past that
   one warning says those metrics are lost, InfluxDB's sender is stopped, and the run ends with the exit code it had.
-  [D86](#d86--remote-metrics-no-longer-delay-test-batches) moves sends off the queue actor and shares the close allowance
+  [D86](#d86--remote-metrics-use-bounded-buffering) moves sends off the queue actor and shares the close allowance
   between draining and closing. A slow but successful write can still cost later points by holding the sender.
 - **A Graphite series printed as `None`** has no points in the window and is skipped with a debug line, so the query keeps its
   other tests. Kotlin discarded the whole query. Any other malformed value, such as `50,None`, still fails the query.
@@ -2229,26 +2229,38 @@ Approved 2026-11-18 (project owner's decision). See
 **Migration action:** none. Snapshots of worker commands or batches for runs with copies or repeated tests need an
 update, as for D60.
 
-## D86 — Remote metrics no longer delay test batches
+## D86 — Remote metrics use bounded buffering
 
-Batch completion awaited each tracking call. A Carbon connection per eligible result put all of its connect and write time
-on that path. InfluxDB v2 issued a request per result. InfluxDB v1 usually returned after enqueueing a point, but a full
-1,000-point channel made the next result wait for the writer. The production scheduler witnesses reach the next batch
-while a Carbon send is held or the InfluxDB v1 channel is full ([U208](found-bugs.md)).
+Batch completion previously awaited each remote tracking call. A Carbon connection per eligible result put its
+connect and write time on that path. InfluxDB v2 issued a request per result. InfluxDB v1 usually returned after
+enqueueing a point, but a full 1,000-point channel made the next result wait for the writer
+([U208](found-bugs.md)).
 
-A configured write backend takes up to 1,000 waiting test events in arrival order, plus the event it is delivering.
-If the queue fills, new arrivals are dropped and the total is logged in one warning at backend close. The worker
-sends the same lines and points in the same order when the backend keeps up. Its sends can finish before or after local
-report writing. Drain and close share the 30-second allowance from [D51](#d51--metrics-and-cleanup-failures-do-not-stop-a-run),
-including any final InfluxDB flush. A timeout logs a warning and abandons the remaining metrics. The existing send limits,
-failure cool-off and completed close-error handling still apply. Local results, progress and strategy history reads retain
-their existing behaviour, including [D71](#d71--unavailable-test-history-adds-no-probability-copies).
+Each configured writer has a FIFO with 1,000 waiting slots and one event in flight. With room, admission is
+immediate. With a full queue, the caller waits for capacity for at most 30 seconds. Sustained production faster
+than delivery slows the run once the queue fills, and the worker delivers every admitted event in order while
+the backend keeps up. An expired wait starts the same five-minute cool-off as a slow send failure and wakes the
+other waiting callers to skip. The worker can end a wait sooner by entering cool-off after a stalled send.
+
+An event is rejected if its wait expires, the backend is cooling off, admission has closed, or the delivery task
+has stopped. The first rejection warns immediately. When the last tracker owner releases it, one WARN reports the
+total rejected and the count by cause, including arrivals after backend close. A forced process exit can cut this
+accounting short. Accepted metrics can still be lost when a send fails or is cancelled, when cool-off skips a
+queued send, or when a delivery task panics. At backend close, draining and the final flush share
+[D51](#d51--metrics-and-cleanup-failures-do-not-stop-a-run)'s 30-second allowance. Expiry abandons pending metrics
+and logs a WARN. InfluxDB v1 retains its own retry-buffer behaviour.
+
+Lost metrics leave later runs with fewer observations for their success-rate and duration strategies. This can
+change flakiness copies, duration-based sorting or batching, including when a test now uses a configured default.
+Local reports still record the results and the history queries keep their existing behaviour, including
+[D71](#d71--unavailable-test-history-adds-no-probability-copies) for unavailable history.
 
 Approved 2026-11-18 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the [x84 findings](wp/x84-findings.md).
 
-**Migration action:** Use the local reports to count a run's results. If a metrics dashboard has gaps, look for
-`The analytics queue was full` or `The analytics backend did not close` in the run log.
+**Migration action:** Use local reports for result counts. If a metrics dashboard has gaps or a history-based
+strategy changes, look for `The analytics backend is dropping test metric events`, the rejection count, or
+`The analytics backend did not close` in the run log.
 
 ## Other accepted text differences
 

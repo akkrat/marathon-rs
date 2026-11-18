@@ -22,7 +22,11 @@ use marathon_test_support::{
 };
 use serde_json::Value;
 use std::{
-    sync::{Arc, Mutex},
+    collections::BTreeSet,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 use support::{FixedBackend, Mono, Peer, Reply, defaults, v1};
@@ -32,8 +36,17 @@ const WATCHDOG: Duration = Duration::from_secs(60);
 
 struct HeldCarbon {
     entered: Notify,
+    ended: Notify,
+    attempts: AtomicUsize,
     release: watch::Receiver<bool>,
     sent: Mutex<Vec<String>>,
+}
+
+struct SendEnded<'a>(&'a Notify);
+impl Drop for SendEnded<'_> {
+    fn drop(&mut self) {
+        self.0.notify_one();
+    }
 }
 
 impl DataSender for HeldCarbon {
@@ -47,6 +60,8 @@ impl DataSender for HeldCarbon {
         Box::pin(async move {
             // A small Carbon payload fits a loopback TCP buffer even if its peer never reads.
             // Hold the real tracker's send at the socket adapter boundary instead.
+            let _ended = SendEnded(&self.ended);
+            self.attempts.fetch_add(1, Ordering::Relaxed);
             self.entered.notify_one();
             let _ = self.release.clone().wait_for(|ready| *ready).await;
             self.sent.lock().unwrap().push(data);
@@ -57,28 +72,40 @@ impl DataSender for HeldCarbon {
 
 type BackendSetup<T> = (AnalyticsConfiguration, Arc<dyn TrackerInternal>, T);
 
-fn run_two_batches<T: Send + 'static>(
+#[derive(Clone, Copy)]
+struct Batches {
+    results: i32,
+    size: i32,
+    starts_while_held: usize,
+}
+const SMALL_BATCHES: Batches = Batches {
+    results: 2,
+    size: 1,
+    starts_while_held: 2,
+};
+
+fn run_batches<T: Send + 'static>(
+    batches: Batches,
     setup: impl FnOnce(MetricsContext) -> ServiceFuture<'static, BackendSetup<T>> + Send + 'static,
     release: impl for<'a> FnOnce(&'a T) -> ServiceFuture<'a, ()> + Send + 'static,
     finish: impl FnOnce(T) -> ServiceFuture<'static, ()> + Send + 'static,
 ) {
-    let (_temp, output) = CoreExecutor::run_virtual_with_watchdog(WATCHDOG, |core, replay| {
+    let (_temp, output) = CoreExecutor::run_virtual_with_watchdog(WATCHDOG, move |core, replay| {
         Box::pin(async move {
             let mut factory = MarathonFactory::new();
             let output = factory.configuration.output_dir().join("run");
             factory.configuration.configuration.output_dir = output.clone();
             factory.configuration.configuration.batching_strategy = BatchingStrategyConfiguration::FixedSize {
-                size: 1,
+                size: batches.size,
                 duration_millis: None,
                 percentile: None,
                 time_limit: None,
                 last_mile_length: 0,
             };
-            let tests = [
-                scenario::test("pkg", "Clazz", "one"),
-                scenario::test("pkg", "Clazz", "two"),
-            ];
-            factory.tests = tests.to_vec();
+            let tests = (0..batches.results)
+                .map(|i| scenario::test("pkg", "Clazz", &format!("test{i}")))
+                .collect::<Vec<_>>();
+            factory.tests = tests.clone();
             factory.analytics = Some(Box::new(|context| {
                 Ok(Analytics::noop(NoOpMetricsProvider::new(false, context)?))
             }));
@@ -129,18 +156,23 @@ fn run_two_batches<T: Send + 'static>(
             replay.advance_to(1).await.unwrap();
             assert!(built.provider.send(DeviceEvent::Connected(device.reference())));
             replay.advance_to(150).await.unwrap();
-            let started = calls
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|entry| entry["call"] == "execute")
-                .count();
+            let started = || {
+                calls
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|entry| entry["call"] == "execute")
+                    .count()
+            };
             assert_eq!(
-                started, 2,
-                "the second batch must start while the backend is still held"
+                started(),
+                batches.starts_while_held,
+                "batches started while the backend is held"
             );
             release(&evidence).await?;
-            replay.advance_to(300).await.unwrap();
+            replay.drain_current().await.unwrap();
+            assert_eq!(started(), 2, "the next batch starts once the first wait ends");
+            replay.advance_to(500).await.unwrap();
             tokio::time::timeout(WATCHDOG, run.join()).await.unwrap()?;
             assert_eq!(run.state(), JobState::Completed(Completion::Success));
             finish(evidence).await?;
@@ -150,46 +182,62 @@ fn run_two_batches<T: Send + 'static>(
     .unwrap();
     let raw = std::fs::read(output.join("test_result/raw.json")).unwrap();
     let rows: Vec<Value> = serde_json::from_slice(&raw).unwrap();
-    assert_eq!(rows.len(), 2);
+    assert_eq!(rows.len(), batches.results as usize);
     assert!(rows.iter().all(|row| row["status"] == "PASSED"));
     assert_eq!(
         rows.iter()
-            .map(|row| row["method"].as_str().unwrap())
-            .collect::<std::collections::BTreeSet<_>>(),
-        ["one", "two"].into_iter().collect(),
+            .map(|row| row["method"].as_str().unwrap().to_owned())
+            .collect::<BTreeSet<_>>(),
+        (0..batches.results).map(|i| format!("test{i}")).collect(),
     );
+}
+
+fn held_carbon() -> (Arc<HeldCarbon>, watch::Sender<bool>) {
+    let (release, released) = watch::channel(false);
+    let carbon = Arc::new(HeldCarbon {
+        entered: Notify::new(),
+        ended: Notify::new(),
+        attempts: AtomicUsize::new(0),
+        release: released,
+        sent: Mutex::default(),
+    });
+    (carbon, release)
+}
+
+fn carbon_tracker(
+    context: MetricsContext,
+    sender: Arc<HeldCarbon>,
+) -> (AnalyticsConfiguration, Arc<dyn TrackerInternal>) {
+    let config = GraphiteConfiguration {
+        host: "carbon.invalid".into(),
+        port: None,
+        prefix: None,
+        defaults: defaults(),
+        read_only: false,
+    };
+    let tracker = Arc::new(GraphiteTracker {
+        client: BasicGraphiteClient {
+            host: config.host.clone(),
+            port: 2003,
+            prefix: None,
+            sender,
+            cancellation: context.cancellation,
+        },
+        read_only: false,
+    });
+    (AnalyticsConfiguration::Graphite(config), tracker)
 }
 
 #[test]
 fn a_held_carbon_send_cannot_hold_the_next_batch_d86() {
-    let (release, released) = watch::channel(false);
-    let carbon = Arc::new(HeldCarbon {
-        entered: Notify::new(),
-        release: released,
-        sent: Mutex::default(),
-    });
+    let (carbon, release) = held_carbon();
     let sender = carbon.clone();
-    run_two_batches(
+    run_batches(
+        SMALL_BATCHES,
         move |context| {
             Box::pin(async move {
-                let config = GraphiteConfiguration {
-                    host: "carbon.invalid".into(),
-                    port: None,
-                    prefix: None,
-                    defaults: defaults(),
-                    read_only: false,
-                };
-                let tracker: Arc<dyn TrackerInternal> = Arc::new(GraphiteTracker {
-                    client: BasicGraphiteClient {
-                        host: config.host.clone(),
-                        port: 2003,
-                        prefix: None,
-                        sender: sender.clone(),
-                        cancellation: context.cancellation,
-                    },
-                    read_only: false,
-                });
-                Ok((AnalyticsConfiguration::Graphite(config), tracker, (sender, release)))
+                let (config, tracker) = carbon_tracker(context, sender.clone());
+                Ok((config, tracker, (sender, release)))
             })
         },
         |(carbon, release)| {
@@ -206,8 +254,39 @@ fn a_held_carbon_send_cannot_hold_the_next_batch_d86() {
 }
 
 #[test]
+fn a_full_remote_queue_waits_for_one_stalled_send_then_cools_off_d86() {
+    let (carbon, release) = held_carbon();
+    let sender = carbon.clone();
+    // Each of the first two batches could fill the queue. The third proves the second releases
+    // during cool-off, while Carbon has yet to return a response.
+    run_batches(
+        Batches {
+            results: 2005,
+            size: 1002,
+            starts_while_held: 1,
+        },
+        move |context| {
+            Box::pin(async move {
+                let (config, tracker) = carbon_tracker(context, sender.clone());
+                Ok((config, tracker, (sender, release)))
+            })
+        },
+        |(carbon, _)| {
+            Box::pin(async move {
+                carbon.ended.notified().await;
+                Ok(())
+            })
+        },
+        |_| Box::pin(async { Ok(()) }),
+    );
+    assert_eq!(carbon.attempts.load(Ordering::Relaxed), 1);
+    assert!(carbon.sent.lock().unwrap().is_empty());
+}
+
+#[test]
 fn a_full_influx_writer_cannot_hold_the_next_batch_d86() {
-    run_two_batches(
+    run_batches(
+        SMALL_BATCHES,
         |context| {
             Box::pin(async move {
                 const DATABASES: &str =

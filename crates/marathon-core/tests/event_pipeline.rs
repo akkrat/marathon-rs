@@ -1288,20 +1288,21 @@ fn public_notifications_allocate_distinct_occurrences_and_exhausted_tape_never_f
 }
 
 #[test]
-fn remote_queue_overflow_counts_only_the_dropped_tail_d86() {
-    use std::time::Duration;
-    use tokio::sync::{Notify, watch};
+fn sustained_remote_queue_overload_waits_and_preserves_every_result_d86() {
+    use marathon_core::time::ReplayDriver;
+    use std::{cell::Cell, rc::Rc, time::Duration};
+    use tokio::sync::{Notify, Semaphore};
 
     struct HeldBackend {
         started: Notify,
-        release: watch::Receiver<bool>,
+        allowed: Semaphore,
         sent: Mutex<Vec<String>>,
     }
     impl TrackerInternalAdapter for HeldBackend {
         fn test<'a>(&'a self, event: &'a TestEvent) -> VendorFuture<'a, ()> {
             Box::pin(async move {
                 self.started.notify_one();
-                let _ = self.release.clone().wait_for(|ready| *ready).await;
+                self.allowed.acquire().await.unwrap().forget();
                 self.sent.lock().unwrap().push(event.test_result.test.method.to_owned());
                 Ok(())
             })
@@ -1313,86 +1314,91 @@ fn remote_queue_overflow_counts_only_the_dropped_tail_d86() {
             Box::pin(async { Ok(Ok(Some(self.0.clone() as Arc<dyn TrackerInternal>))) })
         }
     }
-    CoreExecutor::run(|core| {
+    CoreExecutor::run_virtual_with_watchdog(Duration::from_secs(60), |core, replay| {
         Box::pin(async move {
-            tokio::time::timeout(Duration::from_secs(60), async move {
-                let (release, released) = watch::channel(false);
-                let backend = Arc::new(HeldBackend {
-                    started: Notify::new(),
-                    release: released,
-                    sent: Mutex::default(),
-                });
-                let io = core.vendor();
-                let clock = RuntimeHooks::live();
-                let reports = Arc::new(Mutex::new(vec![]));
-                let warnings = Arc::new(Mutex::new(vec![]));
-                let recorded = warnings.clone();
-                let pipeline = TrackerFactory {
-                    io: io.clone(),
-                    track: Arc::new(Track::new(io, clock.clone())),
-                    clock,
-                    reporters: vec![ReporterRegistration {
-                        slot: ReporterSlot::Raw,
-                        reporter: Arc::new(RecordReporter {
-                            reports: reports.clone(),
-                            calls: Arc::default(),
-                            name: "raw",
-                            fail: false,
-                        }),
-                    }],
-                    backend: Some(BackendRegistration {
-                        request: BackendRequest::Graphite { port: None },
-                        factory: Arc::new(HeldFactory(backend.clone())),
+            let backend = Arc::new(HeldBackend {
+                started: Notify::new(),
+                allowed: Semaphore::new(0),
+                sent: Mutex::default(),
+            });
+            let io = core.vendor();
+            let clock = RuntimeHooks::live();
+            let reports = Arc::new(Mutex::new(vec![]));
+            let warnings = Arc::new(Mutex::new(vec![]));
+            let recorded = warnings.clone();
+            let pipeline = TrackerFactory {
+                io: io.clone(),
+                track: Arc::new(Track::new(io, clock.clone())),
+                clock,
+                reporters: vec![ReporterRegistration {
+                    slot: ReporterSlot::Raw,
+                    reporter: Arc::new(RecordReporter {
+                        reports: reports.clone(),
+                        calls: Arc::default(),
+                        name: "raw",
+                        fail: false,
                     }),
-                    logger: LogSettings::default().component("TrackerFactory"),
-                    log: Arc::new(move |_, level, text, _| recorded.lock().unwrap().push((level, text.to_owned()))),
+                }],
+                backend: Some(BackendRegistration {
+                    request: BackendRequest::Graphite { port: None },
+                    factory: Arc::new(HeldFactory(backend.clone())),
+                }),
+                logger: LogSettings::default().component("TrackerFactory"),
+                log: Arc::new(move |_, level, text, _| recorded.lock().unwrap().push((level, text.to_owned()))),
+            }
+            .create()
+            .await?;
+            let tracker = pipeline.tracker();
+            let (pool, device) = (pool("myPool"), device());
+            for i in 0..=1000 {
+                tracker
+                    .test(&pool, &device, &result(&i.to_string(), TestStatus::Passed), true)
+                    .await
+                    .unwrap();
+                if i == 0 {
+                    backend.started.notified().await;
                 }
-                .create()
-                .await?;
-                let tracker = pipeline.tracker();
-                for i in 0..1006 {
-                    tracker
-                        .test(
-                            &pool("myPool"),
-                            &device(),
-                            &result(&i.to_string(), TestStatus::Passed),
-                            true,
-                        )
-                        .await
-                        .unwrap();
-                    if i == 0 {
-                        // Reserve the in-flight send before filling the 1,000 waiting slots.
-                        backend.started.notified().await;
-                    }
-                }
-                assert!(backend.sent.lock().unwrap().is_empty());
-                release.send_replace(true);
-                pipeline.reports().close().await?;
-                pipeline.reports().close().await?;
+            }
+
+            let admitted = Rc::new(Cell::new(0));
+            let recorded = admitted.clone();
+            let burst = core.spawn(
+                core.job(JobKind::Ordinary, None),
+                Box::new(move |_| {
+                    Box::pin(async move {
+                        for i in 1001..1006 {
+                            tracker
+                                .test(&pool, &device, &result(&i.to_string(), TestStatus::Passed), true)
+                                .await
+                                .unwrap();
+                            recorded.set(recorded.get() + 1);
+                        }
+                        Ok(())
+                    })
+                }),
+            );
+            replay.drain_current().await.unwrap();
+            assert_eq!(admitted.get(), 0, "a full queue must wait");
+            for acknowledged in 1..=5 {
+                backend.allowed.add_permits(1);
+                replay.drain_current().await.unwrap();
                 assert_eq!(
-                    *backend.sent.lock().unwrap(),
-                    (0..=1000).map(|i| i.to_string()).collect::<Vec<_>>(),
+                    admitted.get(),
+                    acknowledged,
+                    "each delivered event frees one waiting caller"
                 );
-                assert_eq!(
-                    reports
-                        .lock()
-                        .unwrap()
-                        .iter()
-                        .map(|report| report.test_events().len())
-                        .collect::<Vec<_>>(),
-                    [1006, 1006],
-                );
-                assert_eq!(
-                    *warnings.lock().unwrap(),
-                    [(
-                        marathon_logging::Level::WARN,
-                        "The analytics queue was full; dropped 5 test metric events".to_owned()
-                    )],
-                );
-                Ok(())
-            })
-            .await
-            .unwrap()
+            }
+            burst.join().await?;
+            backend.allowed.add_permits(1001);
+            pipeline.reports().close().await?;
+            drop(pipeline);
+            assert_eq!(
+                *backend.sent.lock().unwrap(),
+                (0..1006).map(|i| i.to_string()).collect::<Vec<_>>(),
+            );
+            assert_eq!(reports.lock().unwrap()[0].test_events().len(), 1006);
+            assert!(warnings.lock().unwrap().is_empty());
+            Ok(())
         })
     })
     .unwrap();
