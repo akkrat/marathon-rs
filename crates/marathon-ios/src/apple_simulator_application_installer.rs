@@ -40,9 +40,10 @@ impl<'a> AppleSimulatorApplicationInstaller<'a> {
     pub async fn prepare_installation(&self, context: &VendorContext) -> VendorResult<()> {
         let services = self.device.services();
         let config = VendorConfiguration::Ios((*services.vendor).clone());
-        // D87: a failed transfer is sent again only before the preparation's deadline.
+        // D87: a failed transfer is sent again only while the preparation goes on (the other half has not run out of time)
+        // and before its deadline: one test for both.
         let may_retry = || {
-            let may = self.device.may_start_attempt(0);
+            let may = (self.may_continue)() && self.device.may_start_attempt(0);
             if !may {
                 self.refused.store(true, std::sync::atomic::Ordering::SeqCst);
             }

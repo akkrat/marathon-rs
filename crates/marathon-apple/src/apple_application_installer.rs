@@ -124,8 +124,8 @@ impl<'a> AppleApplicationInstaller<'a> {
         self.may_retry = may_retry;
         self
     }
-    /// D87: the installation starts each of its later steps (the test root, the after-install hook, each extra
-    /// application) only while `may_continue` says so; one that may not start ends the installation with an error,
+    /// D87: the installation starts each upload of the test bundle and each of its later steps (the test root, the
+    /// after-install hook, each extra application) only while `may_continue` says so; one that may not start ends the installation with an error,
     /// which the caller, already failing for another reason, does not report. A step in progress is never stopped.
     pub fn with_step_gate(mut self, may_continue: &'a (dyn Fn() -> bool + Send + Sync)) -> Self {
         self.may_continue = may_continue;
@@ -212,6 +212,10 @@ impl<'a> AppleApplicationInstaller<'a> {
                     let result = async {
                         fm.create_remote_directory(None, context).await?;
                         fm.create_remote_shared_directory(context).await?;
+                        // D87: no upload starts once the preparation has stopped; one in progress finishes.
+                        if !(self.may_continue)() {
+                            return Err(setup("the preparation has stopped before the transfer".into()));
+                        }
                         if !device.push_shared(src, &destination, context).await? {
                             return Err(setup(message.to_owned()));
                         }
