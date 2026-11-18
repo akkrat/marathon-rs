@@ -116,7 +116,17 @@ impl<M: 'static> RuntimeActor<M> {
                         Err(payload) => Err(super::panic_failure(payload).into()),
                     };
                     *active.handler.borrow_mut() = Some(handler);
-                    result
+                    // D84: a cancellation the actor was not given (its handler's own, from a call it made) ended the
+                    // receive loop while the owner stays active. Left a cancellation, it closes the mailbox silently and
+                    // nothing waiting on the owner ever hears of it (U206). As a failure it ends the owner with its cause.
+                    match result {
+                        Err(OperationError::Cancelled(reason))
+                            if active.receiver.cancellation_signal().reason().is_none() =>
+                        {
+                            Err(stopped_by_own_cancellation(label, reason).into())
+                        }
+                        other => other,
+                    }
                 })
             }),
             Box::new(move || {
@@ -209,6 +219,18 @@ impl<M: 'static> MailboxProbe for RuntimeActor<M> {
             closed_for_send: closed,
             discarded: closed,
         }
+    }
+}
+
+/// D84: the failure an actor ends with when its handler returned a cancellation the actor was not given.
+fn stopped_by_own_cancellation(label: &str, reason: Cancellation) -> Failure {
+    Failure {
+        kind: marathon_error::FailureKind::IllegalState,
+        message: Some(format!(
+            "{label} stopped: its handler was cancelled, but the actor was not"
+        )),
+        cause: Some(Box::new(reason.failure().clone())),
+        stacktrace: None,
     }
 }
 

@@ -88,8 +88,11 @@ impl ActorHandler<()> for CancelHandler {
         Box::pin(async { Err(cancelled("handler cancelled").into()) })
     }
 }
+/// The JVM probe keeps the owner active once its receiver ends with a cancellation of its own: the mailbox is closed and
+/// nothing waiting on the owner hears of it (U206). D84: the native actor ends its owner with a failure that carries
+/// the handler's cancellation, so that whoever owns the actor learns that it stopped.
 #[test]
-fn cancelled_receiver_keeps_actor_owner_active() {
+fn a_receiver_cancelled_by_its_handler_fails_the_actor_owner_d84() {
     run(|core, driver| {
         Box::pin(async move {
             let root = core.job(JobKind::Supervisor, None);
@@ -100,9 +103,22 @@ fn cancelled_receiver_keeps_actor_owner_active() {
             assert!(actor.try_send(()).is_ok());
             replay(driver.drain_current().await);
             assert_eq!(
-                (owner.state() == JobState::Active).to_string(),
-                expected("actor:owner-active")
+                expected("actor:owner-active"),
+                "true",
+                "the JVM probe this deviates from"
             );
+            let Completion::Failed(cause) = completed(&owner) else {
+                panic!("the owner did not fail: {:?}", owner.state())
+            };
+            assert_eq!(
+                cause.message.as_deref(),
+                Some("review.actor stopped: its handler was cancelled, but the actor was not")
+            );
+            assert_eq!(
+                cause.cause.as_ref().and_then(|cause| cause.message.as_deref()),
+                Some("handler cancelled")
+            );
+            assert_eq!(completed(&receiver), Completion::Failed(cause));
             assert_eq!(
                 owner.children_snapshot().len().to_string(),
                 expected("actor:owner-children")
@@ -111,12 +127,44 @@ fn cancelled_receiver_keeps_actor_owner_active() {
                 actor.is_closed_for_send().to_string(),
                 expected("actor:receiver-closed")
             );
-            assert!(matches!(completed(&receiver), Completion::Cancelled(_)));
             assert!(actor.try_send(()).is_err());
             replay(driver.assert_quiescent());
+            assert_eq!(
+                root.state(),
+                JobState::Active,
+                "a supervisor does not fail with its child"
+            );
+            root.complete();
+            Ok(())
+        })
+    });
+}
+/// A handler's cancellation stays a cancellation when the actor itself was cancelled, as its owner's cancel or `close`
+/// does (D52, D84).
+#[test]
+fn a_receiver_cancelled_with_its_actor_stays_cancelled_d84() {
+    struct Parked;
+    impl ActorHandler<()> for Parked {
+        fn receive(&mut self, _: (), context: ActorContext<()>) -> LocalFuture<'_, OperationResult<()>> {
+            Box::pin(async move {
+                let reason = context.task.job.cancellation_signal().cancelled().await;
+                Err(reason.into())
+            })
+        }
+    }
+    run(|core, driver| {
+        Box::pin(async move {
+            let root = core.job(JobKind::Ordinary, None);
+            let actor = RuntimeActor::new(core.clone(), root.clone(), core.clock(), Parked, "review.parked");
+            let owner = actor.job();
+            let receiver = owner.children_snapshot()[0].clone();
+            assert!(actor.try_send(()).is_ok());
+            replay(driver.drain_current().await);
             actor.close();
             replay(driver.drain_current().await);
-            owner.join().await?;
+            assert!(matches!(completed(&owner), Completion::Cancelled(_)));
+            assert!(matches!(completed(&receiver), Completion::Cancelled(_)));
+            assert_eq!(root.state(), JobState::Active);
             root.complete();
             Ok(())
         })
@@ -399,8 +447,12 @@ fn actor_receiver_seals_owner_and_supervisor_before_callbacks_d65() {
                     let core = core.clone();
                     let entered = entered.clone();
                     receiver.invoke_on_completion(Box::new(move |_| {
-                        for parent in parents {
-                            assert_eq!(completed(&parent), Completion::Success);
+                        for (parent, supervises) in parents.into_iter().zip([false, true]) {
+                            // D84: the handler's own cancellation fails the owner; the supervisor ignores that.
+                            assert!(matches!(
+                                (supervises, completed(&parent)),
+                                (true, Completion::Success) | (false, Completion::Failed(_))
+                            ));
                             let entered = entered.clone();
                             core.spawn(
                                 parent,
@@ -423,7 +475,7 @@ fn actor_receiver_seals_owner_and_supervisor_before_callbacks_d65() {
                 }
                 assert!(actor.try_send(()).is_ok());
                 replay(driver.drain_current().await);
-                assert_eq!(completed(&owner), Completion::Success);
+                assert!(matches!(completed(&owner), Completion::Failed(_)));
                 assert_eq!(completed(&supervisor), Completion::Success);
                 assert_eq!(entered.get(), 0);
                 assert_eq!(

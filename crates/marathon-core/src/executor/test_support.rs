@@ -116,6 +116,16 @@ impl ControlledReplay {
         }
         Ok(())
     }
+    /// The labels of the actors and channels still open for sends: what of a run is still alive (D84 witnesses).
+    pub fn open_mailboxes(&self) -> Vec<&'static str> {
+        self.core
+            .mailboxes
+            .borrow()
+            .iter()
+            .filter(|(_, probe)| !probe.state().closed_for_send)
+            .map(|(label, _)| *label)
+            .collect()
+    }
     pub fn pending_timers(&self) -> usize {
         self.collect();
         self.timers.borrow().len()

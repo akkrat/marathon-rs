@@ -63,9 +63,9 @@ struct Inner {
     phase: std::cell::Cell<&'static str>,
     /// D68: a console failure is logged once per run.
     console_warned: Rc<std::cell::Cell<bool>>,
-    /// D68: the first error a pool's queue ended with. Set by the queue job's completion, whether or not its pool is
-    /// still there to hear of it.
-    queue_failure: Rc<RefCell<Option<Failure>>>,
+    /// D68, D84: the first error the run's own machinery ended with: a pool's queue (set by the queue job's completion,
+    /// whether or not its pool is still there to hear of it), a pool, or the device subscription.
+    fatal: Rc<RefCell<Option<Failure>>>,
 }
 
 fn operation_to_vendor(error: OperationError) -> VendorError {
@@ -94,7 +94,7 @@ impl Scheduler {
                 pooling,
                 phase: std::cell::Cell::new("not-started"),
                 console_warned: Rc::default(),
-                queue_failure: Rc::default(),
+                fatal: Rc::default(),
             }),
         }
     }
@@ -143,6 +143,19 @@ impl Scheduler {
     /// `deviceInitializationTimeoutMillis`, NoDevices with an empty message.
     pub async fn execute(&self) -> VendorResult<bool> {
         let result = self.execute_inner().await;
+        // D84: whatever ended the wait (a failed subscription cancels the run's context, and with it every join above),
+        // a fatal error stops the pools and devices and is waited for, so nothing still runs while the reports are
+        // written. A D52 cancel records nothing here; its own path stops the run.
+        let fatal = self.inner.fatal.borrow_mut().take();
+        let result = match fatal {
+            Some(cause) => {
+                self.inner.phase.set("stopping-after-failure");
+                self.inner.job.cancel(Cancellation::Requested(cause.clone()));
+                let _ = self.inner.job.join().await;
+                Err(VendorError::Other(cause))
+            }
+            None => result,
+        };
         self.inner.phase.set("finished");
         result
     }
@@ -209,9 +222,10 @@ impl Scheduler {
             })?;
             results.push(progress);
         }
-        // D68: a queue that ended with an error leaves results that cannot be trusted. Its cause is the outcome.
-        if let Some(cause) = inner.queue_failure.borrow_mut().take() {
-            return Err(VendorError::Other(cause));
+        // D68: a queue that ended with an error leaves results that cannot be trusted. Its cause is the outcome, which
+        // `execute` returns.
+        if inner.fatal.borrow().is_some() {
+            return Ok(false);
         }
         // Preserve short-circuiting, but exclude accumulators still awaiting publication.
         inner.phase.set("aggregating-results");
@@ -248,24 +262,58 @@ impl Inner {
     fn subscribe_on_devices(self: Rc<Self>) -> JobRef {
         let parent = self.parts.context.job.clone();
         let core = self.parts.core.clone();
-        core.spawn(
+        let inner = self.clone();
+        let subscription = core.spawn(
             parent,
             Box::new(move |task: TaskContext| {
                 Box::pin(async move {
-                    let channel = self.parts.provider.subscribe();
-                    loop {
-                        let event = receive_device_event(channel.as_ref(), task.job.cancellation_signal())
-                            .await
-                            .map_err(vendor_to_operation)?;
-                        match event {
-                            Some(DeviceEvent::Connected(device)) => self.on_device_connected(device, &task).await?,
-                            Some(DeviceEvent::Disconnected(device)) => self.on_device_disconnected(device)?,
-                            None => return Ok(()),
+                    let received = async {
+                        let channel = self.parts.provider.subscribe();
+                        loop {
+                            let event = receive_device_event(channel.as_ref(), task.job.cancellation_signal())
+                                .await
+                                .map_err(vendor_to_operation)?;
+                            match event {
+                                Some(DeviceEvent::Connected(device)) => self.on_device_connected(device, &task).await?,
+                                Some(DeviceEvent::Disconnected(device)) => self.on_device_disconnected(device)?,
+                                None => return Ok(()),
+                            }
                         }
+                    }
+                    .await;
+                    // D84: a cancellation the subscription was not given (a cancelled device channel, or a call of its
+                    // own) would end it silently, and the run would hear of no device again. It fails instead.
+                    match received {
+                        Err(OperationError::Cancelled(reason)) if task.job.cancellation_signal().reason().is_none() => {
+                            let mut stopped = failure(
+                                FailureKind::IllegalState,
+                                "The device subscription stopped: it was cancelled, but the run was not",
+                            );
+                            stopped.cause = Some(Box::new(reason.failure().clone()));
+                            Err(stopped.into())
+                        }
+                        other => other,
                     }
                 })
             }),
-        )
+        );
+        // D84: a failed subscription fails the run's context, which ends `execute`'s waits, but not the detached pools.
+        inner.fail_with(&subscription);
+        subscription
+    }
+
+    /// D68, D84: `job` is part of the run's own machinery. If it ends with an error, every pool is stopped as a D52
+    /// cancel stops them, and the first such cause is kept for `execute`.
+    fn fail_with(&self, job: &JobRef) {
+        let fatal = self.fatal.clone();
+        let scheduler = Rc::downgrade(&self.job);
+        job.invoke_on_completion(Box::new(move |completion| {
+            let Completion::Failed(cause) = completion else { return };
+            fatal.borrow_mut().get_or_insert_with(|| cause.clone());
+            if let Some(job) = scheduler.upgrade() {
+                job.cancel(Cancellation::Requested(cause));
+            }
+        }));
     }
 
     fn on_device_disconnected(&self, device: DeviceRef) -> OperationResult<()> {
@@ -342,7 +390,7 @@ impl Inner {
                 hooks: self.parts.hooks.clone(),
                 barriers: self.parts.barriers.clone(),
             });
-            self.on_queue_failure(&pool);
+            self.on_failure(&pool);
             self.pools.borrow_mut().insert(pool_id.clone(), pool);
         }
         // A pool that has terminated stays here, closed: the device is dropped but still tracked (B1).
@@ -363,16 +411,10 @@ impl Inner {
 
     /// D68: a queue that ends with an error stops the run as a D52 cancel does, and its cause is kept for `execute`.
     /// This hangs on the queue's job, not on its pool, which may have closed on reading the failed queue as empty.
-    fn on_queue_failure(&self, pool: &DevicePool) {
-        let failure = self.queue_failure.clone();
-        let job = Rc::downgrade(&self.job);
-        pool.queue.job().invoke_on_completion(Box::new(move |completion| {
-            let Completion::Failed(cause) = completion else { return };
-            failure.borrow_mut().get_or_insert_with(|| cause.clone());
-            if let Some(job) = job.upgrade() {
-                job.cancel(Cancellation::Requested(cause));
-            }
-        }));
+    /// D84: so does a pool that ends with an error: a panic in its handler, or a cancellation it was not given.
+    fn on_failure(&self, pool: &DevicePool) {
+        self.fail_with(&pool.queue.job());
+        self.fail_with(&pool.actor.job());
     }
 
     /// `results.computeIfAbsent`, before the pool.

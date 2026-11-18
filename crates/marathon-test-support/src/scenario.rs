@@ -42,6 +42,8 @@ pub struct Outcome {
     pub completed_at: Option<i64>,
     /// Events and device calls in the replay transcript's shape.
     pub log: Vec<Value>,
+    /// The actors and channels still open once a completed run has returned (D84), before any teardown.
+    pub open_mailboxes: Vec<&'static str>,
     _output: Option<tempfile::TempDir>,
 }
 impl Outcome {
@@ -330,6 +332,7 @@ pub fn drive(mut factory: MarathonFactory, script: Script, prepare: Option<Prepa
                     .map_err(replay_error)?;
             }
             let completed = value.borrow().is_some();
+            let open_mailboxes = replay.open_mailboxes();
             if !completed {
                 job.cancel(marathon_core::executor::shared::requested("scenario teardown"));
                 let _ = job.join().await;
@@ -345,6 +348,7 @@ pub fn drive(mut factory: MarathonFactory, script: Script, prepare: Option<Prepa
                 provider_calls: lock(&built.provider.calls).clone(),
                 completed_at: *completed_at.borrow(),
                 log: lock(&recorder.log).clone(),
+                open_mailboxes,
                 _output: None,
             })
         })

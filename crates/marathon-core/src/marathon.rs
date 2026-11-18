@@ -1043,10 +1043,15 @@ impl Marathon {
         Self::await_signal_exit(&relay).await;
         let outcome = match result.take() {
             Some(value) => value,
-            None => Err(VendorError::Cancelled(match (joined, child.state()) {
-                (Err(reason), _) | (_, JobState::Completed(Completion::Cancelled(reason))) => reason,
-                _ => requested("Marathon run was cancelled"),
-            })),
+            // D84: the run task failed before it could store an outcome, e.g. it panicked. That is its cause, not a
+            // cancellation that hides it.
+            None => Err(match (joined, child.state()) {
+                (_, JobState::Completed(Completion::Failed(cause))) => VendorError::Other(cause),
+                (Err(reason), _) | (_, JobState::Completed(Completion::Cancelled(reason))) => {
+                    VendorError::Cancelled(reason)
+                }
+                _ => VendorError::Cancelled(requested("Marathon run was cancelled")),
+            }),
         };
         if outcome.is_err() {
             // invokeOnCompletion { runBlocking { withContext(NonCancellable) { onFinish() } } }.
