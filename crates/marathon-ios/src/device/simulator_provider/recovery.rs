@@ -578,9 +578,10 @@ impl SimulatorRecovery {
                 }
                 provider.log(Level::WARN, || format!("Re-provisioning {}", device.serial()), None);
                 udids.push(device.udid().to_owned());
-                // D87: only after a failed preparation; a worker's loss is not one. Only for the generation this recovery
-                // holds a current claim on, so a simulator added back meanwhile starts afresh.
-                if let Some(episode) = device.preparation_episode().filter(|_| loss.is_some()) {
+                // D87: the unfinished preparation belongs to this recovery's claim, whatever ended it: a failed boot, or the
+                // worker dropping at any point of it. Only for the generation it holds a current claim on: a simulator
+                // added back meanwhile starts afresh.
+                if let Some(episode) = device.preparation_episode() {
                     let id = apple_id(device.udid(), transport);
                     let held = provider.claim([id.clone()]).0.get(&id).copied().unwrap_or(0);
                     if held == provider.generation(&id) {
