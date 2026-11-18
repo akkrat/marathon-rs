@@ -123,9 +123,18 @@ struct State {
     /// U179: preparations still running, which disposal stops and waits for. Disposal takes them under the same lock
     /// that installs it, so none starts after that.
     preparations: Vec<Arc<prepare::PreparationJob>>,
+    /// D91: sends to this simulator that may still be running, whoever waits for them, which disposal stops and waits
+    /// for. Registered under the same lock as `preparations`, so none starts after disposal.
+    transfers: Vec<Arc<marathon_apple::cmd::TransferReceipt>>,
     /// D87: the preparation that has not ended in a ready simulator.
     episode: Option<PreparationEpisode>,
     last_session: Option<Arc<marathon_apple::xcodebuild_session::XcodebuildSession>>,
+}
+impl State {
+    /// D91: the sends registered that have not ended, pruning those that have.
+    fn unended_transfers(&self) -> Vec<Arc<marathon_apple::cmd::TransferReceipt>> {
+        self.transfers.iter().filter(|t| t.ended().is_none()).cloned().collect()
+    }
 }
 pub struct AppleSimulatorDevice {
     me: Weak<Self>,
@@ -208,6 +217,7 @@ impl AppleSimulatorDevice {
             ),
             running: None,
             preparations: Vec::new(),
+            transfers: Vec::new(),
             episode: None,
             last_session: None,
         };
@@ -344,21 +354,26 @@ impl Device for AppleSimulatorDevice {
         Some(self.services.timeouts.cancelled_batch_millis)
     }
     /// D84 (R3-2): a cancelled preparation goes on in a retained task until it is stopped. D74's join stops it and
-    /// waits for it (and for a batch still running) within the same bound, as disposal does.
+    /// waits for it (and for a batch still running, and, D91, for sends still running) within the same bound, as disposal
+    /// does.
     fn join_cancelled_work(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
-            let (running, preparations) = {
+            let (running, preparations, transfers) = {
                 let state = self.state();
-                (state.running.clone(), state.preparations.clone())
+                (
+                    state.running.clone(),
+                    state.preparations.clone(),
+                    state.unended_transfers(),
+                )
             };
-            if running.is_none() && preparations.is_empty() {
+            if running.is_none() && preparations.is_empty() && transfers.is_empty() {
                 return Ok(());
             }
             let context = VendorContext {
                 cancellation: marathon_core::executor::shared::Signal::new(),
                 ..self.services.context.clone()
             };
-            self.stop_and_join(running, preparations, &context).await
+            self.stop_and_join(running, preparations, transfers, &context).await
         })
     }
     fn info(&self) -> DeviceInfo {

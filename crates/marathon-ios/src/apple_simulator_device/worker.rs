@@ -54,8 +54,26 @@ impl AppleSimulatorDevice {
         super::setup::setup_error(message)
     }
     /// D54: a send to this simulator ends on its caller's cancellation or when the simulator's own connection is lost.
+    /// D91: and when disposal stops it: registered before the send starts, under the lock disposal installs itself with,
+    /// so disposal either waits for it, whoever else does, or it never starts.
     fn send_stop(&self, context: &VendorContext) -> marathon_apple::cmd::TransferStop {
-        marathon_apple::cmd::send_stop(self.executor.as_ref(), context)
+        let receipt = marathon_apple::cmd::TransferReceipt::new();
+        {
+            let mut state = self.state();
+            if state.disposal.is_some() {
+                receipt.stop(
+                    marathon_core::error::Cancellation::Requested(failure(
+                        FailureKind::IllegalState,
+                        format!("Device {} has been disposed", self.serial),
+                    )),
+                    None,
+                );
+            } else {
+                state.transfers.retain(|t| t.ended().is_none());
+                state.transfers.push(receipt.clone());
+            }
+        }
+        marathon_apple::cmd::send_stop(self.executor.as_ref(), context).owned_by(receipt)
     }
     /// D54: a receive from it ends only when that connection is lost.
     fn receive_stop(&self) -> marathon_apple::cmd::TransferStop {

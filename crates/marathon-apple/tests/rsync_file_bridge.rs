@@ -2128,3 +2128,274 @@ async fn a_transfer_stopped_before_it_starts_returns_its_stop_d54() {
     );
     b.join_pending().await.unwrap();
 }
+/// D91: a runtime that runs every task, but whose joins of the tasks it spawns at `held` (counted from 0, in the order the
+/// bridge spawns them) never end, as a task the runtime no longer schedules would not.
+struct HeldJoins {
+    held: Vec<usize>,
+    spawned: std::sync::atomic::AtomicUsize,
+}
+struct Held(Arc<dyn marathon_core::runtime::VendorTask>);
+impl marathon_core::runtime::VendorTask for Held {
+    fn cancel(&self, reason: marathon_core::error::Cancellation) {
+        self.0.cancel(reason)
+    }
+    fn join(&self) -> marathon_core::runtime::VendorFuture<'_, ()> {
+        Box::pin(std::future::pending())
+    }
+}
+impl marathon_core::runtime::VendorRuntime for HeldJoins {
+    fn spawn_cancellable(
+        &self,
+        body: marathon_core::runtime::VendorTaskBody,
+    ) -> Arc<dyn marathon_core::runtime::VendorTask> {
+        Runtime.spawn_cancellable(body)
+    }
+    fn spawn(
+        &self,
+        body: marathon_core::runtime::VendorFuture<'static, ()>,
+    ) -> Arc<dyn marathon_core::runtime::VendorTask> {
+        let index = self.spawned.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let task = Runtime.spawn(body);
+        if self.held.contains(&index) {
+            Arc::new(Held(task))
+        } else {
+            task
+        }
+    }
+    fn spawn_blocking(
+        &self,
+        body: Box<dyn FnOnce() -> marathon_core::error::VendorResult<()> + Send>,
+    ) -> Arc<dyn marathon_core::runtime::VendorTask> {
+        Runtime.spawn_blocking(body)
+    }
+}
+/// D91's child tests' bridge, on `runtime` and `clock`.
+async fn d91_bridge(
+    logging: marathon_apple::cmd::remote::ssh::sshj::config::SshLogging,
+    runtime: Arc<dyn marathon_core::runtime::VendorRuntime>,
+    clock: Arc<dyn marathon_core::runtime::VendorClock>,
+) -> RsyncFileBridge {
+    RsyncFileBridge::new(
+        RsyncTarget {
+            addr: "127.0.0.1".into(),
+            port: 22,
+        },
+        false,
+        SshConfiguration {
+            authentication: None,
+            known_hosts_path: None,
+            keep_alive_interval: duration(0),
+            keep_alive_max_count: 4,
+            debug: false,
+            share_worker_connection: false,
+        },
+        RsyncConfiguration {
+            remote_path: "/usr/bin/rsync".into(),
+        },
+        Some(key("/fixture/key")),
+        runtime,
+        clock,
+        logging,
+    )
+    .await
+    .unwrap()
+}
+/// D91's child tests: waits until the stand-in and its child have both set up their signal handling.
+async fn d91_ready(root: &Path) {
+    let ready = root.join("ready");
+    tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        while !ready.exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+}
+async fn d91_until(what: impl Fn() -> bool) {
+    tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        while !what() {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+}
+fn d91_lines(events: &support::ssh::Events, level: marathon_logging::Level) -> Vec<String> {
+    ssh::lines(events)
+        .into_iter()
+        .filter(|(_, at, _)| *at == level)
+        .map(|(.., message)| message)
+        .collect()
+}
+/// D91: a send stopped while the runtime no longer lets the bridge join the readers of its output, as if they never ended.
+/// Its cleanup is not confirmed, so it ends at the stop's 40 s bound and says so; nothing is sent into its destination
+/// again, and the send waiting behind it on the same bridge, another simulator's, goes on. Before D91 the bridge waited
+/// for those readers for ever, holding every later send to the worker.
+#[test]
+fn a_stopped_send_whose_output_is_never_joined_ends_at_the_bound_and_its_destination_is_not_used_again_d91() {
+    let dir = tempfile::tempdir().unwrap();
+    let program = stoppable_rsync(dir.path(), SSH, WAITS);
+    run_stalled_send(StalledSend {
+        factor: 1,
+        child: "unconfirmed_transfer_runs",
+        ..StalledSend::new("d91", &program, dir.path())
+    });
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unconfirmed_transfer_runs() {
+    use marathon_apple::cmd::TransferStop;
+    use marathon_core::runtime::VendorClock;
+    const HANG: std::time::Duration = std::time::Duration::from_secs(60);
+    if std::env::var("MRS_D31_MODE").is_err() {
+        return;
+    }
+    let root = std::path::PathBuf::from(std::env::var_os("MRS_D31_ROOT").unwrap());
+    let source = root.join("source");
+    std::fs::write(&source, b"payload").unwrap();
+    let (logging, events) = ssh::logging(false);
+    // The first send's task is the bridge's first spawn, and its two readers the next.
+    let runtime = Arc::new(HeldJoins {
+        held: vec![1, 2],
+        spawned: Default::default(),
+    });
+    // Ten times faster than real time, so that the 40 s bound comes before the readers' own 5 s real ones.
+    let clock = Arc::new(ssh::ScaledClock::new(10));
+    let bridge = Arc::new(d91_bridge(logging, runtime.clone(), clock.clone()).await);
+    let signal = marathon_core::executor::shared::Signal::new();
+    let first = {
+        let (bridge, source, stop) = (bridge.clone(), source.clone(), TransferStop::new(signal.clone()));
+        tokio::spawn(async move { bridge.send_with(&source, "/tmp/marathon/stuck", stop).await })
+    };
+    d91_ready(&root).await;
+    d91_until(|| runtime.spawned.load(std::sync::atomic::Ordering::SeqCst) >= 3).await;
+    let queued = {
+        let (bridge, source) = (bridge.clone(), source.clone());
+        tokio::spawn(async move { bridge.send(&source, "/tmp/marathon/next").await })
+    };
+    d91_until(|| bridge.retained_tasks() >= 2).await;
+    let reason = marathon_apple::cmd::cancelled("the caller was cancelled");
+    let stopped_at = clock.now_millis();
+    signal.cancel(reason.clone());
+    let result = tokio::time::timeout(HANG, first)
+        .await
+        .expect("the stopped send waited for its output for ever")
+        .unwrap();
+    let took = clock.now_millis() - stopped_at;
+    assert_eq!(result, Err(VendorError::Cancelled(reason)));
+    assert!((40_000..70_000).contains(&took), "{took}");
+    let queued = tokio::time::timeout(HANG, queued).await.unwrap().unwrap();
+    assert_eq!(queued, Ok(true));
+    // No replacement: nothing is sent there again, and the device that asks leaves its pool.
+    let again = tokio::time::timeout(HANG, bridge.send(&source, "/tmp/marathon/stuck"))
+        .await
+        .unwrap();
+    match &again {
+        Err(VendorError::LeavePool {
+            reason: LeavePoolReason::TransferStalled,
+            detail,
+        }) => assert_eq!(
+            detail.message.as_deref(),
+            Some(
+                "Not sending to 127.0.0.1:/tmp/marathon/stuck: an earlier transfer there was not confirmed to have \
+                 ended, the device leaves its pool"
+            )
+        ),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(std::fs::read_to_string(root.join("order")).unwrap(), "stuck\nnext\n");
+    let errors = d91_lines(&events, marathon_logging::Level::ERROR);
+    assert_eq!(
+        errors,
+        vec![
+            "send error: could not confirm that the transfer to 127.0.0.1:/tmp/marathon/stuck ended, and nothing more is \
+             transferred there in this run"
+                .to_owned()
+        ]
+    );
+    let causes: Vec<_> = events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|(.., cause)| cause.as_ref().and_then(|c| c.message.clone()))
+        .collect();
+    let pid = std::fs::read_to_string(root.join("pid")).unwrap();
+    assert!(
+        causes
+            .iter()
+            .any(|cause| cause.starts_with(&format!("rsync (pid {}) ", pid.trim()))
+                && cause.contains("its output was still being read")),
+        "{causes:?}"
+    );
+}
+/// D91: a send that its caller stopped and then stopped waiting for, as a preparation's retry lets go of one (U210). rsync
+/// and the ssh it started both ignore TERM, and ssh holds rsync's output. The transfer stays with the bridge, which kills
+/// both, reaps rsync and reads its output to the end before the device's receipt says it has ended, confirmed. The send
+/// behind it, another simulator's on the same cached bridge, then goes on and ends its own receipt as a healthy one does.
+#[test]
+fn a_stopped_send_whose_caller_has_gone_is_reaped_and_its_output_closed_before_its_receipt_ends_d91() {
+    let dir = tempfile::tempdir().unwrap();
+    let program = stoppable_rsync(dir.path(), SSH_IGNORING_TERM_TOO, IGNORES_TERM_AND_WAITS);
+    run_stalled_send(StalledSend {
+        factor: 1,
+        child: "owned_transfer_runs",
+        ..StalledSend::new("d91", &program, dir.path())
+    });
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn owned_transfer_runs() {
+    use marathon_apple::cmd::{TransferCleanup, TransferReceipt, TransferStop};
+    const HANG: std::time::Duration = std::time::Duration::from_secs(60);
+    if std::env::var("MRS_D31_MODE").is_err() {
+        return;
+    }
+    let root = std::path::PathBuf::from(std::env::var_os("MRS_D31_ROOT").unwrap());
+    let source = root.join("source");
+    std::fs::write(&source, b"payload").unwrap();
+    let (logging, events) = ssh::logging(false);
+    // Twice as fast as real time: D31's 5 s steps take 2.5 s, and the 40 s bound 20 s, well clear of them.
+    let bridge = Arc::new(d91_bridge(logging, Arc::new(Runtime), Arc::new(ssh::ScaledClock::new(2))).await);
+    let signal = marathon_core::executor::shared::Signal::new();
+    let receipt = TransferReceipt::new();
+    let first = {
+        let (bridge, source) = (bridge.clone(), source.clone());
+        let stop = TransferStop::new(signal.clone()).owned_by(receipt.clone());
+        tokio::spawn(async move { bridge.send_with(&source, "/tmp/marathon/stuck", stop).await })
+    };
+    d91_ready(&root).await;
+    let sibling = TransferReceipt::new();
+    let queued = {
+        let (bridge, source) = (bridge.clone(), source.clone());
+        let stop = TransferStop::new(marathon_core::executor::shared::Signal::new()).owned_by(sibling.clone());
+        tokio::spawn(async move { bridge.send_with(&source, "/tmp/marathon/next", stop).await })
+    };
+    d91_until(|| bridge.retained_tasks() >= 2).await;
+    signal.cancel(marathon_apple::cmd::cancelled("the preparation was cancelled"));
+    // The preparation lets go of its send.
+    first.abort();
+    assert!(first.await.unwrap_err().is_cancelled());
+    assert_eq!(receipt.ended(), None);
+    let ended = tokio::time::timeout(HANG, receipt.wait_in(marathon_core::executor::shared::Signal::new()))
+        .await
+        .expect("the stopped send never ended")
+        .unwrap();
+    // Seen as the receipt ends: rsync reaped (its pid no longer this process's child, nor anyone's) and ssh gone, so that
+    // nothing holds rsync's output any more.
+    let pid = |file: &str| {
+        nix::unistd::Pid::from_raw(
+            std::fs::read_to_string(root.join(file))
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap(),
+        )
+    };
+    assert_eq!(nix::sys::signal::kill(pid("pid"), None), Err(nix::errno::Errno::ESRCH));
+    assert!(!running(pid("ssh-pid")));
+    assert_eq!(ended, TransferCleanup::Confirmed);
+    let queued = tokio::time::timeout(HANG, queued).await.unwrap().unwrap();
+    assert_eq!(queued, Ok(true));
+    assert_eq!(sibling.ended(), Some(TransferCleanup::Confirmed));
+    assert_eq!(std::fs::read_to_string(root.join("order")).unwrap(), "stuck\nnext\n");
+    assert_eq!(d91_lines(&events, marathon_logging::Level::ERROR), Vec::<String>::new());
+    bridge.join_pending().await.unwrap();
+}

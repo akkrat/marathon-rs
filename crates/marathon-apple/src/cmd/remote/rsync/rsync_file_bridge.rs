@@ -5,14 +5,12 @@ use marathon_logging::{Component, Level};
 use super::RsyncTarget;
 use crate::cmd::{
     FileBridge, SessionScope, TransferStop, TransferStopped, blocking, failure, io_error,
-    remote::ssh::sshj::{client::within, config::SshLogging},
-    retained_tasks::RetainedTasks,
-    stall_record::StallRecord,
+    remote::ssh::sshj::config::SshLogging, retained_tasks::RetainedTasks, stall_record::StallRecord,
 };
 use jcompat::file_manager::absolute_file_path;
 use marathon_config::vendor::{RsyncConfiguration, SshAuthentication, SshConfiguration};
 use marathon_core::{
-    error::{LeavePoolReason, VendorError, VendorResult},
+    error::{Cancellation, Failure, LeavePoolReason, VendorError, VendorResult},
     runtime::{CancellationSignal, VendorClock, VendorFuture, VendorRuntime},
 };
 use marathon_error::{AppleKind, FailureKind};
@@ -58,6 +56,13 @@ const PROCESS_LIMIT: std::time::Duration = std::time::Duration::from_secs(5);
 /// once, and then now and then for what starts later. A transfer that ends within the first never lists.
 const LIST_FIRST: std::time::Duration = std::time::Duration::from_secs(1);
 const LIST_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
+/// D91: from a stop (D54) to the end of its cleanup, confirmed or not, on the vendor clock: D54's 15 s of steps, 20 s for
+/// the process listings where `ps` is slow, and 5 s for the last reap. Each step gets what is left of it at most, and less
+/// if the device that started the transfer needs it to have ended sooner.
+pub const STOP_CLEANUP_MILLIS: i64 = 40_000;
+/// D91: how long a process that was sent KILL gets to be reaped, in real time like `PROCESS_LIMIT`, since the kernel
+/// decides it.
+const REAP_LIMIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[derive(Clone)]
 pub struct RsyncFileBridge(Arc<Inner>);
@@ -74,6 +79,9 @@ struct Inner {
     send: tokio::sync::Mutex<()>,
     stalls: StallRecord,
     tasks: RetainedTasks,
+    /// D91: destinations of transfers whose end could not be confirmed. Their rsync may still be writing there, so no
+    /// transfer into one starts again in this run.
+    quarantined: Mutex<std::collections::HashSet<String>>,
 }
 impl RsyncFileBridge {
     #[allow(clippy::too_many_arguments)]
@@ -101,6 +109,7 @@ impl RsyncFileBridge {
             send: tokio::sync::Mutex::new(()),
             stalls: StallRecord::default(),
             tasks: RetainedTasks::default(),
+            quarantined: Mutex::default(),
         }));
         if debug {
             let inner = bridge.0.clone();
@@ -112,6 +121,7 @@ impl RsyncFileBridge {
                             None,
                             None,
                             false,
+                            &mut None,
                         )
                         .await?;
                     let first = output.stdout.split('\n').next().unwrap_or_default().to_owned();
@@ -284,18 +294,26 @@ impl Inner {
         Ok(args)
     }
     /// `arriving` is where a receive's bytes land; `stop` ends it early (D54). `wrapped` says the process is `sshpass`.
+    /// D91: `unconfirmed` gets what could not be confirmed about the end of the process and what it started, whatever is
+    /// returned; nothing here waits without a bound.
     async fn process(
         &self,
         argv: Vec<String>,
         arriving: Option<Arriving>,
         mut stop: Option<&mut TransferStop>,
         wrapped: bool,
+        unconfirmed: &mut Option<Failure>,
     ) -> VendorResult<Outcome> {
         blocking(self.runtime.as_ref(), initialize_binaries).await?;
         // The start is read on the vendor clock as the process starts, not when the spawn's result reaches this task, so a
         // late delivery can't shorten the time a send has been quiet.
         let clock = self.clock.clone();
-        let (mut child, started) = blocking(self.runtime.as_ref(), move || {
+        let cancelled = stop.as_deref().map(TransferStop::cancellation_check);
+        let spawned = blocking(self.runtime.as_ref(), move || {
+            // D91: a stop that came while this waited for its turn starts nothing. One that comes later is the select's.
+            if let Some(reason) = cancelled.as_ref().and_then(|cancelled| cancelled()) {
+                return Ok(Err(reason));
+            }
             let child = Command::new(&argv[0])
                 .args(&argv[1..])
                 .stdin(Stdio::piped())
@@ -303,9 +321,14 @@ impl Inner {
                 .stderr(Stdio::piped())
                 .spawn()
                 .map_err(io_error)?;
-            Ok((child, clock.now_millis()))
+            Ok(Ok((child, clock.now_millis())))
         })
         .await?;
+        let (mut child, started) = match spawned {
+            Ok(spawned) => spawned,
+            Err(reason) => return Ok(Outcome::not_started(reason)),
+        };
+        let pid = child.id();
         let descendants = Descendants::of(&child);
         // ProcessBuilder leaves stdin open while monitor waits; rsync does not read it.
         let stdin = child.stdin.take();
@@ -313,13 +336,13 @@ impl Inner {
         let stderr = child.stderr.take();
         let readers = Arc::new(SessionScope::default());
         let out_scope = readers.clone();
-        let (out_tx, out_rx) = oneshot::channel();
+        let (out_tx, mut out_rx) = oneshot::channel();
         let out_task = self.runtime.spawn(Box::pin(async move {
             let _ = out_tx.send(read_pipe(stdout, out_scope).await);
             Ok(())
         }));
         let err_scope = readers.clone();
-        let (err_tx, err_rx) = oneshot::channel();
+        let (err_tx, mut err_rx) = oneshot::channel();
         let stall = Arc::new(Notify::new());
         let reported = stall.clone();
         let err_task = self.runtime.spawn(Box::pin(async move {
@@ -330,70 +353,139 @@ impl Inner {
         let progress = AtomicI64::new(started);
         let mut nothing_arrived = false;
         let mut stopped = None;
+        let unbounded = Bound {
+            clock: self.clock.as_ref(),
+            at: None,
+        };
+        // D91: from a stop on, every step below is held to one deadline.
+        let mut bound = unbounded;
         let stopping = async {
             match stop.as_deref_mut() {
-                Some(stop) => stop.stopped().await,
+                Some(stop) => {
+                    let why = stop.stopped().await;
+                    (why, stop.deadline())
+                }
                 None => std::future::pending().await,
             }
         };
         let (status, wrapper_stopped) = tokio::select! {
             biased;
-            result = child.wait() => (result.map_err(io_error), false),
+            result = child.wait() => (Some(result.map_err(io_error)), false),
             arrived = self.watch(arriving, &stall, &progress) => {
                 nothing_arrived = !arrived;
-                self.stop_child(&mut child, &descendants, true, wrapped).await
+                self.stop_child(&mut child, &descendants, true, wrapped, unbounded).await
             }
             // D54: rsync has said nothing and is not on its way out, so it gets no time to end by itself.
-            why = stopping => {
+            (why, by) = stopping => {
                 stopped = Some(why);
-                self.stop_child(&mut child, &descendants, false, wrapped).await
+                let at = self.clock.now_millis().saturating_add(STOP_CLEANUP_MILLIS);
+                bound.at = Some(by.map_or(at, |by| by.min(at)));
+                self.stop_child(&mut child, &descendants, false, wrapped, bound).await
             }
-            _ = descendants.follow() => unreachable!("following never ends"),
+            _ = descendants.follow(unbounded) => unreachable!("following never ends"),
         };
         // Measured as the process ended, however that came about, and before its pipes are waited for.
         let quiet = self.clock.now_millis() - progress.load(Ordering::SeqCst);
-        if status.is_err() {
+        let mut doubts = Vec::new();
+        let reaped = match &status {
+            Some(Ok(_)) => true,
             // A failed wait may not have reaped the child; the error still wins.
-            let _ = child.wait().await;
+            Some(Err(_)) => bound
+                .run(Some(REAP_LIMIT), None, child.wait())
+                .await
+                .is_some_and(|waited| waited.is_ok()),
+            None => false,
+        };
+        if !reaped {
+            doubts.push("it was not reaped".to_owned());
+        }
+        // D54: once a stop has been sent, what rsync started goes, whatever rsync's status says. D91: before its pipes are
+        // waited for, since that is what holds them; and then it is checked that none of it is left.
+        let stop_sent = stopped.is_some();
+        let mut left = None;
+        if stop_sent || !reaped {
+            left = Some(descendants.end(bound).await);
         }
         drop(stdin);
-        if status.is_err() {
+        if !matches!(status, Some(Ok(_))) {
             readers.cancel(crate::cmd::cancelled("Process output timed out"));
         }
         // D31, and U158 for a receive: a hung ssh that outlived rsync may hold these pipes open. What was read stays.
-        let joined = async {
-            let _ = out_task.join().await;
-            let _ = err_task.join().await;
-        };
-        if tokio::time::timeout(PROCESS_LIMIT, joined).await.is_err() {
+        let join = || async { (out_task.join().await, err_task.join().await) };
+        let mut joined = bound.run(Some(PROCESS_LIMIT), None, join()).await;
+        if joined.is_none() {
             readers.cancel(crate::cmd::cancelled("Process output outlived the process"));
+            joined = bound.run(Some(PROCESS_LIMIT), None, join()).await;
         }
-        let out_joined = out_task.join().await;
-        let err_joined = err_task.join().await;
-        let status = status?;
-        out_joined?;
-        err_joined?;
-        let dropped = |e: tokio::sync::oneshot::error::RecvError| {
+        if joined.is_none() {
+            doubts.push("its output was still being read".to_owned());
+        }
+        let dropped = |e: tokio::sync::oneshot::error::TryRecvError| {
             VendorError::Other(failure(FailureKind::IllegalState, e.to_string()))
         };
+        // What the readers had when they ended; nothing if they have not.
+        let (stdout, stderr) = match &joined {
+            Some(_) => (out_rx.try_recv().map_err(dropped), err_rx.try_recv().map_err(dropped)),
+            None => (Ok(Ok(String::new())), Ok(Ok(String::new()))),
+        };
         use std::os::unix::process::ExitStatusExt;
-        let status = status.code().unwrap_or_else(|| 128 + status.signal().unwrap_or(0));
-        // U181: sshpass 1.10 can exit 0 at once on a TERM of its own, whatever rsync then does, so that 0 is not rsync's.
+        let code = |status: &ExitStatus| status.code().unwrap_or_else(|| 128 + status.signal().unwrap_or(0));
         let status = match status {
+            Some(Ok(status)) => Ok(code(&status)),
+            Some(Err(error)) => Err(error),
+            // D91: sent KILL and not reaped in time.
+            None => Ok(128 + nix::sys::signal::Signal::SIGKILL as i32),
+        };
+        // U181: sshpass 1.10 can exit 0 at once on a TERM of its own, whatever rsync then does, so that 0 is not rsync's.
+        let status = status.map(|status| match status {
             0 if wrapper_stopped => 128 + nix::sys::signal::Signal::SIGTERM as i32,
             status => status,
+        });
+        let err_text = match &stderr {
+            Ok(Ok(text)) => text.clone(),
+            _ => String::new(),
         };
-        let stdout = out_rx.await.map_err(dropped)??;
-        let stderr = err_rx.await.map_err(dropped)??;
-        // D54: once a stop has been sent, what rsync started goes, whatever rsync's status says.
-        let stop_sent = stopped.is_some();
+        let failed = status.as_ref().map_or(true, |status| *status != 0);
         // D54: an rsync that finished all the same has done its transfer, and keeps its success.
-        let stopped = stopped.filter(|_| status != 0);
-        let stalled = !stop_sent && is_stall(status, &stderr, quiet, nothing_arrived);
-        // However the stall was decided, and also when rsync ended by itself, what it started goes with it. So too on a stop.
-        if stalled || stop_sent {
-            descendants.end(self.clock.as_ref()).await;
+        let stopped = stopped.filter(|_| failed);
+        let stalled = !stop_sent
+            && status
+                .as_ref()
+                .is_ok_and(|status| is_stall(*status, &err_text, quiet, nothing_arrived));
+        // However the stall was decided, and also when rsync ended by itself, what it started goes with it.
+        if stalled && left.is_none() {
+            left = Some(descendants.end(bound).await);
         }
+        if let Some(left) = left {
+            match left {
+                Some(left) if left.is_empty() => {}
+                Some(left) => doubts.push(format!(
+                    "{} it started {} still running: {}",
+                    if left.len() == 1 { "a process" } else { "processes" },
+                    if left.len() == 1 { "is" } else { "are" },
+                    left.iter().map(i32::to_string).collect::<Vec<_>>().join(", ")
+                )),
+                None => doubts.push("the processes it started could not be listed".to_owned()),
+            }
+        }
+        if !doubts.is_empty() {
+            let pid = pid.map_or_else(|| "unknown".to_owned(), |pid| pid.to_string());
+            *unconfirmed = Some(failure(
+                FailureKind::Io,
+                format!(
+                    "rsync (pid {pid}) to or from {} is not confirmed to have ended: {}",
+                    self.target.addr.to_owned(),
+                    doubts.join("; ")
+                ),
+            ));
+        }
+        let status = status?;
+        if let Some((out_joined, err_joined)) = joined {
+            out_joined?;
+            err_joined?;
+        }
+        let stdout = stdout??;
+        let stderr = stderr??;
         Ok(Outcome {
             status,
             stdout,
@@ -453,8 +545,9 @@ impl Inner {
     }
     /// D31, D43: rsync has stalled and may not end by itself: openrsync closes ssh's input and then waits for ssh, for ever if
     /// ssh is hung. So it gets 5 s if it has reported (`grace`), then TERM, together with what it started, since `sshpass`
-    /// may exit on TERM at once and leave rsync running; then 5 s more and KILL. On return the child is reaped, so a retry
-    /// cannot overlap it; what it started is `Descendants::end`'s, once the outcome is known.
+    /// may exit on TERM at once and leave rsync running; then 5 s more and KILL. What it started is `Descendants::end`'s,
+    /// once the outcome is known. D91: every step is held to `bound`, and the reap after KILL to `REAP_LIMIT` too, so the
+    /// status is `None` for a child that was not reaped by then; otherwise it is reaped, so a retry cannot overlap it.
     ///
     /// Under `sshpass` (`wrapped`) the TERM goes only to what it started, and `sshpass` then exits with rsync's own status
     /// (U181): 1.10 exits 0 at once on a TERM of its own before ssh has prompted, as when ssh hung, without waiting for
@@ -466,14 +559,13 @@ impl Inner {
         descendants: &Descendants,
         grace: bool,
         wrapped: bool,
-    ) -> (VendorResult<ExitStatus>, bool) {
+        bound: Bound<'_>,
+    ) -> (Option<VendorResult<ExitStatus>>, bool) {
         use nix::{sys::signal, unistd::Pid};
-        let scope: Arc<dyn CancellationSignal> = Arc::new(SessionScope::default());
-        let clock = self.clock.as_ref();
         // Still unreaped here, so whatever is attached to it now is found.
-        descendants.list(true).await;
-        if grace && let Some(status) = within(clock, scope.clone(), STOP_STEP_MILLIS, child.wait()).await {
-            return (status.map_err(io_error), false);
+        descendants.list(true, bound).await;
+        if grace && let Some(status) = bound.run(None, Some(STOP_STEP_MILLIS), child.wait()).await {
+            return (Some(status.map_err(io_error)), false);
         }
         // Unreaped, so its pid is still its own.
         let term_child = || {
@@ -484,16 +576,17 @@ impl Inner {
         if !wrapped {
             term_child();
         }
-        let reached = descendants.signal(signal::Signal::SIGTERM, true).await;
+        let reached = descendants.signal(signal::Signal::SIGTERM, true, bound).await;
         let wrapper_stopped = wrapped && reached.is_empty();
         if wrapper_stopped {
             term_child();
         }
-        if let Some(status) = within(clock, scope, STOP_STEP_MILLIS, child.wait()).await {
-            return (status.map_err(io_error), wrapper_stopped);
+        if let Some(status) = bound.run(None, Some(STOP_STEP_MILLIS), child.wait()).await {
+            return (Some(status.map_err(io_error)), wrapper_stopped);
         }
         let _ = child.start_kill();
-        (child.wait().await.map_err(io_error), wrapper_stopped)
+        let reaped = bound.run(Some(REAP_LIMIT), None, child.wait()).await;
+        (reaped.map(|status| status.map_err(io_error)), wrapper_stopped)
     }
     async fn transfer(
         &self,
@@ -518,20 +611,46 @@ impl Inner {
             return self.stopped(stopped, receive, &remote);
         }
         let (source, destination) = if receive { (remote, local) } else { (local, remote) };
+        let place = destination.trim_end_matches('/').to_owned();
+        // D91: an earlier transfer into this destination may still be writing there.
+        if self
+            .quarantined
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(&place)
+        {
+            return self.quarantined(receive, &destination);
+        }
+        let mut unconfirmed = None;
+        let outcome = self
+            .process(
+                self.arguments(source.clone(), destination.clone())?,
+                arriving,
+                Some(&mut *stop),
+                matches!(self.auth, Some(SshAuthentication::Password { .. })),
+                &mut unconfirmed,
+            )
+            .await;
+        if let Some(why) = unconfirmed {
+            self.quarantined.lock().unwrap_or_else(|e| e.into_inner()).insert(place);
+            if self.logging.enabled(&self.logger, Level::ERROR) {
+                let message = format!(
+                    "{} error: could not confirm that the transfer {} {} ended, and nothing more is transferred there in this run",
+                    if receive { "receive" } else { "send" },
+                    if receive { "into" } else { "to" },
+                    destination
+                );
+                (self.logging.sink)(&self.logger, Level::ERROR, message, Some(why.clone()));
+            }
+            stop.unconfirmed(why);
+        }
         let Outcome {
             status,
             stderr,
             stalled,
             stopped,
             ..
-        } = self
-            .process(
-                self.arguments(source.clone(), destination.clone())?,
-                arriving,
-                Some(stop),
-                matches!(self.auth, Some(SshAuthentication::Password { .. })),
-            )
-            .await?;
+        } = outcome?;
         if let Some(stopped) = stopped {
             return self.stopped(stopped, receive, if receive { &source } else { &destination });
         }
@@ -570,6 +689,25 @@ impl Inner {
         }
         Ok(status == 0)
     }
+    /// D91: the outcome of a transfer into `destination`, where an earlier one was not confirmed to have ended, which is not
+    /// started. A send fails as a stalled one does (U163): the device leaves its pool, since what it would install there
+    /// may be overwritten. A receive is the `false` its listener deals with.
+    fn quarantined(&self, receive: bool, destination: &str) -> VendorResult<bool> {
+        let message = format!(
+            "Not {} {destination}: an earlier transfer there was not confirmed to have ended",
+            if receive { "receiving into" } else { "sending to" }
+        );
+        if receive {
+            self.logging
+                .log(&self.logger, Level::ERROR, || format!("receive error: {message}"), None);
+            return Ok(false);
+        }
+        self.logging.log(&self.logger, Level::WARN, || message.clone(), None);
+        Err(VendorError::LeavePool {
+            reason: LeavePoolReason::TransferStalled,
+            detail: failure(TRANSFER_STALLED, format!("{message}, the device leaves its pool")),
+        })
+    }
     /// D54: the outcome of a transfer to or from `remote` that `stopped` ended, or kept from starting. A cancellation is the
     /// caller's to report. A lost connection fails a send, which nothing retries on that device since its commands fail too,
     /// and leaves a receive the `false` its listener deals with, as D43 does.
@@ -601,6 +739,18 @@ struct Outcome {
     stderr: String,
     stalled: bool,
     stopped: Option<TransferStopped>,
+}
+impl Outcome {
+    /// D91: a process that a cancellation kept from starting.
+    fn not_started(reason: Cancellation) -> Self {
+        Self {
+            status: -1,
+            stdout: String::new(),
+            stderr: String::new(),
+            stalled: false,
+            stopped: Some(TransferStopped::Cancelled(reason)),
+        }
+    }
 }
 /// D43: where this receive's own bytes land, so that another transfer into the same folder cannot pass for its progress.
 /// rsync writes `name` into `folder` through a temporary file beside it (`is_temporary_of`), moves an interrupted one to
@@ -716,6 +866,57 @@ fn is_temporary_of(entry: &std::ffi::OsStr, name: &std::ffi::OsStr) -> bool {
                 && entry[prefix.len() + 1..].iter().all(u8::is_ascii_alphanumeric)
         })
 }
+/// D91: the limits on one step of ending a transfer: its own, in real time or on the vendor clock, and, after a stop, what
+/// is left until `at` on the vendor clock. A clock that fails leaves its limits to real time.
+#[derive(Clone, Copy)]
+struct Bound<'a> {
+    clock: &'a dyn VendorClock,
+    at: Option<i64>,
+}
+impl Bound<'_> {
+    fn left(&self) -> Option<i64> {
+        self.at.map(|at| at.saturating_sub(self.clock.now_millis()).max(0))
+    }
+    fn expired(&self) -> bool {
+        self.left() == Some(0)
+    }
+    /// `body`'s output, or `None` once `real`, `vendor` or the deadline has passed. A step with no time left still sees
+    /// what `body` has ready at once, such as a process already reaped.
+    async fn run<T>(
+        &self,
+        real: Option<std::time::Duration>,
+        vendor: Option<i64>,
+        body: impl Future<Output = T>,
+    ) -> Option<T> {
+        let vendor = match (vendor, self.left()) {
+            (Some(own), Some(left)) => Some(own.min(left)),
+            (own, left) => own.or(left),
+        };
+        let scope: Arc<dyn CancellationSignal> = Arc::new(SessionScope::default());
+        let vendor_limit = async {
+            match vendor {
+                Some(millis) => {
+                    if self.clock.delay(millis, scope).await.is_err() {
+                        tokio::time::sleep(std::time::Duration::from_millis(millis.max(0) as u64)).await;
+                    }
+                }
+                None => std::future::pending().await,
+            }
+        };
+        let real_limit = async {
+            match real {
+                Some(limit) => tokio::time::sleep(limit).await,
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            biased;
+            value = body => Some(value),
+            _ = vendor_limit => None,
+            _ = real_limit => None,
+        }
+    }
+}
 /// D31, D43: the processes a transfer started, each with when it started, as `ps` saw them. The child, then any process
 /// whose parent is one of them. Seen while their parents were there, they stay known after those have gone.
 struct Descendants {
@@ -735,8 +936,8 @@ impl Descendants {
     }
     /// Lists every process now and adds those that are this transfer's. `unreaped` says the child has not been reaped,
     /// so that its pid is still its own.
-    async fn list(&self, unreaped: bool) -> Option<std::collections::HashMap<i32, (i32, String)>> {
-        let listing = processes().await?;
+    async fn list(&self, unreaped: bool, bound: Bound<'_>) -> Option<std::collections::HashMap<i32, (i32, String)>> {
+        let listing = processes(bound).await?;
         let mut seen = self.seen();
         if unreaped && let Some((_, started)) = listing.get(&self.root) {
             seen.entry(self.root).or_insert_with(|| started.clone());
@@ -765,8 +966,8 @@ impl Descendants {
     ///
     /// Each gets it before the processes it started, as the child does before them (x50). Under `sshpass` rsync is one of
     /// these, and an rsync that its ssh's end reached before its own TERM could finish all the same, which counts as success.
-    async fn signal(&self, signal: nix::sys::signal::Signal, unreaped: bool) -> Vec<i32> {
-        let Some(listing) = self.list(unreaped).await else {
+    async fn signal(&self, signal: nix::sys::signal::Signal, unreaped: bool, bound: Bound<'_>) -> Vec<i32> {
+        let Some(listing) = self.list(unreaped, bound).await else {
             return Vec::new();
         };
         let seen = self.seen();
@@ -800,47 +1001,80 @@ impl Descendants {
         }
         order
     }
-    /// After a stall, with the child reaped: TERM to what it started, 5 s for them to go, then KILL to any still there.
-    async fn end(&self, clock: &dyn VendorClock) {
+    /// After a stall or a stop, with the child reaped: TERM to what it started, 5 s for them to go, then KILL to any still
+    /// there. D91: then which of those seen are still running, looked at for up to 5 s more, or `None` if no listing could
+    /// tell; all of it within `bound`.
+    async fn end(&self, bound: Bound<'_>) -> Option<Vec<i32>> {
         use nix::sys::signal::{Signal, kill};
-        let termed = self.signal(Signal::SIGTERM, false).await;
-        if termed.is_empty() {
-            return;
-        }
+        let clock = bound.clock;
         let scope: Arc<dyn CancellationSignal> = Arc::new(SessionScope::default());
+        let termed = self.signal(Signal::SIGTERM, false, bound).await;
+        if !termed.is_empty() {
+            let gone = async {
+                while termed
+                    .iter()
+                    .any(|pid| kill(nix::unistd::Pid::from_raw(*pid), None).is_ok())
+                {
+                    if clock.delay(STOP_POLL_MILLIS, scope.clone()).await.is_err() {
+                        break;
+                    }
+                }
+            };
+            if bound.run(None, Some(STOP_STEP_MILLIS), gone).await.is_none() {
+                self.signal(Signal::SIGKILL, false, bound).await;
+            }
+        }
+        // A killed orphan is listed until init has reaped it, so the look is repeated for a while.
+        let left = Mutex::new(None);
         let gone = async {
-            while termed
-                .iter()
-                .any(|pid| kill(nix::unistd::Pid::from_raw(*pid), None).is_ok())
-            {
-                if clock.delay(STOP_POLL_MILLIS, scope.clone()).await.is_err() {
-                    break;
+            loop {
+                let Some(listing) = processes(bound).await else {
+                    return;
+                };
+                let running: Vec<i32> = self
+                    .seen()
+                    .iter()
+                    .filter(|(pid, started)| {
+                        **pid != self.root && listing.get(pid).is_some_and(|(_, now)| now == *started)
+                    })
+                    .map(|(pid, _)| *pid)
+                    .collect();
+                let done = running.is_empty();
+                *left.lock().unwrap_or_else(|e| e.into_inner()) = Some(running);
+                if done || clock.delay(STOP_POLL_MILLIS, scope.clone()).await.is_err() {
+                    return;
                 }
             }
         };
-        if within(clock, scope.clone(), STOP_STEP_MILLIS, gone).await.is_none() {
-            self.signal(Signal::SIGKILL, false).await;
+        bound.run(None, Some(STOP_STEP_MILLIS), gone).await;
+        let mut left = left.into_inner().unwrap_or_else(|e| e.into_inner());
+        if let Some(left) = &mut left {
+            left.sort_unstable();
         }
+        left
     }
     /// Lists while the transfer runs; never ends.
-    async fn follow(&self) {
+    async fn follow(&self, bound: Bound<'_>) {
         tokio::time::sleep(LIST_FIRST).await;
         loop {
-            self.list(true).await;
+            self.list(true, bound).await;
             tokio::time::sleep(LIST_EVERY).await;
         }
     }
 }
 /// `ps -A -o pid=,ppid=,lstart=`: every process by pid, with its parent and when it started, or `None` if `ps` fails or does
-/// not answer within `PROCESS_LIMIT`.
-async fn processes() -> Option<std::collections::HashMap<i32, (i32, String)>> {
+/// not answer within `PROCESS_LIMIT` and `bound`.
+async fn processes(bound: Bound<'_>) -> Option<std::collections::HashMap<i32, (i32, String)>> {
+    if bound.expired() {
+        return None;
+    }
     let listing = Command::new("ps")
         .args(["-A", "-o", "pid=,ppid=,lstart="])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .kill_on_drop(true)
         .output();
-    let output = tokio::time::timeout(PROCESS_LIMIT, listing).await.ok()?.ok()?;
+    let output = bound.run(Some(PROCESS_LIMIT), None, listing).await?.ok()?;
     if !output.status.success() {
         return None;
     }
@@ -923,10 +1157,11 @@ async fn read_stderr<R: tokio::io::AsyncRead + Unpin>(
     if let Some(mut pipe) = pipe {
         loop {
             let mut chunk = [0; 8192];
+            // D91: a stop comes first, so a pipe that something keeps full cannot hold a reader that has been told to end.
             let count = tokio::select! {
                 biased;
-                result = pipe.read(&mut chunk) => result.map_err(io_error)?,
                 _ = stop.cancelled() => break,
+                result = pipe.read(&mut chunk) => result.map_err(io_error)?,
             };
             if count == 0 {
                 break;
@@ -999,13 +1234,41 @@ impl FileBridge for RsyncFileBridge {
 mod tests {
     use super::*;
 
+    /// A clock whose delays never end, for steps with only real-time limits.
+    struct NoClock;
+    impl VendorClock for NoClock {
+        fn delay(&self, _: i64, _: Arc<dyn CancellationSignal>) -> VendorFuture<'_, ()> {
+            Box::pin(std::future::pending())
+        }
+        fn with_timeout<'a>(
+            &'a self,
+            _: Arc<dyn CancellationSignal>,
+            _: i64,
+            _: marathon_core::runtime::VendorTimeoutBody<'a>,
+        ) -> VendorFuture<'a, ()> {
+            Box::pin(std::future::pending())
+        }
+        fn with_timeout_or_null<'a>(
+            &'a self,
+            _: Arc<dyn CancellationSignal>,
+            _: i64,
+            _: marathon_core::runtime::VendorTimeoutBody<'a>,
+        ) -> VendorFuture<'a, Option<()>> {
+            Box::pin(std::future::pending())
+        }
+    }
+    const UNBOUNDED: Bound<'static> = Bound {
+        clock: &NoClock,
+        at: None,
+    };
+
     #[tokio::test(flavor = "multi_thread")]
     async fn processes_tell_a_process_from_one_that_is_gone() {
         let own = std::process::id() as i32;
-        let listing = processes().await.unwrap();
+        let listing = processes(UNBOUNDED).await.unwrap();
         let (parent, started) = listing.get(&own).unwrap().clone();
         assert_eq!(parent, nix::unistd::getppid().as_raw());
-        assert_eq!(processes().await.unwrap().get(&own), Some(&(parent, started)));
+        assert_eq!(processes(UNBOUNDED).await.unwrap().get(&own), Some(&(parent, started)));
         let mut child = Command::new("/bin/sleep")
             .arg("100")
             .kill_on_drop(true)
@@ -1013,11 +1276,11 @@ mod tests {
             .unwrap();
         let pid = child.id().unwrap() as i32;
         assert_eq!(
-            processes().await.unwrap().get(&pid).map(|(parent, _)| *parent),
+            processes(UNBOUNDED).await.unwrap().get(&pid).map(|(parent, _)| *parent),
             Some(own)
         );
         child.kill().await.unwrap();
-        assert_eq!(processes().await.unwrap().get(&pid), None);
+        assert_eq!(processes(UNBOUNDED).await.unwrap().get(&pid), None);
     }
 
     /// x50: a stop's signal reaches each process before the ones it started. Sent in no order, a TERM to ssh could come
@@ -1040,14 +1303,14 @@ mod tests {
         let descendants = Descendants::of(&child);
         tokio::time::timeout(std::time::Duration::from_secs(60), async {
             while descendants.seen().len() < 6 {
-                descendants.list(true).await;
+                descendants.list(true, UNBOUNDED).await;
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
         })
         .await
         .unwrap();
-        let listing = processes().await.unwrap();
-        let order = descendants.signal(signal::Signal::SIGCONT, true).await;
+        let listing = processes(UNBOUNDED).await.unwrap();
+        let order = descendants.signal(signal::Signal::SIGCONT, true, UNBOUNDED).await;
         for pid in order.iter().rev() {
             let _ = signal::kill(Pid::from_raw(*pid), signal::Signal::SIGKILL);
         }

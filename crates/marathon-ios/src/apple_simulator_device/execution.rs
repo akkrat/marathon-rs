@@ -303,14 +303,17 @@ impl AppleSimulatorDevice {
         Err(error.into_vendor())
     }
     async fn join_cancelled(&self, job: &Arc<BatchJob>, context: &VendorContext) -> VendorResult<()> {
-        self.stop_and_join(Some(job.clone()), Vec::new(), context).await
+        self.stop_and_join(Some(job.clone()), Vec::new(), Vec::new(), context)
+            .await
     }
-    /// Cancels the batch and the preparations given and waits for all of them within one bound, the cancelled batch's.
-    /// U179: it waits on their completion cells, not on the retained tasks, which also hold disposal itself.
+    /// Cancels the batch, the preparations and the sends given and waits for all of them within one bound, the cancelled
+    /// batch's. U179: it waits on their completion cells, not on the retained tasks, which also hold disposal itself.
+    /// D91: a send's cell is its receipt, which its owner ends however long ago its caller stopped waiting.
     pub(super) async fn stop_and_join(
         &self,
         batch: Option<Arc<BatchJob>>,
         preparations: Vec<Arc<prepare::PreparationJob>>,
+        transfers: Vec<Arc<marathon_apple::cmd::TransferReceipt>>,
         context: &VendorContext,
     ) -> VendorResult<()> {
         if let Some(job) = &batch {
@@ -327,14 +330,29 @@ impl AppleSimulatorDevice {
                     format!("Device {} is being disposed", self.serial),
                 )));
         }
+        // D91: a send's cleanup is to have ended where this wait does, if not sooner by the bridge's own bound.
+        let by = context
+            .clock
+            .now_millis()
+            .saturating_add(self.services.timeouts.cancelled_batch_millis);
+        for transfer in &transfers {
+            transfer.stop(
+                marathon_core::error::Cancellation::Requested(failure(
+                    FailureKind::JobCancelled,
+                    format!("Device {} is being disposed", self.serial),
+                )),
+                Some(by),
+            );
+        }
         let cells: Vec<_> = batch
             .iter()
             .map(|job| job.done.clone())
             .chain(preparations.iter().map(|p| p.done.clone()))
             .collect();
-        if cells.is_empty() {
+        if cells.is_empty() && transfers.is_empty() {
             return Ok(());
         }
+        let sends = transfers.clone();
         // Joining observes completion, not the jobs' results; the timeout only bounds this wait.
         let finished = context
             .clock
@@ -349,6 +367,13 @@ impl AppleSimulatorDevice {
                                     return Err(VendorError::Cancelled(reason));
                                 }
                                 _ => {}
+                            }
+                        }
+                        for send in sends {
+                            if let Err(VendorError::Cancelled(reason)) = send.wait_in(signal.clone()).await
+                                && send.ended().is_none()
+                            {
+                                return Err(VendorError::Cancelled(reason));
                             }
                         }
                         Ok(())
@@ -384,6 +409,16 @@ impl AppleSimulatorDevice {
                 None,
             );
         }
+        if transfers.iter().any(|t| t.ended().is_none()) {
+            self.log(
+                Level::WARN,
+                format!(
+                    "Cancelled send to {} has not finished within {limit}, disposing of the simulator anyway",
+                    self.serial,
+                ),
+                None,
+            );
+        }
         Ok(())
     }
     pub async fn await_session_closed(
@@ -399,12 +434,19 @@ impl AppleSimulatorDevice {
     }
     pub async fn dispose_and_join(&self) -> VendorResult<()> {
         let started = SharedDeferred::new();
-        let (current, running, preparations, owner) = {
+        let (current, running, preparations, transfers, owner) = {
             let mut state = self.state();
             let owner = state.disposal.is_none();
             let current = state.disposal.get_or_insert_with(|| started.clone()).clone();
-            // U179: from here on no preparation starts (`prepare_device` checks `disposal` under this lock).
-            (current, state.running.clone(), state.preparations.clone(), owner)
+            // U179: from here on no preparation starts (`prepare_device` checks `disposal` under this lock), and, D91, no
+            // send (`send_stop`).
+            (
+                current,
+                state.running.clone(),
+                state.preparations.clone(),
+                state.unended_transfers(),
+                owner,
+            )
         };
         if owner {
             let device = self.this()?;
@@ -418,7 +460,7 @@ impl AppleSimulatorDevice {
                 // D84: a panic is published to every caller too; the device is then as disposed as the panic left it.
                 let outcome = panic_as_error(async {
                     let disposed: VendorResult<()> = async {
-                        device.stop_and_join(running, preparations, &context).await?;
+                        device.stop_and_join(running, preparations, transfers, &context).await?;
                         if device.connected() {
                             device
                                 .handle_lifecycle(&device.services.vendor.lifecycle_configuration.on_dispose, &context)

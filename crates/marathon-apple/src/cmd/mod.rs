@@ -14,6 +14,7 @@ pub mod shared_transfers;
 pub(crate) mod stall_record;
 #[cfg(feature = "test-support")]
 pub mod test_support;
+pub mod transfer_receipt;
 pub mod write_file;
 
 use crate::extensions::Durations;
@@ -27,6 +28,7 @@ use marathon_core::{
 };
 use remote::ssh::sshj::error::{CONNECTION_EXCEPTION, TRANSPORT_EXCEPTION, is_instance};
 use std::{collections::BTreeMap, future::Future, path::Path, pin::Pin, sync::Arc};
+pub use transfer_receipt::{TransferCleanup, TransferReceipt};
 
 pub fn failure(kind: FailureKind, message: impl AsRef<str>) -> Failure {
     Failure::from_kind(kind, Some(message.as_ref().into()))
@@ -230,6 +232,20 @@ pub struct TransferStop {
     lost: Option<Pin<Box<dyn Future<Output = Failure> + Send>>>,
     /// What `lost` gave once it was ready, since a finished future may not be polled again.
     lost_with: Option<Failure>,
+    /// D91: the device's hold on this transfer. Whoever holds this stop owns the transfer, and the receipt ends when it
+    /// lets go, with `unconfirmed` if its owner could not confirm the cleanup.
+    receipt: Option<Arc<TransferReceipt>>,
+    unconfirmed: Option<Failure>,
+}
+impl Drop for TransferStop {
+    fn drop(&mut self) {
+        if let Some(receipt) = self.receipt.take() {
+            let unconfirmed = self.unconfirmed.take().or_else(|| {
+                std::thread::panicking().then(|| failure(FailureKind::IllegalState, "The transfer's owner panicked"))
+            });
+            receipt.end(unconfirmed.map_or(TransferCleanup::Confirmed, TransferCleanup::Unconfirmed));
+        }
+    }
 }
 /// Why a transfer was stopped.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -255,6 +271,8 @@ impl TransferStop {
             cancellation,
             lost: None,
             lost_with: None,
+            receipt: None,
+            unconfirmed: None,
         }
     }
     /// Never stops: the transfer ends only by itself, or by D31's and D43's limits.
@@ -266,9 +284,35 @@ impl TransferStop {
         self.lost = Some(Box::pin(lost));
         self
     }
+    /// D91: also stops when `receipt` is stopped, and ends `receipt` once whoever holds this stop lets go of it.
+    pub fn owned_by(mut self, receipt: Arc<TransferReceipt>) -> Self {
+        if let Some(previous) = self.receipt.replace(receipt) {
+            previous.end(TransferCleanup::Confirmed);
+        }
+        self
+    }
+    /// D91: the cancellation that has come, from the caller or the device, without waiting; checked again as the process
+    /// starts, where `now` cannot be (it polls the loss).
+    pub(crate) fn cancellation_check(&self) -> impl Fn() -> Option<Cancellation> + Send + 'static {
+        let cancellation = self.cancellation.clone();
+        let receipt = self.receipt.as_ref().map(|r| r.stop_signal());
+        move || {
+            cancellation
+                .reason()
+                .or_else(|| receipt.as_ref().and_then(|stop| stop.reason()))
+        }
+    }
+    /// D91: when the device needs the cleanup after a stop to have ended, if sooner than the bridge's own bound.
+    pub(crate) fn deadline(&self) -> Option<i64> {
+        self.receipt.as_ref().and_then(|r| r.deadline())
+    }
+    /// D91: the owner could not confirm that the transfer's processes ended; the receipt says so when it ends.
+    pub(crate) fn unconfirmed(&mut self, why: Failure) {
+        self.unconfirmed.get_or_insert(why);
+    }
     /// The stop that has already come, if any, without waiting. A cancellation comes first.
     pub fn now(&mut self) -> Option<TransferStopped> {
-        if let Some(reason) = self.cancellation.reason() {
+        if let Some(reason) = self.cancellation_check()() {
             return Some(TransferStopped::Cancelled(reason));
         }
         if self.lost_with.is_none()
@@ -288,17 +332,28 @@ impl TransferStop {
             return stopped;
         }
         let cancellation = self.cancellation.clone();
+        let receipt = self.receipt.as_ref().map(|r| r.stop_signal());
+        let cancelled = async {
+            match &receipt {
+                Some(stop) => tokio::select! {
+                    biased;
+                    reason = cancellation.cancelled() => reason,
+                    reason = stop.cancelled() => reason,
+                },
+                None => cancellation.cancelled().await,
+            }
+        };
         match &mut self.lost {
             Some(lost) => tokio::select! {
                 biased;
-                reason = cancellation.cancelled() => TransferStopped::Cancelled(reason),
+                reason = cancelled => TransferStopped::Cancelled(reason),
                 failure = lost.as_mut() => {
                     self.lost = None;
                     self.lost_with = Some(failure.clone());
                     TransferStopped::Lost(failure)
                 }
             },
-            None => TransferStopped::Cancelled(cancellation.cancelled().await),
+            None => TransferStopped::Cancelled(cancelled.await),
         }
     }
 }

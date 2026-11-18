@@ -576,3 +576,82 @@ async fn a_preparation_waits_for_its_stopped_send_only_within_the_simulators_bou
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }
+/// D91: test discovery lets go of its send at its timeout (U210 review), and the send's own task goes on stopping, as the
+/// rsync bridge's retained task does. The simulator's disposal waits for it, its caller long gone, before it goes on.
+#[tokio::test(start_paused = true)]
+async fn disposal_waits_for_a_send_whose_caller_stopped_waiting_d91() -> TestResult {
+    use marathon_core::runtime::VendorClock;
+    let h = long_bound()?;
+    let bridge = Arc::new(SlowlyStoppingSends::default());
+    let d = on_bridge(&h, bridge.clone()).await?;
+    let config = marathon_config::VendorConfiguration::Ios((*h.services.vendor).clone());
+    let installer = marathon_apple::apple_application_installer::AppleApplicationInstaller::new(
+        &config,
+        h.services.runtime.clone(),
+        h.services.logging.clone(),
+    );
+    let context = h.services.context.clone();
+    let discovery = h.clock.with_timeout_or_null(
+        context.cancellation.clone(),
+        180_000,
+        Box::new(|scope| {
+            let context = VendorContext {
+                cancellation: scope,
+                ..context.clone()
+            };
+            let (installer, d) = (&installer, d.clone());
+            Box::pin(async move {
+                installer
+                    .prepare_installation(&*d, true, &context)
+                    .await
+                    .map_err(|e| e.into_vendor())
+            })
+        }),
+    );
+    assert_eq!(discovery.await, Ok(None));
+    assert!(bridge.entered.completed().is_some());
+    assert!(!bridge.ended.load(Ordering::SeqCst));
+    let disposing = tokio::time::Instant::now();
+    d.dispose().await.unwrap();
+    assert!(
+        bridge.ended.load(Ordering::SeqCst),
+        "the simulator was disposed of before the send to it had ended"
+    );
+    // The send's own 3 s, not the bound for a cancelled call.
+    assert_eq!(disposing.elapsed(), std::time::Duration::from_secs(3));
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+/// D91: a send asked of a disposed simulator is stopped before it starts, by the disposal; nothing else would stop it.
+#[tokio::test(start_paused = true)]
+async fn a_send_to_a_disposed_simulator_is_stopped_before_it_starts_d91() -> TestResult {
+    use marathon_apple::apple_device::AppleDevice;
+    let h = long_bound()?;
+    let bridge = Arc::new(SlowlyStoppingSends::default());
+    let d = on_bridge(&h, bridge.clone()).await?;
+    d.dispose().await.unwrap();
+    let dir = tempfile::tempdir()?;
+    let context = h.services.context.clone();
+    let sent = tokio::time::timeout(
+        std::time::Duration::from_secs(3_600),
+        d.push_file(dir.path(), "/tmp/marathon/late", &context),
+    )
+    .await
+    .expect("the send was not stopped");
+    match sent {
+        Err(VendorError::Cancelled(reason)) => {
+            assert!(
+                reason
+                    .failure()
+                    .message
+                    .as_deref()
+                    .unwrap_or_default()
+                    .ends_with("has been disposed"),
+                "{reason:?}"
+            )
+        }
+        other => panic!("{other:?}"),
+    }
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
