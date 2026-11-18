@@ -2797,3 +2797,180 @@ async fn receives_into_a_quarantined_folder_runs() {
     assert_eq!(second, Ok(false));
     assert_eq!(std::fs::read_to_string(root.join("order")).unwrap(), "start\n");
 }
+
+/// D91 review round 2: holds the bridge's blocking calls that `hold` picks (by kind and how many of that kind came before)
+/// until `open`, as a filesystem that no longer answers would hold them.
+#[derive(Default)]
+struct Wedge {
+    seen: std::sync::Mutex<Vec<marathon_apple::cmd::remote::rsync::rsync_file_bridge::BlockingCall>>,
+    open: std::sync::Mutex<bool>,
+    opened: std::sync::Condvar,
+    released: std::sync::atomic::AtomicUsize,
+}
+impl Wedge {
+    fn hook(
+        self: &Arc<Self>,
+        hold: impl Fn(marathon_apple::cmd::remote::rsync::rsync_file_bridge::BlockingCall, usize) -> bool
+        + Send
+        + Sync
+        + 'static,
+    ) -> Arc<dyn Fn(marathon_apple::cmd::remote::rsync::rsync_file_bridge::BlockingCall) + Send + Sync> {
+        let wedge = self.clone();
+        Arc::new(move |call| {
+            let nth = {
+                let mut seen = wedge.seen.lock().unwrap();
+                let nth = seen.iter().filter(|seen| **seen == call).count();
+                seen.push(call);
+                nth
+            };
+            if hold(call, nth) {
+                let mut open = wedge.open.lock().unwrap();
+                while !*open {
+                    open = wedge.opened.wait(open).unwrap();
+                }
+                wedge.released.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        })
+    }
+    fn count(&self, call: marathon_apple::cmd::remote::rsync::rsync_file_bridge::BlockingCall) -> usize {
+        self.seen.lock().unwrap().iter().filter(|seen| **seen == call).count()
+    }
+    fn open(&self) {
+        *self.open.lock().unwrap() = true;
+        self.opened.notify_all();
+    }
+}
+/// A stand-in for rsync: a transfer to or from `.../next` succeeds at once; any other records its pid, says `ready` and
+/// waits, ending on TERM.
+const D91_R2_RSYNC: &str = "#!/bin/bash\ncase \"$*\" in *127.0.0.1:/tmp/marathon/next*) exit 0;; esac\necho $$ > \"$MRS_D31_ROOT/pid\"\necho > \"$MRS_D31_ROOT/ready\"\nexec /bin/sleep 100056\n";
+
+/// Review round 2, finding 1: the start of rsync hangs (the hook holds it, as a mount that no longer answers would hold the
+/// lookup of `RSYNC4J_RSYNC`). Another simulator's transfer on the same bridge, to another destination, starts and ends
+/// meanwhile, and the stopped send ends by its device's 1 s deadline and records its destination's quarantine without
+/// waiting for the start; when the start comes back, rsync is killed. The start used to hold the lock that both need.
+#[test]
+fn a_hanging_start_of_rsync_holds_up_neither_its_own_stop_nor_another_transfer_d91() {
+    d91_round_1("hanging_spawn_runs", D91_R2_RSYNC, None);
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hanging_spawn_runs() {
+    use marathon_apple::cmd::{
+        TransferCleanup, TransferReceipt, TransferStop, remote::rsync::rsync_file_bridge::BlockingCall,
+    };
+    use marathon_core::runtime::VendorClock;
+    let Some((root, source)) = d91_child() else { return };
+    let (logging, _) = ssh::logging(false);
+    let clock = Arc::new(ssh::ScaledClock::new(1));
+    let bridge = Arc::new(d91_bridge(logging, Arc::new(Runtime), clock.clone()).await);
+    let wedge = Arc::new(Wedge::default());
+    bridge.on_blocking_call(wedge.hook(|call, nth| call == BlockingCall::SpawnRsync && nth == 0));
+    let receipt = TransferReceipt::new();
+    let first = {
+        let (bridge, source) = (bridge.clone(), source.clone());
+        let stop = TransferStop::never().owned_by(receipt.clone());
+        tokio::spawn(async move { bridge.send_with(&source, "/tmp/marathon/stuck", stop).await })
+    };
+    d91_until(|| wedge.count(BlockingCall::SpawnRsync) >= 1).await;
+    // Another simulator's pull on the same bridge, into somewhere else.
+    let other = tokio::time::timeout(D91_HANG, bridge.receive("/tmp/marathon/next", &root.join("out")))
+        .await
+        .expect("a hanging start held up another transfer on the bridge");
+    assert_eq!(other, Ok(true));
+    let reason = marathon_apple::cmd::cancelled("the simulator is being disposed");
+    let stopped_at = std::time::Instant::now();
+    receipt.stop(reason.clone(), Some(clock.now_millis() + 1_000));
+    let result = tokio::time::timeout(D91_HANG, first)
+        .await
+        .expect("a hanging start held up its own stop")
+        .unwrap();
+    let took = stopped_at.elapsed();
+    assert!(took < std::time::Duration::from_secs(3), "{took:?}");
+    assert_eq!(result, Err(VendorError::Cancelled(reason)));
+    assert!(
+        matches!(receipt.ended(), Some(TransferCleanup::Unconfirmed(_))),
+        "{:?}",
+        receipt.ended()
+    );
+    // The start comes back: what it started is killed (the parent checks that nothing it records is left), and nothing
+    // goes into the quarantined destination.
+    wedge.open();
+    d91_until(|| wedge.released.load(std::sync::atomic::Ordering::SeqCst) >= 1).await;
+    assert!(matches!(
+        bridge.send(&source, "/tmp/marathon/stuck").await,
+        Err(VendorError::LeavePool { .. })
+    ));
+}
+
+/// Review round 2, finding 2: the look for rsync and ssh hangs (the hook holds it, as a mount that no longer answers would
+/// hold `Path::exists`). Its send is stopped and ends; the next send then looks again and goes on, where it used to wait
+/// for the first look's lock in building its command line, which its own stop could not end.
+#[test]
+fn a_hanging_look_for_rsync_holds_up_no_later_send_d91() {
+    d91_round_1("hanging_probe_runs", D91_R2_RSYNC, None);
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hanging_probe_runs() {
+    use marathon_apple::cmd::{TransferStop, remote::rsync::rsync_file_bridge::BlockingCall};
+    let Some((_, source)) = d91_child() else { return };
+    let (logging, _) = ssh::logging(false);
+    let bridge = Arc::new(d91_bridge(logging, Arc::new(Runtime), Arc::new(ssh::ScaledClock::new(1))).await);
+    let wedge = Arc::new(Wedge::default());
+    bridge.on_blocking_call(wedge.hook(|call, nth| call == BlockingCall::Probe && nth == 0));
+    let signal = marathon_core::executor::shared::Signal::new();
+    let first = {
+        let (bridge, source, stop) = (bridge.clone(), source.clone(), TransferStop::new(signal.clone()));
+        tokio::spawn(async move { bridge.send_with(&source, "/tmp/marathon/stuck", stop).await })
+    };
+    d91_until(|| wedge.count(BlockingCall::Probe) >= 1).await;
+    let reason = marathon_apple::cmd::cancelled("the preparation was cancelled");
+    signal.cancel(reason.clone());
+    let result = tokio::time::timeout(D91_HANG, first).await.unwrap().unwrap();
+    assert_eq!(result, Err(VendorError::Cancelled(reason)));
+    let next = tokio::time::timeout(D91_HANG, bridge.send(&source, "/tmp/marathon/next"))
+        .await
+        .expect("a hanging look for rsync held up a later send");
+    wedge.open();
+    assert_eq!(next, Ok(true));
+}
+
+/// Review round 2, finding 3: starting `ps` hangs during a stop's cleanup (the hook holds it, as a mount that no longer
+/// answers would hold the lookup of `ps` on `PATH`). The cleanup still ends by the device's 1 s deadline: `ps` is started
+/// on a blocking thread, inside the step's limits. Its start used to run inside the task, before any limit was looked at.
+#[test]
+fn a_hanging_start_of_ps_does_not_hold_a_stops_cleanup_past_its_deadline_d91() {
+    d91_round_1("hanging_ps_runs", D91_R2_RSYNC, None);
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hanging_ps_runs() {
+    use marathon_apple::cmd::{TransferReceipt, TransferStop, remote::rsync::rsync_file_bridge::BlockingCall};
+    use marathon_core::runtime::VendorClock;
+    let Some((root, source)) = d91_child() else { return };
+    let (logging, _) = ssh::logging(false);
+    let clock = Arc::new(ssh::ScaledClock::new(1));
+    let bridge = Arc::new(d91_bridge(logging, Arc::new(Runtime), clock.clone()).await);
+    let wedge = Arc::new(Wedge::default());
+    let armed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let hold = armed.clone();
+    bridge.on_blocking_call(
+        wedge.hook(move |call, _| call == BlockingCall::SpawnPs && hold.load(std::sync::atomic::Ordering::SeqCst)),
+    );
+    let receipt = TransferReceipt::new();
+    let first = {
+        let (bridge, source) = (bridge.clone(), source.clone());
+        let stop = TransferStop::never().owned_by(receipt.clone());
+        tokio::spawn(async move { bridge.send_with(&source, "/tmp/marathon/stuck", stop).await })
+    };
+    d91_ready(&root).await;
+    armed.store(true, std::sync::atomic::Ordering::SeqCst);
+    let reason = marathon_apple::cmd::cancelled("the simulator is being disposed");
+    let stopped_at = std::time::Instant::now();
+    receipt.stop(reason.clone(), Some(clock.now_millis() + 1_000));
+    let result = tokio::time::timeout(D91_HANG, first).await;
+    let took = stopped_at.elapsed();
+    wedge.open();
+    let result = result
+        .expect("a hanging start of ps held up the stop's cleanup")
+        .unwrap();
+    assert!(took < std::time::Duration::from_secs(3), "{took:?}");
+    assert_eq!(result, Err(VendorError::Cancelled(reason)));
+}

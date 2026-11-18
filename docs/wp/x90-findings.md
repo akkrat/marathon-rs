@@ -198,3 +198,38 @@ Run after round 1: `cargo fmt --check`; `cargo clippy -p marathon-apple -p marat
 -- -D warnings`; `cargo test --no-fail-fast` of `marathon-apple`, `marathon-ios`, `marathon-macos`, `marathon-cli` and
 `marathon-test-support` (1,184 passed, 33 ignored; the stall witness's race above, then `rsync_file_bridge.rs` again,
 76/76). Not run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test --workspace`.
+
+## Review round 2 (Sol 6.2 xhigh): findings 1, 4, 5, 6, 7 closed; 2 and 3 open through three P2s of one class
+
+The class: a synchronous call that a filesystem that no longer answers can hold (a lookup on `PATH`, `Path::exists`, a
+process start) either held a `std` mutex that the stop's own path needed, or ran inside the task before any timer was
+polled. The structural rule now: no lock is held across a blocking call or a process start, and no async path takes a
+lock that blocking work can hold.
+
+- **Starting rsync** is a ticket (`SpawnTicket`, one atomic). The transfer's task, in one short check under the admission
+  lock, refuses on a stop or a quarantine and records the ticket by destination; the start then runs on a blocking
+  thread with no lock held: it begins only if the ticket was not refused, starts rsync, and commits only if it still was
+  not. Giving up on a start (a stop before it began, or the deadline after) and quarantining a destination only mark the
+  ticket; a start refused after it began is killed at its commit (`kill_on_drop`). Quarantining never waits for a start.
+- **The look for the binaries** is a `tokio::sync::OnceCell` whose initialisation runs on a blocking thread and whose
+  waiters wait asynchronously, each within its own stop. The command line reads it without waiting; a look held by a
+  mount is left behind by a stopped send, and the next send looks again.
+- **Starting `ps`** happens on a blocking thread inside the listing's step, so the step's 5 s and the stop's deadline
+  cover the start too; a `ps` given up is killed when dropped. (Signals are syscalls that start nothing and do not look
+  anything up on a filesystem; they are sent directly, as before.)
+
+The witnesses need to hold a blocking call as a hung mount would, which no real process can be made to do on demand, so
+the bridge has a test hook (`RsyncFileBridge::on_blocking_call`, `#[doc(hidden)]`), called on the blocking thread just
+before each such call. The revert check put the same hook, at the same three calls, into a scratch worktree of 3d945010
+with no other change, and copied the new tests in.
+
+| Finding | Status | Witness (child process) | On 3d945010 with only the hook |
+|---|---|---|---|
+| R2-1: a hanging start of rsync held the lock its own stop needed to record the quarantine, and that other transfers needed to be admitted | fixed | `a_hanging_start_of_rsync_holds_up_neither_its_own_stop_nor_another_transfer_d91`: another transfer on the bridge (a pull elsewhere) starts and ends while the start hangs; the stopped send ends within 3 s of its device's 1 s deadline, its receipt `Unconfirmed`; when the start comes back nothing is left, and a later send there is refused | the other transfer never started (60 s guard) |
+| R2-2: a hanging look for the binaries kept its lock after its send was stopped, and the next send waited on it building its command line | fixed | `a_hanging_look_for_rsync_holds_up_no_later_send_d91`: the stopped send ends, the next looks again and succeeds while the first look still hangs | the next send never returned (60 s guard) |
+| R2-3: `ps` was started inside the task before its limit or the stop's deadline was looked at | fixed | `a_hanging_start_of_ps_does_not_hold_a_stops_cleanup_past_its_deadline_d91`: with every start of `ps` held, the stop's cleanup ends within 3 s of the device's 1 s deadline | the cleanup never ended (60 s guard) |
+
+**Follow-up (not required, recorded here):** the public API can express a direct send (`push_file`, not through
+`SharedTransfers`) into a destination whose shared send `SharedTransfers` has kept as done; if that direct send's end
+were unconfirmed, the cache would not know of the quarantine. No caller in the tree does this: shared destinations are
+only ever written through `SharedTransfers`.

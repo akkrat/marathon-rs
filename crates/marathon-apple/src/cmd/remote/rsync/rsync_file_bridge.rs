@@ -79,9 +79,29 @@ struct Inner {
     send: tokio::sync::Mutex<()>,
     stalls: StallRecord,
     tasks: RetainedTasks,
-    /// D91: destinations of transfers whose end could not be confirmed. Their rsync may still be writing there, so no
-    /// transfer into one starts again in this run.
-    quarantined: Arc<Mutex<std::collections::HashSet<String>>>,
+    /// D91: destinations of transfers whose end could not be confirmed, and the starts of rsync under way. Held only for
+    /// a check or a change, never across a blocking call, so neither a start that hangs nor a stop waits on it.
+    admission: Mutex<Admission>,
+    /// D91: called on the blocking thread just before each call there that a filesystem can hold (tests).
+    hook: OnceLock<BlockingHook>,
+}
+/// D91: the calls a transfer makes on a blocking thread that a filesystem that does not answer can hold.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockingCall {
+    /// Looking for rsync, ssh, ssh-keygen and sshpass.
+    Probe,
+    /// Starting rsync.
+    SpawnRsync,
+    /// Starting `ps` for a process listing.
+    SpawnPs,
+}
+type BlockingHook = Arc<dyn Fn(BlockingCall) + Send + Sync>;
+#[derive(Default)]
+struct Admission {
+    quarantined: std::collections::HashSet<String>,
+    /// Each rsync start under way, by its destination.
+    starting: Vec<(String, Arc<SpawnTicket>)>,
 }
 impl RsyncFileBridge {
     #[allow(clippy::too_many_arguments)]
@@ -109,7 +129,8 @@ impl RsyncFileBridge {
             send: tokio::sync::Mutex::new(()),
             stalls: StallRecord::default(),
             tasks: RetainedTasks::default(),
-            quarantined: Arc::default(),
+            admission: Mutex::default(),
+            hook: OnceLock::new(),
         }));
         if debug {
             let inner = bridge.0.clone();
@@ -161,6 +182,12 @@ impl RsyncFileBridge {
     pub fn retained_tasks(&self) -> usize {
         self.0.tasks.len()
     }
+    /// D91: `hook` is called on the blocking thread just before each `BlockingCall`, so that a test can hold one there as a
+    /// filesystem that no longer answers would. Only the first one set counts.
+    #[doc(hidden)]
+    pub fn on_blocking_call(&self, hook: Arc<dyn Fn(BlockingCall) + Send + Sync>) {
+        let _ = self.0.hook.set(hook);
+    }
     /// Exact host argv, useful to consumers recording transport evidence.
     pub fn arguments(&self, source: String, destination: String) -> VendorResult<Vec<String>> {
         self.0.arguments(source, destination)
@@ -171,32 +198,26 @@ struct BinaryPaths {
     rsync: String,
     sshpass: String,
 }
-// rsync4j's Binaries caches discovery per process, independently of bridge instances.
-static BINARIES: Mutex<Option<BinaryPaths>> = Mutex::new(None);
+// rsync4j's Binaries caches discovery per process, independently of bridge instances. D91: the look runs on a blocking
+// thread, and whoever waits for it waits asynchronously, within its own stop; nothing holds a lock while it looks, so a
+// look held by a mount that no longer answers holds up no other transfer, which looks again.
+static BINARIES: tokio::sync::OnceCell<BinaryPaths> = tokio::sync::OnceCell::const_new();
 fn executable(variable: &str, default: &str) -> String {
     std::env::var(variable).unwrap_or_else(|_| default.into())
 }
 fn rsync_program() -> String {
     BINARIES
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
+        .get()
         .map(|p| p.rsync.clone())
         .unwrap_or_else(|| executable("RSYNC4J_RSYNC", "/usr/bin/rsync"))
 }
 fn sshpass_program() -> String {
     BINARIES
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
+        .get()
         .map(|p| p.sshpass.clone())
         .unwrap_or_else(|| executable("RSYNC4J_SSHPASS", "/usr/bin/sshpass"))
 }
-fn initialize_binaries() -> VendorResult<()> {
-    let mut paths = BINARIES.lock().unwrap_or_else(|e| e.into_inner());
-    if paths.is_some() {
-        return Ok(());
-    }
+fn probe_binaries() -> VendorResult<BinaryPaths> {
     let rsync = executable("RSYNC4J_RSYNC", "/usr/bin/rsync");
     let sshpass = executable("RSYNC4J_SSHPASS", "/usr/bin/sshpass");
     for (name, variable, path) in [
@@ -224,8 +245,52 @@ fn initialize_binaries() -> VendorResult<()> {
         );
         let _ = std::io::stderr().write_all(text.as_bytes());
     }
-    *paths = Some(BinaryPaths { rsync, sshpass });
-    Ok(())
+    Ok(BinaryPaths { rsync, sshpass })
+}
+/// D91: one start of rsync, from its admission to its commit. `phase` is where the starting thread is; `REFUSED` is set by
+/// the transfer that gives up waiting for it, or with `DOOMED` by the quarantine of its destination. Whichever comes
+/// first decides: a start that is refused before it begins never begins, and one refused after is killed at its commit.
+struct SpawnTicket(AtomicU8);
+const SPAWN_PENDING: u8 = 0;
+const SPAWN_STARTED: u8 = 1;
+const SPAWN_COMMITTED: u8 = 2;
+const SPAWN_PHASE: u8 = 0x0f;
+const SPAWN_REFUSED: u8 = 0x10;
+const SPAWN_DOOMED: u8 = 0x20;
+impl SpawnTicket {
+    fn begin(&self) -> bool {
+        self.0
+            .compare_exchange(SPAWN_PENDING, SPAWN_STARTED, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+    fn commit(&self) -> bool {
+        self.0
+            .compare_exchange(SPAWN_STARTED, SPAWN_COMMITTED, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+    fn doomed(&self) -> bool {
+        self.0.load(Ordering::Acquire) & SPAWN_DOOMED != 0
+    }
+    /// Refuses it if it has not begun, and says whether it did.
+    fn refuse_if_pending(&self) -> bool {
+        self.0
+            .compare_exchange(
+                SPAWN_PENDING,
+                SPAWN_PENDING | SPAWN_REFUSED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+    /// Refuses it, and says how far it had got.
+    fn refuse(&self, doom: bool) -> u8 {
+        let flags = if doom {
+            SPAWN_REFUSED | SPAWN_DOOMED
+        } else {
+            SPAWN_REFUSED
+        };
+        self.0.fetch_or(flags, Ordering::AcqRel) & SPAWN_PHASE
+    }
 }
 
 impl Inner {
@@ -314,36 +379,59 @@ impl Inner {
         let bound = Bound {
             clock: self.clock.as_ref(),
             stopping: Some(stopping),
+            runtime: self.runtime.as_ref(),
+            hook: self.hook.get(),
         };
         let not_started = || Outcome::not_started(stopping.stopped());
-        match bound
-            .run(None, None, true, blocking(self.runtime.as_ref(), initialize_binaries))
-            .await
-        {
-            Step::Done(result) => result?,
+        let probe = {
+            let (runtime, hook) = (self.runtime.clone(), self.hook.get().cloned());
+            BINARIES.get_or_try_init(move || async move {
+                blocking(runtime.as_ref(), move || {
+                    if let Some(hook) = &hook {
+                        hook(BlockingCall::Probe);
+                    }
+                    probe_binaries()
+                })
+                .await
+            })
+        };
+        match bound.run(None, None, true, probe).await {
+            Step::Done(result) => {
+                result?;
+            }
             Step::Stopped | Step::Expired => return Ok(not_started()),
+        }
+        // D91: admitted in one short check under the admission lock (no stop, no quarantine), with a ticket for the start
+        // that the quarantine can refuse; rsync then starts outside the lock.
+        let ticket = Arc::new(SpawnTicket(AtomicU8::new(SPAWN_PENDING)));
+        {
+            let mut admission = self.admission.lock().unwrap_or_else(|e| e.into_inner());
+            if stopping.stopped().is_some() || cancelled.as_ref().is_some_and(|cancelled| cancelled().is_some()) {
+                return Ok(not_started());
+            }
+            if let Some(place) = &place {
+                if admission.quarantined.contains(place) {
+                    return Ok(Outcome::quarantined());
+                }
+                admission.starting.push((place.clone(), ticket.clone()));
+            }
         }
         // The start is read on the vendor clock as the process starts, not when the spawn's result reaches this task, so a
         // late delivery can't shorten the time a send has been quiet.
         let clock = self.clock.clone();
-        let gate = Arc::new(AtomicU8::new(SPAWN_PENDING));
-        let (admission, quarantined, seen) = (gate.clone(), self.quarantined.clone(), stopping.clone());
+        let (starting, seen, hook) = (ticket.clone(), stopping.clone(), self.hook.get().cloned());
         let spawn = blocking(self.runtime.as_ref(), move || {
-            let quarantined = quarantined.lock().unwrap_or_else(|e| e.into_inner());
-            if admission
-                .compare_exchange(SPAWN_PENDING, SPAWN_STARTED, Ordering::AcqRel, Ordering::Acquire)
-                .is_err()
-            {
-                return Ok(Admitted::Refused);
-            }
             let stopped = seen.stopped().is_some() || cancelled.as_ref().is_some_and(|cancelled| cancelled().is_some());
             if stopped {
-                return Ok(Admitted::Refused);
+                starting.refuse(false);
             }
-            if place.as_ref().is_some_and(|place| quarantined.contains(place)) {
-                return Ok(Admitted::Quarantined);
+            if !starting.begin() {
+                return Ok(None);
             }
-            // Killed if it is ever dropped unreaped: only when its end could not be confirmed, or its start came too late.
+            if let Some(hook) = &hook {
+                hook(BlockingCall::SpawnRsync);
+            }
+            // Killed if it is ever dropped unreaped: when its end could not be confirmed, or its start came too late.
             let child = Command::new(&argv[0])
                 .args(&argv[1..])
                 .stdin(Stdio::piped())
@@ -352,21 +440,33 @@ impl Inner {
                 .kill_on_drop(true)
                 .spawn()
                 .map_err(io_error)?;
-            Ok(Admitted::Spawned(child, clock.now_millis()))
+            if !starting.commit() {
+                drop(child);
+                return Ok(None);
+            }
+            Ok(Some((child, clock.now_millis())))
         });
-        let (mut child, started) = match bound.run(None, None, false, spawn).await {
-            Step::Done(admitted) => match admitted? {
-                Admitted::Spawned(child, started) => (child, started),
-                Admitted::Quarantined => return Ok(Outcome::quarantined()),
-                Admitted::Refused => return Ok(not_started()),
+        let mut spawn = std::pin::pin!(spawn);
+        let mut step = bound.run(None, None, true, spawn.as_mut()).await;
+        // A stop before the start began gives it up; one after it began waits for it, within the deadline, to stop it.
+        if matches!(step, Step::Stopped) && !ticket.refuse_if_pending() {
+            step = bound.run(None, None, false, spawn.as_mut()).await;
+        }
+        self.admission
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .starting
+            .retain(|(_, started)| !Arc::ptr_eq(started, &ticket));
+        let (mut child, started) = match step {
+            Step::Done(spawned) => match spawned? {
+                Some(spawned) => spawned,
+                None if ticket.doomed() => return Ok(Outcome::quarantined()),
+                None => return Ok(not_started()),
             },
-            // Stopped, and the thread that starts it had not got to it by the deadline: it never starts if it has not
-            // begun to, and is killed when it is dropped if it has.
-            Step::Stopped | Step::Expired => {
-                if gate
-                    .compare_exchange(SPAWN_PENDING, SPAWN_ABANDONED, Ordering::AcqRel, Ordering::Acquire)
-                    .is_err()
-                {
+            Step::Stopped => return Ok(not_started()),
+            // Stopped, and the start, begun, had not come back by the deadline: it is killed when it does.
+            Step::Expired => {
+                if ticket.refuse(false) != SPAWN_PENDING {
                     *unconfirmed = Some(failure(
                         FailureKind::Io,
                         format!(
@@ -403,8 +503,8 @@ impl Inner {
         let progress = AtomicI64::new(started);
         let mut nothing_arrived = false;
         let unbounded = Bound {
-            clock: self.clock.as_ref(),
             stopping: None,
+            ..bound
         };
         let (status, wrapper_stopped, stop_branch) = tokio::select! {
             biased;
@@ -680,6 +780,8 @@ impl Inner {
         let bound = Bound {
             clock: self.clock.as_ref(),
             stopping: Some(stopping),
+            runtime: self.runtime.as_ref(),
+            hook: self.hook.get(),
         };
         let remote_path = remote.clone();
         let remote = format!("{}:{remote}", self.target.addr.to_owned());
@@ -712,9 +814,10 @@ impl Inner {
         let place = destination.trim_end_matches('/').to_owned();
         // D91: an earlier transfer into this destination may still be writing there. Checked again as rsync starts.
         if self
-            .quarantined
+            .admission
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .quarantined
             .contains(&place)
         {
             return self.quarantined(receive, &destination);
@@ -731,7 +834,14 @@ impl Inner {
             )
             .await;
         if let Some(why) = unconfirmed.as_ref() {
-            self.quarantined.lock().unwrap_or_else(|e| e.into_inner()).insert(place);
+            // D91: never waits for a start under way; one into this destination is killed at its commit.
+            let mut admission = self.admission.lock().unwrap_or_else(|e| e.into_inner());
+            for (starting, ticket) in &admission.starting {
+                if *starting == place {
+                    ticket.refuse(true);
+                }
+            }
+            admission.quarantined.insert(place);
             if self.logging.enabled(&self.logger, Level::ERROR) {
                 let message = format!(
                     "{} error: could not confirm that the transfer {} {} ended, and nothing more is transferred there in this run",
@@ -887,15 +997,7 @@ impl Outcome {
         }
     }
 }
-/// D91: what the thread that starts rsync found.
-enum Admitted {
-    Spawned(Child, i64),
-    Refused,
-    Quarantined,
-}
-const SPAWN_PENDING: u8 = 0;
-const SPAWN_STARTED: u8 = 1;
-const SPAWN_ABANDONED: u8 = 2;
+
 /// D43: where this receive's own bytes land, so that another transfer into the same folder cannot pass for its progress.
 /// rsync writes `name` into `folder` through a temporary file beside it (`is_temporary_of`), moves an interrupted one to
 /// `.rsync-partial/name`, and with
@@ -1082,6 +1184,9 @@ impl<T> Step<T> {
 struct Bound<'a> {
     clock: &'a dyn VendorClock,
     stopping: Option<&'a Stopping>,
+    /// Where `ps` is started, on a blocking thread, so that its start is inside the step's limits too.
+    runtime: &'a dyn VendorRuntime,
+    hook: Option<&'a BlockingHook>,
 }
 impl Bound<'_> {
     fn left(&self) -> Option<i64> {
@@ -1328,17 +1433,28 @@ async fn processes(bound: Bound<'_>) -> Option<std::collections::HashMap<i32, (i
     if bound.expired() {
         return None;
     }
-    let listing = Command::new("ps")
-        .args(["-A", "-o", "pid=,ppid=,lstart="])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .output();
-    let output = bound
-        .run(Some(PROCESS_LIMIT), None, false, listing)
+    // D91: started on a blocking thread, since starting a process looks it up on `PATH` and can hang on a mount that no
+    // longer answers; the limits cover the start too. A `ps` that is given up is killed when it is dropped.
+    let hook = bound.hook.cloned();
+    let listing = async move {
+        let child = blocking(bound.runtime, move || {
+            if let Some(hook) = &hook {
+                hook(BlockingCall::SpawnPs);
+            }
+            Command::new("ps")
+                .args(["-A", "-o", "pid=,ppid=,lstart="])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .kill_on_drop(true)
+                .spawn()
+                .map_err(io_error)
+        })
         .await
-        .done()?
         .ok()?;
+        child.wait_with_output().await.ok()
+    };
+    let output = bound.run(Some(PROCESS_LIMIT), None, false, listing).await.done()??;
     if !output.status.success() {
         return None;
     }
@@ -1521,9 +1637,43 @@ mod tests {
             Box::pin(std::future::pending())
         }
     }
+    /// Runs blocking work on tokio's blocking threads.
+    struct Threads;
+    impl VendorRuntime for Threads {
+        fn spawn_cancellable(
+            &self,
+            body: marathon_core::runtime::VendorTaskBody,
+        ) -> Arc<dyn marathon_core::runtime::VendorTask> {
+            self.spawn(body(Arc::new(SessionScope::default())))
+        }
+        fn spawn(&self, body: VendorFuture<'static, ()>) -> Arc<dyn marathon_core::runtime::VendorTask> {
+            Arc::new(Task(std::sync::Mutex::new(Some(tokio::spawn(body)))))
+        }
+        fn spawn_blocking(
+            &self,
+            body: Box<dyn FnOnce() -> VendorResult<()> + Send>,
+        ) -> Arc<dyn marathon_core::runtime::VendorTask> {
+            Arc::new(Task(std::sync::Mutex::new(Some(tokio::task::spawn_blocking(body)))))
+        }
+    }
+    struct Task(std::sync::Mutex<Option<tokio::task::JoinHandle<VendorResult<()>>>>);
+    impl marathon_core::runtime::VendorTask for Task {
+        fn cancel(&self, _: Cancellation) {}
+        fn join(&self) -> VendorFuture<'_, ()> {
+            let handle = self.0.lock().unwrap().take();
+            Box::pin(async move {
+                match handle {
+                    Some(handle) => handle.await.unwrap(),
+                    None => Ok(()),
+                }
+            })
+        }
+    }
     const UNBOUNDED: Bound<'static> = Bound {
         clock: &NoClock,
         stopping: None,
+        runtime: &Threads,
+        hook: None,
     };
 
     #[tokio::test(flavor = "multi_thread")]
