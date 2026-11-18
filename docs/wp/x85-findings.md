@@ -51,7 +51,7 @@ test vehicles keep Kotlin's 30 attempts, so no oracle or differential recording 
 |---|---|---|
 | iOS | 2 × (`bootWait` + `boot` + `shutdown` + `shell`) + the 10 s pause between boot attempts | 2 × (180 + 30 + 30 + 30) + 10 = 550 s |
 | Android | per package to install (the app if any, each extra app, the test app): 3 × (`shell` + `uninstall` + `pushFile` + `install` + `shell`) + 2 × 1 s; plus `shell` (`logcat -c`) and, with mock location, 2 × `shell` per bundle with an app (`appops set`, then `appops query` if it failed) | 2 × (3 × 180 + 2) + 20 = 1,104 s with one app and its test app; 1,144 s with mock location |
-| macOS | 11 × `shell` (three directory commands, two in each of the installer's three attempts, the test type's probe, the test root's directory) + 2 × 1 s; the transfer is not counted, it has no limit while it progresses (D54) | 332 s |
+| macOS | `shell` for each command of one preparation that has a limit (listed under "Review round 2"): 23 with the test type left to the probe, 12 for hosted XCTest configured, 22 for XCUITest configured, each with permissions to grant 1 more and 1 per permission; + 2 × 1 s. Transfers are not counted, they have no limit while they progress (D54), nor are code coverage's static-library directories, which only the built bundle names | 692 s with the test type left to the probe; 362 s hosted XCTest |
 
 With the defaults every envelope exceeds the actor's own schedule for a preparation that fails at once (30 attempts, 290 s),
 so such a device keeps its 30 attempts. Only slow failures are cut. The Android figure is the legacy push-and-install path
@@ -87,11 +87,18 @@ spent on a retry that could not start). Nothing running is stopped by it.
      registration past the deadline is dropped (`its new setup is dropped`) and the simulator exhausted. A removal clears
      it, and a stale generation is discarded.
    - A replacement's first boot attempt is whole (the whole of `bootWait`), even with less left. Its second attempt is
-     held: it starts only if its bound is ahead, the bound being the deadline less `shutdown` + `shell` and the 30 s a cut
-     command takes to end over SSH (D30, `sshj::client::TIMEOUT_MILLIS`); every state read, readiness probe and `simctl
-     boot` of it is cut at the bound (`within`), so the shutdown starts with its reserve intact.
+     held to a bound, the deadline less `shutdown` + `shell`: it starts each state read (the descriptor read and the
+     readiness probe, 2 × (`shell` + 30 s)) and `simctl boot` (`boot` + 30 s) only if, run to its own limit and through
+     D30's escalation (`sshj::client::TIMEOUT_MILLIS`, 30 s), it ends by the bound. Nothing of the attempt is cut: a
+     command that started ends through its own timeout, so the shutdown decision reads the simulator's real state, and
+     the shutdown, under its own `shutdown` + `shell` limit, ends by the deadline.
    - A boot that fails for want of time (a held attempt, or one refused) returns `PrepareError::OutOfTime`, on which the
-     preparation lets the installation beside it finish instead of cancelling it, then leaves as not booted.
+     preparation lets the installation beside it finish instead of cancelling it, then leaves as not booted. A transfer
+     that stalled (U163) is reported instead of either kind of boot failure, so the simulator is retired.
+   - A simulator lost by a failed preparation (its episode still open) is a loss for the scan even if its worker dropped
+     since, so its recovery counts it and hands the episode on.
+   - A setup of a simulator carrying an expired episode does not start: the provisioner asks the recovery policy
+     (`ProviderRecovery::may_set_up`) once the provisioning permit is held, before it connects.
    - A preparation that ends ready closes the episode, so a later loss in a batch starts afresh.
 5. macOS: the actor's layer and the Apple installer's gate.
 
@@ -99,16 +106,18 @@ spent on a retry that could not start). Nothing running is stopped by it.
 give-up and the dropped setup. D48 still ends a pool that has no device sooner. Nothing new waits, so nothing can hang on
 the last device of a pool.
 
-**Not capped:** a transfer that keeps progressing (D54), and any step already running, except the reads, probes and boot
-command of a replacement's held second attempt, which are cut at its bound. A rsync that runs past the deadline finishes.
+**Not capped or cut:** a transfer that keeps progressing (D54), and any step already running. A rsync that runs past the
+deadline finishes.
 
 ## Invariants
 
 - No retry, boot attempt, transfer retry, setup or replacement of a preparation starts after its deadline; the test is made
   where it starts.
 - The first preparation runs as before, and a replacement's first boot is whole; a healthy run makes no other attempt.
-- The deadline cancels nothing but the commands of a held boot attempt; a transfer is never cancelled because of it.
-- A held attempt's shutdown starts with `shutdown` + `shell` left before the deadline.
+- The deadline cancels and cuts nothing; a transfer is never cancelled because of it.
+- A held attempt's last command ends, run to its limit, by the deadline less `shutdown` + `shell`, so its shutdown ends by
+  the deadline and decides on the simulator's real state.
+- A stalled transfer is what a preparation reports, whatever its boot did.
 - A recovery decides by the deadline only for the generation it claims.
 - A device without an envelope (Stub, test vehicles) has no deadline.
 
@@ -125,7 +134,7 @@ live sibling (so D48 does not apply); measured only on the witnesses' scaled tim
 | iOS, in general | — | the deadline plus one whole boot attempt of a replacement started just before it and its last probe: 550 + 270 + 50 = 870 s (14.5 min) |
 | iOS, any of these, pool's only simulator | 9 to 11 min (D48, x42) | unchanged: D48's wait from the first departure ends it |
 | Android, one package whose install times out at 60 s every time | 30 × 182 + 290 = 5,750 s (96 min) | eight preparations, the last three with one attempt: leaves at about 1,160 s (19 min) |
-| macOS, every command hanging until KILL | about 1,790 s (30 min) | six preparations: about 350 s (6 min) |
+| macOS, every command hanging until KILL | about 1,790 s (30 min) | twelve preparations: about 710 s (12 min) |
 | Any vendor, preparation failing at once | 30 attempts, 290 s | unchanged with default timeouts (each envelope ≥ 290 s) |
 
 The general bound: the deadline, plus what started before it (on iOS a replacement's whole boot attempt; on Android one
@@ -144,13 +153,14 @@ round's, without its fix (temporary mutation). Guards pass either way, as they s
 - iOS, virtual time, `simulator_preparation_episode.rs`:
   `a_replacement_gets_one_whole_boot_attempt_with_less_time_left_d87` (10 s left, 20 s to boot: ready);
   `a_boot_that_runs_out_of_time_leaves_the_transfer_beside_it_to_finish_d87` (the send is not cancelled; not booted only
-  after it finishes); `a_held_boot_cuts_its_final_probe_so_that_the_shutdown_keeps_its_reserve_d87` (hanging probes, the
-  shutdown at 110 s of 200 s, with the fake worker ending a cut command as a real one ends;
-  hangs on 2fed5b75, which the 600 s guard turns into a failure);
-  `a_held_boot_whose_state_read_outlasts_its_bound_does_not_boot_d87`;
+  after it finishes); round 2's `a_held_boot_never_cuts_a_command_and_starts_none_that_could_outlast_its_bound_d87`
+  (25 s probes, no command dropped, the last read refused at 330 s of a 440 s bound) and
+  `a_held_boot_starts_no_command_that_could_outlast_its_bound_d87` (no boot when a read could not end by the bound),
+  which replace round 1's cut-probe and slow-read tests; `a_stalled_transfer_wins_over_a_boot_out_of_time_beside_it_d87`;
+  `a_worker_dropping_after_a_failed_boot_does_not_renew_the_preparations_deadline_d87`;
   `a_send_that_fails_after_the_deadline_is_not_sent_again_d87` (one send, three on 2fed5b75);
   `a_setup_retry_after_a_failed_boot_continues_the_preparations_deadline_d87` (same deadline after a D33 retry);
-  `a_setup_retry_that_registers_past_the_deadline_is_dropped_d87`;
+  `a_setup_retry_that_would_start_past_the_deadline_sets_nothing_up_d87` (no `getenv HOME` after the recovery's);
   `an_old_recovery_out_of_time_does_not_take_a_simulator_added_back_out_of_the_run_d87` (removed while its recovery's
   disposal is held, the deadline passing meanwhile; added back, it is set up again).
 - iOS, whole run in real time, `simulator_preparation_deadline.rs` (integration check, scaled: `bootWait` 3 s, commands
@@ -162,7 +172,8 @@ round's, without its fix (temporary mutation). Guards pass either way, as they s
   (`uninstall` 6 s so that every decision has at least 7 s to spare; deadline 195 s; leaves within the deadline plus one
   attempt; 16 installs); `installer_test.rs::a_preparations_envelope_counts_mock_location_per_bundle_with_an_app_d87`
   (fails with the old flat 3 × `shell`). Guard: a single timed-out install retried.
-- macOS: `batch.rs::a_macs_preparation_deadline_is_the_greater_of_the_wait_and_its_commands_d87` (332 s).
+- macOS: `batch.rs::a_macs_preparation_deadline_is_the_greater_of_the_wait_and_its_commands_d87` (692, 362 and 752 s for
+  the probe, hosted XCTest and XCUITest with two grants).
 
 **Oracle and differential recordings.** None changes, so no comparator allowance is needed: the device-actor oracle
 (`fixtures/oracle/device-actor`, including `thirty failing preparations`) runs the Stub vehicle, which has no deadline; the
@@ -204,6 +215,46 @@ device no longer gets (later attempts, boots, transfers and replacements) and th
    labelled scenario estimates.
 7. *Wall-clock iOS witness.* The exact behaviour is now witnessed in virtual time with a gated slow final probe; the
    real-time run stays as an integration check with a whole boot attempt of slack.
+
+## Review round 2
+
+Orchestrator's decision: the deadline never cancels or cuts anything already running; it only refuses to start.
+
+1. *A held attempt's cut left SSH commands running.* Cutting is gone (`within` removed). A held attempt starts each state
+   read and `simctl boot` only if, run to its limit and D30's escalation, it ends by the deadline less `shutdown` +
+   `shell`; the shutdown decision therefore always reads real state. The worst case is unchanged in kind: a held
+   attempt, with its shutdown, ends by the deadline; the whole first attempt of a replacement started just before the
+   deadline remains the only overrun (deadline + one boot attempt). Witnesses: no command dropped, the last read refused
+   at its bound; no boot when a read could not end by it.
+2. *Expired setup still reached the worker.* `SimulatorProvisioner::with_setup_gate` asks `ProviderRecovery::may_set_up`
+   after the provisioning permit and before connecting; a refused setup is dropped and the simulator exhausted under the
+   claim. The D33 witness now asserts no `getenv HOME` after the recovery's.
+3. *A worker drop renewed the episode.* A lost simulator with an open episode is classified as a failed preparation
+   even when disconnected (read before the provider's lock). Witness: NotBooted, worker drop, reconnect; the
+   replacement continues the deadline.
+4. *A held attempt swallowed a stalled transfer.* `terminal_transfer` makes a `TransferStalled` from the installation win
+   over `OutOfTime` and over an ordinary boot failure whose sibling was cancelled. Witness: the simulator is retired with
+   `TransferStalled`, not lost.
+5. *macOS formula.* Audited every command on the preparation path; each runs under `shell`:
+   - `prepare_inner`: remove, create and create-shared directory (3).
+   - Apple installer, per transfer attempt: create and create-shared directory (2 × 3).
+   - Test type probe (`nm`), unless the bundle configures the test type (1).
+   - Test root factory `generate`: the test root directory (1).
+   - Hosted XCTest (`hosted`): the app's `chmod` in `application`, the `PlugIns` directory (2). With
+     `skipCopyingDerivedData` the pushes and the directory become existence checks, fewer commands.
+   - XCUITest (`ui`): the SDK platform path (1); `runner` without a test application: two copies, three architecture
+     commands (`lipo` twice and a removal, on arm64e), three `PlistBuddy` edits, the `PlugIns` directory and copy (10),
+     or with one: `chmod`, symlink and the architecture commands (5); the app's `chmod` (1): up to 12.
+   - Permissions (`grant_permissions`): the SIP check and one `sqlite3` per permission, when there are grants.
+   - Not counted: code coverage's static-library directories (one per library, known only from the built xctestrun),
+     and every transfer (`push_shared`, `push_generated_file`), uncapped by D54.
+6. *Integration test.* The real-time run asserts only the bound; the sequence is witnessed in virtual time.
+
+The migration notes now say that a preparation failing at once keeps its 30 attempts with the default timeouts; shorter
+timeouts and a shorter `deviceInitializationTimeoutMillis` can make the deadline shorter than those 290 s.
+
+Each round-2 witness fails on 3f4bb7d9, checked in a scratch copy of that tree with the new tests; round 1's witnesses
+pass there, as they should.
 
 ## Incidental bugs
 
