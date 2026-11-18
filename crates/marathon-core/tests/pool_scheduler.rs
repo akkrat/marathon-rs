@@ -1915,15 +1915,31 @@ fn a_queue_that_fails_on_the_last_result_is_not_a_success_d68() {
     });
 }
 
+/// When the run is cancelled relative to the queue's failure, in `a_queue_that_fails_while_its_pool_shuts_down_still_ends_the_run_d68`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum CancelOrder {
+    Never,
+    /// The cancel (D52, or the run's owner) is handled before the Track can fail.
+    BeforeTheFailure,
+    /// The Track's failure is recorded as the run's cause before the cancel.
+    AfterTheFailure,
+}
+
 /// D68, review round 1: the queue fails while its pool is shutting down. Pool A runs a batch that only a cancel ends.
 /// Pool B's only test passes and its Track waits; B's last device leaves, so B asks its queue whether work is left, and
 /// the Track then fails. B reads the failed queue as "no work" and closes, and a message to B about the failure would
 /// be discarded with its mailbox. The run must still stop A and end at once with the Track's cause; before this it
-/// stayed in `joining-pools` for ever. With `cancel`, a D52 cancel arrives in the same moment and wins, as any cancel
-/// does, and the run still ends at once.
+/// stayed in `joining-pools` for ever. D84 (U215), ordered by events: a cancel handled before the failure reaches the
+/// Scheduler explains it, so the run ends cancelled and records no cause; a failure recorded before the cancel is the
+/// run's cause. Either way the run ends at once. (CI once saw the failure win a cancel requested before it, when the
+/// two met in the same moment.)
 #[test]
 fn a_queue_that_fails_while_its_pool_shuts_down_still_ends_the_run_d68() {
-    for cancel in [false, true] {
+    for order in [
+        CancelOrder::Never,
+        CancelOrder::BeforeTheFailure,
+        CancelOrder::AfterTheFailure,
+    ] {
         scheduling_test(move |h| {
             Box::pin(async move {
                 let gate = Gate::default();
@@ -1945,10 +1961,28 @@ fn a_queue_that_fails_while_its_pool_shuts_down_still_ends_the_run_d68() {
                 let pools = run.scheduler.pools();
                 let (pool_a, pool_b) = (pools[0].1.clone(), pools[1].1.clone());
                 assert!(!pool_b.terminated(), "B waits for its queue's answer");
-                gate.open();
-                if cancel {
+                let cancel = |run: &Run| {
                     run.scheduler.job().cancel(job_was_cancelled());
                     run.parent.cancel(job_was_cancelled());
+                };
+                match order {
+                    CancelOrder::Never => gate.open(),
+                    CancelOrder::BeforeTheFailure => {
+                        cancel(&run);
+                        h.run_current().await;
+                        gate.open();
+                    }
+                    CancelOrder::AfterTheFailure => {
+                        gate.open();
+                        let mut turns = 0;
+                        while run.scheduler.failure().is_none() {
+                            assert!(turns < 100_000, "the Track's failure was never recorded");
+                            turns += 1;
+                            h.run_current().await;
+                            tokio::task::yield_now().await;
+                        }
+                        cancel(&run);
+                    }
                 }
                 h.advance_until_idle().await;
                 assert!(
@@ -1956,12 +1990,17 @@ fn a_queue_that_fails_while_its_pool_shuts_down_still_ends_the_run_d68() {
                     "B's queue ended with the Track error"
                 );
                 assert_eq!(ended_at(&run), Some(1500), "{}", run.scheduler.state_dump());
-                match run.result.borrow().as_ref() {
-                    Some((_, Err(VendorError::Cancelled(_)))) if cancel => {}
-                    Some((_, Err(VendorError::Other(cause)))) if !cancel => {
+                match (order, run.result.borrow().as_ref()) {
+                    (CancelOrder::BeforeTheFailure, Some((_, Err(VendorError::Cancelled(_))))) => {
+                        assert!(
+                            run.scheduler.failure().is_none(),
+                            "the cancel explains the failure after it"
+                        );
+                    }
+                    (CancelOrder::Never | CancelOrder::AfterTheFailure, Some((_, Err(VendorError::Other(cause))))) => {
                         assert_eq!(cause.message.as_deref(), Some("track failed"));
                     }
-                    other => panic!("cancel {cancel}: {other:?}"),
+                    (order, other) => panic!("{order:?}: {other:?}"),
                 }
                 assert!(pool_a.terminated() && pool_b.terminated(), "both pools ended");
                 assert_eq!(a.batches().len(), 1, "A's batch was stopped, not finished or retried");

@@ -470,6 +470,22 @@ impl Inner {
             );
             return;
         }
+        // D84 (U215): the run was cancelled (a signal, D52, or its owner) before this failure reached the Scheduler. The
+        // cancellation explains what fails after it, so the failure is not the run's cause; the run still stops. A
+        // cancellation of the run that this very failure caused (the subscription's, which fails the run's task) is not
+        // such a request. Without this the outcome depended on whether a failure that ended in the same moment as the
+        // cancel was handled before or after the run's wait saw the cancel.
+        if let Some(reason) = self.parts.context.job.cancellation_signal().reason()
+            && *reason.failure() != cause
+        {
+            self.log(
+                Level::WARN,
+                "A failure after the run was cancelled; the cancellation stands".into(),
+                Some(cause),
+            );
+            self.begin_stop(reason);
+            return;
+        }
         *self.fatal.borrow_mut() = Some(cause.clone());
         self.log(
             Level::ERROR,
