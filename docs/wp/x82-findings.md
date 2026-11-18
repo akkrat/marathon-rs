@@ -59,14 +59,20 @@ in `marathon-apple`, `marathon-ios`, `marathon-macos` and `marathon-android`:
    and its tasks (e.g. `notify_is_ready`'s closed-channel cancellation) are not receivers, so device behaviour, the
    readiness oracle and D70 are unchanged.
 2. **One first fatal cause per run.** `Scheduler::Inner::fatal` (D68's `queue_failure`, generalised) is set by the
-   completion of a queue job, a pool actor job or the subscription task with `Completion::Failed`; the first one wins and
-   each cancels the Scheduler's job, as D68 did. The subscription applies the actor's rule to itself: a cancellation its
+   completion of a queue job, a pool actor job or the subscription task with `Completion::Failed`; the first one wins.
+   It is never taken: `Scheduler::failure` reads it after the reports too (review round 1, P1). How the run stops is
+   in invariant 3 (as revised in round 1). The subscription applies the actor's rule to itself: a cancellation its
    job was not given becomes `The device subscription stopped: it was cancelled, but the run was not`.
-3. **The Scheduler never returns a fatal cause while its pools run.** `execute` checks `fatal` after the inner wait ends,
-   whatever ended it (a subscription failure cancels the run's context and with it every `join_in`), cancels its job and
-   waits for it (a protected `join`: the context is already cancelled), then returns `Err(Other(cause))`. The wait is
-   D68's: the pools, queues and devices stop as at a cancel, and device calls end as their vendors honour cancellation.
-   With no fatal cause the result is unchanged, so a D52 cancel (which records nothing) takes its own path.
+3. **The Scheduler stops in order, within a bound, and never returns a fatal cause while its pools run** (revised in
+   review round 1). Recording the first failure logs it at once (ERROR, `The run's own machinery failed; stopping the
+   run`), cancels the subscription and every device actor (the pool supervisors' children other than the queue), and
+   cancels the job `execute` waits under, which ends its waits whatever they wait on. The pools and queues stay: a
+   queue that replies to a closed pool ends on that send with its mailbox, so the pools must outlive the drain.
+   `execute` then sends every live queue an `IsEmpty`, which a queue answers after every message delivered before it,
+   cancels the Scheduler's job and joins it, all within `FAILURE_STOP_LIMIT_MILLIS` (D52's 24 s); past it, an ERROR is
+   logged and the run finishes anyway. After `execute` has returned there is no waiter, and a failure cancels the
+   Scheduler's job at once. A `StopOnUnwind` guard cancels the Scheduler's job if `execute` unwinds. With no fatal cause
+   the result is unchanged, so a D52 cancel (which records nothing) takes its own path.
 4. **The run owner reports a failed run task as a failure.** `run_under` maps an empty result cell with
    `Completed(Failed(cause))` to `VendorError::Other(cause)`; the ordinary failed-run path follows (onFinish, reports,
    `Marathon run failed` with the cause, exit 1 / 0 with `ignoreFailures`).
@@ -136,13 +142,30 @@ has a parity-matrix row (they are review witnesses), so no row changes. The JVM 
 - The macOS disposal's `join_cancelled` panic: fixed as the others, but no seam makes that bounded wait panic.
 - The iOS provider's `dispatch` and `terminate` panics: they share `spawn_published` with the witnessed update, but have
   no witness of their own.
-- A panic in the run task while the Scheduler is running (inside `execute` itself): the cause is now kept (c), but the
-  pools and devices are not stopped before onFinish then; no seam reaches code inside `execute`, so I did not add an
-  unwitnessed stop there.
+- A real panic inside `execute`: no seam reaches its code, so the unwind guard is witnessed by dropping `execute`'s
+  future mid-run, which drops the same state an unwind does.
 - Real devices: not run. The changes only act on a panic or an unexpected cancellation, which the farm runs do not
   produce on demand.
-- The stop-and-join after a fatal cause is bounded only as D68's is: by the vendors honouring cancellation (`call_vendor`
-  joins its vendor task). A device call that ignores cancellation holds it, as it holds a D68 stop or a normal drain.
+- A queue whose own pool has failed (a pool panic) cannot take its replies; it ends at its next reply to the pool,
+  with what is left in its mailbox. The results it took before are kept.
+- Other vendors' device monitors (Android, macOS) were not changed; the reviewer's P3 was about iOS, whose monitor
+  also sets up the first simulators.
+
+## Review round 1 (Sol 6.2, REQUEST_CHANGES): per-finding status
+
+| # | Finding | Status | Fix | Witness (fails without the fix) |
+|---|---|---|---|---|
+| P1 | A pool that fails after `execute` consumed the fatal slot leaves the run green | fixed, `6a847dcb` | `fatal` is never taken; `Marathon::run_async` reads `Scheduler::failure` after `on_finish`; a failure with no waiter cancels the tree at once | `run_supervision::a_pool_that_fails_while_the_run_finishes_fails_the_run_d84` (a device connects during the provider's termination; round 1 returned `Ok(true)`) |
+| P2 | Fatal shutdown discards completed results already in a queue's mailbox | fixed, `6a847dcb` | devices and subscription stop first, pools and queues stay; each queue answers an `IsEmpty` after what was delivered to it, then the tree is cancelled. Closing the pools first was tried and failed the witness: the queue's reply to a closed pool ended it with its mailbox | `pool_scheduler::a_result_delivered_to_the_queue_before_a_failure_is_still_tracked_d84` (B's result waits behind A's held Track; round 1 never tracked it) |
+| P3 | The iOS monitor's panic is lost; the run ends NoDevices | fixed, `28b2d23a` | the monitor runs under `panic_as_error`, and a monitor ending with any non-cancellation error logs it and closes the device channel with it, which the subscription turns into the run's failure | `simulator_panic::a_monitor_that_panics_fails_the_device_channel_d84` (the channel never ended) |
+| P4 | An unwind out of `execute` leaves the detached pools running | fixed, `6a847dcb` | `StopOnUnwind` guard in `execute`, disarmed on return | `pool_scheduler::a_scheduler_that_stops_before_it_returns_stops_its_pools_d84` (drops `execute` mid-batch; round 1 left the pool running) |
+| P5 | The protected join can hold the first failure for ever | fixed, `6a847dcb` | both options: the cause is logged when it is recorded, and the stop is bounded by D52's 24 s. The bound is needed, not only the log: a call waiting for the provider's termination deadlocks against a join that precedes it, with or without a signal | `run_supervision::a_device_call_waiting_for_the_runs_end_holds_it_only_for_a_limited_time_d84` (round 1 never ended; now it ends at 3 s + 24 s with both ERROR lines) |
+| P6 | A panic caught outside cleanup leaves listeners and the session behind | fixed, `28b2d23a` | `InstalledLines` drop guard for the batch's line listeners; `execute_request` catches a panic around the run's work (and around `after_test_run`, `test_run_failed`/`cancelled`), so `after_test_run`, the channel's cancel and the session's stop run as for any error | `simulator_panic::a_batch_that_panics_…` now asserts no line listener is left (fails without the guard); `a_listener_that_panics_still_lets_the_batch_clean_up_d84` (a listener panics on a pass; without the runner fix the log listener `after_test_run` removes stays installed) |
+| P7 | The tests prove mailbox closure, not task completion | fixed, `6a847dcb` | witness only | `run_supervision::the_run_waits_for_a_cancelled_batch_to_clean_up_before_it_finishes_d84`: a cancelled batch cleans up for 3 s ignoring cancellation; the provider's termination must see it done (fails with the join removed) |
+
+Re-run after round 1: `cargo test -p marathon-core -p marathon-test-support -p marathon-apple -p marathon-ios
+-p marathon-macos -p marathon-android -p marathon-cli --no-fail-fast` all pass; clippy `-D warnings` on the changed
+crates and `cargo fmt --check` clean. The round-1 verified list still holds (all its witnesses pass).
 
 ## Incidental bugs
 
