@@ -27,6 +27,8 @@ The section for a version becomes the text of its GitHub release, which carries 
   are unchanged. Worker commands can
   list a batch's tests in another order and grouping, `fixed-size` batches can be fuller or emptier and more or fewer,
   and with code coverage on an Android test in another batch gets that batch's coverage file.
+- Slow Graphite and InfluxDB writes no longer delay the next test batch. If the metrics queue fills, marathon drops
+  new metrics and logs how many it dropped. Local results are collected as the tests finish (D86).
 
 ## 0.14.0
 

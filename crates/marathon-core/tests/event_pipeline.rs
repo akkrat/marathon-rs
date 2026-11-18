@@ -322,7 +322,7 @@ impl BackendFactory for Backend {
     }
 }
 #[test]
-fn factory_orders_reporters_before_remote_and_only_catches_influx_setup() {
+fn factory_orders_reporters_before_remote_close_and_only_catches_influx_setup() {
     for (outcome, reporter_failure) in [(0, false), (0, true), (1, false), (2, false), (3, false)] {
         CoreExecutor::run(move |core| {
             Box::pin(async move {
@@ -398,44 +398,42 @@ fn factory_orders_reporters_before_remote_and_only_catches_influx_setup() {
                     if outcome == 1 {
                         assert_eq!(got[1], "Failed to reach InfluxDB at http://unreachable");
                         assert!(!got.contains(&"remote-close".to_owned()));
-                    } else if !reporter_failure {
+                    } else {
+                        assert_eq!(got.iter().filter(|call| *call == "remote-test").count(), 1);
                         assert_eq!(got.last().unwrap(), "remote-close");
                     }
-                    if reporter_failure {
-                        // D51: Kotlin stops at the failing reporter (C11).
-                        assert_eq!(
-                            &got[2..],
-                            [
-                                "devices",
-                                "billing",
-                                "junit",
-                                "timeline",
-                                "raw",
-                                "test-json",
-                                "allure",
-                                "html",
-                                "stdout",
-                                "remote-close"
-                            ]
-                        );
-                    } else {
-                        // Outcome 3 logs its failure once, and the lost metrics at close.
-                        let start = if outcome == 3 { 3 } else { 2 };
-                        assert_eq!(
-                            &got[start..start + 9],
-                            [
-                                "devices",
-                                "billing",
-                                "junit",
-                                "timeline",
-                                "raw",
-                                "test-json",
-                                "allure",
-                                "html",
-                                "stdout"
-                            ]
-                        );
-                    }
+                    // D86: the remote send may complete anywhere relative to local reporting.
+                    // D51 still visits all the reporters, even after one fails (C11).
+                    let reporters = [
+                        "devices",
+                        "billing",
+                        "junit",
+                        "timeline",
+                        "raw",
+                        "test-json",
+                        "allure",
+                        "html",
+                        "stdout",
+                    ];
+                    assert_eq!(
+                        got.iter()
+                            .map(String::as_str)
+                            .filter(|call| reporters.contains(call))
+                            .collect::<Vec<_>>(),
+                        reporters,
+                    );
+                    assert_eq!(
+                        got.iter()
+                            .filter(|call| call.starts_with("Cannot send test metrics"))
+                            .count(),
+                        usize::from(outcome == 3)
+                    );
+                    assert_eq!(
+                        got.iter()
+                            .filter(|call| call.starts_with("The analytics backend lost"))
+                            .count(),
+                        usize::from(outcome == 3)
+                    );
                 }
                 Ok(())
             })
@@ -880,9 +878,11 @@ fn public_pipeline_hops_once_per_event_and_close() {
             pipeline.reports().close().await?;
             assert_eq!(io.spawns.load(Ordering::SeqCst), 6);
             assert_eq!(io.blocking.load(Ordering::SeqCst), 0);
-            assert_eq!(
-                *calls.lock().unwrap(),
-                ["setup", "remote-test", "report", "remote-close"]
+            let calls = calls.lock().unwrap();
+            assert!(
+                calls.as_slice() == ["setup", "remote-test", "report", "remote-close"]
+                    || calls.as_slice() == ["setup", "report", "remote-test", "remote-close"],
+                "{calls:?}"
             );
             Ok(())
         })
@@ -1282,6 +1282,117 @@ fn public_notifications_allocate_distinct_occurrences_and_exhausted_tape_never_f
             assert_eq!(summary.tests.len(), 2);
             assert_eq!(summary.retries[0].1.len(), 1);
             Ok(())
+        })
+    })
+    .unwrap();
+}
+
+#[test]
+fn remote_queue_overflow_counts_only_the_dropped_tail_d86() {
+    use std::time::Duration;
+    use tokio::sync::{Notify, watch};
+
+    struct HeldBackend {
+        started: Notify,
+        release: watch::Receiver<bool>,
+        sent: Mutex<Vec<String>>,
+    }
+    impl TrackerInternalAdapter for HeldBackend {
+        fn test<'a>(&'a self, event: &'a TestEvent) -> VendorFuture<'a, ()> {
+            Box::pin(async move {
+                self.started.notify_one();
+                let _ = self.release.clone().wait_for(|ready| *ready).await;
+                self.sent.lock().unwrap().push(event.test_result.test.method.to_owned());
+                Ok(())
+            })
+        }
+    }
+    struct HeldFactory(Arc<HeldBackend>);
+    impl BackendFactory for HeldFactory {
+        fn create(&self, _: BackendRequest) -> ServiceFuture<'_, Result<Option<Arc<dyn TrackerInternal>>, Failure>> {
+            Box::pin(async { Ok(Ok(Some(self.0.clone() as Arc<dyn TrackerInternal>))) })
+        }
+    }
+    CoreExecutor::run(|core| {
+        Box::pin(async move {
+            tokio::time::timeout(Duration::from_secs(60), async move {
+                let (release, released) = watch::channel(false);
+                let backend = Arc::new(HeldBackend {
+                    started: Notify::new(),
+                    release: released,
+                    sent: Mutex::default(),
+                });
+                let io = core.vendor();
+                let clock = RuntimeHooks::live();
+                let reports = Arc::new(Mutex::new(vec![]));
+                let warnings = Arc::new(Mutex::new(vec![]));
+                let recorded = warnings.clone();
+                let pipeline = TrackerFactory {
+                    io: io.clone(),
+                    track: Arc::new(Track::new(io, clock.clone())),
+                    clock,
+                    reporters: vec![ReporterRegistration {
+                        slot: ReporterSlot::Raw,
+                        reporter: Arc::new(RecordReporter {
+                            reports: reports.clone(),
+                            calls: Arc::default(),
+                            name: "raw",
+                            fail: false,
+                        }),
+                    }],
+                    backend: Some(BackendRegistration {
+                        request: BackendRequest::Graphite { port: None },
+                        factory: Arc::new(HeldFactory(backend.clone())),
+                    }),
+                    logger: LogSettings::default().component("TrackerFactory"),
+                    log: Arc::new(move |_, level, text, _| recorded.lock().unwrap().push((level, text.to_owned()))),
+                }
+                .create()
+                .await?;
+                let tracker = pipeline.tracker();
+                for i in 0..1006 {
+                    tracker
+                        .test(
+                            &pool("myPool"),
+                            &device(),
+                            &result(&i.to_string(), TestStatus::Passed),
+                            true,
+                        )
+                        .await
+                        .unwrap();
+                    if i == 0 {
+                        // Reserve the in-flight send before filling the 1,000 waiting slots.
+                        backend.started.notified().await;
+                    }
+                }
+                assert!(backend.sent.lock().unwrap().is_empty());
+                release.send_replace(true);
+                pipeline.reports().close().await?;
+                pipeline.reports().close().await?;
+                assert_eq!(
+                    *backend.sent.lock().unwrap(),
+                    (0..=1000).map(|i| i.to_string()).collect::<Vec<_>>(),
+                );
+                assert_eq!(
+                    reports
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .map(|report| report.test_events().len())
+                        .collect::<Vec<_>>(),
+                    [1006, 1006],
+                );
+                assert_eq!(
+                    *warnings.lock().unwrap(),
+                    [(
+                        marathon_logging::Level::WARN,
+                        "The analytics queue was full; dropped 5 test metric events".to_owned()
+                    )],
+                );
+                Ok(())
+            })
+            .await
+            .unwrap()
         })
     })
     .unwrap();

@@ -39,7 +39,7 @@ pub trait DataSender: Send + Sync {
         cancellation: Arc<dyn CancellationSignal>,
     ) -> ServiceFuture<'a, ()>;
 }
-/// D51: Kotlin has no timeout on either, and each send holds up the queue actor.
+/// D51: Kotlin has no timeout on either, and each send holds the Carbon connection.
 #[derive(Clone, Copy)]
 pub struct CarbonLimits {
     /// Name lookup and connect together.

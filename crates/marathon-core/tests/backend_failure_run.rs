@@ -1,8 +1,8 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/TrackerFactory.kt
 //! and execution/progress/PoolProgressAccumulator.kt (D51: whole runs with a failing analytics backend).
 //!
-//! Each runs the production run graph, including the real scheduler, with the Stub vendor. Without
-//! `BackendGuard` the first test result ends the queue actor, and the run never ends.
+//! Each runs the production run graph, including the real scheduler, with the Stub vendor.
+//! Before D51 the first failed send ended the queue actor and the run hung.
 use marathon_config::{AnalyticsConfiguration, Defaults, GraphiteConfiguration};
 use marathon_core::{
     analytics::{

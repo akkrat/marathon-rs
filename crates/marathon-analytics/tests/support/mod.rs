@@ -45,6 +45,12 @@ impl Env {
         AnalyticsClients::new(self.context.clone(), self.io.clone())
     }
 }
+pub struct FixedBackend(pub Arc<dyn TrackerInternal>);
+impl BackendFactory for FixedBackend {
+    fn create(&self, _: BackendRequest) -> ServiceFuture<'_, Result<Option<Arc<dyn TrackerInternal>>, Failure>> {
+        Box::pin(async { Ok(Ok(Some(self.0.clone()))) })
+    }
+}
 pub fn run(body: impl FnOnce(Env) -> ServiceFuture<'static, ()> + Send + 'static) -> Vec<LogRecord> {
     let result = CoreExecutor::run(move |core| {
         Box::pin(async move {
@@ -223,6 +229,12 @@ pub struct Peer {
 }
 impl Peer {
     pub async fn new(mut respond: impl FnMut(&Request) -> Reply + Send + 'static) -> OperationResult<Self> {
+        Self::with_async_replies(move |request| std::future::ready(respond(request))).await
+    }
+    pub async fn with_async_replies<F>(mut respond: impl FnMut(&Request) -> F + Send + 'static) -> OperationResult<Self>
+    where
+        F: Future<Output = Reply> + Send + 'static,
+    {
         let listener = io(TcpListener::bind("127.0.0.1:0").await)?;
         let url = format!("http://{}", io(listener.local_addr())?);
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -283,6 +295,7 @@ impl Peer {
                 let reply = respond(&request);
                 saved.lock().unwrap().push(request);
                 notify.notify_waiters();
+                let reply = reply.await;
                 if reply.status == NO_RESPONSE {
                     continue;
                 }

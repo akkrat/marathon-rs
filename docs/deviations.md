@@ -1028,13 +1028,14 @@ Native builds change four things:
 
 - **A failing analytics backend** is logged once per kind of failure, at most eight kinds, and the run carries on with the
   same results and exit code. At the end of the run one line says how many results were lost. This covers Graphite and InfluxDB 2, whose error line per test it replaces. InfluxDB's own worker already swallowed its write failures, so they never reach it or the line at the end. A backend that fails once after taking 1 s or more loses up to 5 minutes of metrics, which also thins the history for later runs. A failed backend `close` still fails the run as before.
-- **Time limits on a send.** Carbon gets 10 s to look up and connect and 10 s to write, where Kotlin has no limit. No send to
-  any backend holds up the queue for more than 30 s. A send that fails after 1 s or more, or hits a limit, makes the next
+- **Time limits on a send.** Carbon gets 10 s to look up and connect and 10 s to write, where Kotlin has no limit.
+  Each send gets at most 30 s. A send that fails after 1 s or more, or hits a limit, makes the next
   5 minutes of metrics get skipped, then the backend is tried again. A carbon that drops packets costs 10 s in every 310 s. A
   refused connection costs almost nothing, so it is tried for every test. The backend's close at the end of the run, where
   InfluxDB sends what it still holds, also gets 30 s, where Kotlin waits for as long as the server keeps answering. Past that
-  one warning says those metrics are lost, InfluxDB's sender is stopped, and the run ends with the exit code it had. This can
-  lose points from a working server too: a write that is slow but succeeds holds the sender while later points queue behind it.
+  one warning says those metrics are lost, InfluxDB's sender is stopped, and the run ends with the exit code it had.
+  [D86](#d86--remote-metrics-no-longer-delay-test-batches) moves sends off the queue actor and shares the close allowance
+  between draining and closing. A slow but successful write can still cost later points by holding the sender.
 - **A Graphite series printed as `None`** has no points in the window and is skipped with a debug line, so the query keeps its
   other tests. Kotlin discarded the whole query. Any other malformed value, such as `50,None`, still fails the query.
 - **Each step at the end of a run still runs after another fails:** the history close, provider termination, each reporter
@@ -2227,6 +2228,27 @@ Approved 2026-11-18 (project owner's decision). See
 
 **Migration action:** none. Snapshots of worker commands or batches for runs with copies or repeated tests need an
 update, as for D60.
+
+## D86 — Remote metrics no longer delay test batches
+
+Batch completion awaited each tracking call. A Carbon connection per eligible result put all of its connect and write time
+on that path. InfluxDB v2 issued a request per result. InfluxDB v1 usually returned after enqueueing a point, but a full
+1,000-point channel made the next result wait for the writer. The production scheduler witnesses reach the next batch
+while a Carbon send is held or the InfluxDB v1 channel is full ([U208](found-bugs.md)).
+
+A configured write backend takes up to 1,000 waiting test events in arrival order, plus the event it is delivering.
+If the queue fills, new arrivals are dropped and the total is logged in one warning at backend close. The worker
+sends the same lines and points in the same order when the backend keeps up. Its sends can finish before or after local
+report writing. Drain and close share the 30-second allowance from [D51](#d51--metrics-and-cleanup-failures-do-not-stop-a-run),
+including any final InfluxDB flush. A timeout logs a warning and abandons the remaining metrics. The existing send limits,
+failure cool-off and completed close-error handling still apply. Local results, progress and strategy history reads retain
+their existing behaviour, including [D71](#d71--unavailable-test-history-adds-no-probability-copies).
+
+Approved 2026-11-18 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the [x84 findings](wp/x84-findings.md).
+
+**Migration action:** Use the local reports to count a run's results. If a metrics dashboard has gaps, look for
+`The analytics queue was full` or `The analytics backend did not close` in the run log.
 
 ## Other accepted text differences
 

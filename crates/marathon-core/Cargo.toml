@@ -36,3 +36,4 @@ image = { version = "=0.25.8", default-features = false, features = ["png"] }
 marathon-core = { path = ".", features = ["test-support"] }
 marathon-test-support = { path = "../marathon-test-support" }
 tempfile = "3"
+tokio = { version = "=1.53.2", features = ["test-util"] }

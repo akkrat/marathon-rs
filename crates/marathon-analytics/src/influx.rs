@@ -47,6 +47,13 @@ impl Drop for AbandonOnDrop<'_> {
         }
     }
 }
+impl Drop for InfluxClient {
+    fn drop(&mut self) {
+        // D86 can give up draining before it enters shutdown. The last owner must still stop
+        // the worker and drop any pending request. The history client has its own worker.
+        self.worker.cancel(requested("InfluxDB client dropped"));
+    }
+}
 impl InfluxClient {
     /// Poll on the vendor runtime during dependency construction; history and
     /// tracking each call this constructor, owning independent workers.
@@ -125,10 +132,13 @@ impl InfluxClient {
         // onFinish must still be able to drain it after the run is cancelled.
         let worker = Signal::new();
         let worker_http = Arc::new(http.with_cancellation(worker.clone()));
+        let stop = worker.clone();
         let task = io.spawn(Box::pin(async move {
-            run_batches(worker_http, context, database, policy, receiver)
-                .await
-                .map_err(vendor)
+            tokio::select! {
+                biased;
+                reason = stop.cancelled() => Err(VendorError::Cancelled(reason)),
+                result = run_batches(worker_http, context, database, policy, receiver) => result.map_err(vendor),
+            }
         }));
         Ok(Arc::new(Self {
             http,

@@ -48,6 +48,10 @@ pub fn filter(configurator: Vendor, debug: bool) -> Targets {
         .with_target("marathon_core::analytics::factory", LevelFilter::DEBUG)
         .with_target("marathon_core::analytics::provider", LevelFilter::DEBUG)
         .with_target("marathon_core::analytics::noop", LevelFilter::DEBUG)
+        .with_target(
+            "marathon_core::analytics::event_pipeline",
+            if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
+        )
         .with_target("marathon_core::reporters::timeline", LevelFilter::DEBUG)
         .with_target("marathon_apple::cmd::remote::ssh::sshj::wire", LevelFilter::DEBUG)
         // Security-relevant: unknown/changed host keys warn even with debug off
@@ -337,6 +341,10 @@ mod tests {
             ("marathon_core::analytics::factory", LevelFilter::DEBUG),
             ("marathon_core::analytics::provider", LevelFilter::DEBUG),
             ("marathon_core::analytics::noop", LevelFilter::DEBUG),
+            (
+                "marathon_core::analytics::event_pipeline",
+                if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
+            ),
             ("marathon_core::reporters::timeline", timeline),
             ("marathon_apple::cmd::remote::ssh::sshj::wire", LevelFilter::DEBUG),
             (

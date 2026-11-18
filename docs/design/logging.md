@@ -255,7 +255,7 @@ all on `marathon_core::construction`); the iOS simulator provider
 (`marathon_macos::provider`). Their ERROR lines still show, and everything
 shows with `debug: true`, as for every other ordinary logger.
 
-Three exceptions have a WARN floor in every configurator.
+The following targets have a WARN floor in every configurator.
 `marathon_apple::cmd::remote::ssh::sshj::known_hosts` keeps unknown- or
 changed-host-key warnings visible because they are security-relevant and must
 not hide behind a debug flag. It is
@@ -289,6 +289,11 @@ sshj client logger, and no WARN. The target is a floor like `batch_outcome`,
 pinned by `session_close_warns_in_every_configurator_with_debug_off`, the
 directive inventories and the CLI subscriber test. See
 [WP x65](../wp/x65-findings.md).
+
+`marathon_core::analytics::event_pipeline` warns when D86 drops new events from
+a full remote metrics queue or reaches the drain-and-close deadline. Each warning
+appears once per backend when its delivery task closes. The queue-full warning
+includes the count. These warnings remain visible with debug off.
 
 ## What is gone
 

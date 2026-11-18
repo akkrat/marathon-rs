@@ -643,8 +643,13 @@ await final output draining.
 
 Pool progress callbacks are serial owners. `test_ended` awaits raw output,
 stores the FSM transition, flushes any diagnostic, then awaits `Tracker::test`
-through the vendor bridge before returning the nullable action. Tracker failure
-leaves the stored state intact. `test_started` transitions, flushes CI, then
+through the vendor bridge before returning the nullable action. Local report capture
+completes there. D86 admits remote test events to a bounded FIFO there and delivers
+them on a separate vendor task. The queue actor can release the batch as soon as
+local work and admission finish. At backend close, admission stops and the worker
+shares one D51 deadline between draining and closing. The analytics service that
+provides history for strategies has a separate lifetime. Tracker failure leaves
+the stored state intact. `test_started` transitions, flushes CI, then
 flushes the raw started line. Retry/AddRetry and RemoveAttempts remain
 synchronous and have no tracker payload; warnings wait in the shared queue.
 No production caller gains a missing testStarted call (C4).

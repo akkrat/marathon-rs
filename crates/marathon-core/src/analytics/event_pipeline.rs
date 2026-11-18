@@ -20,8 +20,12 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+use tokio::{
+    sync::{mpsc, oneshot},
+    time::{Instant as Deadline, sleep_until},
+};
 
-/// Runs inline on the I/O worker selected by Track or EventPipeline::close.
+/// Runs on the vendor runtime, either inline with the pipeline or on its remote delivery worker.
 pub trait TrackerInternal: Send + Sync {
     fn track<'a>(&'a self, event: &'a Event) -> VendorFuture<'a, ()>;
     fn close(&self) -> ServiceFuture<'_, ()>;
@@ -173,22 +177,19 @@ impl TrackerInternal for ExecutionReportGenerator {
         })
     }
 }
-/// D51: when to leave a backend alone. A send takes the queue actor's time, so one that took this
-/// long to fail would otherwise cost that much again for every test.
+/// D51: when to leave a backend alone so it can recover from slow failures.
 #[derive(Clone, Copy)]
 pub struct BackendLimits {
-    /// No send holds the queue longer than this, whatever the backend's own timeouts are, and no
-    /// close holds the end of the run longer.
+    /// Limit per send, and the total drain and close allowance for remote delivery.
     pub send: Duration,
     pub slow_failure: Duration,
     pub cool_off: Duration,
 }
 impl Default for BackendLimits {
     /// 30 s sits above carbon's own limits (20 s in all) and well under the 60 s per step of the
-    /// InfluxDB clients, whose writes Kotlin batches off the caller and which here can hold it.
+    /// InfluxDB clients.
     /// One second separates a refusal or a reset, which cost nothing, from a timeout or an
-    /// unreachable host. Five minutes keeps the worst send to under a tenth of the queue's time,
-    /// and the only cost is history for that window.
+    /// unreachable host. Five minutes lets an unreachable backend recover before trying again.
     fn default() -> Self {
         Self {
             send: Duration::from_secs(30),
@@ -257,6 +258,26 @@ impl BackendGuard {
             (self.log)(&self.logger, Level::WARN, &text, None);
         }
     }
+    async fn close_backend(&self) -> OperationResult<()> {
+        let (failed, skipped) = {
+            let state = self.state();
+            (state.failed, state.skipped)
+        };
+        if failed + skipped > 0 {
+            let text = format!(
+                "The analytics backend lost test metrics: {failed} results failed to send, and up to {skipped} were skipped"
+            );
+            (self.log)(&self.logger, Level::WARN, &text, None);
+        }
+        self.inner.close().await
+    }
+    fn warn_close_timeout(&self, logger: &Component) {
+        let text = format!(
+            "The analytics backend did not close in {} ms; test metrics it still held are lost",
+            self.limits.send.as_millis()
+        );
+        (self.log)(logger, Level::WARN, &text, None);
+    }
 }
 impl TrackerInternal for BackendGuard {
     fn track<'a>(&'a self, event: &'a Event) -> VendorFuture<'a, ()> {
@@ -298,30 +319,124 @@ impl TrackerInternal for BackendGuard {
     }
     fn close(&self) -> ServiceFuture<'_, ()> {
         Box::pin(async move {
-            let (failed, skipped) = {
-                let state = self.state();
-                (state.failed, state.skipped)
-            };
-            if failed + skipped > 0 {
-                let text = format!(
-                    "The analytics backend lost test metrics: {failed} results failed to send, and up to {skipped} were skipped"
-                );
-                (self.log)(&self.logger, Level::WARN, &text, None);
-            }
-            // A close's last flush is a send too, and a server that trickles its answer never trips
-            // the clients' idle timeouts. Dropping the close is how it stops: InfluxDB's client then
-            // stops its worker. Kotlin waits for as long as the server keeps answering.
-            match tokio::time::timeout(self.limits.send, self.inner.close()).await {
+            match tokio::time::timeout(self.limits.send, self.close_backend()).await {
                 Ok(result) => result,
                 Err(_) => {
-                    let text = format!(
-                        "The analytics backend did not close in {} ms; test metrics it still held are lost",
-                        self.limits.send.as_millis()
-                    );
-                    (self.log)(&self.logger, Level::WARN, &text, None);
+                    self.warn_close_timeout(&self.logger);
                     Ok(())
                 }
             }
+        })
+    }
+}
+
+// One burst the size of InfluxDB v1's existing 1,000-point batch/channel (one point per event).
+// Graphite and InfluxDB v2 get the same bound despite sending one result per call.
+const REMOTE_QUEUE_CAPACITY: usize = 1000;
+
+struct RemoteAdmission {
+    shutdown: oneshot::Sender<Deadline>,
+    sender: mpsc::Sender<Event>,
+    dropped: u64,
+}
+
+/// D86: one ordered delivery task per backend. The report generator still takes each event inline.
+struct RemoteTracker {
+    admission: Mutex<Option<RemoteAdmission>>,
+    task: Arc<dyn VendorTask>,
+    close_limit: Duration,
+    log: ServiceLog,
+    logger: Component,
+}
+
+impl RemoteTracker {
+    fn new(io: &dyn VendorRuntime, guard: BackendGuard) -> Self {
+        let (sender, receiver) = mpsc::channel(REMOTE_QUEUE_CAPACITY);
+        let (shutdown, request) = oneshot::channel();
+        let close_limit = guard.limits.send;
+        let log = guard.log.clone();
+        let logger = marathon_logging::LogSettings::default().component(module_path!());
+        let task = io.spawn(Box::pin(Self::deliver(guard, receiver, request, logger.clone())));
+        Self {
+            admission: Mutex::new(Some(RemoteAdmission {
+                shutdown,
+                sender,
+                dropped: 0,
+            })),
+            task,
+            close_limit,
+            log,
+            logger,
+        }
+    }
+
+    async fn deliver(
+        guard: BackendGuard,
+        mut receiver: mpsc::Receiver<Event>,
+        request: oneshot::Receiver<Deadline>,
+        logger: Component,
+    ) -> VendorResult<()> {
+        let deadline = async {
+            sleep_until(request.await.ok()?).await;
+            Some(())
+        };
+        let delivery = async {
+            while let Some(event) = receiver.recv().await {
+                // The guard handles ordinary send failures. A cancelled send belongs to this worker,
+                // and cancellation of the test run still leaves the worker responsible for closing.
+                let _ = guard.track(&event).await;
+            }
+            guard.close_backend().await.map_err(vendor_error)
+        };
+        tokio::select! {
+            biased;
+            expired = deadline => {
+                // Loss of the owner without a close request also drops the in-flight future.
+                if expired.is_some() {
+                    guard.warn_close_timeout(&logger);
+                }
+                Ok(())
+            }
+            result = delivery => result,
+        }
+    }
+}
+
+impl TrackerInternal for RemoteTracker {
+    fn track<'a>(&'a self, event: &'a Event) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            // The production remote trackers only implement test metrics.
+            if matches!(event, Event::Test(_))
+                && let Some(admission) = self.admission.lock().unwrap_or_else(|e| e.into_inner()).as_mut()
+            {
+                match admission.sender.try_reserve() {
+                    Ok(permit) => permit.send(event.clone()),
+                    Err(mpsc::error::TrySendError::Full(())) => admission.dropped += 1,
+                    Err(mpsc::error::TrySendError::Closed(())) => {}
+                }
+            }
+            Ok(())
+        })
+    }
+
+    fn close(&self) -> ServiceFuture<'_, ()> {
+        Box::pin(async move {
+            let admission = self.admission.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some(RemoteAdmission {
+                sender,
+                shutdown,
+                dropped,
+            }) = admission
+            {
+                // Set the one drain-and-close deadline before making the FIFO ready to finish.
+                let _ = shutdown.send(Deadline::now() + self.close_limit);
+                if dropped > 0 {
+                    let text = format!("The analytics queue was full; dropped {dropped} test metric events");
+                    (self.log)(&self.logger, Level::WARN, &text, None);
+                }
+                drop(sender);
+            }
+            self.task.join().await.map_err(operation_error)
         })
     }
 }
@@ -647,11 +762,9 @@ impl TrackerFactory {
                         r => r,
                     };
                     match backend.factory.create(request).await.map_err(vendor_error)? {
-                        Ok(Some(tracker)) => delegates.push(Arc::new(BackendGuard::new(
-                            tracker,
-                            self.log.clone(),
-                            self.logger.clone(),
-                            BackendLimits::default(),
+                        Ok(Some(tracker)) => delegates.push(Arc::new(RemoteTracker::new(
+                            self.io.as_ref(),
+                            BackendGuard::new(tracker, self.log.clone(), self.logger.clone(), BackendLimits::default()),
                         ))),
                         Ok(None) => {}
                         Err(failure) => match backend.request {
@@ -743,5 +856,87 @@ mod kind_tests {
             true,
         );
         assert_eq!(logged.load(Ordering::Relaxed), 3);
+    }
+}
+
+#[cfg(test)]
+mod remote_delivery_tests {
+    use super::*;
+    use jcompat::jtime::instant_of;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct SlowBackend {
+        send: Duration,
+        close_started: Arc<AtomicBool>,
+    }
+
+    impl TrackerInternalAdapter for SlowBackend {
+        fn device_provider_preparing<'a>(&'a self, _: &'a DeviceProviderPreparingEvent) -> VendorFuture<'a, ()> {
+            Box::pin(async move {
+                tokio::time::sleep(self.send).await;
+                Ok(())
+            })
+        }
+
+        fn close(&self) -> ServiceFuture<'_, ()> {
+            Box::pin(async move {
+                self.close_started.store(true, Ordering::Relaxed);
+                std::future::pending().await
+            })
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn draining_and_closing_use_one_deadline_d86() {
+        let limit = Duration::from_secs(10);
+        for (send, reaches_close) in [(7, true), (100, false)] {
+            let close_started = Arc::new(AtomicBool::new(false));
+            let backend = Arc::new(SlowBackend {
+                send: Duration::from_secs(send),
+                close_started: close_started.clone(),
+            });
+            let warns = Arc::new(Mutex::new(Vec::new()));
+            let recorded = warns.clone();
+            let guard = BackendGuard::new(
+                backend.clone(),
+                Arc::new(move |_, level, text, _| recorded.lock().unwrap().push((level, text.to_owned()))),
+                marathon_logging::LogSettings::default().component(module_path!()),
+                BackendLimits {
+                    send: limit,
+                    ..BackendLimits::default()
+                },
+            );
+            let (sender, receiver) = mpsc::channel(1);
+            let t = instant_of(0, 0).unwrap();
+            sender
+                .try_send(Event::DeviceProviderPreparing(DeviceProviderPreparingEvent {
+                    serial_number: "test".into(),
+                    start: t,
+                    finish: t,
+                }))
+                .unwrap();
+            let (close, request) = oneshot::channel();
+            let started = Deadline::now();
+            close.send(started + limit).unwrap();
+            drop(sender);
+            let logger = marathon_logging::LogSettings::default().component("marathon_core::analytics::event_pipeline");
+            tokio::time::timeout(
+                Duration::from_secs(60),
+                RemoteTracker::deliver(guard, receiver, request, logger),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(started.elapsed(), limit);
+            assert_eq!(close_started.load(Ordering::Relaxed), reaches_close);
+            assert_eq!(Arc::strong_count(&backend), 1, "delivery released the backend");
+            assert_eq!(
+                *warns.lock().unwrap(),
+                [(
+                    Level::WARN,
+                    "The analytics backend did not close in 10000 ms; test metrics it still held are lost".into()
+                )],
+            );
+        }
     }
 }
