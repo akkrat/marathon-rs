@@ -183,10 +183,14 @@ video recording on a slow worker link, the tests after the first of a batch keep
 stop, transcode and pull of a test's video now run beside the next test instead of before its start is handled.
 
 [D83](deviations.md#d83--copies-of-different-tests-take-turns-in-the-queue) comes after 0.14.0 and needs no action. The
-copies that `flakinessStrategy` `probability` or `fixed`, or `shardingStrategy: count`, make of a test now take turns
-with other tests' copies in the queue, so a wave of devices spreads over the tests and `fast` drops the copies of a test
-that has passed while they waited. Runs can list fewer executions and send copies in another order and grouping; test
-results are unchanged.
+repeated entries of a test in a pool's queue (the copies that `flakinessStrategy` `probability` or `fixed`, or
+`shardingStrategy: count`, make, or a test discovered twice) now take turns with other tests' entries, so a wave of
+devices spreads over the tests. `fast` drops a test's copies that are still queued when it is decided: after its first
+pass under `ANY_SUCCESS`, or its first failure under `ALL_SUCCESS`; started copies and batches already handed to a device
+still run, and with copies in turns more are still queued. Runs can list fewer executions, send tests in another order
+and grouping, and launch fuller or emptier, and more or fewer, `fixed-size` batches; a test in another batch gets that
+batch's Android `coverageFile` path. Which device runs which copy can change, so a test whose outcome depends on the
+device can get another verdict, and the final record can come from another attempt; the rules for both are unchanged.
 
 ### A finite `uncompletedTestRetryQuota` (D47)
 

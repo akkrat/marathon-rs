@@ -2102,40 +2102,55 @@ can stop doing so.
 test were inserted next to each other: `flakinessStrategy` `probability` and `fixed` list a test's copies together, and
 `shardingStrategy: count` repeats each test in place. So with equal sort keys, for example `sortingStrategy: no-sorting`
 or tests without history, a wave of free devices took every copy of the first tests before any copy had run. Under
-`executionStrategy.fast` (the default), a copy can only be dropped while it is still queued, so copies that all started
+`executionStrategy.fast` (the default), `fast` drops only copies that are still queued, so copies that all started
 together all ran. The Kotlin marathon's heap order mixed copies of different tests by accident.
 
-A pool's queue now takes the shard round by round: every test once, in shard order, then each test's first copy, then
-each test's second copy, and so on. For three tests with four copies each and no sorting, the queue is
-`t1 t2 t3 t1 t2 t3 …` where it was `t1 t2 t3 t1 t1 t1 t1 t2 t2 …`.
+A pool's queue now takes the shard round by round: every test once, in shard order, then each test's second occurrence,
+then each test's third, and so on. For three tests with four copies each and no sorting, the queue is
+`t1 t2 t3 t1 t2 t3 …` where it was `t1 t2 t3 t1 t1 t1 t1 t2 t2 …`. The rule applies to every repeated entry of a pool's
+tests, whatever made the repetition: flakiness copies, `count` repeats, or a test discovered twice (for example in two
+test APKs), whose second entry now waits until every test has had its first.
 
+- **What `fast` drops:** copies that are still queued when the test is decided: after its first pass under
+  `ANY_SUCCESS` (flakiness copies; the configuration rejects a `count` other than 1 with `ANY_SUCCESS`), or after its first
+  failure under `ALL_SUCCESS` (`count` repeats and `fixed` copies, for example). A copy that has started runs to the end,
+  and so does a batch already handed to a device, even if its tests have not started yet. With copies in turns, more of a
+  test's copies are still queued when it is decided, so `fast` can drop more of them.
 - **What stays:** which copies exist and how many (D34, D71, D72), what `marathon parse --includeFlakyTests` lists and
   in which order, the order between different sort keys (a longer test's copies still come first under
   `execution-time`), the random keys a seed gives (each test is still first inserted in shard order), batching rules
   (`fixed-size` never puts two copies of a test in one batch, `class-name` still takes every queued copy of its class),
-  `fast: false`, `ALL_SUCCESS` and D69/D77.
+  `fast: false`, and the rules that decide a test's result and its final record: `ALL_SUCCESS`, `ANY_SUCCESS`, `fast`,
+  D69 and D77.
 - **Retries and re-queued tests** are unchanged: a retry, a rejected batch's tests and `fixed-size`'s rejected copies go
   to the end of their priority, as under D60. A pool admitted late (D65) builds its queue the same way.
-- **What changes:** the order of equal-priority copies, so which copies a wave of devices takes, which test-selector
-  lists workers receive (`adb -e class`, xcodebuild `-only-testing`), how `fixed-size` groups copies into batches, and the
-  number of batches: a batch that used D50's rejected polls on one test's copies and went out short is now full. With
-  `fast`, fewer copies can run, since a test that passed while its copies waited has them dropped; reports and
-  `raw.json` can list fewer executions. A test's result does not change. Executables, flags and non-test operands stay.
+- **What changes:** the order of equal-priority copies, so which copies a wave of devices takes and which device runs
+  which copy. Where a test's outcome depends on the device, its verdict can change with the device: with two devices,
+  `count: 2`, `ALL_SUCCESS` and `fast: false`, the grouped order could send one copy of a test to the device where it
+  fails, and the new order both copies to the device where it passes, so the run passes where it failed, with the same
+  outcome on each device. Even with the same verdict, D77 can pick another attempt as the final record, from another
+  device, with other timing and attachments. Test-selector lists in worker commands (`adb -e class`, xcodebuild
+  `-only-testing`) change order and grouping, and `fixed-size` batches can be fuller or emptier and more or fewer: a
+  batch that used D50's rejected polls on one test's copies and went out short is now full, but with size 2 and
+  A ×4, B ×2, C ×2 the batches go from `AB|CA|AB|CA` to `AB|CA|BC|A|A`, one more launch. With `fast`, fewer copies can
+  run, so reports and `raw.json` can list fewer executions. Executables and flags stay; non-test operands are built as
+  before, but a test in another batch gets that batch's generated Android `coverageFile` path.
 
 Evidence: on a CI farm of Android emulators, a job of 3 tests without history (each given 4 copies by `probability`,
 15 runs) on 8 emulators gave 15 executions with 0.14.0-rc.2 and 10 with the JVM build, in the same wall time: rc.2's
 first wave held all five runs of one test, each started before any had passed, and the copies cost about 50 minutes of
 device time against 35. `flakiness_scenarios::d83_copies_of_different_tests_interleave_so_fast_drops_more_of_them` runs
-3 tests with 4 copies each on 8 Stub devices: the first wave holds every test, and 11 runs happen where the grouped
-order ran 13. `strategy_flakiness::d83_*` pin the order for equal keys, distinct keys and a seeded random order, and the
-batching rules. Registered native goldens have no copies and are unchanged
-([golden-diff note](wp/x81-golden-diff.md)).
+3 tests with 4 copies each on 8 Stub devices under `ANY_SUCCESS`: the first wave holds every test, and 11 runs happen
+where the grouped order ran 13. `flakiness_scenarios::d83_count_repeats_interleave_so_fast_all_success_drops_queued_runs`
+runs `count: 5` under `ALL_SUCCESS` with one test failing: 13 runs where the grouped order ran 15. `strategy_flakiness::d83_*`
+pin the order for equal keys, distinct keys, a seeded random order and a test discovered twice, and the batching rules.
+Registered native goldens have no copies and are unchanged ([golden-diff note](wp/x81-golden-diff.md)).
 
 Approved 2026-11-18 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the [x81 findings](wp/x81-findings.md).
 
-**Migration action:** none. Snapshots of worker commands or batches for runs with flakiness copies or `count` sharding
-need an update, as for D60.
+**Migration action:** none. Snapshots of worker commands or batches for runs with copies or repeated tests need an
+update, as for D60.
 
 ## Other accepted text differences
 

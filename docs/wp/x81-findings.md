@@ -47,17 +47,21 @@ The order is a property of insertion only, so `OrderedQueue` (D60) is unchanged.
   first occurrence in shard order, so the draws are the same as before for a given seed; only ties between equal draws
   order differently.
 - Batching rules: `fixed-size` rejects a second copy of a test in a batch (`members.contains`), `class-name` takes every
-  queued copy of its class, `isolate` takes one. These rules are unchanged; with copies in turns `fixed-size` rejects
-  fewer polls, so a batch that spent D50's 2 × `size` rejected polls on one test's copies and went out short is now full.
-- `fast: false`, ALL_SUCCESS, D69 (finished tests are not run again), D77 (final record) and the per-test reports are
-  unchanged; only executions can drop, as `fast` intends.
+  queued copy of its class, `isolate` takes one. These rules are unchanged, but the batches they form are not: a batch
+  that spent D50's 2 × `size` rejected polls on one test's copies and went out short is now full, and other mixes give
+  smaller and more batches (review round 1, finding 4).
+- The rules are unchanged: `fast: false`, ALL_SUCCESS and ANY_SUCCESS, `fast` (drops only copies still queued when the
+  test is decided), D69 (finished tests are not run again) and D77 (which attempt is the final record). Their outcomes
+  are not: which device runs which copy changes, so a device-dependent verdict and the attempt D77 picks can change
+  (review round 1, finding 1).
 - Determinism: the order depends only on the shard.
 
 ## Contract (PLAN §3.12)
 
 Worker commands: queue-derived test-selector order and grouping (`adb -e class`, xcodebuild `-only-testing`) change for
 runs whose copies have equal keys, and so can `fixed-size` batch membership and the number of batches. Result data: runs
-under `fast` can list fewer executions in `raw.json`, JUnit and HTML; a test's result does not change. Hence D83 (PLAN
+under `fast` can list fewer executions in `raw.json`, JUnit and HTML, and since the device that runs a copy can change, a
+device-dependent verdict and the final record can change too (review round 1). Hence D83 (PLAN
 §3.11 row, `docs/deviations.md` section with evidence and user impact, migration row, CHANGELOG `## Unreleased`).
 Configuration, CLI, exit codes and pinned progress/summary text are unchanged. No configuration field was added.
 
@@ -118,6 +122,8 @@ None; see [x81-golden-diff.md](x81-golden-diff.md).
 
 ## Owner decisions
 
+Both decided by the project owner in review round 1: D83 includes `count` repeats, and test discovery duplicates too.
+
 - D83 covers `shardingStrategy: count` repeats as well as flakiness copies, under the same rule. The brief names
   probability and fixed; count sharding builds copies of a test the same way and had the same race (the JVM heap mixed
   them too). Narrowing D83 to `flaky_tests` only would be a one-line change in `queue_order` (chain `tests` unchanged,
@@ -126,3 +132,46 @@ None; see [x81-golden-diff.md](x81-golden-diff.md).
 ## Incidental bugs
 
 None new. U205 is this WP's own row.
+
+## Review round 1
+
+A cross-model review raised four findings; the owner decided that D83 includes `count` repeats and discovery duplicates.
+
+1. **MUST, D83 can change verdicts and final records.** The docs said a test's result does not change. That is wrong:
+   the order decides which device runs which copy, so where a test's outcome depends on the device the verdict can
+   change (the reviewer's case: two devices, `count: 2`, ALL_SUCCESS, `fast: false`; grouped dispatch sent one copy to
+   the device where the test fails, interleaved sent both to the device where it passes), and with the same verdict D77
+   can pick another attempt as the final record (device, timing, attachments). Fixed in the D83 section, the PLAN §3.11
+   row, migration, the CHANGELOG bullet, the findings' invariants and contract paragraphs: outcomes can change, the
+   rules (D77, `fast`, ALL_SUCCESS/ANY_SUCCESS) do not. No code change.
+2. **MUST, what `fast` drops.** The loader rejects `count` other than 1 with ANY_SUCCESS (`loader.rs`, logical
+   validator), so the "first pass" explanation did not cover `count` repeats, and a batch already handed out runs even
+   if its tests have not started. The docs now say: `fast` drops copies still queued when the test is decided, after
+   the first pass under ANY_SUCCESS (flakiness copies) or the first failure under ALL_SUCCESS (`count` repeats, `fixed`);
+   a started copy or a handed-out batch runs. New whole-run test
+   `flakiness_scenarios::d83_count_repeats_interleave_so_fast_all_success_drops_queued_runs`: real `shardingStrategy:
+   count` 5, flakiness `ignore`, ALL_SUCCESS, 3 tests on 8 Stub devices, step1 failing on every device. With `fast`, 13
+   runs (step1 3, the others 5 each) and the first wave holds every test; without `fast`, 15. The hand-built shard in
+   `strategy_flakiness::d83_equal_priority_copies_of_different_tests_interleave` that mixed `count` repeats with a flaky
+   copy (a configuration the loader rejects) is replaced by the shard `ShardingStrategy::Count` 3 makes, through
+   `FlakinessStrategy::Ignore`. The eight-device scenario setup is shared by both D83 scenarios (`on_eight_devices`).
+3. **SHOULD, discovery duplicates (decided: include).** Code unchanged. New test
+   `strategy_flakiness::d83_a_test_discovered_twice_takes_its_turn_like_a_copy`: discovered `A B A C`, `parallel`
+   sharding, flakiness `ignore`, no sorting: queued `A B C A`. Stated in D83, PLAN, migration and CHANGELOG, and in
+   `queue_order`'s doc comment.
+4. **SHOULD, batches can get smaller and more numerous.** New test
+   `strategy_flakiness::d83_fixed_size_batches_can_also_get_smaller_and_more_numerous` pins the reviewer's example
+   (equal keys, size 2, A ×4 B ×2 C ×2: `AB|CA|BC|A|A`; with the fix reverted it gives the grouped `AB|CA|AB|CA`). D83,
+   PLAN and migration now say batches can be fuller or emptier and their number can go up or down, and qualify the
+   non-test operands: they are built as before, but a test in another batch gets that batch's generated Android
+   `coverageFile` path (batch id and instrumentation index, `runner.rs`).
+
+Revert check: with `QueueActor::spawn` back on the old chain and the round sort in `queue_order` removed, every D83 test
+fails (all 8: the two scenarios, the six `strategy_flakiness::d83_*`); the count scenario then runs `[5, 5, 5]`
+(15 runs) instead of `[3, 5, 5]`. Sources restored and re-run green.
+
+Run in round 1: `cargo fmt --check` clean; `cargo clippy -p marathon-core --all-targets -- -D warnings` clean; `cargo
+test -p marathon-core` 859 passed, 0 failed; `cargo test -p marathon-cli` 95 passed, 0 failed; `python3 -I
+tools/differential/run validate`, `python3 -I tools/differential/test_evidence.py` and `scripts/check_plan_dag.py` pass.
+Not run, per the batch's gate rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test --workspace`. No golden,
+recording or allowance changes (the new tests are Stub-vendor and unit tests).
