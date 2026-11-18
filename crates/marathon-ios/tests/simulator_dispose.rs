@@ -395,3 +395,82 @@ async fn the_stop_waits_for_a_preparation_its_cancelled_caller_left_running_d84(
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }
+/// A bridge whose send runs in a task of its own, as the rsync bridge's retained task does: dropping the send leaves it
+/// running, and once stopped it takes 3 s to end, as a process that is being stopped does.
+#[derive(Default)]
+struct SlowlyStoppingSends {
+    entered: Arc<SharedDeferred<()>>,
+    ended: Arc<AtomicBool>,
+}
+impl marathon_apple::cmd::FileBridge for SlowlyStoppingSends {
+    fn send<'a>(&'a self, _: &'a std::path::Path, _: &'a str) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        Box::pin(async { Ok(true) })
+    }
+    fn receive<'a>(&'a self, _: &'a str, _: &'a std::path::Path) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        Box::pin(async { Ok(true) })
+    }
+    fn send_with<'a>(
+        &'a self,
+        _: &'a std::path::Path,
+        _: &'a str,
+        mut stop: marathon_apple::cmd::TransferStop,
+    ) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        let (entered, ended) = (self.entered.clone(), self.ended.clone());
+        let transfer = tokio::spawn(async move {
+            entered.complete(Ok(()));
+            let stopped = stop.stopped().await;
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            ended.store(true, Ordering::SeqCst);
+            Err(stopped.into_error())
+        });
+        Box::pin(async move {
+            transfer.await.map_err(|e| {
+                VendorError::Other(marathon_apple::cmd::failure(
+                    marathon_error::FailureKind::IllegalState,
+                    e.to_string(),
+                ))
+            })?
+        })
+    }
+}
+/// U210: the run stops while a preparation is sending the test bundle. The send's own task goes on stopping after the
+/// preparation's caller has returned; the preparation, and so the stop's wait for it, ends only once that task has
+/// ended, not when the retry around the send lets go of it.
+#[tokio::test(start_paused = true)]
+async fn the_stop_waits_for_the_bundle_send_a_cancelled_preparation_was_making_u210() -> TestResult {
+    let h = long_bound()?;
+    let bridge = Arc::new(SlowlyStoppingSends::default());
+    let d = h
+        .device_on_bridge(
+            h.worker.clone(),
+            "a",
+            Arc::new(
+                marathon_ios::device::worker_provisioning_context::WorkerProvisioningContext::new(
+                    marathon_config::devices::Transport::Local,
+                    h.clock.clone(),
+                ),
+            ),
+            bridge.clone(),
+        )
+        .await?;
+    let signal = Signal::new();
+    let preparation = spawn_prepare(
+        &h,
+        &d,
+        VendorContext {
+            cancellation: signal.clone(),
+            ..h.services.context.clone()
+        },
+    );
+    bridge.entered.wait().await.unwrap();
+    signal.cancel(cancelled("the run is stopping"));
+    assert!(matches!(preparation.await?, Err(VendorError::Cancelled(_))));
+    assert!(!bridge.ended.load(Ordering::SeqCst));
+    d.join_cancelled_work().await.unwrap();
+    assert!(
+        bridge.ended.load(Ordering::SeqCst),
+        "the preparation ended before the send it was making"
+    );
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
