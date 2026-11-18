@@ -568,6 +568,10 @@ impl DevicePoolActor {
     }
 
     fn start_return_wait(&mut self, left: i64) {
+        // D84 (I2): a stopping run waits for no device.
+        if self.draining.get() {
+            return;
+        }
         let (Some(pool), Some(supervisor)) = (self.myself.clone(), self.supervisor.clone()) else {
             unreachable!("the pool is alive while it handles a message")
         };
@@ -839,6 +843,11 @@ impl DevicePoolActor {
     }
 
     fn terminate_now(&mut self) {
+        // D84 (I2): a handler that was already running when the run began to stop must not end the pool, and with it
+        // its queue, before the Scheduler has drained them.
+        if self.draining.get() {
+            return;
+        }
         if let Some(supervisor) = &self.supervisor {
             supervisor.cancel(job_was_cancelled());
         }
