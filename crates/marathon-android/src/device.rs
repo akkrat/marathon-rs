@@ -204,6 +204,8 @@ struct Inner {
     batch: Mutex<Option<BatchRecord>>,
     /// D87: when this device's preparation must end, on the run's vendor clock; `i64::MAX` for none.
     preparation_deadline: AtomicI64,
+    /// D87: the deadline above was taken over from the instance this one replaces (D85), and the actor keeps it.
+    preparation_continued: AtomicBool,
 }
 struct State {
     booted: bool,
@@ -265,6 +267,7 @@ impl AndroidDevice {
                 prepare_failed_at: OnceLock::new(),
                 batch: Mutex::default(),
                 preparation_deadline: AtomicI64::new(i64::MAX),
+                preparation_continued: AtomicBool::new(false),
             }),
         }
     }
@@ -278,6 +281,17 @@ impl AndroidDevice {
     }
     pub(crate) fn set_return_wait_used(&self, millis: i64) {
         self.inner.return_wait_used.store(millis, Ordering::Release);
+    }
+    /// D87: the deadline of this instance's preparation, if one was opened.
+    pub(crate) fn preparation_deadline(&self) -> Option<i64> {
+        let deadline = self.inner.preparation_deadline.load(Ordering::Acquire);
+        (deadline != i64::MAX).then_some(deadline)
+    }
+    /// D87: this instance, set up again by D85 after its predecessor's preparation was exhausted, continues that
+    /// preparation's deadline instead of opening a new one.
+    pub(crate) fn continue_preparation(&self, deadline: i64) {
+        self.inner.preparation_deadline.store(deadline, Ordering::Release);
+        self.inner.preparation_continued.store(true, Ordering::Release);
     }
     pub(crate) fn prepare_failed_at(&self) -> Option<i64> {
         self.inner.prepare_failed_at.get().copied()
@@ -1265,11 +1279,15 @@ impl Device for AndroidDevice {
         &self.inner.logger
     }
     fn preparation_time_left_millis(&self, configuration: &marathon_config::Configuration) -> Option<i64> {
+        let now = self.runtime().dependencies.clock.now_millis();
+        if self.inner.preparation_continued.swap(false, Ordering::AcqRel) {
+            let deadline = self.inner.preparation_deadline.load(Ordering::Acquire);
+            return Some(deadline.saturating_sub(now).max(0));
+        }
         let budget = preparation_budget_millis(
             configuration,
             crate::installer::preparation_envelope_millis(self.runtime()),
         );
-        let now = self.runtime().dependencies.clock.now_millis();
         self.inner
             .preparation_deadline
             .store(now.saturating_add(budget).min(i64::MAX - 1), Ordering::Release);

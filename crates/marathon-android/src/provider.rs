@@ -262,10 +262,10 @@ impl AdamDeviceProvider {
             loop {
                 let event = cancellable(context.cancellation.clone(), async { Ok(rx.recv().await) }).await?;
                 let Some(event) = event else { return Ok(()) };
-                let (client, updates, retried_prepare, replaced) = match event? {
+                let (client, updates, retried_prepare, replaced, continued) = match event? {
                     Tracked::Devices(client, devices) => {
                         let updates = self.inner.trackers.update(&client, &devices);
-                        (client, updates, false, None)
+                        (client, updates, false, None, None)
                     }
                     Tracked::Replace(client, device, reason, replaced) => {
                         let serial = device.adb_serial().to_owned();
@@ -284,6 +284,13 @@ impl AdamDeviceProvider {
                         if tracker.get_state(&serial) != Some(DeviceState::Device) {
                             continue;
                         }
+                        // D87: D85's one more setup continues the exhausted preparation's deadline. Its first attempt
+                        // always runs, so a device that rebooted still gets ready; it gets no retries past the deadline,
+                        // so D85 cannot double the time a device that keeps failing holds its place.
+                        let continued = match reason {
+                            Replacement::PrepareFailed => device.preparation_deadline(),
+                            _ => None,
+                        };
                         let retried_prepare = match reason {
                             Replacement::PrepareFailed if !retried && self.can_retry_prepare(&device, &context) => {
                                 self.log(
@@ -307,6 +314,7 @@ impl AdamDeviceProvider {
                             ],
                             retried_prepare,
                             replaced,
+                            continued,
                         )
                     }
                     Tracked::Handled(done) => {
@@ -324,6 +332,9 @@ impl AdamDeviceProvider {
                                 self.inner.trackers.tracker(&client),
                                 self.inner.runtime.clone(),
                             );
+                            if let Some(deadline) = continued {
+                                device.continue_preparation(deadline);
+                            }
                             let start = context
                                 .hooks
                                 .instant("core.Track.trackProviderDevicePreparing")

@@ -2249,11 +2249,12 @@ fn package_installs(observed: &Observed) -> usize {
 
 /// D87: each preparation fails after its three attempts at the app time out, about 32 s. The device actor retries every
 /// 10 s while a retry starts before the deadline, and an installation is retried only while another attempt fits before
-/// it: preparations start at 0, 42, 84, 126, 168 and 188 s, the last two with a single attempt, so the device leaves at
-/// about 198 s, within the deadline plus the attempt that started before it, and D48's 30 s wait ends the run. Every
-/// decision has at least 7 s to spare. Kotlin's limits,
-/// 30 attempts of the preparation with three installer attempts each, would take about 21 minutes with these timeouts
-/// (96 with the defaults); the harness gives up at 400 s.
+/// it: the first instance's preparations start at 0, 42, 84, 126, 168 and 188 s, the last two with a single attempt, so
+/// it leaves at about 198 s, within the deadline plus the attempt that started before it. Every decision has at least
+/// 7 s to spare. The device is still listed, so D85 sets it up once more; that instance continues the same deadline,
+/// already passed: its first attempt runs, a single install that times out, and nothing is retried. D48's 30 s wait from
+/// the first departure ends the run. Kotlin's limits, 30 attempts of the preparation with three installer attempts each,
+/// would take about 21 minutes with these timeouts (96 with the defaults); the harness gives up at 400 s.
 #[test]
 fn an_android_device_whose_installs_time_out_leaves_within_its_preparation_deadline_d87() {
     let observed = run_install_timeouts(false);
@@ -2268,19 +2269,25 @@ fn an_android_device_whose_installs_time_out_leaves_within_its_preparation_deadl
         "{} virtual ms",
         observed.virtual_millis
     );
-    let cut = logged(
+    // The first instance: six preparations, cut by the deadline.
+    let first = logged(
         &observed,
-        "is not prepared within its preparation time of 195000 ms, not retrying after",
+        "is not prepared within its preparation time of 195000 ms, not retrying after 6 attempts",
     );
-    assert_eq!(cut, 1);
-    // The parser's two, then four preparations with three attempts and two whose single attempt left no time for another.
+    assert_eq!(first, 1);
+    // D85's one more setup: one attempt, under the deadline it continues.
+    assert_eq!(logged(&observed, "exhausted its retries. Setting it up once more"), 1);
+    assert_eq!(logged(&observed, "not retrying after 1 attempts"), 1);
+    assert_eq!(logged(&observed, "not retrying after"), 2);
+    // The parser's two; the first instance's four preparations with three attempts and two with one; the second
+    // instance's single attempt.
     assert_eq!(
         package_installs(&observed),
-        2 + 4 * 3 + 2,
+        2 + (4 * 3 + 2) + 1,
         "{:?}",
         observed.virtual_millis
     );
-    assert_eq!(logged(&observed, "the device's preparation time would run out"), 2);
+    assert_eq!(logged(&observed, "the device's preparation time would run out"), 3);
 }
 
 /// D87 keeps a single failure's retry: the first install of the preparation times out, the second attempt succeeds, and
