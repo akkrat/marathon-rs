@@ -62,7 +62,7 @@ impl AppleSimulatorDevice {
             .await
     }
     pub async fn boot(&self, context: &VendorContext) -> VendorResult<bool> {
-        Ok(self.boot_failure(context).await?.is_none())
+        Ok(self.boot_failure(context, None).await?.is_none())
     }
     fn nanos(&self, label: &'static str) -> VendorResult<i64> {
         self.services.monotonic.nanos(label).map_err(clock_error)
@@ -73,7 +73,9 @@ impl AppleSimulatorDevice {
     ) -> Result<(), super::prepare::PrepareError> {
         for attempt in 1..=2 {
             let started = self.nanos("ios.AppleSimulatorDevice.bootForPreparation")?;
-            let Some(failure) = self.boot_failure(context).await? else {
+            // D87: within what is left of the preparation's time, except for its first boot.
+            let window = self.boot_window_millis();
+            let Some(failure) = self.boot_failure(context, window).await? else {
                 return Ok(());
             };
             let suffix = format!(
@@ -99,6 +101,12 @@ impl AppleSimulatorDevice {
                     "it failed to boot: {reason}"
                 )));
             }
+            // D87: no second attempt that would have no time left to wait once the pause is over.
+            if !self.time_for_another_boot(self.services.timeouts.boot_retry_pause_millis) {
+                return Err(super::prepare::PrepareError::Boot(format!(
+                    "it failed to boot: {reason}, and its preparation time has run out"
+                )));
+            }
             context
                 .clock
                 .delay(
@@ -109,7 +117,8 @@ impl AppleSimulatorDevice {
         }
         Ok(())
     }
-    async fn boot_failure(&self, context: &VendorContext) -> VendorResult<Option<String>> {
+    /// `window`: D87's limit on the wait, in millis, when it is shorter than `bootWait`; zero or less boots nothing.
+    async fn boot_failure(&self, context: &VendorContext, window: Option<i64>) -> VendorResult<Option<String>> {
         let wait = self.services.vendor.timeout_configuration.boot_wait;
         let started = self.nanos("ios.AppleSimulatorDevice.nanoTime")?;
         let nanos = wait
@@ -117,13 +126,26 @@ impl AppleSimulatorDevice {
             .checked_mul(1_000_000_000)
             .and_then(|n| n.checked_add(wait.nanos()))
             .ok_or_else(|| VendorError::Other(failure(FailureKind::Arithmetic, "long overflow")))?;
+        let window = window.filter(|millis| millis.saturating_mul(1_000_000) < nanos);
+        let nanos = window.map_or(nanos, |millis| millis.max(0).saturating_mul(1_000_000));
+        let waited = || match window {
+            Some(millis) => format!("the {millis} ms left of its preparation time"),
+            None => wait.to_string(),
+        };
         let deadline = started.saturating_add(nanos);
         // D79: a simulator seen booting (device.plist state 3) that later reads Shutdown was shut down or
         // crashed and will not boot by itself, so the wait ends there as a failed attempt instead of at
         // `bootWait`. Shutdown before the first Booting read (e.g. a device.plist not yet rewritten after
         // `simctl boot`, or a Creating simulator) keeps the Kotlin wait.
         let mut seen_booting = false;
-        match self.simulator_state(context).await? {
+        let first = self.simulator_state(context).await?;
+        if first != SimulatorState::Booted && window.is_some_and(|millis| millis <= 0) {
+            return Ok(Some(format!(
+                "its preparation time has run out, its state is {}",
+                first.name()
+            )));
+        }
+        match first {
             SimulatorState::Booted => return Ok(None),
             SimulatorState::Creating => {}
             SimulatorState::Booting => seen_booting = true,
@@ -166,7 +188,8 @@ impl AppleSimulatorDevice {
             let left = deadline.saturating_sub(self.nanos("ios.AppleSimulatorDevice.nanoTime")?);
             if left <= 0 {
                 return Ok(Some(format!(
-                    "it has not booted within {wait}, its state is {}",
+                    "it has not booted within {}, its state is {}",
+                    waited(),
                     state.name()
                 )));
             }

@@ -4,7 +4,9 @@ use marathon_logging::{Component, Level};
 
 use marathon_error::FailureKind;
 mod boot;
+mod episode;
 mod execution;
+pub use episode::PreparationEpisode;
 mod listeners;
 pub use listeners::{MinimalSimulatorListenerFactory, SimulatorListenerFactory, SimulatorListeners};
 mod prepare;
@@ -121,6 +123,8 @@ struct State {
     /// U179: preparations still running, which disposal stops and waits for. Disposal takes them under the same lock
     /// that installs it, so none starts after that.
     preparations: Vec<Arc<prepare::PreparationJob>>,
+    /// D87: the preparation that has not ended in a ready simulator.
+    episode: Option<PreparationEpisode>,
     last_session: Option<Arc<marathon_apple::xcodebuild_session::XcodebuildSession>>,
 }
 pub struct AppleSimulatorDevice {
@@ -204,6 +208,7 @@ impl AppleSimulatorDevice {
             ),
             running: None,
             preparations: Vec::new(),
+            episode: None,
             last_session: None,
         };
         Arc::new_cyclic(move |me| Self {
@@ -383,6 +388,9 @@ impl Device for AppleSimulatorDevice {
     }
     fn dispose(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move { self.dispose_and_join().await })
+    }
+    fn preparation_time_left_millis(&self, configuration: &Configuration) -> Option<i64> {
+        Some(self.open_preparation(configuration))
     }
 }
 impl LogProducer for AppleSimulatorDevice {

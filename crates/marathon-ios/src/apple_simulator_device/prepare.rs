@@ -147,6 +147,8 @@ impl AppleSimulatorDevice {
                 ),
             });
         }
+        // D87: ready, so a later loss starts afresh.
+        self.finish_preparation();
         Ok(())
     }
     async fn prepare_body(&self, started: i64, keep: Vec<String>, context: &VendorContext) -> Result<(), PrepareError> {
