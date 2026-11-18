@@ -27,6 +27,22 @@ The section for a version becomes the text of its GitHub release, which carries 
   are unchanged. Worker commands can
   list a batch's tests in another order and grouping, `fixed-size` batches can be fuller or emptier and more or fewer,
   and with code coverage on an Android test in another batch gets that batch's coverage file.
+- **Internal failures end the run instead of hanging (D84):** a run whose own machinery stops unexpectedly (a test queue
+  or the device listener stopped by a cancellation of its own, a failed device listener, or a pool or the run itself
+  panicking) now ends with exit 1 (0 with `ignoreFailures: true`), writes its reports, and logs `Marathon run failed`
+  with the first cause, where it used to hang until killed or report no cause. The cause is logged as soon as it
+  happens. Before writing the reports the run admits no more work, waits for each device to end its cancelled work, an
+  Apple preparation included (up to 75 s for an iOS or macOS device, without a limit on Android) and lets every queue take the results already sent to
+  it, so tests that finished keep their results; a queue or pool that itself failed loses what was left in its mailbox.
+  A failure in a pool that a device joining at the very end of the run started also fails the run, and the reports are
+  written only after it has stopped. An iOS device
+  monitoring that panics, or fails with no simulator available, ends the run with its cause instead of reporting no
+  devices; with simulators connected the run carries on. An iOS or macOS preparation, batch, disposal, provider step or
+  xcodebuild session that panics now ends with the panic as its error, which the run handles as any other device error
+  (a preparation is retried, a batch's tests are run again within the retry limits), where the run used to hang (U206).
+  In runs without a failure: a device that connects while the run is finishing is no longer started, results that had
+  reached a late pool's queue now always appear in the reports, and the reports are written even when terminating the
+  provider fails.
 - After an adb outage or brief `offline`, Android gets fresh setup when its boot ID changes or a snapshot rollback
   removes its preparation marker. Batches that never started keep their retry quota. A still-listed device gets one
   more setup after exhausting preparation, within the pool's existing return wait. A shared-kernel restart that

@@ -2229,6 +2229,160 @@ Approved 2026-11-18 (project owner's decision). See
 **Migration action:** none. Snapshots of worker commands or batches for runs with copies or repeated tests need an
 update, as for D60.
 
+## D84 — An unexpected end of the run's own machinery ends the run with its cause
+
+The run is driven by actors (a queue and a pool per device pool, one per device), a task that listens for device events,
+the run task itself, and on iOS and macOS by tasks that run a preparation, a batch or a disposal and publish its end to
+whoever waits for it. [D68](#d68--a-failed-queue-ends-the-run-a-failed-progress-line-does-not) made a queue that fails end
+the run. Other unexpected ends still left the run hanging, or ended it without saying why
+([U206](found-bugs.md)):
+
+- An actor whose handler returned a cancellation the actor had not been given (a call of its own that was cancelled, such
+  as a bundle lookup in the queue) closed its mailbox while the actor itself stayed alive. A queue that ended this way was
+  not seen by D68, and its pool parked its devices for ever.
+- A pool that failed, for example on a panic in its handler, stopped every pool, but the Scheduler then read the stopped
+  pools' progress and returned a result without the cause.
+- When the device events the provider sends failed, the run ended while its pools and devices kept running beside the
+  reports. When the provider cancelled that channel, the listener stopped silently and the run hung.
+- A run task that panicked before storing its outcome was reported as `Marathon run was cancelled`.
+- An iOS preparation, batch or disposal, an iOS provider update, operation or termination, an xcodebuild session and a macOS
+  batch that panicked never published their end, so their caller waited for ever. Kotlin has no such panics; it has the
+  same actor and listener shapes.
+
+**Native behaviour.** Each of these now ends the run with its cause:
+
+- An actor or the device listener that ends on a cancellation it was not given fails, with a cause that names it
+  (`QueueActor stopped: its handler was cancelled, but the actor was not`, `The device subscription stopped: it was
+  cancelled, but the run was not`) and carries the cancellation. A cancellation that comes from the run (a signal, D52; a
+  pool that ends; the run ending) stays a cancellation, as before.
+- **The first cause wins.** The first failure of a queue, a pool or the device listener is the run's error. It is
+  logged at once, at ERROR on `marathon_core::execution::scheduler` (`The run's own machinery failed; stopping the run`,
+  with the cause), before anything is waited for. A later failure, and an error while the run finishes (writing the
+  reports, terminating the provider), is logged and never replaces it. The run's outcome is decided at one point, once
+  its finish is over (the Scheduler settled, the provider terminated, the reports written): a cause recorded by then
+  is the run's error, whatever the run had reached before, a success, a no-device timeout or a finish error, and
+  `ignoreFailures` maps it as any failure. A provider device channel that ends with a failure, or with a cancellation
+  nothing in the run asked for (only a signal, D52, or the run's normal end stops the run's listening), is such a
+  cause, also when it is read only after the provider has terminated.
+- **The run stops in order.** At that failure the run admits no more work: no pool takes a new device, starts a batch
+  or a retry, waits for a device to return or ends itself, and no new pool is created. The device listener stops, and
+  every device's work is cancelled as at a D52 cancel. The run then waits for each device to end its cancelled call and
+  the work its vendor keeps running after it (an iOS or macOS preparation, which a cancel does not end at once: iOS
+  stops it and waits as disposal does under D74, macOS lets its installation finish), for as long as that device's
+  vendor says a cancelled call can take, plus 5 s: 75 s by default on iOS and macOS (their 70 s cancelled-batch bound,
+  which covers a preparation too), and without a limit on Android, whose cleanup after a cancel ends once each ADB
+  request has reached its own timeout, as the run already waited for it under D68 (a known limit: an Android call that
+  waited for the provider's termination would hold the run). A device still running after its bound is logged at
+  ERROR and left; this is the only device work that can still run while the provider terminates. A macOS Mac's worker
+  lease is not released while its preparation still runs, within the same bound; past it, the wait is logged at WARN
+  and the lease released. Then every
+  pool, and then every queue, takes what was already delivered to it, so a result a device had reported before the
+  failure, or had completed when it was cancelled, reaches the reports, in the failed pool's queue as in every other
+  one. Only then are the pools and queues stopped, and the run finishes as any failed run: the reports hold every result
+  the queues took, the provider is terminated, `Marathon run failed` is logged with the first cause, and the exit status
+  is the existing one for a failed run: 1, or 0 with `ignoreFailures: true`. A queue failure (D68) takes this path too.
+- **What can be lost.** A pool or queue whose own handler failed (a panic, or a D68 queue error) loses what was still
+  in its own mailbox: for a failed queue, the results delivered to it after the one it failed on; for a failed pool,
+  results its devices had sent it that it had not yet passed to its queue. A batch still running when the run stops is
+  cancelled, as at a D52 cancel; its tests are not reported as run.
+- **The finish settles the run first.** The run's finish begins by settling the Scheduler, before analytics close,
+  before the provider terminates and before the reports are written: admission closes for good, the device listener is
+  stopped, and pools or devices still running (a pool a device connecting after D65's boundary started, or a pool
+  whose devices are still cleaning up after it ended) stop after their queues take what was delivered to them. A
+  stop under way is waited for. After that nothing of the run's machinery runs, so no failure can come after the
+  reports, and no device work runs while the provider terminates other than a device past its bound. Each finish
+  step then runs even if an earlier one failed: a step's own failure or cancellation is logged at ERROR and the next
+  steps, the reports among them, still run, so the results the queues took always reach the report files. Only a
+  requested cancellation of the finish (a signal) stops it, and a run's protected finish completes it. Qualifications:
+  admission closes when the Scheduler settles, which is after the finish's first console flush; while the settle
+  waits for the listener to end, a device disconnection it had already read can still reach the pools; and a batch
+  still running in a pool that is stopped at the settle (a late pool) is cancelled then, so it loses results it might
+  have produced while the provider terminated.
+- **A signal during the finish.** The signal's own finish (D52: the reports first, then the rest, within 24 s, exit
+  128 + the signal) takes over the moment it begins: the run's finish starts no further step after that, also after a
+  step that was waiting when the signal came (the settle waiting for the listener, say), so analytics' close and the
+  provider's termination never start beside the signal's reports. A step that had already started when the signal came
+  runs on, and the signal's finish waits for it, as before.
+- **Before the Scheduler exists** (while the tests are being parsed), the run has no listener on the provider's device
+  channel, and the finish reads that channel only through the Scheduler. A remote parse still waits for a device as
+  before, and takes one that becomes available before its deadline even after the provider's device source has
+  failed. When it ends without a device (its deadline), a failure the provider has published by then (the iOS
+  provider's device monitoring failing) is the parse's error and the run's cause, which `ignoreFailures` maps, instead
+  of a run failed with no devices. A provider that publishes none (Android, macOS, the Stub vendor) keeps the
+  no-device outcome.
+- **Direct callers of `runAsync`** (the run's own tests) do not go through the run's decision point: they get what
+  the run task reached, which can be a success after a failure the finish recorded. `marathon run` always decides.
+- **Changes in runs without a failure.** A device that connects while the run finishes is not admitted: its
+  connection, and any device event still waiting when the run settles, is dropped, so no pool starts for it and its
+  device is not in the reports' device data. A pool a device started after D65's boundary is stopped when the run
+  settles, and every result that had already reached its queue is now always in the reports (raw JSON, JUnit, HTML),
+  where before it was there only if the queue took it before the reports' snapshot; D65 still aggregates only the
+  pools it joined, so the exit status is unchanged. A provider termination that fails, or ends with a cancellation of
+  its own, no longer skips the reports.
+- A run task that panics fails the run with the panic as its cause; if the Scheduler is running then, it stops the same
+  way, and the run waits for that before it terminates the provider.
+- **Known limits.** An Android device has no overall bound for ending a cancelled call, and the run waits for it until
+  it ends (an Android call that waited for the provider's termination would hold the run). On a signal (D52) the
+  provider's termination now waits for a macOS preparation still running, so a signal exit that was quick can take up
+  to D52's deadline. Two vendor shapes are outside D84 and tracked as open bugs: an Apple preparation that starts after
+  its device's disposal, or whose iOS transfer retry is still stopping when the preparation reports its end
+  ([U210](found-bugs.md)); and vendor device monitors whose failure does not reach the run (an Android
+  `device_provider_init` tracker failure ends device tracking with the channel left open; a panic in the iOS
+  Marathondevices loader's log callback leaves initialization waiting) ([U211](found-bugs.md)).
+- **iOS device monitoring**, which also sets up the first simulators: a panic in it, or an error when no simulator is
+  available to the run (one that left, was lost, is retired or recovering, or waits to be set up again does not
+  count), fails the provider's device channel with that cause, which ends the run as a failed device listener
+  does. Before, the run waited for devices until `deviceInitializationTimeoutMillis` and ended with no devices, without
+  the cause. An ordinary error while simulators are connected (for example a Marathondevices update that gives a target
+  a different kind) is logged at ERROR and the run carries on with them, as before.
+- An Apple task that panics publishes the panic as its error. The core treats it as it treats any vendor error there: a
+  preparation is retried and then given up, a batch is returned as a recoverable failure and its tests are run again
+  within the retry limits, and a disposal's callers get the error, which is also logged at ERROR as
+  `Disposal failed`. A batch whose work panics (a listener's panic included) still runs its cleanup: its listeners
+  are removed and its xcodebuild session is stopped, so the device's next batch starts clean.
+
+Runs where none of this happens are unchanged, apart from the changes listed above for runs without a failure: result
+files, worker commands, the pinned progress and summary text and exit codes. D52's signal handling and deadline, D65's completion order and D74's disposal are unchanged; D68's queue failure
+now also drains the other queues and waits for the devices as above. The only limit is each device's own bound for a
+cancelled call; there is no new exit code or configuration.
+
+Evidence: `run_supervision::a_queue_handler_cancelled_on_its_own_ends_the_run_with_the_cause_d84`,
+`a_pool_that_panics_ends_the_run_with_the_panic_d84`, `a_failed_device_subscription_stops_the_pools_before_the_run_ends_d84`,
+`a_cancelled_device_subscription_ends_the_run_with_the_cause_d84` and `a_run_task_that_panics_fails_the_run_with_the_panic_d84`
+(whole runs with the Stub vendor: each ends before the running test would have, with exit status 1, the cause in
+`Marathon run failed`, the finished test's result in `raw.json` and no actor alive);
+`the_run_waits_for_a_cancelled_batch_to_clean_up_before_it_finishes_d84`,
+`a_device_call_waiting_for_the_runs_end_holds_it_only_for_its_own_bound_d84` and
+`a_pool_that_fails_while_the_run_finishes_fails_the_run_d84`;
+`a_cleanup_within_the_devices_own_bound_is_waited_for_d84`,
+`a_cleanup_error_after_the_first_failure_does_not_replace_it_d84`,
+`a_channel_failure_the_listener_still_holds_at_the_end_fails_the_run_d84`,
+`a_device_connecting_while_the_run_finishes_is_not_admitted_d84`,
+`a_cancelled_provider_termination_still_writes_the_reports_d84`,
+`a_device_channel_cancelled_while_the_provider_terminates_fails_the_run_d84`,
+`a_channel_failure_waiting_at_the_no_device_timeout_is_the_runs_cause_d84`,
+`the_reports_hold_the_results_a_stop_drains_d84` and
+`the_run_waits_for_a_preparation_left_running_before_terminating_the_provider_d84`;
+`pool_scheduler::a_result_delivered_to_the_queue_before_a_failure_is_still_tracked_d84`,
+`a_pool_failure_leaves_every_queue_the_results_delivered_to_it_d84`, `a_device_added_after_the_failure_is_not_started_d84`,
+`a_scheduler_that_stops_before_it_returns_stops_its_pools_d84`,
+`the_stop_an_unwind_begins_waits_for_a_slow_cleanup_d84`,
+`settling_waits_for_a_device_its_closed_pool_still_owns_d84` and
+`a_connection_waiting_when_the_run_settles_reaches_no_pool_d84`;
+`runtime_review::a_receiver_cancelled_by_its_handler_fails_the_actor_owner_d84` and
+`a_receiver_cancelled_with_its_actor_stays_cancelled_d84`; `simulator_panic` (iOS preparation, batch, disposal,
+provider update, device monitoring, monitoring errors with and without a simulator and after the last one left, and a
+listener's panic during a batch), `simulator_dispose::the_stop_waits_for_a_preparation_its_cancelled_caller_left_running_d84`,
+`provider::termination_does_not_release_a_lease_under_a_running_preparation_d84` and
+`termination_stops_waiting_for_a_preparation_after_the_macs_bound_d84` (macOS) and `batch::a_batch_that_panics_ends_with_the_panic_and_does_not_hold_disposal_d84` (macOS). Each hangs
+or loses its cause without its fix.
+
+Approved 2026-11-18 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
+[x82 findings](wp/x82-findings.md).
+
+**Migration action:** none. A run that used to hang now exits 1; its cause is in the `Marathon run failed` line.
+
 ## D85 — Android checks the boot before resuming tests
 
 Approved 2026-11-18 (project owner's decision).
