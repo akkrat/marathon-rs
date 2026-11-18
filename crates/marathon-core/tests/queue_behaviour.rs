@@ -1,6 +1,7 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/queue/QueueActor.kt: behaviour the Kotlin tests
 //! leave out — the per-pool retry quota (C30), close, a failing handler and the D13 prepare step — and the native
-//! contract of D68 (console failures) and D69 (finished tests are not run again; C45–C47).
+//! contract of D68 (console failures), D69 (finished tests are not run again; C45–C47) and D82 (a retry from a device
+//! without a worker is left to the other devices while anything else is queued).
 #[path = "support/queue.rs"]
 mod support;
 
@@ -767,6 +768,203 @@ fn an_incomplete_copy_of_an_unfinished_test_is_still_run_again_d69() {
             assert_eq!(replies, [FromQueue::Terminated]);
             assert_eq!(tracks(&queue), [track(&c0, "serial-B1", "PASSED", true)]);
             assert_eq!(state(&queue, &c0).await, passing(1, 1, -2));
+            Ok(())
+        })
+    });
+}
+
+/// D82: the execution-time order of queue_actor_retry_placement.rs (slow first), one test per batch, a retry quota and
+/// `uncompletedTestRetryQuota: 3`.
+fn placement_setup(tests: Vec<Test>) -> Setup {
+    placement_setup_of_size(1, tests)
+}
+/// `placement_setup` with `size` tests per batch; m1 comes before the other tests after the slow one.
+fn placement_setup_of_size(size: i32, tests: Vec<Test>) -> Setup {
+    let mut configuration = configuration();
+    configuration.batching_strategy = fixed_size(size);
+    configuration.sorting_strategy = marathon_config::schema::SortingStrategyConfiguration::ExecutionTime {
+        percentile: 90.0,
+        time_limit: epoch(),
+    };
+    configuration.retry_strategy = RetryStrategyConfiguration::FixedQuota {
+        total_allowed_retry_quota: 10,
+        retry_per_test_quota: 3,
+    };
+    configuration.uncompleted_test_retry_quota = 3;
+    let mut setup = Setup::new(configuration, tests);
+    setup.execution_times = std::collections::HashMap::from([
+        (mtest("pkg", "Placement", "slow"), 2_000.0),
+        (mtest("pkg", "Placement", "m1"), 1_500.0),
+    ]);
+    setup
+}
+fn placed(method: &str) -> Test {
+    mtest("pkg", "Placement", method)
+}
+fn uncompleted(device: &DeviceInfo, test: &Test) -> TestBatchResults {
+    batch_results(
+        vec![],
+        vec![],
+        vec![result(test, device, "batch", TestStatus::Incomplete, 0, 1)],
+    )
+}
+/// The tests of the one batch the queue hands out to a device without a worker.
+async fn take(queue: &Queue, device: &DeviceInfo) -> Vec<Test> {
+    batch_of(&queue.request(device, None).await[0]).tests.clone()
+}
+
+/// U204: an incomplete test and a retried failure from a device without a worker go to another device, and the device
+/// that gave them back gets the other tests meanwhile. The pool hears of no worker. m1 sorts before m2, so the device
+/// that failed m1 would take its retry first if a failure's retry had no place.
+#[test]
+fn a_retry_from_a_device_without_a_worker_is_left_to_another_device_d82() {
+    let (slow, m1, m2) = (placed("slow"), placed("m1"), placed("m2"));
+    let setup = placement_setup(vec![slow.clone(), m1.clone(), m2.clone()]);
+    run(move |core| {
+        Box::pin(async move {
+            let queue = Queue::spawn(&core, setup);
+            let (a1, b1) = (device("serial-A1"), device("serial-B1"));
+            assert_eq!(take(&queue, &a1).await, std::slice::from_ref(&slow));
+            let replies = queue.complete(&a1, uncompleted(&a1, &slow)).await;
+            assert_eq!(replies, [FromQueue::Notify { retry_workers: vec![] }]);
+            let now = snapshot(&queue);
+            assert_eq!(now.retry_workers, []);
+            assert_eq!(now.retry_devices, [(slow.clone(), vec![String::from("serial-A1")])]);
+
+            // Before D82, A1 took the slow test back here.
+            let batch = batch_of(&queue.request(&a1, None).await[0]);
+            assert_eq!(batch.tests, std::slice::from_ref(&m1));
+            assert_eq!(take(&queue, &b1).await, std::slice::from_ref(&slow));
+            assert_eq!(snapshot(&queue).retry_devices, []);
+
+            let replies = queue.complete(&a1, failures(&a1, &batch)).await;
+            assert_eq!(replies, [FromQueue::Notify { retry_workers: vec![] }]);
+            assert_eq!(
+                snapshot(&queue).queue,
+                [m1.clone(), m2.clone()],
+                "m1's retry sorts first"
+            );
+            assert_eq!(take(&queue, &a1).await, std::slice::from_ref(&m2));
+            let passed = batch_results(
+                vec![result(&slow, &b1, "batch", TestStatus::Passed, 0, 1)],
+                vec![],
+                vec![],
+            );
+            queue.complete(&b1, passed).await;
+            assert_eq!(take(&queue, &b1).await, std::slice::from_ref(&m1));
+            Ok(())
+        })
+    });
+}
+
+/// A device without a worker still gets its own retry when nothing else is queued, however many other devices there are.
+#[test]
+fn a_device_without_a_worker_gets_its_own_retry_when_nothing_else_is_queued_d82() {
+    let slow = placed("slow");
+    let setup = placement_setup(vec![slow.clone()]);
+    run(move |core| {
+        Box::pin(async move {
+            let queue = Queue::spawn(&core, setup);
+            let a1 = device("serial-A1");
+            for _ in 0..3 {
+                assert_eq!(take(&queue, &a1).await, std::slice::from_ref(&slow));
+                queue.complete(&a1, uncompleted(&a1, &slow)).await;
+            }
+            assert_eq!(take(&queue, &a1).await, std::slice::from_ref(&slow));
+            // The fourth time is over the quota: the test fails and the queue ends.
+            assert_eq!(
+                queue.complete(&a1, uncompleted(&a1, &slow)).await,
+                [FromQueue::Terminated]
+            );
+            Ok(())
+        })
+    });
+}
+
+/// Devices without workers that ask together: the one that could only get its own retry asks last and gets nothing.
+#[test]
+fn devices_without_workers_that_ask_together_leave_a_retry_to_the_other_device_d82() {
+    let (slow, fast) = (placed("slow"), placed("fast"));
+    let setup = placement_setup(vec![slow.clone(), fast.clone()]);
+    run(move |core| {
+        Box::pin(async move {
+            let queue = Queue::spawn(&core, setup);
+            let (a1, b1, c1) = (device("serial-A1"), device("serial-B1"), device("serial-C1"));
+            assert_eq!(take(&queue, &a1).await, std::slice::from_ref(&slow));
+            assert_eq!(take(&queue, &b1).await, std::slice::from_ref(&fast));
+            queue.complete(&a1, uncompleted(&a1, &slow)).await;
+            let requests = [&a1, &c1]
+                .into_iter()
+                .map(|device| RequestBatch {
+                    device: device.clone(),
+                    worker_id: None,
+                })
+                .collect();
+            queue.send(QueueMessage::RequestBatches(requests)).await;
+            let replies = queue.replies();
+            assert!(
+                matches!(&replies[..], [FromQueue::ExecuteBatch(to_c1, batch), FromQueue::NoBatch(to_a1)]
+                    if *to_c1 == c1 && batch.tests == std::slice::from_ref(&slow) && *to_a1 == a1),
+                "{replies:?}"
+            );
+            Ok(())
+        })
+    });
+}
+
+/// A retry that another device took and gave back without starting it is still kept off the device it came from.
+#[test]
+fn a_rejected_retry_keeps_its_device_d82() {
+    let (slow, fast) = (placed("slow"), placed("fast"));
+    let setup = placement_setup(vec![slow.clone(), fast.clone()]);
+    run(move |core| {
+        Box::pin(async move {
+            let queue = Queue::spawn(&core, setup);
+            let (a1, c1) = (device("serial-A1"), device("serial-C1"));
+            assert_eq!(take(&queue, &a1).await, std::slice::from_ref(&slow));
+            queue.complete(&a1, uncompleted(&a1, &slow)).await;
+            let batch = batch_of(&queue.request(&c1, None).await[0]);
+            assert_eq!(batch.tests, std::slice::from_ref(&slow));
+            assert_eq!(snapshot(&queue).retry_devices, []);
+            queue.send(QueueMessage::RejectBatch(c1, batch)).await;
+            assert_eq!(queue.replies(), [FromQueue::Notify { retry_workers: vec![] }]);
+            assert_eq!(
+                snapshot(&queue).retry_devices,
+                [(slow.clone(), vec![String::from("serial-A1")])]
+            );
+            assert_eq!(take(&queue, &a1).await, std::slice::from_ref(&fast));
+            Ok(())
+        })
+    });
+}
+
+/// With two tests per batch, a device's own retry no longer shares a batch with a fresh test: the device gets the fresh
+/// test alone, and its retry alone next if no other device took it, one instrumentation more than before D82.
+#[test]
+fn a_device_without_a_worker_runs_its_own_retry_in_a_batch_of_its_own_d82() {
+    let (slow, m1, m2) = (placed("slow"), placed("m1"), placed("m2"));
+    let setup = placement_setup_of_size(2, vec![slow.clone(), m1.clone(), m2.clone()]);
+    run(move |core| {
+        Box::pin(async move {
+            let queue = Queue::spawn(&core, setup);
+            let a1 = device("serial-A1");
+            assert_eq!(take(&queue, &a1).await, [slow.clone(), m1.clone()]);
+            let results = batch_results(
+                vec![result(&m1, &a1, "batch", TestStatus::Passed, 0, 1)],
+                vec![],
+                vec![result(&slow, &a1, "batch", TestStatus::Incomplete, 0, 1)],
+            );
+            queue.complete(&a1, results).await;
+            assert_eq!(snapshot(&queue).queue, [slow.clone(), m2.clone()]);
+            // Before D82 this batch was [slow, m2].
+            assert_eq!(take(&queue, &a1).await, std::slice::from_ref(&m2));
+            let passed = batch_results(
+                vec![result(&m2, &a1, "batch", TestStatus::Passed, 0, 1)],
+                vec![],
+                vec![],
+            );
+            queue.complete(&a1, passed).await;
+            assert_eq!(take(&queue, &a1).await, std::slice::from_ref(&slow));
             Ok(())
         })
     });

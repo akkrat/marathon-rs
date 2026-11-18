@@ -4,6 +4,9 @@
 //! listed in docs/known-kotlin-bugs.md (C5, C30), with D60's ordered queue. D69
 //! replaces C45–C47 and C86: a test that is finished is not queued again, and the
 //! copies that will not run leave its totals.
+//!
+//! D82: a retry from a device without a worker (an Android device) is kept off that device as one from a worker is kept off
+//! the worker's devices, so a device whose instrumentation keeps failing does not take the same test back at once.
 use marathon_logging::Level;
 
 use crate::{
@@ -118,7 +121,10 @@ impl QueueHandle {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QueueSnapshot {
     pub queue: Vec<Test>,
+    /// The workers of the queued retries, as Kotlin's `retryWorkers` has them.
     pub retry_workers: Vec<(Test, Vec<String>)>,
+    /// D82: the serial numbers of the devices without a worker that queued retries.
+    pub retry_devices: Vec<(Test, Vec<String>)>,
     pub active_batches: Vec<String>,
     /// The fixed quota's total retries left, or None without a retry strategy.
     pub total_retries_left: Option<i32>,
@@ -183,6 +189,28 @@ impl PreparedQueue {
     }
 }
 
+/// Where a queued retry last ran, which the queue keeps it away from while anything else is queued: the device's worker,
+/// or with D82 the device itself when it has none. Kotlin keys only on workers, so Android's retries had no place.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Place {
+    Worker(String),
+    Device(String),
+}
+impl Place {
+    fn of(device: &DeviceInfo, worker: Option<&str>) -> Self {
+        match worker {
+            Some(worker) => Place::Worker(worker.to_owned()),
+            None => Place::Device(device.serial_number.clone()),
+        }
+    }
+    fn worker(&self) -> Option<&String> {
+        match self {
+            Place::Worker(worker) => Some(worker),
+            Place::Device(_) => None,
+        }
+    }
+}
+
 /// The `ActorHandler`. Its state is owned by the receive loop, so no borrow
 /// crosses an await.
 pub struct QueueActor {
@@ -210,13 +238,13 @@ pub struct QueueActor {
     // activeBatches' keys, and Notify flattens retryWorkers.
     active_batches: IndexMap<String, BatchRef>,
     uncompleted_tests_retry_count: HashMap<Test, i32>,
-    /// Workers of the devices that have asked for batches, by serial number, and for each queued test, the workers of the
+    /// Workers of the devices that have asked for batches, by serial number, and for each queued test, the places of the
     /// attempts that queued its copies as retries. A device gets a test all of whose queued copies are retries from its own
-    /// worker only if nothing else is queued
+    /// place only if nothing else is queued
     workers: HashMap<String, String>,
-    retry_workers: IndexMap<Test, Vec<String>>,
-    /// Workers of the retries in the active batch of each device, by serial number, queued again if the batch is rejected
-    active_retries: HashMap<String, Vec<(Test, String)>>,
+    retry_workers: IndexMap<Test, Vec<Place>>,
+    /// Places of the retries in the active batch of each device, by serial number, queued again if the batch is rejected
+    active_retries: HashMap<String, Vec<(Test, Place)>>,
     terminated: bool,
     actor: Option<Weak<dyn Actor<QueueMessage>>>,
 
@@ -584,9 +612,9 @@ impl QueueActor {
         }
         self.queue.add_all(requeued);
         if let Some(pairs) = self.active_retries.remove(serial) {
-            for (test, worker) in pairs {
+            for (test, place) in pairs {
                 if !progress.is_terminal(&test) {
-                    self.retry_workers.entry(test).or_default().push(worker);
+                    self.retry_workers.entry(test).or_default().push(place);
                 }
             }
         }
@@ -598,9 +626,10 @@ impl QueueActor {
     /// own once nothing is left to run
     async fn on_batch_released(&mut self) -> OperationResult<()> {
         if !self.queue.is_empty() {
-            // values.flatten().toSet(): a LinkedHashSet, first occurrences in order.
+            // values.flatten().toSet(): a LinkedHashSet, first occurrences in order. A device's own retries are kept off it by
+            // the queue (D82); the pool's order only matters for workers, whose other devices may be parked.
             let mut retry_workers: Vec<String> = Vec::new();
-            for worker in self.retry_workers.values().flatten() {
+            for worker in self.retry_workers.values().flatten().filter_map(Place::worker) {
                 if !retry_workers.contains(worker) {
                     retry_workers.push(worker.clone());
                 }
@@ -615,9 +644,10 @@ impl QueueActor {
         }
     }
 
-    /// Retries that last ran on `worker` are left for devices on other workers, unless nothing else is queued
+    /// Retries that last ran on `worker` (on `device`, without one) are left for other devices, unless nothing else is queued
     fn next_batch(&mut self, device: &DeviceInfo, worker: Option<&str>) -> OperationResult<BatchRef> {
-        let avoided = worker.map(|worker| self.own_retries(worker)).unwrap_or_default();
+        let place = Place::of(device, worker);
+        let avoided = self.own_retries(&place);
         let copies: Vec<Test> = if avoided.is_empty() {
             Vec::new()
         } else {
@@ -643,35 +673,24 @@ impl QueueActor {
         .map_err(batching_error)?;
         let mut taken = Vec::new();
         for test in &batch.tests {
-            if let Some(retry_worker) = self.dispatched(test, worker) {
-                taken.push((test.clone(), retry_worker));
+            if let Some(retry_place) = self.dispatched(test, &place) {
+                taken.push((test.clone(), retry_place));
             }
         }
         self.active_retries.insert(device.serial_number.clone(), taken);
         Ok(Arc::new(batch))
     }
 
-    /// Queued tests all of whose copies are retries of attempts on `worker`, in retryWorkers order.
-    fn own_retries(&self, worker: &str) -> Vec<Test> {
-        let mut copies: HashMap<&Test, i32> = HashMap::new();
-        for test in self.queue.iter() {
-            *copies.entry(test).or_insert(0) += 1;
-        }
-        self.retry_workers
-            .iter()
-            .filter(|(test, workers)| {
-                let own = workers.iter().filter(|it| *it == worker).count() as i32;
-                copies.get(test) == Some(&own)
-            })
-            .map(|(test, _)| test.clone())
-            .collect()
+    /// Queued tests all of whose copies are retries of attempts on `place`, in retryWorkers order.
+    fn own_retries(&self, place: &Place) -> Vec<Test> {
+        own_retries(&self.retry_workers, self.queue.iter(), place)
     }
 
-    /// A device on `worker` has taken a copy of `test`: the copy that suits it best, i.e. one that isn't a retry if there is
-    /// one, otherwise a retry from another worker, otherwise one from `worker`
+    /// A device at `place` has taken a copy of `test`: the copy that suits it best, i.e. one that isn't a retry if there is
+    /// one, otherwise a retry from another place, otherwise one from `place`
     ///
-    /// Returns the worker of the retry taken, or None if the copy isn't a retry.
-    fn dispatched(&mut self, test: &Test, worker: Option<&str>) -> Option<String> {
+    /// Returns the place of the retry taken, or None if the copy isn't a retry.
+    fn dispatched(&mut self, test: &Test, place: &Place) -> Option<Place> {
         // Counted after the batch has taken its copies, so two copies of one test in a
         // batch see the same count. ClassName takes every copy, so each still takes one
         // worker while any is left (WP 3.7 K3, refuted by the oracle).
@@ -680,7 +699,7 @@ impl QueueActor {
         if copies > workers.len() {
             return None;
         }
-        let index = workers.iter().position(|it| Some(it.as_str()) != worker).unwrap_or(0);
+        let index = workers.iter().position(|it| it != place).unwrap_or(0);
         let taken = workers.remove(index);
         if workers.is_empty() {
             self.retry_workers.shift_remove(test);
@@ -690,9 +709,8 @@ impl QueueActor {
 
     fn rerun_test(&mut self, test: &Test, device: &DeviceInfo) {
         self.queue.offer(test.clone());
-        if let Some(worker) = self.workers.get(&device.serial_number) {
-            self.retry_workers.entry(test.clone()).or_default().push(worker.clone());
-        }
+        let place = Place::of(device, self.workers.get(&device.serial_number).map(String::as_str));
+        self.retry_workers.entry(test.clone()).or_default().push(place);
         self.diagnostic_counts();
     }
 
@@ -710,7 +728,7 @@ impl QueueActor {
         while !pending.is_empty() && !self.terminated {
             let index = pending
                 .iter()
-                .position(|request| !self.only_own_retries(request.worker_id.as_deref()))
+                .position(|request| !self.only_own_retries(&Place::of(&request.device, request.worker_id.as_deref())))
                 .unwrap_or(0);
             let next = pending.remove(index);
             self.on_request_batch(next.device, next.worker_id).await?;
@@ -718,12 +736,11 @@ impl QueueActor {
         Ok(())
     }
 
-    fn only_own_retries(&self, worker: Option<&str>) -> bool {
-        let Some(worker) = worker else { return false };
+    fn only_own_retries(&self, place: &Place) -> bool {
         if self.queue.is_empty() {
             return false;
         }
-        let avoided = self.own_retries(worker);
+        let avoided = self.own_retries(place);
         !avoided.is_empty() && self.queue.iter().all(|test| avoided.contains(test))
     }
 
@@ -846,16 +863,28 @@ impl QueueActor {
         }
     }
 
+    /// The retries' places of one kind, leaving out the tests that have none of that kind.
+    #[cfg(feature = "test-support")]
+    fn snapshot_places(&self, select: impl Fn(&Place) -> Option<&String>) -> Vec<(Test, Vec<String>)> {
+        self.retry_workers
+            .iter()
+            .filter_map(|(test, places)| {
+                let selected: Vec<String> = places.iter().filter_map(&select).cloned().collect();
+                (!selected.is_empty()).then(|| (test.clone(), selected))
+            })
+            .collect()
+    }
+
     #[cfg(feature = "test-support")]
     fn observe(&self) {
         if let Some(observer) = &self.observer {
             observer(QueueSnapshot {
                 queue: self.queue.iter().cloned().collect(),
-                retry_workers: self
-                    .retry_workers
-                    .iter()
-                    .map(|(test, workers)| (test.clone(), workers.clone()))
-                    .collect(),
+                retry_workers: self.snapshot_places(|place| place.worker()),
+                retry_devices: self.snapshot_places(|place| match place {
+                    Place::Device(serial) => Some(serial),
+                    Place::Worker(_) => None,
+                }),
                 active_batches: self.active_batches.keys().cloned().collect(),
                 total_retries_left: match &self.retry {
                     RetryStrategy::NoRetry => None,
@@ -911,6 +940,37 @@ fn charge_uncompleted<'t>(
     over
 }
 
+/// `ownRetries`: the tests of `retry_workers` whose queued copies are all retries from `place`, in its order.
+///
+/// Every device asks with a place since D82, so the queue is counted only for the tests that have retries from `place`: a test
+/// with none never qualifies (Kotlin's `count == copies[test]` needs a queued copy), and most requests find none.
+fn own_retries<'a>(
+    retry_workers: &IndexMap<Test, Vec<Place>>,
+    queue: impl Iterator<Item = &'a Test>,
+    place: &Place,
+) -> Vec<Test> {
+    let own: Vec<(&Test, usize)> = retry_workers
+        .iter()
+        .filter_map(|(test, places)| {
+            let own = places.iter().filter(|it| *it == place).count();
+            (own > 0).then_some((test, own))
+        })
+        .collect();
+    if own.is_empty() {
+        return Vec::new();
+    }
+    let mut copies: HashMap<&Test, usize> = own.iter().map(|(test, _)| (*test, 0)).collect();
+    for test in queue {
+        if let Some(count) = copies.get_mut(test) {
+            *count += 1;
+        }
+    }
+    own.into_iter()
+        .filter(|(test, own)| copies.get(test) == Some(own))
+        .map(|(test, _)| test.clone())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -955,5 +1015,41 @@ mod tests {
         );
         assert_eq!((counts[&a], counts[&b]), (3, 1));
         assert_eq!(charge_uncompleted(&mut counts, 2, [&a, &b].into_iter()), [true, false]);
+    }
+
+    /// The counting shortcut gives what Kotlin's `retryWorkers.filter { count == copies[test] }` gives.
+    #[test]
+    fn own_retries_match_the_kotlin_count() {
+        let (a, b, c, d) = (test("a"), test("b"), test("c"), test("d"));
+        let (here, there) = (Place::Device("serial-A".into()), Place::Worker("worker-B".into()));
+        let retry_workers = IndexMap::from([
+            (d.clone(), vec![here.clone()]),
+            (a.clone(), vec![here.clone(), there.clone()]),
+            (b.clone(), vec![here.clone(), here.clone()]),
+            (c.clone(), vec![there.clone()]),
+        ]);
+        let queue = [&a, &b, &b, &c, &a];
+        let kotlin = |place: &Place| -> Vec<Test> {
+            retry_workers
+                .iter()
+                .filter(|(test, places)| {
+                    let own = places.iter().filter(|it| *it == place).count();
+                    let copies = queue.iter().filter(|it| **it == *test).count();
+                    copies > 0 && own == copies
+                })
+                .map(|(test, _)| test.clone())
+                .collect()
+        };
+        // d is not queued, a has a copy from elsewhere, b's two copies are both from here.
+        assert_eq!(
+            own_retries(&retry_workers, queue.into_iter(), &here),
+            std::slice::from_ref(&b)
+        );
+        assert_eq!(own_retries(&retry_workers, queue.into_iter(), &here), kotlin(&here));
+        assert_eq!(own_retries(&retry_workers, queue.into_iter(), &there), kotlin(&there));
+        let elsewhere = Place::Device("serial-C".into());
+        assert_eq!(own_retries(&retry_workers, queue.into_iter(), &elsewhere), []);
+        assert_eq!(kotlin(&elsewhere), []);
+        assert_eq!(own_retries(&IndexMap::new(), queue.into_iter(), &here), []);
     }
 }
