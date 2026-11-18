@@ -16,7 +16,19 @@ pub(super) enum PrepareError {
     /// D87: a boot that failed because the preparation's time ran out: a held attempt, or one refused. As `Boot`, but
     /// the installation beside it is left to finish rather than cancelled, so that the deadline never stops a transfer.
     OutOfTime(String),
+    /// D87: the installation failed and the deadline refused to start its retry. Not a failure that stops the boot beside
+    /// it: the preparation lets the boot end on its own, then reports this error as `Vendor`.
+    Refused(VendorError),
     Vendor(VendorError),
+}
+impl PrepareError {
+    /// What a refusal is once nothing runs beside it any more: the error it refused to retry.
+    fn settled(self) -> Self {
+        match self {
+            Self::Refused(error) => Self::Vendor(error),
+            error => error,
+        }
+    }
 }
 impl From<VendorError> for PrepareError {
     fn from(error: VendorError) -> Self {
@@ -92,7 +104,7 @@ impl AppleSimulatorDevice {
                         .prepare_body(started, keep, &ctx)
                         .await
                         .map_err(|error| match error {
-                            PrepareError::Vendor(error) => error,
+                            PrepareError::Vendor(error) | PrepareError::Refused(error) => error,
                             PrepareError::Boot(message) | PrepareError::OutOfTime(message) => {
                                 VendorError::Other(failure(FailureKind::Apple(AppleKind::Boot), message))
                             }
@@ -124,7 +136,7 @@ impl AppleSimulatorDevice {
         };
         match result {
             Ok(()) => {}
-            Err(PrepareError::Vendor(error)) => {
+            Err(PrepareError::Vendor(error) | PrepareError::Refused(error)) => {
                 // U163: out of the run, like a simulator that is not admitted, so recovery doesn't set it up again.
                 if matches!(
                     error,
@@ -199,9 +211,12 @@ impl AppleSimulatorDevice {
         };
         let installation = async {
             let start = self.timing.elapsed()?;
-            AppleSimulatorApplicationInstaller::new(self)
-                .prepare_installation(&installation_ctx)
-                .await?;
+            let installer = AppleSimulatorApplicationInstaller::new(self);
+            match installer.prepare_installation(&installation_ctx).await {
+                Ok(()) => {}
+                Err(error) if installer.refused() => return Err(PrepareError::Refused(error)),
+                Err(error) => return Err(error.into()),
+            }
             let bundle = self.load_bundle().await?;
             self.state().bundle = Some(Arc::new(bundle));
             Ok::<_, PrepareError>(self.timing.elapsed()?.wrapping_sub(start))
@@ -221,13 +236,15 @@ impl AppleSimulatorDevice {
         let (installation_time, simulator_time) = tokio::select! {
             result = &mut installation => match result {
                 Ok(time) => (time, simulator.await?),
+                // D87: a retry the deadline refused stops nothing beside it; the boot ends on its own first.
+                Err(error @ PrepareError::Refused(_)) => { let _ = simulator.await; return Err(error.settled()); },
                 Err(error) => { simulator_signal.cancel(cancelled("Preparation sibling failed")); let _ = simulator.await; return Err(error); },
             },
             result = &mut simulator => match result {
-                Ok(time) => (installation.await?, time),
+                Ok(time) => (installation.await.map_err(PrepareError::settled)?, time),
                 // D87: the installation runs on; a transfer in progress ends as it would.
                 Err(PrepareError::OutOfTime(reason)) => return Err(terminal_transfer(installation.await).unwrap_or(PrepareError::Boot(reason))),
-                Err(error) => { installation_signal.cancel(cancelled("Preparation sibling failed")); return Err(terminal_transfer(installation.await).unwrap_or(error)); },
+                Err(error) => { installation_signal.cancel(cancelled("Preparation sibling failed")); return Err(terminal_transfer(installation.await).unwrap_or(error.settled())); },
             },
             reason = context.cancellation.cancelled() => {
                 installation_signal.cancel(reason.clone()); simulator_signal.cancel(reason.clone());
