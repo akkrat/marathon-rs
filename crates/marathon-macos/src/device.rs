@@ -654,18 +654,30 @@ impl Device for MacosDevice {
     }
     /// D87: a Mac is never replaced by a recovery during its preparation, so its episode is the device actor's attempts,
     /// and the installer sends a failed transfer again only before the deadline. The envelope is what one preparation's
-    /// commands with known limits can take: three directory commands, two in each of the installer's three attempts, the
-    /// test type's probe and the test root's directory, eleven under `shell`, and the installer's two 1 s pauses. A
-    /// transfer has no limit while it progresses (D54) and is not counted.
+    /// commands with known limits can take, every one of them under `shell` (docs/wp/x85-findings.md lists them):
+    /// three directory commands; two in each of the installer's three attempts; the test type's probe, unless the test
+    /// type is configured; the test root's directory; then for hosted XCTest the app's `chmod` and its `PlugIns`
+    /// directory, and for XCUITest (or a test type left to the probe) up to twelve (the SDK platform path, the runner's
+    /// two copies, three architecture commands, three plist edits, its `PlugIns` directory and copy, and the app's
+    /// `chmod`); with permissions to grant, the SIP check and one command per permission. Plus the installer's two 1 s
+    /// pauses. A transfer has no limit while it progresses (D54) and is not counted, nor are the directories of code
+    /// coverage's static libraries, which only the built bundle names.
     fn preparation_time_left_millis(&self, configuration: &Configuration) -> Option<i64> {
-        let shell = self
-            .options
-            .vendor
-            .timeout_configuration
-            .shell
-            .to_millis()
-            .unwrap_or(i64::MAX);
-        let envelope = shell.saturating_mul(11).saturating_add(2_000);
+        let vendor = &self.options.vendor;
+        let shell = vendor.timeout_configuration.shell.to_millis().unwrap_or(i64::MAX);
+        let test_type = vendor.bundle.as_ref().and_then(|b| b.test_type);
+        let probe = i64::from(test_type.is_none());
+        let test_root = match test_type {
+            Some(marathon_config::vendor::TestType::Xctest) => 2,
+            _ => 12,
+        };
+        let grants = &vendor.permissions.grant;
+        let permissions = match grants.is_empty() {
+            true => 0,
+            false => 1 + grants.iter().map(|(_, p)| p.len() as i64).sum::<i64>(),
+        };
+        let commands = 3 + 6 + probe + 1 + test_root + permissions;
+        let envelope = shell.saturating_mul(commands).saturating_add(2_000);
         let budget = marathon_core::vendor::preparation_budget_millis(configuration, envelope);
         let now = self.options.dependencies.clock.now_millis();
         self.preparation_deadline.store(

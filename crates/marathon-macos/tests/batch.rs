@@ -698,16 +698,34 @@ async fn a_batch_that_panics_ends_with_the_panic_and_does_not_hold_disposal_d84(
 }
 
 /// D87: a Mac's preparation deadline is the greater of `deviceInitializationTimeoutMillis` and what one preparation's
-/// commands with known limits can take, eleven under `shell` (with the test root's directory) and two 1 s pauses: 332 s
-/// with the defaults, which keeps the device actor's 30 attempts of a preparation that fails at once (290 s).
+/// commands with known limits can take, each under `shell` (30 s), and the installer's two 1 s pauses. With the test type
+/// left to the probe: 3 directory commands, 6 in the installer's attempts, the probe, the test root's directory and up to
+/// 12 for XCUITest, 23 in all (692 s). Hosted XCTest configured: no probe and 2 (the app's `chmod`, its `PlugIns`), 12 in
+/// all (362 s). XCUITest with two permissions to grant: 22, the SIP check and two grants, 25 (752 s). Every one keeps the
+/// device actor's 30 attempts of a preparation that fails at once (290 s).
 #[test]
 fn a_macs_preparation_deadline_is_the_greater_of_the_wait_and_its_commands_d87() -> R {
-    let h = Harness::new("")?;
-    let device = h.device();
+    use marathon_config::vendor::{MacosPermission, TestType};
+    let mut h = Harness::new("")?;
     let mut configuration = (*h.options.dependencies.configuration).clone();
     configuration.device_initialization_timeout_millis = 180_000;
-    assert_eq!(device.preparation_time_left_millis(&configuration), Some(332_000));
-    configuration.device_initialization_timeout_millis = 600_000;
-    assert_eq!(device.preparation_time_left_millis(&configuration), Some(600_000));
+    let mut deadline = |h: &mut Harness, test_type: Option<TestType>, grants: Vec<(String, Vec<MacosPermission>)>| {
+        let mut vendor = (*h.options.vendor).clone();
+        if let Some(bundle) = vendor.bundle.as_mut() {
+            bundle.test_type = test_type;
+        }
+        vendor.permissions.grant = grants;
+        h.options.vendor = std::sync::Arc::new(vendor);
+        h.device().preparation_time_left_millis(&configuration)
+    };
+    assert_eq!(deadline(&mut h, None, vec![]), Some(692_000));
+    assert_eq!(deadline(&mut h, Some(TestType::Xctest), vec![]), Some(362_000));
+    let grants = vec![(
+        "com.example".to_owned(),
+        vec![MacosPermission::Accessibility, MacosPermission::DeveloperTool],
+    )];
+    assert_eq!(deadline(&mut h, Some(TestType::Xcuitest), grants), Some(752_000));
+    configuration.device_initialization_timeout_millis = 900_000;
+    assert_eq!(h.device().preparation_time_left_millis(&configuration), Some(900_000));
     Ok(())
 }
