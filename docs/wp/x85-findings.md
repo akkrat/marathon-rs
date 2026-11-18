@@ -51,7 +51,7 @@ test vehicles keep Kotlin's 30 attempts, so no oracle or differential recording 
 |---|---|---|
 | iOS | 2 × (`bootWait` + `boot` + `shutdown` + `shell`) + the 10 s pause between boot attempts | 2 × (180 + 30 + 30 + 30) + 10 = 550 s |
 | Android | per package to install (the app if any, each extra app, the test app): 3 × (`shell` + `uninstall` + `pushFile` + `install` + `shell`) + 2 × 1 s; plus `shell` (`logcat -c`) and, with mock location, 2 × `shell` per bundle with an app (`appops set`, then `appops query` if it failed) | 2 × (3 × 180 + 2) + 20 = 1,104 s with one app and its test app; 1,144 s with mock location |
-| macOS | `shell` for each command with a limit that one preparation can send (`MacosDevice::preparation_commands`, listed under "Review round 3", checked against whole preparations by `tests/preparation_commands.rs`): 25 with the test type left to the probe, 12 for hosted XCTest, 24 for XCUITest, and with permissions to grant the SIP check and 2 per permission; + 2 × 1 s. Transfers are not counted, they have no limit while they progress (D54), nor are code coverage's static-library directories, which only the built bundle names | 752 s with the test type left to the probe; 362 s hosted XCTest |
+| macOS | `shell` for each command with a limit that one preparation can send (`MacosDevice::preparation_commands`, listed under "Review round 3" and "Review round 4", checked against whole preparations by `tests/preparation_commands.rs`): 27 with the test type left to the probe, 15 for hosted XCTest, 26 for XCUITest, with permissions to grant the SIP check and 2 per permission, and one cache check per extra application; + 2 × 1 s. Transfers are not counted, they have no limit while they progress (D54), nor are code coverage's static-library directories, which only the built bundle names | 812 s with the test type left to the probe; 452 s hosted XCTest |
 
 With the defaults every envelope exceeds the actor's own schedule for a preparation that fails at once (30 attempts, 290 s),
 so such a device keeps its 30 attempts. Only slow failures are cut. The Android figure is the legacy push-and-install path
@@ -134,7 +134,7 @@ live sibling (so D48 does not apply); measured only on the witnesses' scaled tim
 | iOS, in general | — | the deadline plus one whole boot attempt of a replacement started just before it and its last probe: 550 + 270 + 50 = 870 s (14.5 min) |
 | iOS, any of these, pool's only simulator | 9 to 11 min (D48, x42) | unchanged: D48's wait from the first departure ends it |
 | Android, one package whose install times out at 60 s every time | 30 × 182 + 290 = 5,750 s (96 min) | eight preparations, the last three with one attempt: leaves at about 1,160 s (19 min) |
-| macOS, every command hanging until KILL | about 1,790 s (30 min) | thirteen preparations: about 770 s (13 min) |
+| macOS, every command hanging until KILL | about 1,790 s (30 min) | fourteen preparations: about 830 s (14 min) |
 | Any vendor, preparation failing at once | 30 attempts, 290 s | unchanged with default timeouts (each envelope ≥ 290 s) |
 
 The general bound: the deadline, plus what started before it (on iOS a replacement's whole boot attempt; on Android one
@@ -174,7 +174,8 @@ round's, without its fix (temporary mutation). Guards pass either way, as they s
   (fails with the old flat 3 × `shell`). Guard: a single timed-out install retried.
 - macOS: `preparation_commands.rs` (each variant's longest path on the fake worker sends exactly what its budget counts:
   25, 24, 15 and 17 commands; logic tests and code coverage no more), and
-  `batch.rs::a_macs_preparation_deadline_is_the_greater_of_the_wait_and_its_commands_d87` (752, 362 and 872 s).
+  `batch.rs::a_macs_preparation_deadline_is_the_greater_of_the_wait_and_its_commands_d87` (812, 452 and 932 s; round 4's
+  figures, with the cache checks).
 
 **Oracle and differential recordings.** None changes, so no comparator allowance is needed: the device-actor oracle
 (`fixtures/oracle/device-actor`, including `thirty failing preparations`) runs the Stub vehicle, which has no deadline; the
@@ -293,6 +294,42 @@ The commands one preparation can send, each under `shell` (round 2's list, corre
 - Permissions: `csrutil status` (1), and per permission two `sqlite3` writes (2 each).
 - Not counted: code coverage's static-library directories (one per library, only the built xctestrun names them), and
   transfers (D54).
+
+## Review round 4
+
+The branch was rebased onto the final x82 (with x83's D85 and x84's D86 on main) before this round.
+
+1. *The Android witness met D85.* After the actor's attempts end, a device still listed is set up once more (D85,
+   `provider.rs`, `retry_failed_prepares`). That instance used to open a fresh deadline, so the witness saw three more
+   installs (19 instead of 16). **Decision:** D85's one more setup continues the exhausted preparation's deadline
+   (`AndroidDevice::continue_preparation`, handed over with `Replacement::PrepareFailed`). Its first attempt always runs,
+   because the actor always makes its first attempt and the installer always makes each package's first attempt, so a
+   device that really rebooted still gets ready; it makes no retries past the deadline, so D85 cannot double the time a
+   failing device holds its place (deadline plus one attempt, instead of two whole budgets). A fresh episode would have
+   been the alternative; it would let a device that kept failing slowly hold its place for a second full deadline, which
+   is what D87 exists to stop. The witness now counts each instance: the first makes six preparations and is cut after 6
+   attempts; the second, under the passed deadline, makes one install and is cut after 1 attempt; 2 + 14 + 1 installs,
+   three installer refusals, the run ending within the deadline, one attempt and D48's wait.
+2. *A refused retry could start a media upload.* A flag set when one half of an iOS preparation runs out of time (a boot
+   out of time, a transfer retry refused) keeps the other half, left to finish what it is doing, from starting any
+   further step: the media importer's uploads and imports, the second boot attempt, and the Apple installer's test root,
+   after-install step and extra applications (`with_step_gate`). Witness: send fails at 20 s, refused; the boot ends at
+   25 s; no media upload starts (one send in all).
+3. *The shutdown's own commands could outlast the reserve.* A held attempt's bound is now the deadline less the
+   shutdown's worst case, its descriptor read and `simctl shutdown` at `command_worst_case_millis` (240 s with the
+   defaults), not `shutdown` + `shell`. The held attempt and its shutdown together end by the deadline. Witness: 120 s
+   reads and probes and a 100 s `simctl shutdown` (cut at the shutdown's own 60 s limit, ending through its own): the
+   preparation ends at about 1,340 s of a 1,500 s deadline, where it ended at about 1,581 s.
+4. *macOS cache checks.* A destination with a recorded earlier transfer of the same file (from a parse or another device
+   on the worker) is checked with `test -e` before it is sent again (`shared_transfers.rs`); retries after a failed send
+   do not check again. Counted: one per shared destination, the test bundle, the app, hosted XCTest's `PlugIns` copy and
+   each extra application. The measured-count test now warms the cache with an earlier preparation on the same worker
+   and adds an extra-application variant: 27, 26, 18, 20 and 16 commands, each equal to its budget.
+
+Follow-up, not changed here (D84 integration, from the reviewer): after the Scheduler's wait for the pools to stop
+expires, the provider's termination can wait a second 70 s for its devices' disposal. Recorded for the orchestrator.
+
+Each round-4 witness fails on d75a9ccc, checked in a scratch copy of that tree with the new tests.
 
 ## Incidental bugs
 

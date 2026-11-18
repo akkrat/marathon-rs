@@ -2468,15 +2468,18 @@ with the retries inside it running to their limits.
 |---|---|---|
 | iOS | 2 × (`bootWait` + `boot` + `shutdown` + `shell`) + the 10 s pause between boot attempts | 550 s |
 | Android | for each package installed (the app, each extra app, the test app): 3 × (`shell` + `uninstall` + `pushFile` + `install` + `shell`) + 2 × 1 s; plus `shell` for clearing logcat, and with mock location 2 × `shell` for each bundle with an app | 1,104 s with an app and its test app (1,144 s with mock location) |
-| macOS | `shell` for each command with a limit that one preparation can send, checked against whole preparations: 3 directory commands, 2 in each of the installer's 3 attempts, the test-type probe (unless the test type is configured), the test root's directory, then 2 for hosted XCTest (the app's `chmod` and `PlugIns` directory) or up to 14 for XCUITest (each of the runner's two overwriting copies preceded by a removal, the arm64e architecture commands, three plist edits, the `PlugIns` directory and copy, the SDK path, the app's `chmod`); with permissions to grant, the SIP check and 2 per permission (the system's and the user's TCC database); + 2 × 1 s | 752 s with the test type left to the probe (362 s for hosted XCTest, 452 s with one permission) |
+| macOS | `shell` for each command with a limit that one preparation can send, checked against whole preparations: 3 directory commands, 2 in each of the installer's 3 attempts, the test-type probe (unless the test type is configured), the test root's directory, then 2 for hosted XCTest (the app's `chmod` and `PlugIns` directory) or up to 14 for XCUITest (each of the runner's two overwriting copies preceded by a removal, the arm64e architecture commands, three plist edits, the `PlugIns` directory and copy, the SDK path, the app's `chmod`); with permissions to grant, the SIP check and 2 per permission (the system's and the user's TCC database); and for each shared copy sent again (the test bundle, the app, hosted XCTest's `PlugIns` copy, each extra application), the check that the earlier copy is still there; + 2 × 1 s | 812 s with the test type left to the probe (452 s for hosted XCTest, 542 s with one permission) |
 
 The Android figure counts a push and an install in every attempt, as the legacy install does; a streaming install takes
 less, and the deadline is the same.
 
 - The device actor makes no further attempt that would not start before the deadline, and logs `Device <serial> is not
   prepared within its preparation time of <n> ms, not retrying after <k> attempts` (WARN).
-- The Android installer tries a package again only if another whole attempt fits before the deadline. The Apple installer
-  (iOS and macOS) sends a failed transfer again only before the deadline.
+- The Android installer tries a package again only if another whole attempt fits before the deadline. When the actor's
+  attempts end and the device is still listed, [D85](#d85--android-checks-the-boot-before-resuming-tests)'s one more setup
+  continues the same deadline: its first attempt always runs, so a device that rebooted still gets ready, but it makes no
+  retries past the deadline, so D85 cannot double the time a failing device holds its place. The Apple installer (iOS
+  and macOS) sends a failed transfer again only before the deadline.
 - On iOS a simulator's first preparation boots as before. A recovery sets a simulator that failed to boot up again only if
   the setup starts before the deadline; otherwise it logs `Simulator <serial> has not got ready within its preparation
   time, not re-provisioning it again` and the simulator stays out of the run, as after its third replacement. The
@@ -2486,11 +2489,13 @@ less, and the deadline is the same.
   provisioning permit is held, before it connects (`not setting it up again`), and one that registers after it is dropped
   (`its new setup is dropped`). A replacement gets one whole boot attempt, the whole of `bootWait`, even if less is left.
   Its second attempt starts each state read (two commands) and `simctl boot` only if each command, at its worst, ends
-  before the deadline less `shutdown` + `shell`; a command's worst case is opening its SSH channel and the
-  acknowledgment of its exec (30 s each), its own limit, and the 30 s it can take to end after it
-  ([D30](#d30--closing-an-ssh-session-has-a-limit)). So the shutdown after it, which sees the simulator's real state,
-  still ends by the deadline. A boot that fails for want of time leaves the installation beside it to finish rather than
-  cancelling it, and a transfer whose retry the deadline refuses leaves the boot beside it to end on its own; a transfer
+  before the deadline less what the shutdown after it can take at its worst (its descriptor read and `simctl
+  shutdown`); a command's worst case is opening its SSH channel and the acknowledgment of its exec (30 s each), its own
+  limit, and the 30 s it can take to end after it ([D30](#d30--closing-an-ssh-session-has-a-limit)). So the held
+  attempt and its shutdown, which sees the simulator's real state, end by the deadline. A boot that fails for want of
+  time leaves the installation beside it to finish rather than cancelling it, and a transfer whose retry the deadline
+  refuses leaves the boot beside it to end on its own; either way the half left running starts no further step (no media
+  upload, second boot attempt, test root, after-install step or extra application). A transfer
   that stalls is what the preparation reports, whatever its boot did. A simulator that got ready starts afresh
   if it is lost later; one removed from the devices file or added back while a recovery ran is left to that recovery's
   D44 handling, and is never taken out of the run by it.
@@ -2507,8 +2512,8 @@ answering at once and another device keeping the pool alive; they were measured 
 | iOS probe timing out at `shell` | about 30 min | about 11 min (640 s) |
 | iOS probe needing KILL at every check | about 33 min | about 12 min (700 s) |
 | iOS, in general | — | at most the deadline plus one whole boot attempt of a replacement that started just before it, and the probe running then: about 550 + 270 + 50 s, 14.5 min; a replacement's second attempt, with its shutdown, ends by the deadline |
-| Android package whose install times out (60 s) every time | about 96 min | about 19 min (1,160 s) |
-| Mac whose commands all hang until KILL | about 30 min | about 13 min (770 s) |
+| Android package whose install times out (60 s) every time | about 96 min | about 19 min (1,160 s); about 1 min more when D85 sets it up once more, for a single attempt |
+| Mac whose commands all hang until KILL | about 30 min | about 14 min (830 s) |
 | Any preparation that fails at once | 30 attempts in 290 s | unchanged with the default timeouts; shorter ones can shorten the deadline below 290 s and with it the attempts |
 
 On a pool's only device [D48](#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return) still ends the run sooner, as
