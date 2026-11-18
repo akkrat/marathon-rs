@@ -1043,6 +1043,10 @@ Native builds change four things:
   and the tracker close. Each failure is logged, and the first is returned, so the exit code is what it was. A later finish
   attempt is still a no-op, and cancellation still stops the steps after it.
 
+On iOS and macOS, a failed analytics timestamp or tracker call during device setup or preparation
+warns and skips the timing event. The device operation keeps its own result, so successful work
+still admits the device. Device failures and caller cancellation still propagate (U212).
+
 Separately, when filters take a non-empty list to nothing, a run logs an ERROR line with what each filter removed, so it shows with `debug: false` too, for example
 `No tests left to run after filtering: blocklist simple-class-name removed 12`. It still exits 0, because an empty shard
 fragment is legitimate. `parse` writes its empty list as before, with no warning.

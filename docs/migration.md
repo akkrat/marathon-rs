@@ -559,8 +559,9 @@ Graphite and InfluxDB writes queue immediately while there is room. A full queue
 opens, the writer enters cool-off or stops, admission closes, or the 30 s admission deadline expires. Expiry
 starts the five-minute cool-off. The final drain and close, including InfluxDB's last flush, share 30 s. A warning
 marks expiry and the remaining metrics are abandoned. Missing observations can affect later runs' flakiness and
-duration strategies. A failure in one close still allows later closes to run, and the existing exit-code rules
-apply. A run whose filters removed every test exits 0 and logs what each filter removed.
+duration strategies. A failed analytics timestamp or tracker call during iOS or macOS device setup or preparation
+produces a warning and successful device work carries on. A failure in one close still allows later closes to run,
+and the existing exit-code rules apply. A run whose filters removed every test exits 0 and logs what each filter removed.
 See [D51](deviations.md#d51--metrics-and-cleanup-failures-do-not-stop-a-run) and
 [D86](deviations.md#d86--remote-metrics-use-bounded-buffering).
 

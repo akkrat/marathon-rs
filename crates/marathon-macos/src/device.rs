@@ -35,6 +35,7 @@ use marathon_config::{
     vendor::{MacosConfiguration, MacosPermission},
 };
 use marathon_core::{
+    analytics::track_device_operation,
     artifacts::{FileLogWriter, LogListener},
     error::{Failure, VendorError, VendorResult},
     executor::shared::{SharedDeferred, Signal},
@@ -732,23 +733,20 @@ impl Device for MacosDevice {
                 execution.preparation = Some(done.clone());
             }
             let task = self.tasks.spawn(&*self.options.dependencies.io, async move {
-                let outcome = panic_as_error(async {
-                    let started = own_context
-                        .hooks
-                        .instant("core.Track.trackDevicePreparing")
-                        .map_err(crate::clock_error)?;
-                    device.prepare_inner(&own_context).await?;
-                    let finish = own_context
-                        .hooks
-                        .instant("core.Track.trackDevicePreparing")
-                        .map_err(crate::clock_error)?;
-                    device
-                        .options
-                        .dependencies
-                        .tracker
-                        .device_preparing(&device.serial, started, finish)
-                        .await
-                })
+                let label = "core.Track.trackDevicePreparing";
+                let outcome = panic_as_error(track_device_operation(
+                    label,
+                    own_context.cancellation.as_ref(),
+                    || async { own_context.hooks.instant(label).map_err(crate::clock_error) },
+                    device.prepare_inner(&own_context),
+                    |start, finish| {
+                        device
+                            .options
+                            .dependencies
+                            .tracker
+                            .device_preparing(&device.serial, start, finish)
+                    },
+                ))
                 .await;
                 done.complete(Ok(()));
                 outcome

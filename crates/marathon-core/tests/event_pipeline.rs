@@ -12,6 +12,7 @@ use marathon_core::{
     executor::{
         CoreExecutor,
         hooks::{ClockMode, RuntimeHooks, Tape},
+        shared::Signal,
     },
     model::*,
     report::*,
@@ -480,6 +481,7 @@ fn public_mapping_uses_tapes_and_preparation_has_no_finish_on_failure() {
             assert_eq!(
                 track
                     .track_device_preparing(
+                        &Signal::default(),
                         || "serial".into(),
                         Box::pin(async {
                             assert_eq!(std::thread::current().name(), Some("marathon-core"));
@@ -492,6 +494,7 @@ fn public_mapping_uses_tapes_and_preparation_has_no_finish_on_failure() {
             assert!(
                 track
                     .track_provider_device_preparing(
+                        &Signal::default(),
                         || "serial".into(),
                         Box::pin(async { Err::<(), _>(VendorError::Other(fail())) })
                     )
@@ -747,10 +750,11 @@ fn dropping_preparation_cancels_borrowed_body_without_emitting_an_event() {
                     serial_read.store(true, Ordering::SeqCst);
                     "serial".into()
                 };
+                let cancellation = Signal::default();
                 let mut caller: VendorFuture<'_, ()> = if provider {
-                    Box::pin(track.track_provider_device_preparing(serial, body))
+                    Box::pin(track.track_provider_device_preparing(&cancellation, serial, body))
                 } else {
-                    Box::pin(track.track_device_preparing(serial, body))
+                    Box::pin(track.track_device_preparing(&cancellation, serial, body))
                 };
                 match futures_util::future::select(caller.as_mut(), entered_rx).await {
                     futures_util::future::Either::Left((result, _)) => {
@@ -799,9 +803,13 @@ fn preparation_reads_the_updated_serial_after_the_borrowed_body() {
                     Ok(value.as_str())
                 });
                 let result = if provider {
-                    track.track_provider_device_preparing(read_serial, body).await
+                    track
+                        .track_provider_device_preparing(&Signal::default(), read_serial, body)
+                        .await
                 } else {
-                    track.track_device_preparing(read_serial, body).await
+                    track
+                        .track_device_preparing(&Signal::default(), read_serial, body)
+                        .await
                 };
                 assert_eq!(result, Ok(value.as_str()));
             }

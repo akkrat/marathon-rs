@@ -121,6 +121,7 @@ impl<H: Clone + Send + Sync> SimulatorCreating for SimulatorFactory<H> {
         caller: VendorContext,
     ) -> ProvisioningFuture<'a, ConstructedSimulator<Self::Handle>> {
         Box::pin(async move {
+            let cancellation = caller.cancellation.clone();
             let started = self.timing.elapsed()?;
             let bin = (self.binaries)(executor.clone());
             let record = cycle.simulator(&udid, &bin, false, &caller).await?;
@@ -138,6 +139,7 @@ impl<H: Clone + Send + Sync> SimulatorCreating for SimulatorFactory<H> {
             let result: ProvisioningResult<()> = async {
                 self.track
                     .track_provider_device_preparing(
+                        cancellation.as_ref(),
                         || device.0.info().serial_number,
                         built.setup.setup(&record, cycle, caller),
                     )

@@ -98,6 +98,7 @@ impl AppleSimulatorDevice {
         self.retained.spawn(self.services.runtime.as_ref(), async move {
             // D84: a panic is this preparation's error too, so that the caller and disposal hear of its end.
             let outcome = panic_as_error(device.services.track.track_device_preparing(
+                ctx.cancellation.as_ref(),
                 || device.info().serial_number,
                 Box::pin(async {
                     device

@@ -18,6 +18,7 @@ use marathon_config::{
     loader::{DevicesProvider, MarathonConfigurationLoader},
 };
 use marathon_core::{
+    analytics::track_device_operation,
     error::{Failure, VendorError, VendorResult},
     executor::shared::SharedChannel,
     runtime::{EventChannel, VendorFuture},
@@ -214,18 +215,22 @@ impl AppleMacosProvider {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .push(device.clone());
-        let start = context
-            .hooks
-            .instant("core.Track.trackProviderDevicePreparing")
-            .map_err(crate::clock_error)?;
-        device.setup(context).await?;
-        let finish = context
-            .hooks
-            .instant("core.Track.trackProviderDevicePreparing")
-            .map_err(crate::clock_error)?;
-        deps.tracker
-            .device_provider_init(&device.info().serial_number, start, finish)
-            .await?;
+        let label = "core.Track.trackProviderDevicePreparing";
+        track_device_operation(
+            label,
+            context.cancellation.as_ref(),
+            || async { context.hooks.instant(label).map_err(crate::clock_error) },
+            device.setup(context),
+            |start, finish| {
+                let device = &device;
+                async move {
+                    deps.tracker
+                        .device_provider_init(&device.info().serial_number, start, finish)
+                        .await
+                }
+            },
+        )
+        .await?;
         Ok(device)
     }
     /// A failed release costs only that lease: it is logged, and never replaces the error or outcome of the work

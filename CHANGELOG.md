@@ -4,6 +4,8 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## Unreleased
 
+- **Apple device setup and preparation survive analytics failures (U212).** If a timing read or tracker fails,
+  the runner warns and the device can still join the run and take tests after successful setup and preparation.
 - **Faster `class-name` batching on large suites.** The runner indexes queued tests by class and preserves batch membership and order.
 - **A retry goes to another Android device (D82):** a test that comes back incomplete from an Android device (for
   example when its instrumentation ends before the test starts), or that fails and is retried, is now left to the

@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-apple/ios/src/test/kotlin/com/malinskiy/marathon/apple/ios/device/FakeSimulatorWorker.kt
 #![allow(dead_code)]
+use futures_util::FutureExt;
 use jcompat::jtime::{Duration, Instant, duration_of, instant_of};
 use marathon_apple::cmd::{BaseCommand, SessionScope, failure};
 use marathon_core::{
@@ -49,7 +50,11 @@ impl VendorRuntime for Runtime {
         let task = Arc::new(Task(watch::channel(None).0));
         let complete = task.clone();
         tokio::spawn(async move {
-            complete.0.send_replace(Some(body.await));
+            let result = std::panic::AssertUnwindSafe(body)
+                .catch_unwind()
+                .await
+                .unwrap_or_else(|payload| Err(VendorError::Other(marathon_core::executor::panic_failure(payload))));
+            complete.0.send_replace(Some(result));
         });
         task
     }

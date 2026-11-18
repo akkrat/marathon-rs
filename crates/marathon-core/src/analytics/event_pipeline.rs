@@ -2,6 +2,7 @@
 //! and analytics/MappingTracker.kt, TrackerFactory.kt, internal/sub/DelegatingTrackerInternal.kt,
 //! TrackerInternal.kt, TrackerInternalAdapter.kt and ExecutionReportGenerator.kt.
 
+use futures_util::FutureExt;
 use marathon_logging::{Component, Level};
 
 use crate::{
@@ -17,6 +18,8 @@ use jcompat::jtime::Instant;
 use marathon_error::FailureKind;
 use std::{
     collections::HashSet,
+    future::Future,
+    panic::{AssertUnwindSafe, catch_unwind},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -651,6 +654,53 @@ impl Tracker for MappingTracker {
         })
     }
 }
+async fn catch_tracking<T>(work: impl Future<Output = VendorResult<T>>) -> VendorResult<T> {
+    AssertUnwindSafe(work)
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|payload| Err(VendorError::Other(crate::executor::panic_failure(payload))))
+}
+
+/// D51: losing a preparation metric must not turn successful device work into a failed attempt.
+/// The body stays in the caller's future, outside both instrumentation boundaries.
+pub async fn track_device_operation<T, Read, TrackEvent>(
+    label: &'static str,
+    cancellation: &dyn CancellationSignal,
+    read_clock: impl Fn() -> Read,
+    body: impl Future<Output = VendorResult<T>>,
+    track: impl FnOnce(Instant, Instant) -> TrackEvent,
+) -> VendorResult<T>
+where
+    Read: Future<Output = VendorResult<Instant>>,
+    TrackEvent: Future<Output = VendorResult<()>>,
+{
+    let start = catch_tracking(async { read_clock().await }).await;
+    let result = body.await;
+    let tracked = match start {
+        Ok(start) if result.is_ok() => {
+            catch_tracking(async {
+                let finish = read_clock().await?;
+                track(start, finish).await
+            })
+            .await
+        }
+        Ok(_) => return result,
+        Err(error) => Err(error),
+    };
+    if let Err(error) = tracked {
+        // The tracker's own cancellation is a metrics failure. The owner's request still applies.
+        if result.is_ok()
+            && let Some(reason) = cancellation.reason()
+        {
+            return Err(VendorError::Cancelled(reason));
+        }
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            tracing::warn!("Could not record device timing for {label}: {}", error.failure());
+        }));
+    }
+    result
+}
+
 #[derive(Clone)]
 pub struct Track {
     io: Arc<dyn VendorRuntime>,
@@ -671,20 +721,23 @@ impl Track {
     /// The body remains in the caller's vendor future so cancellation drops it.
     pub async fn track_device_preparing<'a, T: Send + 'a>(
         &self,
+        cancellation: &dyn CancellationSignal,
         serial: impl FnOnce() -> String + Send + 'a,
         body: VendorFuture<'a, T>,
     ) -> VendorResult<T> {
-        self.prepare(serial, body, false).await
+        self.prepare(cancellation, serial, body, false).await
     }
     pub async fn track_provider_device_preparing<'a, T: Send + 'a>(
         &self,
+        cancellation: &dyn CancellationSignal,
         serial: impl FnOnce() -> String + Send + 'a,
         body: VendorFuture<'a, T>,
     ) -> VendorResult<T> {
-        self.prepare(serial, body, true).await
+        self.prepare(cancellation, serial, body, true).await
     }
     async fn prepare<'a, T: Send + 'a>(
         &self,
+        cancellation: &dyn CancellationSignal,
         serial: impl FnOnce() -> String + Send + 'a,
         body: VendorFuture<'a, T>,
         provider: bool,
@@ -694,27 +747,28 @@ impl Track {
         } else {
             "core.Track.trackDevicePreparing"
         };
-        let clock = self.clock.clone();
-        let start = on_io(
-            self.io.as_ref(),
-            Box::pin(async move { clock.instant(label).map_err(clock_error) }),
+        track_device_operation(
+            label,
+            cancellation,
+            || {
+                let clock = self.clock.clone();
+                on_io(
+                    self.io.as_ref(),
+                    Box::pin(async move { clock.instant(label).map_err(clock_error) }),
+                )
+            },
+            body,
+            |start, finish| async move {
+                // Preparation can update the serial used in its event.
+                let serial = serial();
+                if provider {
+                    self.device_provider_init(&serial, start, finish).await
+                } else {
+                    self.device_preparing(&serial, start, finish).await
+                }
+            },
         )
-        .await?;
-        let result = body.await?;
-        let clock = self.clock.clone();
-        let finish = on_io(
-            self.io.as_ref(),
-            Box::pin(async move { clock.instant(label).map_err(clock_error) }),
-        )
-        .await?;
-        // Android may replace the adb serial while preparation boots the device.
-        let serial = serial();
-        if provider {
-            self.device_provider_init(&serial, start, finish).await?;
-        } else {
-            self.device_preparing(&serial, start, finish).await?;
-        }
-        Ok(result)
+        .await
     }
 }
 impl Tracker for Track {
