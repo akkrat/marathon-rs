@@ -93,6 +93,8 @@ pub enum BlockingCall {
     Probe,
     /// Starting rsync.
     SpawnRsync,
+    /// After a start of rsync: committed to its transfer, or killed since it was refused meanwhile.
+    SpawnedRsync,
     /// Starting `ps` for a process listing.
     SpawnPs,
 }
@@ -158,7 +160,10 @@ impl RsyncFileBridge {
     async fn owned(&self, body: impl Future<Output = VendorResult<bool>> + Send + 'static) -> VendorResult<bool> {
         let (tx, rx) = oneshot::channel();
         let task = self.0.tasks.spawn(self.0.runtime.as_ref(), async move {
-            let _ = tx.send(body.await);
+            // D91: the body, and with it a transfer's stop, is dropped before its result is sent, so whoever hears the
+            // result finds the device's receipt already ended.
+            let result = body.await;
+            let _ = tx.send(result);
             Ok(())
         });
         task.join().await?;
@@ -440,11 +445,17 @@ impl Inner {
                 .kill_on_drop(true)
                 .spawn()
                 .map_err(io_error)?;
-            if !starting.commit() {
+            let started = clock.now_millis();
+            let spawned = if starting.commit() {
+                Some((child, started))
+            } else {
                 drop(child);
-                return Ok(None);
+                None
+            };
+            if let Some(hook) = &hook {
+                hook(BlockingCall::SpawnedRsync);
             }
-            Ok(Some((child, clock.now_millis())))
+            Ok(spawned)
         });
         let mut spawn = std::pin::pin!(spawn);
         let mut step = bound.run(None, None, true, spawn.as_mut()).await;

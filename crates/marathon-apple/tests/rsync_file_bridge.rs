@@ -2805,7 +2805,6 @@ struct Wedge {
     seen: std::sync::Mutex<Vec<marathon_apple::cmd::remote::rsync::rsync_file_bridge::BlockingCall>>,
     open: std::sync::Mutex<bool>,
     opened: std::sync::Condvar,
-    released: std::sync::atomic::AtomicUsize,
 }
 impl Wedge {
     fn hook(
@@ -2828,7 +2827,6 @@ impl Wedge {
                 while !*open {
                     open = wedge.opened.wait(open).unwrap();
                 }
-                wedge.released.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
         })
     }
@@ -2884,8 +2882,10 @@ async fn hanging_spawn_runs() {
         .expect("a hanging start held up its own stop")
         .unwrap();
     let took = stopped_at.elapsed();
-    assert!(took < std::time::Duration::from_secs(3), "{took:?}");
+    // About 1 s; before, never. Generous for a loaded host.
+    assert!(took < std::time::Duration::from_secs(20), "{took:?}");
     assert_eq!(result, Err(VendorError::Cancelled(reason)));
+    // The send's result is sent only after its stop, and with it the receipt, has been let go of.
     assert!(
         matches!(receipt.ended(), Some(TransferCleanup::Unconfirmed(_))),
         "{:?}",
@@ -2894,7 +2894,8 @@ async fn hanging_spawn_runs() {
     // The start comes back: what it started is killed (the parent checks that nothing it records is left), and nothing
     // goes into the quarantined destination.
     wedge.open();
-    d91_until(|| wedge.released.load(std::sync::atomic::Ordering::SeqCst) >= 1).await;
+    // Both starts have ended, the other transfer's and this one's, so this process does not exit under the latter.
+    d91_until(|| wedge.count(BlockingCall::SpawnedRsync) >= 2).await;
     assert!(matches!(
         bridge.send(&source, "/tmp/marathon/stuck").await,
         Err(VendorError::LeavePool { .. })
@@ -2971,6 +2972,7 @@ async fn hanging_ps_runs() {
     let result = result
         .expect("a hanging start of ps held up the stop's cleanup")
         .unwrap();
-    assert!(took < std::time::Duration::from_secs(3), "{took:?}");
+    // About 1 s; before, never. Generous for a loaded host.
+    assert!(took < std::time::Duration::from_secs(20), "{took:?}");
     assert_eq!(result, Err(VendorError::Cancelled(reason)));
 }

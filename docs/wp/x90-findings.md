@@ -233,3 +233,13 @@ with no other change, and copied the new tests in.
 `SharedTransfers`) into a destination whose shared send `SharedTransfers` has kept as done; if that direct send's end
 were unconfirmed, the cache would not know of the quarantine. No caller in the tree does this: shared destinations are
 only ever written through `SharedTransfers`.
+
+Stress after round 2: all thirteen D91 witnesses 50/50 alone and 20/20 under load, except the R2-1 witness at first
+(48/50, 19/20). Two causes, found by reading, since 330 further runs did not reproduce it: (1) the bridge's retained
+task sent a transfer's result before dropping the body that holds its stop, so a caller could hear the result before the
+device's receipt had ended; the body is now dropped first, so hearing the result means the receipt has ended (a real
+ordering guarantee, not only a test fix); (2) the witness could end while the start it had let go of was still being
+killed, and the process exit then left that start's rsync behind for the parent's check to find; the hook now also marks
+the end of each start (`SpawnedRsync`), and the witness waits for it. Its time bound was also widened from 3 s to 20 s
+(it ends in about 1 s; before the fix it never ended). After both: the R2 witnesses and the round-1 one that reads its
+receipt at once, 50/50 alone and 40/40 under load.
