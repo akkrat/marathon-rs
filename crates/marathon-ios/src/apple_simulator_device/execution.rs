@@ -379,11 +379,12 @@ impl AppleSimulatorDevice {
         for transfer in &receipt.transfers {
             transfer.stop(disposed(), Some(deadline));
         }
-        let clock = context.clock.clone();
+        // The clock the window was sealed on, whoever's context this is.
+        let clock = self.services.context.clock.clone();
         let reserve =
             marathon_apple::cmd::device_commands::force_reserve_millis(self.services.timeouts.cancelled_batch_millis);
         let graceful = deadline.saturating_sub(reserve).saturating_sub(clock.now_millis());
-        if !self.wait_for(&receipt, graceful, context).await? {
+        if !self.wait_for(&receipt, graceful).await? {
             let session = self.state().last_session.clone().filter(|s| s.ended().is_none());
             let left = deadline.saturating_sub(clock.now_millis()).max(0);
             let forced = async {
@@ -397,7 +398,7 @@ impl AppleSimulatorDevice {
                         .await;
                 }
             };
-            let (_, waited) = tokio::join!(forced, self.wait_for(&receipt, left, context));
+            let (_, waited) = tokio::join!(forced, self.wait_for(&receipt, left));
             waited?;
         }
         let mut left = Vec::new();
@@ -432,7 +433,7 @@ impl AppleSimulatorDevice {
     }
     /// Waits up to `millis` for everything in `receipt`, and then for the last xcodebuild session's producer (a batch
     /// opens its session itself); whether all of it ended. Nothing left: no wait, only a look.
-    async fn wait_for(&self, receipt: &Receipt, millis: i64, context: &VendorContext) -> VendorResult<bool> {
+    async fn wait_for(&self, receipt: &Receipt, millis: i64) -> VendorResult<bool> {
         let ended = |device: &Self| {
             receipt.batches.iter().all(|b| b.done.completed().is_some())
                 && receipt.preparations.iter().all(|p| p.done.completed().is_some())
@@ -458,7 +459,9 @@ impl AppleSimulatorDevice {
         let sends = receipt.transfers.clone();
         let me = self.this()?;
         // Joining observes completion, not the jobs' results; the timeout only bounds this wait.
-        let finished = context
+        let finished = self
+            .services
+            .context
             .clock
             .with_timeout_or_null(
                 Signal::new(),
