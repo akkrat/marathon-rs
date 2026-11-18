@@ -3,7 +3,7 @@ use marathon_logging::{Component, Level};
 
 use crate::{
     apple_device::AppleDevice,
-    cmd::{failure, remote::ssh::sshj::config::SshLogging},
+    cmd::{failure, remote::ssh::sshj::config::SshLogging, retained_tasks::panic_as_error},
     listener::AppleTestRunListener,
     logparser::parser::{DeviceFailureException, DeviceFailureReason},
     model::AppleTestBundle,
@@ -166,7 +166,9 @@ impl AppleDeviceTestRunner {
         let session = XcodebuildSession::new(self.runtime.clone(), self.logging.clone());
         let mut channel = None;
         let mut had_test_result = false;
-        let mut result: Result<(), RunError> = async {
+        // D84: a panic in the run (a listener's, say) is its error, so that the cleanup below, which stops the
+        // listeners, the channel and the session, runs as it does for any other error.
+        let work = async {
             listener.before_test_run().await?;
             channel = Some(
                 self.device
@@ -188,9 +190,12 @@ impl AppleDeviceTestRunner {
                 }
             }
             self.log(Level::DEBUG, "Execution finished", None);
-            Ok(())
-        }
-        .await;
+            Ok::<(), RunError>(())
+        };
+        let mut result = match panic_as_error(async { Ok(work.await) }).await {
+            Ok(result) => result,
+            Err(panic) => Err(RunError::from(panic)),
+        };
         // Artifact/listener cleanup may replace the returned error; it did not end xcodebuild.
         let batch_end = result.clone();
         let mut run_failure = result.as_ref().err().cloned();
@@ -211,12 +216,12 @@ impl AppleDeviceTestRunner {
             );
             let notified = if timeout {
                 self.log(Level::ERROR, message.to_owned(), Some(diagnostic));
-                listener.test_run_failed(&message, DeviceFailureReason::Unknown).await
+                panic_as_error(listener.test_run_failed(&message, DeviceFailureReason::Unknown)).await
             } else {
                 let diagnostic = diagnostic.to_string();
                 self.log(Level::DEBUG, format!("Batch cancelled: {diagnostic}"), None);
                 // The default callback preserves report data; the debug listener uses only the diagnostic.
-                listener.test_run_cancelled(&message, &diagnostic).await
+                panic_as_error(listener.test_run_cancelled(&message, &diagnostic)).await
             };
             if let Err(error) = notified {
                 result = Err(error.into());
@@ -224,7 +229,7 @@ impl AppleDeviceTestRunner {
             }
         }
         // Explicit finally: cancellation never drops either artifact collection or stop.
-        if let Err(after) = listener.after_test_run().await {
+        if let Err(after) = panic_as_error(listener.after_test_run()).await {
             if after.failure().kind.is_fatal() {
                 // Kotlin catches Exception here; an Error replaces propagation without changing runFailure.
                 result = Err(after.into());

@@ -23,7 +23,11 @@ use marathon_apple::{
     apple_device_registry::AppleDeviceRegistry,
     artifact_processor::ArtifactProcessor,
     bin::xcrun::xcresulttool::describe_timeout,
-    cmd::{failure, remote::ssh::sshj::config::SshLogging, retained_tasks::RetainedTasks},
+    cmd::{
+        failure,
+        remote::ssh::sshj::config::SshLogging,
+        retained_tasks::{RetainedTasks, panic_as_error},
+    },
 };
 use marathon_config::{
     binding::BindingContext,
@@ -1140,10 +1144,24 @@ impl AppleSimulatorProvider {
             cancellation: self.monitor_cancel.clone(),
             ..self.services.context.clone()
         };
-        let task = self
-            .services
-            .runtime
-            .spawn(Box::pin(async move { this.monitor(initial, context).await }));
+        let task = self.services.runtime.spawn(Box::pin(async move {
+            let monitor = this.clone();
+            let result = panic_as_error(monitor.monitor(initial, context)).await;
+            // D84: the monitor is the only source of devices, and its join at termination discards its result. If it
+            // ends with an error, a panic included, the run hears of it through the device channel, which then fails,
+            // instead of waiting for devices that never come.
+            if let Err(error) = &result
+                && !matches!(error, VendorError::Cancelled(_))
+            {
+                this.log(
+                    Level::ERROR,
+                    || "Device monitoring failed".into(),
+                    Some(error.failure().clone()),
+                );
+                this.channel.close(Some(error.failure().clone()));
+            }
+            result
+        }));
         self.state().monitoring = Some(task);
         Ok(())
     }

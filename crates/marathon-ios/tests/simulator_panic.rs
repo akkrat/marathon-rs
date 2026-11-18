@@ -63,9 +63,16 @@ async fn a_batch_that_panics_ends_with_the_panic_and_does_not_hold_disposal_d84(
     let (d, _) = prepared(&h).await?;
     // The grant before the batch, which runs inside the batch's retained task.
     panic_on(&h, |cmd| cmd.get(2).is_some_and(|s| s == "privacy"));
+    assert_eq!(d.line_listener_count(), 0);
     let (outcome, results) = guarded("the batch", run(&h, &d)).await;
     assert!(matches!(&outcome, Err(error) if is_probe(error)), "{outcome:?}");
     assert!(results.is_none());
+    // Review round 1: the panic was after the batch's output-line listeners were installed. A retry must not inherit them.
+    assert_eq!(
+        d.line_listener_count(),
+        0,
+        "the panicked batch left its line listeners installed"
+    );
     guarded("the disposal", d.dispose()).await.unwrap();
     guarded("the retained tasks", d.join_retained()).await.unwrap();
     Ok(())
@@ -118,5 +125,86 @@ async fn a_provider_update_that_panics_ends_with_the_panic_d84() -> TestResult {
     )
     .await;
     assert!(matches!(&updated, Err(error) if is_probe(error)), "{updated:?}");
+    Ok(())
+}
+
+/// D84, review round 1: the provider's monitor provisions the first simulators itself (not through `process_update`).
+/// A panic there ended the monitor, whose result termination discards, and the run waited for devices until its
+/// device-initialization timeout. The device channel now fails with the panic.
+#[tokio::test(start_paused = true)]
+async fn a_monitor_that_panics_fails_the_device_channel_d84() -> TestResult {
+    let p = provider_support::ProviderHarness::new(|_| {})?;
+    std::fs::write(
+        p.h.dir.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: simulator, udid: a}]\n",
+    )?;
+    panic_on(&p.h, |_| true);
+    use marathon_core::vendor::DeviceProvider;
+    guarded(
+        "the initialization",
+        p.provider.initialize(p.h.services.context.clone()),
+    )
+    .await
+    .map_err(provider_support::test_error)?;
+    let received = guarded("the device channel", p.provider.subscribe().receive()).await;
+    match &received {
+        Err(error) => assert!(is_probe(error), "{error:?}"),
+        Ok(_) => panic!("the device channel did not fail"),
+    }
+    guarded("the termination", p.provider.terminate())
+        .await
+        .map_err(provider_support::test_error)?;
+    Ok(())
+}
+
+/// Panics when a test passes, from inside the runner's event processing.
+struct PanicsOnPass;
+impl marathon_apple::listener::AppleTestRunListener for PanicsOnPass {
+    fn test_passed<'a>(
+        &'a self,
+        _: &'a marathon_core::model::Test,
+        _: i64,
+        _: i64,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        Box::pin(async { panic!("{PROBE}") })
+    }
+}
+struct PanickingListeners;
+impl marathon_ios::apple_simulator_device::SimulatorListenerFactory for PanickingListeners {
+    fn create(
+        &self,
+        device: Arc<marathon_ios::apple_simulator_device::AppleSimulatorDevice>,
+        pool: marathon_core::model::DevicePoolId,
+        batch: marathon_core::model::BatchRef,
+        context: marathon_core::vendor::VendorContext,
+    ) -> marathon_core::error::VendorResult<marathon_ios::apple_simulator_device::SimulatorListeners> {
+        let mut listeners = marathon_ios::apple_simulator_device::MinimalSimulatorListenerFactory
+            .create(device, pool, batch, context)?;
+        listeners.artifacts = Arc::new(PanicsOnPass);
+        Ok(listeners)
+    }
+}
+
+/// D84, review round 1: a listener that panics while the runner processes the batch's events used to skip the
+/// runner's cleanup (`after_test_run`, the event channel's cancel and the xcodebuild session's stop), so the session's
+/// producer could stay blocked on its channel and hold the owner's drain. The panic is now the run's error and the
+/// cleanup runs: the batch ends with it, the session is closed, and the device's tasks drain.
+#[tokio::test(start_paused = true)]
+async fn a_listener_that_panics_still_lets_the_batch_clean_up_d84() -> TestResult {
+    let mut h = Harness::new(|_| {})?;
+    h.services.listeners = Arc::new(PanickingListeners);
+    let (d, script) = prepared(&h).await?;
+    script.output(passed(3));
+    let (outcome, _) = guarded("the batch", run(&h, &d)).await;
+    assert!(matches!(&outcome, Err(error) if is_probe(error)), "{outcome:?}");
+    assert_eq!(d.line_listener_count(), 0);
+    let closed = guarded(
+        "the session's close",
+        d.await_session_closed(jcompat::jtime::duration_of(1, 0).unwrap(), &h.services.context),
+    )
+    .await;
+    assert!(matches!(closed, Ok(true)), "{closed:?}");
+    guarded("the disposal", d.dispose()).await.unwrap();
+    guarded("the retained tasks", d.join_retained()).await.unwrap();
     Ok(())
 }

@@ -271,6 +271,11 @@ impl AppleSimulatorDevice {
     pub fn retire(&self) {
         self.state().retired = true;
     }
+    /// The output-line listeners installed now (D84 witnesses).
+    #[doc(hidden)]
+    pub fn line_listener_count(&self) -> usize {
+        self.lines.len()
+    }
     pub fn disposed(&self) -> bool {
         self.state().disposal.as_ref().is_some_and(|d| d.completed().is_some())
     }

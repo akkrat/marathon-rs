@@ -14,6 +14,19 @@ use marathon_config::vendor::GrantLifecycle;
 use marathon_core::executor::shared::Signal;
 use marathon_error::FailureKind;
 
+/// The line listeners a batch has installed, removed when it is dropped.
+struct InstalledLines<'a> {
+    device: &'a AppleSimulatorDevice,
+    lines: Vec<Arc<dyn LineListener>>,
+}
+impl Drop for InstalledLines<'_> {
+    fn drop(&mut self) {
+        for line in std::mem::take(&mut self.lines) {
+            let _ = self.device.remove_line_listener(&line);
+        }
+    }
+}
+
 pub(super) struct BatchJob {
     signal: Arc<Signal>,
     done: Arc<SharedDeferred<()>>,
@@ -152,8 +165,14 @@ impl AppleSimulatorDevice {
         }
         let (listeners, lines) =
             self.create_execution_listeners(pool, batch.clone(), result.clone(), context.clone())?;
+        // D84: removed however the batch ends, an unwind included, so that the next batch does not inherit them.
+        let mut installed = InstalledLines {
+            device: self,
+            lines: Vec::new(),
+        };
         for line in &lines {
             self.add_line_listener(line.clone())?;
+            installed.lines.push(line.clone());
         }
         let outcome = async {
             let bundle = self.state().bundle.clone().ok_or_else(|| {
@@ -183,8 +202,8 @@ impl AppleSimulatorDevice {
                 .await
         }
         .await;
-        for line in &lines {
-            self.remove_line_listener(line)?;
+        for line in std::mem::take(&mut installed.lines) {
+            self.remove_line_listener(&line)?;
         }
         outcome
     }

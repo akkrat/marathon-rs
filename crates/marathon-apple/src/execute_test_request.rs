@@ -33,6 +33,12 @@ impl LineListeners {
             entries.remove(index);
         }
     }
+    pub fn len(&self) -> usize {
+        self.entries.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     pub async fn on_line(&self, line: &str) -> VendorResult<()> {
         let _gate = self.gate.lock().await;
         let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner()).clone();
