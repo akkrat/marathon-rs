@@ -218,16 +218,16 @@ impl Drop for Dropped {
 }
 
 /// D87 (review round 2, item 1): the deadline never cuts a command of a replacement's held attempt; it only keeps one
-/// from starting that, run to its own limit, could end after the held bound, the deadline less `shutdown` + `shell`
-/// (60 s). A state read can take two commands under `shell` (30 s) and D30's 30 s each, 120 s. With 500 s left and a
-/// 200 s `bootWait`, the whole first attempt fails at 200 s; the held attempt's probes each take 25 s, the reads start at
-/// about 200, 226, 252, 278 and 304 s, and the next, at 330 s, could end after 440 s, so it does not start and the shutdown
-/// follows. No command is dropped, where the held attempt used to cut the probe running at its bound.
+/// from starting that, run to its worst case, could end after the held bound, the deadline less `shutdown` + `shell`
+/// (60 s). A state read is two commands, each at worst 3 × 30 s and `shell` (30 s): 240 s. With 1,500 s left and a
+/// 1,000 s `bootWait`, the whole first attempt fails at 1,000 s; the held attempt's probes each take 25 s, its reads start
+/// every 26 s from 1,000 s to 1,182 s, and the next, at 1,208 s, could end after 1,440 s, so it does not start and the
+/// shutdown follows. No command is dropped, where the held attempt used to cut the probe running at its bound.
 #[tokio::test(start_paused = true)]
 async fn a_held_boot_never_cuts_a_command_and_starts_none_that_could_outlast_its_bound_d87() -> TestResult {
-    let h = harness(200, 30)?;
+    let h = harness(1_000, 30)?;
     h.worker.cancellable_before.store(true, Ordering::SeqCst);
-    let d = replacement(&h, None, 500 * SECOND).await?;
+    let d = replacement(&h, None, 1_500 * SECOND).await?;
     h.boot.finish_after.store(usize::MAX, Ordering::SeqCst);
     let start = h.clock.now();
     let dropped = Arc::new(AtomicUsize::new(0));
@@ -245,7 +245,7 @@ async fn a_held_boot_never_cuts_a_command_and_starts_none_that_could_outlast_its
             }) as VendorFuture<'static, Option<CommandResult>>
         })
     });
-    let error = support::bounded(1_000, h.prepare(&d)).await.unwrap_err();
+    let error = support::bounded(3_000, h.prepare(&d)).await.unwrap_err();
     assert!(not_booted(&error), "{error:?}");
     assert_eq!(dropped.load(Ordering::SeqCst), 0, "a command was cut");
     let shutdowns: Vec<_> = at(&seen, "shutdown").into_iter().map(|t| t - start).collect();
@@ -255,8 +255,8 @@ async fn a_held_boot_never_cuts_a_command_and_starts_none_that_could_outlast_its
         "the first attempt is whole: {shutdowns:?}"
     );
     assert!(
-        (329 * SECOND..=331 * SECOND).contains(&shutdowns[1]),
-        "the held attempt ends when no further read could end by 440 s: {shutdowns:?}"
+        (1_207 * SECOND..=1_209 * SECOND).contains(&shutdowns[1]),
+        "the held attempt ends when no further read could end by 1,440 s: {shutdowns:?}"
     );
     h.finish(&[d]).await;
     Ok(())
@@ -568,5 +568,151 @@ async fn an_old_recovery_out_of_time_does_not_take_a_simulator_added_back_out_of
     assert!(!p.log("has not got ready within its preparation time"));
     p.update(&["a", "b"]).await?;
     assert_eq!(p.connected(1).await[0].udid(), "a");
+    p.balanced().await
+}
+
+// ---- Review round 3 ------------------------------------------------------------------------------------------------
+
+/// D87 (review round 3, item 1): a retry the deadline refuses stops nothing beside it. A replacement with 10 s left
+/// starts its whole boot; `simctl boot` takes 25 s. At 20 s the first send of the test bundle fails, and the deadline
+/// refuses its resend. The preparation lets the boot end on its own, then reports the send's failure; the boot's command
+/// is not cancelled, where the refusal used to fail the installation and cancel the boot beside it.
+#[tokio::test(start_paused = true)]
+async fn a_refused_transfer_retry_leaves_the_boot_beside_it_to_end_d87() -> TestResult {
+    let h = harness(60, 30)?;
+    h.worker.cancellable_before.store(true, Ordering::SeqCst);
+    let bridge = Arc::new(SlowFailingSends {
+        after: Duration::from_secs(20),
+        sends: AtomicUsize::new(0),
+    });
+    let d = replacement(&h, Some(bridge.clone()), 10 * SECOND).await?;
+    let dropped = Arc::new(AtomicUsize::new(0));
+    let count = dropped.clone();
+    let seen = on_commands(&h, move |boot, cmd, _| {
+        (cmd.len() == 4 && cmd[2] == "boot" && cmd[3] == "a").then(|| {
+            let reply = boot.answer(cmd);
+            let flag = Dropped(count.clone(), false);
+            Box::pin(async move {
+                let mut flag = flag;
+                tokio::time::sleep(Duration::from_secs(25)).await;
+                flag.1 = true;
+                Ok(reply)
+            }) as VendorFuture<'static, Option<CommandResult>>
+        })
+    });
+    let started = h.clock.now();
+    let error = h.prepare(&d).await.unwrap_err();
+    assert!(matches!(error, VendorError::DeviceSetup(_)), "{error:?}");
+    assert_eq!(bridge.sends.load(Ordering::SeqCst), 1, "the resend was refused");
+    assert_eq!(dropped.load(Ordering::SeqCst), 0, "the boot was cancelled");
+    assert_eq!(at(&seen, "boot").len(), 1);
+    assert!(h.clock.now() - started >= 25 * SECOND, "it waited for the boot");
+    h.finish(&[d]).await;
+    Ok(())
+}
+
+/// D87 (review round 3, item 2): every check of a held attempt counts a command's worst case, from asking for its SSH
+/// channel to D30's escalation: 3 × 30 s and its own limit. With 600 s left and a 400 s `bootWait`, the whole first
+/// attempt fails at 400 s and the held attempt's bound is 540 s (the deadline less `shutdown` + `shell`). Its commands
+/// here take what a slow worker can make them take within their limits: `simctl boot` 15 s, then the descriptor read and
+/// the probe 65 s each (20 s opening the channel, 20 s for the exec's acknowledgment, 25 s for the result). Counting only
+/// `shell` and D30 for each, a read admitted at 415 s would end at 545 s and the shutdown start with 55 s of its 60 s
+/// reserve; counting the worst case, no read starts, and every shutdown keeps its whole reserve.
+#[tokio::test(start_paused = true)]
+async fn a_held_boot_counts_each_commands_worst_case_so_the_shutdown_keeps_its_reserve_d87() -> TestResult {
+    let h = harness(400, 30)?;
+    let d = replacement(&h, None, 600 * SECOND).await?;
+    h.boot.finish_after.store(usize::MAX, Ordering::SeqCst);
+    let start = h.clock.now();
+    let seen = on_commands(&h, |boot, cmd, _| {
+        let slow = match cmd.first().map(String::as_str) {
+            Some("xcrun") if cmd.get(2).is_some_and(|s| s == "boot") && boot.boots.load(Ordering::SeqCst) >= 1 => 15,
+            Some("cat") if boot.boots.load(Ordering::SeqCst) >= 2 => 65,
+            Some("xcrun") if cmd.get(4).is_some_and(|s| s == "launchctl") && boot.boots.load(Ordering::SeqCst) >= 2 => {
+                65
+            }
+            _ => 0,
+        };
+        (slow > 0).then(|| {
+            let reply = boot.answer(cmd);
+            Box::pin(async move {
+                tokio::time::sleep(Duration::from_secs(slow)).await;
+                Ok(reply)
+            }) as VendorFuture<'static, Option<CommandResult>>
+        })
+    });
+    let error = h.prepare(&d).await.unwrap_err();
+    assert!(not_booted(&error), "{error:?}");
+    let shutdowns: Vec<_> = at(&seen, "shutdown").into_iter().map(|t| t - start).collect();
+    assert!(!shutdowns.is_empty());
+    assert!(
+        shutdowns.iter().all(|t| *t <= 540 * SECOND),
+        "a shutdown started within its reserve: {shutdowns:?}"
+    );
+    h.finish(&[d]).await;
+    Ok(())
+}
+
+/// D87 (review round 3, item 3): the preparation belongs to the recovery's claim, not to how the loss was classified. A
+/// replacement inherits the episode; its worker drops while its first boot is still waiting for `simctl boot`; the scan
+/// takes it for a worker's loss. When the worker answers again, the simulator set up continues the same deadline, where
+/// a worker's loss used to hand nothing on and the reconnect started the time afresh under the same claim.
+#[tokio::test(start_paused = true)]
+async fn a_worker_dropping_during_a_replacements_boot_does_not_renew_the_preparations_deadline_d87() -> TestResult {
+    let p = recovery(30_000, |_| {})?;
+    p.start(&["a", "b"]).await?;
+    p.connected(2).await;
+    let a = p.current("a");
+    let episode = open(&p, &a)?;
+    p.lose(&a).await;
+    let first = loop {
+        let device = p.connected(1).await.remove(0);
+        if device.udid() == "a" {
+            break device;
+        }
+    };
+    assert_eq!(
+        first.preparation_episode().map(|e| e.deadline()),
+        Some(episode.deadline())
+    );
+    // Its first boot waits for `simctl boot`, which ends only when the command is cancelled.
+    p.h().worker.cancellable_before.store(true, Ordering::SeqCst);
+    let boot = p.h().boot.clone();
+    *p.h().worker.before.lock().unwrap() = Arc::new(move |c| {
+        let answer = boot.answer(&c);
+        let hold = c == ["xcrun", "simctl", "boot", "a"];
+        Box::pin(async move {
+            if hold {
+                std::future::pending::<()>().await;
+            }
+            Ok(answer)
+        })
+    });
+    let preparing = {
+        let (d, configuration, context) = (
+            first.clone(),
+            p.h().services.configuration.clone(),
+            p.h().services.context.clone(),
+        );
+        tokio::spawn(async move { d.prepare(configuration, context).await })
+    };
+    advance(1_000).await;
+    assert!(!preparing.is_finished(), "the first boot is pending");
+    p.h().worker.connected.store(false, Ordering::SeqCst);
+    advance(5_000).await;
+    p.h().worker.connected.store(true, Ordering::SeqCst);
+    let second = loop {
+        let device = p.connected(1).await.remove(0);
+        if device.udid() == "a" {
+            break device;
+        }
+    };
+    assert!(!Arc::ptr_eq(&second, &first));
+    assert_eq!(
+        second.preparation_episode().map(|e| e.deadline()),
+        Some(episode.deadline()),
+        "the setup after the worker's return continues the preparation"
+    );
+    let _ = preparing.await;
     p.balanced().await
 }
