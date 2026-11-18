@@ -186,10 +186,15 @@ continuation registration between child callbacks is retired. D65 preserves the
 exit-code policy; a corrected run outcome can select a different existing status.
 
 The actor's close path cancels its owner job; the receiver is a separate child.
-A receive that throws cancellation closes the mailbox and completes the receiver
-without completing the owner. Cancelling only the receiver also interrupts a
-handler's delay through its receiver task context, preserving cleanup and leaving
-actor-scoped siblings active. Mailbox closure is independent of owner completion.
+A receive that throws a cancellation the receiver was given (its own, or its
+owner's) closes the mailbox and completes the receiver without completing the
+owner. Cancelling only the receiver also interrupts a handler's delay through its
+receiver task context, preserving cleanup and leaving actor-scoped siblings
+active. Mailbox closure is independent of owner completion. D84: a handler that
+returns a cancellation the receiver was not given (a call of its own that was
+cancelled) fails the receiver, and with it the owner, with a cause naming the
+actor; the Scheduler hears of a failed queue, pool or device subscription,
+stops every pool, waits for them and returns the first cause.
 
 WP 8.19 / D65 observes Scheduler's retained insertion-ordered pool index. Clone
 pool i and release the map borrow, join its actor and supervisor with the caller's
