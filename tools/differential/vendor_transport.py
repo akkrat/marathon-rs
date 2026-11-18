@@ -305,8 +305,42 @@ def host_argv(data, values, before_d31=False):
 # by `evidence.may_withhold`): a native run of today's code that wiped the storage again differs from them.
 D27_WIPE = frozenset(['rm -r /sdcard', 'mkdir /sdcard'])
 
+# D85: the older steady-state recordings have no boot ID read during setup. Match its exact wire request
+# between the setup's final property read and feature query, then require the fake's complete built-in reply.
+D85_BOOT_ID = 'cat /proc/sys/kernel/random/boot_id'
 
-def adb(data, ran_the_wipe=False):
+
+def d85_setup_probes(rows):
+    requests = defaultdict(list)
+    for row in rows:
+        if row['type'] != 'request':
+            continue
+        service = row['service']
+        serial = row.get('serial')
+        if service.startswith('host-serial:') and service.endswith(':features'):
+            serial = service[len('host-serial:'):-len(':features')]
+        if serial is not None and not service.startswith('host:transport:'):
+            requests[serial].append(row)
+    return {
+        (probe['conn'], serial)
+        for serial, lane in requests.items()
+        for before, probe, after in zip(lane, lane[1:], lane[2:])
+        if before['service'] == 'shell:getprop;echo x$?'
+        and probe['service'] == f'shell:{D85_BOOT_ID};echo x$?'
+        and after['service'] == f'host-serial:{serial}:features'
+    }
+
+
+def d85_builtin_probe(session):
+    return session == {
+        'serial': session['serial'], 'command': D85_BOOT_ID, 'service': 'shell', 'protocol': 'raw',
+        'exit_code_trick': True, 'stdin_bytes': None, 'stdin_sha256': None, 'handler': 'builtin',
+        'rule': None, 'exit_code': 0, 'hang': False,
+        'stdout': b'00000000-0000-4000-8000-000000000001\n', 'stderr': b'',
+    }
+
+
+def adb(data, ran_the_wipe=False, d85_native_setup=False):
     rows = records(data)
     e.require(rows[-1] == dict(type='event',event='server_stopped'),'incomplete ADB shutdown')
     sessions, lanes, wiped = {}, defaultdict(list), set()
@@ -340,7 +374,10 @@ def adb(data, ran_the_wipe=False):
                 lanes['events'].append({k:v for k,v in row.items() if k != 'conn'})
         else:
             raise e.Invalid('unknown ADB transcript record: ' + kind)
-    for session in sessions.values():
+    setup_probes = d85_setup_probes(rows) if d85_native_setup else set()
+    for conn, session in sessions.items():
+        if (conn, session['serial']) in setup_probes and d85_builtin_probe(session):
+            continue
         for stream in ('stdout','stderr'):
             session[stream] = base64.b64encode(session[stream]).decode()
         lane = 'logcat:' if session['command'].startswith('logcat') else 'device:'

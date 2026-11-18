@@ -37,7 +37,7 @@ use marathon_core::{
     model::*,
     runtime::*,
     time::ReplayDriver,
-    vendor::{DeviceEvent, DeviceProvider, DeviceRef, VendorContext, VendorServices},
+    vendor::{Device, DeviceEvent, DeviceProvider, DeviceRef, VendorContext, VendorServices},
 };
 use marathon_logging::LogSettings;
 use marathon_test_support::{
@@ -51,7 +51,7 @@ use std::{
     path::{Path, PathBuf},
     rc::Rc,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock, Weak,
         atomic::{AtomicBool, AtomicI64, Ordering},
     },
     time::Duration,
@@ -64,7 +64,8 @@ const TEST_MILLIS: i64 = 4000;
 const STEP_MILLIS: i64 = 50;
 /// Real time given to the loopback sockets after each virtual step.
 const SETTLE: Duration = Duration::from_millis(4);
-const LIMIT_MILLIS: i64 = 400_000;
+/// Leave room for 30 preparation attempts with their own install retries before D48's wait.
+const LIMIT_MILLIS: i64 = 500_000;
 /// A scripted event may wait this long (virtual) for the state it needs before the scenario fails.
 const MAX_LATE_MILLIS: i64 = 3000;
 const HELD_IN_KOTLIN: &str = "rm ";
@@ -91,6 +92,8 @@ struct VirtualDuration {
     delaying: Delaying,
     /// U197: the batch whose test is held at its start, given the batch's result.
     hold: Option<Arc<HeldTest>>,
+    /// D85: a full restart invalidates the setup of this device instance.
+    before_reboot: Arc<OnceLock<Weak<dyn Device>>>,
 }
 /// U197: holds the runner at the start of one test until the core has accounted for that test's batch, as when the core
 /// hears that the device is gone before the runner hears its stream end. The fake ends a device's sessions as it goes, so
@@ -168,6 +171,20 @@ impl AndroidBatchExecutor for VirtualDuration {
             let delay = Delay(self.delaying.clone(), port);
             self.clock.delay(TEST_MILLIS, context.cancellation.clone()).await?;
             drop(delay);
+            if self
+                .before_reboot
+                .get()
+                .and_then(Weak::upgrade)
+                .is_some_and(|old| Arc::ptr_eq(&old, &device.reference().0))
+            {
+                device
+                    .wait_for_next_instrumentation(&batch, || Ok(None), &context)
+                    .await?;
+                return Err(VendorError::BatchExecution(marathon_core::executor::shared::failure(
+                    FailureKind::DeviceLost,
+                    "test setup lost in reboot",
+                )));
+            }
             if let Some(hold) = &self.hold
                 && !hold.holding.load(Ordering::SeqCst)
             {
@@ -251,7 +268,7 @@ fn load(name: &str) -> (Value, Vec<Event>, usize) {
     (script, events, 0)
 }
 
-fn marathonfile(ports: &[u16], output: &Path, quota: Option<i32>, batch_size: Option<i32>) -> Vec<u8> {
+fn marathonfile(ports: &[u16], output: &Path, options: &Options) -> Vec<u8> {
     let apk = |name: &str| {
         fixture(&format!("vendor-android/apk/{name}"))
             .to_string_lossy()
@@ -281,11 +298,14 @@ fn marathonfile(ports: &[u16], output: &Path, quota: Option<i32>, batch_size: Op
             "adbServers": ports.iter().map(|p| json!({"host": "127.0.0.1", "port": p})).collect::<Vec<_>>()
         }
     });
-    if let Some(quota) = quota {
+    if let Some(quota) = options.quota {
         file["uncompletedTestRetryQuota"] = json!(quota);
     }
-    if let Some(size) = batch_size {
+    if let Some(size) = options.batch_size {
         file["batchingStrategy"] = json!({"type": "fixed-size", "size": size});
+    }
+    if let Some(wait) = options.device_initialization_timeout_millis {
+        file["deviceInitializationTimeoutMillis"] = json!(wait);
     }
     file.to_string().into_bytes()
 }
@@ -467,6 +487,8 @@ struct Options {
     batch_size: Option<i32>,
     /// Keep the run's output files, made reproducible: the wall clock is frozen at [`WALL`] and batch IDs are numbered.
     results: bool,
+    reboot: bool,
+    device_initialization_timeout_millis: Option<i64>,
 }
 /// The frozen wall clock of a run that keeps its output files, as the native goldens' probe has it.
 const WALL: i64 = 1_577_836_800_000;
@@ -474,12 +496,12 @@ const WALL: i64 = 1_577_836_800_000;
 fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observed {
     let Options {
         lost_requests,
-        quota,
         while_unstarted,
         hold_at,
         hold_behind,
-        batch_size,
         results,
+        reboot,
+        ..
     } = options;
     let hold = hold_at.map(|class| {
         Arc::new(HeldTest {
@@ -536,6 +558,8 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
     let tap: Tapped = Arc::default();
     let log_tap = tap.clone();
     let final_tap = tap.clone();
+    let before_reboot = Arc::<OnceLock<Weak<dyn Device>>>::default();
+    let executor_reboot = before_reboot.clone();
     let script_events = events.clone();
     let gate_started = started.clone();
     let output = checked(tempfile::tempdir());
@@ -550,9 +574,8 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
         analytics_tracking: false,
         bugsnag_reporting: false,
     };
-    let configuration = checked(
-        MarathonConfigurationLoader.parse_sync(&marathonfile(&ports, output.path(), quota, batch_size), &context),
-    );
+    let configuration =
+        checked(MarathonConfigurationLoader.parse_sync(&marathonfile(&ports, output.path(), &options), &context));
     let driven = servers.clone();
     // The executor's own watchdog must outlast RUN_TIMEOUT, or it fires first on a slow runner (U180).
     let observed = CoreExecutor::run_virtual_with_watchdog(
@@ -627,6 +650,7 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
                                 lost_requests,
                                 delaying: log_delaying,
                                 hold: log_hold,
+                                before_reboot: executor_reboot,
                             });
                             let mut services = create_services_with_executor(dependencies, executor).await?;
                             services.provider = Arc::new(TappedProvider {
@@ -746,6 +770,14 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
                         }
                         let server = &driven[event.server];
                         if let Some(restart_after) = event.kill {
+                            if reboot {
+                                let device = &checked_lock(&tap)[0].2;
+                                checked(
+                                    before_reboot
+                                        .set(Arc::downgrade(&device.0))
+                                        .map_err(|_| "second reboot"),
+                                );
+                            }
                             server.kill(restart_after);
                             next_event += 1;
                             continue;
@@ -1096,6 +1128,181 @@ fn a_run_survives_an_adb_server_restart_d22() {
     assert!(observed.received.iter().all(|r| r.0), "{:?}", observed.received);
     assert_eq!(actor_messages(&observed, "emulator-5554", "initialize "), 1);
     assert_eq!(pool_warnings(&observed), 0);
+}
+
+fn one_test_script() -> (Value, usize) {
+    let (mut script, _, index) = load("same-server");
+    let rules = script["shell"].as_array_mut().unwrap();
+    let discovery = rules
+        .iter_mut()
+        .find(|rule| rule["regex"] == "^am instrument.* -e log true")
+        .unwrap();
+    let (first, _) = discovery["stdout"]
+        .as_str()
+        .unwrap()
+        .split_once("INSTRUMENTATION_STATUS: class=com.example.T01")
+        .unwrap();
+    discovery["stdout"] = json!(format!("{first}INSTRUMENTATION_CODE: -1\n"));
+    (script, index)
+}
+
+const BOOT_ID: &str = "cat /proc/sys/kernel/random/boot_id";
+
+fn return_from_outage_d85(reboot: bool, unanswered: bool) -> Observed {
+    let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
+    let (mut script, index) = one_test_script();
+    if reboot {
+        script["devices"][0]["shell"] = json!([
+            {"exact": BOOT_ID, "times": 1, "stdout": "00000000-0000-4000-8000-000000000002\n"}
+        ]);
+    } else if unanswered {
+        script["devices"][0]["shell"] = json!([
+            {"exact": BOOT_ID, "times": 1, "stdout": "00000000-0000-4000-8000-000000000001\n"},
+            {"exact": BOOT_ID, "times": 1, "hang": true}
+        ]);
+    }
+    let outage = Event {
+        server: 0,
+        at_ms: 1_000,
+        connect: false,
+        serial: String::new(),
+        kill: Some(Some(Duration::from_millis(300))),
+        state: None,
+    };
+    run_with(
+        vec![(script, vec![outage], index)],
+        Options {
+            quota: Some(0),
+            while_unstarted: true,
+            reboot,
+            ..Options::default()
+        },
+    )
+}
+
+#[test]
+fn a_reboot_during_an_outage_replaces_the_device_without_charging_its_parked_batch_d85() {
+    let observed = return_from_outage_d85(true, false);
+    assert!(matches!(observed.result, Some(Ok(true))), "{:?}", observed.lines);
+    assert_eq!(
+        observed.received.iter().map(|r| r.0).collect::<Vec<_>>(),
+        [true, false, true]
+    );
+    assert_eq!(observed.received[0].2, observed.received[1].2);
+    assert_ne!(observed.received[0].2, observed.received[2].2);
+    assert_eq!(actor_messages(&observed, "emulator-5554", "initialize "), 2);
+    assert_eq!(observed.batches.len(), 2, "{:?}", observed.batches);
+    assert_eq!(
+        observed.transcripts[0]
+            .iter()
+            .filter(|r| r["type"] == "shell" && r["command"].as_str().is_some_and(|cmd| cmd.contains(" -e class ")))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn an_outage_on_the_same_boot_probes_and_reopens_the_original_gate_d85() {
+    assert_outage_kept_the_original_device(return_from_outage_d85(false, false));
+}
+
+#[test]
+fn an_unanswered_boot_probe_reopens_the_outage_gate_d85() {
+    assert_outage_kept_the_original_device(return_from_outage_d85(false, true));
+}
+
+fn assert_outage_kept_the_original_device(observed: Observed) {
+    assert!(matches!(observed.result, Some(Ok(true))), "{:?}", observed.lines);
+    assert_eq!(observed.received.len(), 1);
+    assert!(observed.received[0].0);
+    assert_eq!(observed.batches.len(), 1);
+    let commands: Vec<_> = observed.transcripts[0]
+        .iter()
+        .filter(|r| r["type"] == "shell")
+        .collect();
+    assert_eq!(commands.iter().filter(|r| r["command"] == BOOT_ID).count(), 2);
+    let first_test = commands
+        .iter()
+        .position(|r| r["command"].as_str().is_some_and(|cmd| cmd.contains(" -e class ")))
+        .unwrap();
+    let probe = commands.iter().rposition(|r| r["command"] == BOOT_ID).unwrap();
+    assert!(probe < first_test);
+}
+
+fn run_prepare_exhaustion(failures: Option<u32>) -> Observed {
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (mut script, index) = one_test_script();
+    script["devices"][0]["shell"] = json!([
+        {"prefix":"package install","service":"abb_exec","times":2,"stdout":"Success\n"},
+        {"prefix":"package install","service":"abb_exec","times":failures,
+            "stdout":"Failure [INSTALL_FAILED_INSUFFICIENT_STORAGE]\n","exit_code":1}
+    ]);
+    run_with(
+        vec![(script, vec![], index)],
+        Options {
+            quota: Some(0),
+            device_initialization_timeout_millis: Some(20_000),
+            ..Options::default()
+        },
+    )
+}
+
+#[test]
+fn a_still_listed_device_gets_one_new_setup_after_prepare_is_exhausted_d85() {
+    let observed = run_prepare_exhaustion(Some(90));
+    let failed = observed.transcripts[0]
+        .iter()
+        .filter(|row| {
+            row["type"] == "shell"
+                && row["service"] == "abb_exec"
+                && row["handler"] == "script"
+                && row["exit_code"] == 1
+                && row["command"]
+                    .as_str()
+                    .is_some_and(|cmd| cmd.starts_with("package install"))
+        })
+        .count();
+    assert_eq!(
+        failed, 90,
+        "ended after {} ms: {:?}",
+        observed.virtual_millis, observed.result
+    );
+    assert!(
+        matches!(observed.result, Some(Ok(true))),
+        "ended after {} ms: {:?}",
+        observed.virtual_millis,
+        observed.result
+    );
+    assert_eq!(
+        observed.received.iter().map(|r| r.0).collect::<Vec<_>>(),
+        [true, false, true]
+    );
+    assert_ne!(observed.received[0].2, observed.received[2].2);
+    assert_eq!(actor_messages(&observed, "emulator-5554", "initialize "), 2);
+    assert_eq!(observed.batches.len(), 1);
+}
+
+#[test]
+fn a_failed_reprovision_does_not_extend_the_last_devices_wait_d85() {
+    let observed = run_prepare_exhaustion(None);
+    assert!(
+        matches!(observed.result, Some(Ok(false))),
+        "ended after {} ms: {:?}, events: {:?}, last lines: {:?}",
+        observed.virtual_millis,
+        observed.result,
+        observed.received,
+        &observed.lines[observed.lines.len().saturating_sub(25)..]
+    );
+    assert_eq!(
+        observed.received.iter().map(|r| r.0).collect::<Vec<_>>(),
+        [true, false, true]
+    );
+    assert_eq!(actor_messages(&observed, "emulator-5554", "initialize "), 2);
+    assert!(observed.batches.is_empty());
+    assert!(observed.lines.iter().any(|line| matches!(
+        line,
+        Line::Log { message, .. } if message.ends_with("no device returned within deviceInitializationTimeoutMillis (20000 ms)")
+    )));
 }
 
 /// D22: a server that never returns does not keep the run alive. Its devices are disconnected after

@@ -697,8 +697,11 @@ def normalized(directory, contract, native=False):
                     content = base64.b64encode(console).decode()
                 elif name == 'host-argv.jsonl':
                     content = vendor_transport.host_argv(data,record['identities'],may_withhold(directory,record))
+                elif contract['transport'] == 'ssh':
+                    content = vendor_transport.ssh(data,contract['vendor'],may_withhold(directory,record))
                 else:
-                    content = vendor_transport.ssh(data,contract['vendor'],may_withhold(directory,record)) if contract['transport'] == 'ssh' else vendor_transport.adb(data,may_withhold(directory,record))
+                    content = vendor_transport.adb(data, may_withhold(directory,record),
+                                                   d85_native_setup=record['implementation'] == 'native')
             elif native and (name == 'state.json' or name.startswith(('reports/', 'tree/'))) and name.endswith(('.json', '.xml', '.yml', '.yaml')):
                 content = native_content(name, data)
             elif mode == 'allure-json':

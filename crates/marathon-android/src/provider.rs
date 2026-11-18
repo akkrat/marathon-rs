@@ -2,7 +2,7 @@
 //! and adam/src/main/kotlin/com/malinskiy/adam/interactor/{StartAdbInteractor,AdbBinaryInteractor}.kt.
 
 use crate::{
-    device::AndroidDevice,
+    device::{AndroidDevice, ReturnedBoot},
     services::AndroidRuntime,
     support::*,
     tracker::{DeviceStateTracker, MultiServerDeviceStateTracker, TrackingUpdate, is_passing},
@@ -40,6 +40,8 @@ struct Provided {
     reference: DeviceRef,
     task: Arc<dyn VendorTask>,
     ready: Arc<AtomicBool>,
+    /// A replacement inherits the allowance while adb still lists this serial on the same boot.
+    retried_prepare: bool,
 }
 struct Inner {
     runtime: Arc<AndroidRuntime>,
@@ -260,15 +262,54 @@ impl AdamDeviceProvider {
             loop {
                 let event = cancellable(context.cancellation.clone(), async { Ok(rx.recv().await) }).await?;
                 let Some(event) = event else { return Ok(()) };
-                let (client, devices) = match event? {
-                    Tracked::Devices(client, devices) => (client, devices),
+                let (client, updates, retried_prepare) = match event? {
+                    Tracked::Devices(client, devices) => {
+                        let updates = self.inner.trackers.update(&client, &devices);
+                        (client, updates, false)
+                    }
+                    Tracked::Replace(client, device, reason) => {
+                        let serial = device.adb_serial().to_owned();
+                        let tracker = self.inner.trackers.tracker(&client);
+                        let key = (server_name(&client), serial.clone());
+                        let retried = lock(&self.inner.devices)
+                            .get(&key)
+                            .filter(|p| p.device.is_same(&device))
+                            .map(|p| p.retried_prepare);
+                        let Some(retried) = retried else { continue };
+                        if tracker.get_state(&serial) != Some(DeviceState::Device) {
+                            continue;
+                        }
+                        let retried_prepare = match reason {
+                            Replacement::PrepareFailed if !retried && self.can_retry_prepare(&device, &context) => {
+                                self.log(
+                                    Level::WARN,
+                                    &format!(
+                                        "Preparing device {serial} exhausted its retries. Setting it up once more"
+                                    ),
+                                    None,
+                                );
+                                true
+                            }
+                            Replacement::PrepareFailed => continue,
+                            Replacement::Unready | Replacement::InterruptedSetup => retried,
+                            Replacement::Rebooted => false,
+                        };
+                        (
+                            client,
+                            vec![
+                                (serial.clone(), TrackingUpdate::Disconnected),
+                                (serial, TrackingUpdate::Connected),
+                            ],
+                            retried_prepare,
+                        )
+                    }
                     Tracked::Handled(done) => {
                         let _ = done.send(());
                         continue;
                     }
                 };
                 let server = server_name(&client);
-                for (serial, update) in self.inner.trackers.update(&client, &devices) {
+                for (serial, update) in updates {
                     match update {
                         TrackingUpdate::Connected => {
                             let device = AndroidDevice::new(
@@ -340,6 +381,7 @@ impl AdamDeviceProvider {
                                     reference,
                                     task,
                                     ready,
+                                    retried_prepare,
                                 },
                             );
                             let finish = context
@@ -361,6 +403,7 @@ impl AdamDeviceProvider {
                                 reference,
                                 task,
                                 ready,
+                                ..
                             }) = provided
                             {
                                 device.mark_disconnected();
@@ -448,6 +491,7 @@ impl AdamDeviceProvider {
                     elapsed = settled(&mut settling) => elapsed.map(|()| TrackStep::Settled),
                     over = blips.next_over() => over.map(TrackStep::BlipOver),
                     done = recoveries.next() => Ok(TrackStep::Recovered(done)),
+                    () = tracker.prepare_failed.notified(), if settling.is_none() => Ok(TrackStep::PrepareFailed),
                 }
             })
             .await?;
@@ -474,9 +518,11 @@ impl AdamDeviceProvider {
                     continue;
                 }
                 TrackStep::Recovered(done) => {
-                    // The list as the core has it, with the devices in their grace period as `device`.
-                    let shown = blips.shown();
-                    self.recovered(&client, done, shown, recoveries, tx, &context).await?;
+                    self.recovered(&client, done, recoveries, tx, &context).await?;
+                    continue;
+                }
+                TrackStep::PrepareFailed => {
+                    self.retry_failed_prepares(&client, &tracker, tx, &context).await?;
                     continue;
                 }
                 TrackStep::BlipOver(serial) => {
@@ -546,6 +592,52 @@ impl AdamDeviceProvider {
                 .on_device_list(&client, devices, settling, &mut blips, recoveries, tx, &context)
                 .await?;
         }
+    }
+    fn can_retry_prepare(&self, device: &AndroidDevice, context: &VendorContext) -> bool {
+        let limit = self
+            .inner
+            .runtime
+            .dependencies
+            .configuration
+            .device_initialization_timeout_millis;
+        device
+            .prepare_failed_at()
+            .is_some_and(|at| context.clock.now_millis().saturating_sub(at) < limit)
+    }
+    /// A failed prepare is a pool event, so adb may never send another list. Coalesced wakes are safe because
+    /// the failure belongs to the device instance, and the event loop verifies that instance before replacing it.
+    async fn retry_failed_prepares(
+        &self,
+        client: &AndroidDebugBridgeClient,
+        tracker: &DeviceStateTracker,
+        tx: &TrackedSender,
+        context: &VendorContext,
+    ) -> VendorResult<()> {
+        handled(tx, context.cancellation.clone()).await?;
+        let server = server_name(client);
+        let mut sent = false;
+        {
+            let devices = lock(&self.inner.devices);
+            for ((_, serial), p) in devices.iter().filter(|((name, _), _)| *name == server) {
+                if !p.retried_prepare
+                    && self.can_retry_prepare(&p.device, context)
+                    && tracker.get_state(serial) == Some(DeviceState::Device)
+                    && !tracker.is_held(serial)
+                    && !tracker.is_restoring(serial)
+                {
+                    send(
+                        tx,
+                        Tracked::Replace(client.clone(), p.device.clone(), Replacement::PrepareFailed),
+                    )?;
+                    sent = true;
+                }
+            }
+        }
+        // Let the replacements finish before another list can hold any of these serials.
+        if sent {
+            handled(tx, context.cancellation.clone()).await?;
+        }
+        Ok(())
     }
     /// A list from the stream. While the window after a reconnect is open, a device that was there before the outage
     /// counts as present: a restarted server lists it late, often `offline` first.
@@ -699,7 +791,6 @@ impl AdamDeviceProvider {
         &self,
         client: &AndroidDebugBridgeClient,
         done: Done,
-        shown: Vec<AdbDevice>,
         recoveries: &mut Recoveries,
         tx: &TrackedSender,
         context: &VendorContext,
@@ -716,8 +807,7 @@ impl AdamDeviceProvider {
         }
         let tracker = self.inner.trackers.tracker(client);
         // A recovery fails only by a cancellation, which a current one sees only as the loop ends, or a panic. After a
-        // panic the device's state is unknown, so it is set up again, as when its probe fails; ending the loop instead
-        // would end the server's tracking.
+        // panic use the same fallback as an unanswered probe; ending the loop would end the server's tracking.
         let outcome = match done.outcome {
             Ok(outcome) => outcome,
             Err(e @ VendorError::Cancelled(_)) => return Err(e),
@@ -727,28 +817,39 @@ impl AdamDeviceProvider {
                     &format!("Recovering device {serial} failed"),
                     Some(e.failure()),
                 );
-                Recovered::Restarted
+                match kind {
+                    Recovery::Blip => Recovered::Replace(Replacement::Unready),
+                    Recovery::Outage => Recovered::Resumed,
+                }
             }
         };
-        match (kind, outcome) {
-            (Recovery::Blip, Recovered::Resumed) => {
+        match outcome {
+            Recovered::Resumed if kind == Recovery::Blip => {
                 self.log(Level::INFO, &format!("Device {serial} is back"), None);
-                tracker.release(&serial);
             }
-            (Recovery::Blip, Recovered::Restarted) => {
-                // As after an outage: the normal disconnect, then the normal connect, whose setup waits for the boot.
-                let without = shown.iter().filter(|d| d.serial != serial).cloned().collect();
-                send(tx, Tracked::Devices(client.clone(), without))?;
-                send(tx, Tracked::Devices(client.clone(), shown))?;
+            Recovered::Resumed => {}
+            Recovered::Replace(reason) => {
+                // The old instance must be marked disconnected before its gate opens and wakes its batches.
+                send(tx, Tracked::Replace(client.clone(), device.clone(), reason))?;
                 handled(tx, context.cancellation.clone()).await?;
+                let why = if reason == Replacement::Rebooted {
+                    "rebooted"
+                } else {
+                    "returned as if restarted"
+                };
                 self.log(
                     Level::WARN,
-                    &format!("Device {serial} returned as if restarted; setting it up again"),
+                    &format!("Device {serial} {why}; setting it up again"),
                     None,
                 );
-                tracker.release(&serial);
             }
-            (Recovery::Outage, _) => tracker.restored(&serial),
+        }
+        match kind {
+            Recovery::Blip => tracker.release(&serial),
+            Recovery::Outage => tracker.restored(&serial),
+        }
+        if device.prepare_failed_at().is_some() {
+            tracker.prepare_failed.notify_one();
         }
         Ok(())
     }
@@ -773,9 +874,9 @@ impl AdamDeviceProvider {
         let (interrupted, resumed) = {
             let provided = lock(&self.inner.devices);
             let mine = || provided.iter().filter(|((s, _), _)| *s == server);
-            let interrupted: Vec<String> = mine()
+            let interrupted: Vec<AndroidDevice> = mine()
                 .filter(|((_, serial), p)| kept.contains(serial) && !p.ready.load(Ordering::Acquire))
-                .map(|((_, serial), _)| serial.clone())
+                .map(|(_, p)| p.device.clone())
                 .collect();
             let resumed: Vec<AndroidDevice> = mine()
                 .filter(|(_, p)| p.ready.load(Ordering::Acquire))
@@ -783,16 +884,14 @@ impl AdamDeviceProvider {
                 .collect();
             (interrupted, resumed)
         };
-        if !interrupted.is_empty() {
-            let without = blips
-                .shown_of(&devices)
-                .into_iter()
-                .filter(|d| !interrupted.contains(&d.serial))
-                .collect();
-            send(tx, Tracked::Devices(client.clone(), without))?;
-        }
         self.offer(client, devices, &kept, blips, recoveries, tx, context)
             .await?;
+        for device in interrupted {
+            send(
+                tx,
+                Tracked::Replace(client.clone(), device, Replacement::InterruptedSetup),
+            )?;
+        }
         handled(tx, context.cancellation.clone()).await?;
         let restoring: Vec<AndroidDevice> = resumed.into_iter().filter(|d| d.info().healthy).collect();
         let serials: Vec<String> = restoring.iter().map(|d| d.adb_serial().to_owned()).collect();
@@ -954,14 +1053,23 @@ type TrackedSender = tokio::sync::mpsc::UnboundedSender<VendorResult<Tracked>>;
 /// What the per-server tracking tasks send to the one loop that owns the device events.
 enum Tracked {
     Devices(AndroidDebugBridgeClient, Vec<AdbDevice>),
+    Replace(AndroidDebugBridgeClient, AndroidDevice, Replacement),
     /// Answered once everything sent before it has been handled.
     Handled(tokio::sync::oneshot::Sender<()>),
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Replacement {
+    PrepareFailed,
+    InterruptedSetup,
+    Unready,
+    Rebooted,
 }
 enum TrackStep {
     Next(Option<Result<Vec<AdbDevice>, AdbError>>),
     Settled,
     BlipOver(String),
     Recovered(Done),
+    PrepareFailed,
 }
 /// The window after a reconnect, in which devices from before the outage may still appear.
 struct Settling<'a> {
@@ -1071,13 +1179,13 @@ enum Recovery {
     /// D41: back from its grace period. Whether it restarted, and if not, its logcat and reverse port forwards. Its hold
     /// is released at the end.
     Blip,
-    /// D22: still listed when its server came back. Its logcat and reverse port forwards; its own gate opens at the end.
+    /// D22: still listed when its server came back. Its boot check, logcat and reverse port forwards precede its gate.
     Outage,
 }
 #[derive(Debug, PartialEq, Eq)]
 enum Recovered {
     Resumed,
-    Restarted,
+    Replace(Replacement),
 }
 /// What a recovery task reports, by its id.
 struct Done {
@@ -1249,19 +1357,18 @@ impl Recoveries {
                         ..context
                     };
                     let recovery = async {
-                        match kind {
-                            Recovery::Blip => {
-                                if !device.finished_booting(&context).await? {
-                                    return Ok(Recovered::Restarted);
-                                }
-                                device.resume_after_blip(context.clone()).await?;
-                                Ok(Recovered::Resumed)
+                        match device.returned_boot(&context, kind == Recovery::Blip).await? {
+                            ReturnedBoot::Rebooted => return Ok(Recovered::Replace(Replacement::Rebooted)),
+                            ReturnedBoot::Unready if kind == Recovery::Blip => {
+                                return Ok(Recovered::Replace(Replacement::Unready));
                             }
-                            Recovery::Outage => device
-                                .resume_after_server_return(context.clone())
-                                .await
-                                .map(|()| Recovered::Resumed),
+                            _ => {}
                         }
+                        match kind {
+                            Recovery::Blip => device.resume_after_blip(context).await?,
+                            Recovery::Outage => device.resume_after_server_return(context).await?,
+                        }
+                        Ok(Recovered::Resumed)
                     };
                     report(id, serial, &done, recovery).await;
                     Ok(())

@@ -41,6 +41,15 @@ fn kotlin_commands(rows: &[Value]) -> BTreeMap<String, Vec<String>> {
     }
     commands
 }
+fn native_commands(rows: &[Value]) -> BTreeMap<String, Vec<String>> {
+    transcript_commands(rows)
+        .into_iter()
+        .map(|(serial, commands)| {
+            let commands = without_d85_setup_probe(commands, &serial);
+            (serial, commands)
+        })
+        .collect()
+}
 #[test]
 fn the_d27_allowance_covers_only_the_root_wipe() {
     let row = |service: &str| serde_json::json!({"type":"request","serial":"s","service":service});
@@ -60,6 +69,24 @@ fn the_d27_allowance_covers_only_the_root_wipe() {
             "shell:rm -r /storage/emulated/0;echo x$?",
             "shell:rm /sdcard;echo x$?",
         ]
+    );
+}
+#[test]
+fn the_d85_allowance_covers_only_the_boot_id_read_between_setup_properties_and_features() {
+    let row = |service: &str| serde_json::json!({"type":"request","serial":"s","service":service});
+    let props = "shell:getprop;echo x$?";
+    let features = "host-serial:s:features";
+    let other = "shell:cat /proc/sys/kernel/random/uuid;echo x$?";
+    let commands = |values: &[&str]| native_commands(&values.iter().copied().map(row).collect::<Vec<_>>())["s"].clone();
+    assert_eq!(commands(&[props, D85_BOOT_ID_SERVICE, features]), [props, features]);
+    assert_eq!(
+        commands(&[props, D85_BOOT_ID_SERVICE, D85_BOOT_ID_SERVICE, features]),
+        [props, D85_BOOT_ID_SERVICE, D85_BOOT_ID_SERVICE, features]
+    );
+    assert_eq!(commands(&[props, other, features]), [props, other, features]);
+    assert_eq!(
+        commands(&[props, features, D85_BOOT_ID_SERVICE]),
+        [props, features, D85_BOOT_ID_SERVICE]
     );
 }
 fn expected(path: &str) -> Vec<Value> {
@@ -113,7 +140,7 @@ fn kotlin_install_matrix() {
             provider.terminate().await?;
             checked(server.shutdown().await);
             assert_eq!(server.warnings(), 0);
-            assert_eq!(transcript_commands(&server.transcript()), kotlin_commands(&expected));
+            assert_eq!(native_commands(&server.transcript()), kotlin_commands(&expected));
             for row in expected.iter().filter(|r| r["type"] == "sync" && r["op"] == "SEND") {
                 assert!(server.transcript().iter().any(|r| r["type"] == "sync"
                     && r["op"] == row["op"]
@@ -163,7 +190,7 @@ fn kotlin_two_devices_setup_and_install_subset() {
             }
             provider.terminate().await?;
             checked(server.shutdown().await);
-            let actual = transcript_commands(&server.transcript());
+            let actual = native_commands(&server.transcript());
             let expected = kotlin_commands(&original);
             for (serial, commands) in actual {
                 let expected = &expected[&serial];
@@ -217,14 +244,8 @@ fn kotlin_multi_server_disconnect() {
             checked(first.shutdown().await);
             checked(second.shutdown().await);
             assert_eq!(first.warnings() + second.warnings(), 0);
-            assert_eq!(
-                transcript_commands(&first.transcript()),
-                transcript_commands(&expected[0])
-            );
-            assert_eq!(
-                transcript_commands(&second.transcript()),
-                transcript_commands(&expected[1])
-            );
+            assert_eq!(native_commands(&first.transcript()), transcript_commands(&expected[0]));
+            assert_eq!(native_commands(&second.transcript()), transcript_commands(&expected[1]));
             Ok(())
         })
     });

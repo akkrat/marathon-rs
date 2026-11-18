@@ -41,7 +41,7 @@ fn remote_command(cmd: &'static str, operation: u8) {
             };
             let commands = commands(&server);
             expect_setup(&commands);
-            assert_eq!(commands[6..], [cmd]);
+            assert_eq!(commands[SETUP_COMMANDS.len()..], [cmd]);
             finish(server, device).await;
             Ok(())
         })
@@ -331,7 +331,7 @@ fn folder_pull_uses_shell_listing_breadth_first() {
             device.pull_folder("/remote", &local, context.clone()).await?;
             let commands = commands(&server);
             expect_setup(&commands);
-            assert_eq!(commands[6..], ["ls -l /remote", "ls -l /remote/sub"]);
+            assert_eq!(commands[SETUP_COMMANDS.len()..], ["ls -l /remote", "ls -l /remote/sub"]);
             assert_eq!(checked(tokio::fs::read(format!("{local}/a")).await), b"A");
             assert_eq!(checked(tokio::fs::read(format!("{local}/sub/b")).await), b"B");
             assert!(checked(tokio::fs::read(format!("{local}/empty")).await).is_empty());

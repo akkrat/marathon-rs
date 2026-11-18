@@ -123,7 +123,7 @@ fn install_case(grant: bool, options: &'static str, installed: bool, fail: bool,
                     format!("rm {test_remote}"),
                 ]);
             }
-            assert_eq!(commands[6..], expected);
+            assert_eq!(commands[SETUP_COMMANDS.len()..], expected);
             if !pm_fail {
                 let file = server.file("emulator-5554", &app_remote).unwrap();
                 assert_eq!(file.mode, 0o777);
@@ -160,14 +160,15 @@ fn test_clean_split_installation() {
                 .await?;
             let commands = commands(&server);
             expect_setup(&commands);
-            assert_eq!(commands[6], "pm list packages");
-            assert_eq!(commands[7], format!("cmd package install-create '-S{total}' -r"));
-            assert!(commands[8].contains("base-en.apk"));
-            assert!(commands[9].contains("standalone-hdpi.apk"));
-            assert_eq!(commands[10], "cmd package install-commit demo-session-id");
-            assert_eq!(commands[11], "pm list packages");
-            assert!(commands[12].starts_with("cmd package install -r -S"));
-            assert_eq!(commands.len(), 13);
+            let install = &commands[SETUP_COMMANDS.len()..];
+            assert_eq!(install.len(), 7);
+            assert_eq!(install[0], "pm list packages");
+            assert_eq!(install[1], format!("cmd package install-create '-S{total}' -r"));
+            assert!(install[2].contains("base-en.apk"));
+            assert!(install[3].contains("standalone-hdpi.apk"));
+            assert_eq!(install[4], "cmd package install-commit demo-session-id");
+            assert_eq!(install[5], "pm list packages");
+            assert!(install[6].starts_with("cmd package install -r -S"));
             finish(server, device).await;
             Ok(())
         })
@@ -191,7 +192,7 @@ fn prepare_leaves_external_storage_alone_d27() {
                 .await?;
             let commands = commands(&server);
             expect_setup(&commands);
-            assert_eq!(commands[6..], ["logcat -c"]);
+            assert_eq!(commands[SETUP_COMMANDS.len()..], ["logcat -c"]);
             finish(server, device).await;
             Ok(())
         })
@@ -225,7 +226,9 @@ fn inverted_api21_check_rejects_plain_apk() {
                 err.failure().message,
                 Some(js("Device api level should be more then 20"))
             );
-            assert_eq!(commands(&server).len(), 6);
+            let commands = commands(&server);
+            expect_setup(&commands);
+            assert_eq!(commands.len(), SETUP_COMMANDS.len());
             finish(server, device).await;
             Ok(())
         })

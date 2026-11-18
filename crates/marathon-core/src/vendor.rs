@@ -46,6 +46,8 @@ pub trait Device: Send + Sync {
     /// Handle from the per-run jcompat LogSettings registry.
     fn component(&self) -> &Component;
     fn prepare<'a>(&'a self, configuration: Arc<Configuration>, context: VendorContext) -> VendorFuture<'a, ()>;
+    /// D85: the device actor has exhausted its preparation retries. Must not perform I/O or block on core.
+    fn prepare_exhausted(&self) {}
     /// Returning and completing result are independent. Empty/no result and a
     /// result followed by a failure are both valid. Never auto-complete on return.
     fn execute<'a>(

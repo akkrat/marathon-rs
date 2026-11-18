@@ -1085,6 +1085,42 @@ class VendorEvidenceTests(unittest.TestCase):
         self.assertFalse(e.may_withhold(self.root,record))
         self.assertTrue(e.may_withhold(self.root,dict(implementation='jvm')))
 
+    def test_d85_only_the_native_setup_probe_with_a_complete_reply_is_left_out(self):
+        import vendor_transport as t
+        props = 'getprop'
+        boot = t.D85_BOOT_ID
+        features = 'host-serial:s:features'
+
+        def commands(*requests, native=True, **overrides):
+            rows = []
+            for conn, command in enumerate(requests, 1):
+                if command == features:
+                    rows.append(dict(type='request', conn=conn, serial=None, service=features))
+                    continue
+                rows.append(dict(type='request', conn=conn, serial='s', service=f'shell:{command};echo x$?'))
+                session = dict(type='shell', conn=conn, serial='s', command=command, service='shell',
+                               protocol='raw', exit_code_trick=True, stdin_bytes=None, stdin_sha256=None,
+                               handler='builtin', rule=None, exit_code=0, hang=False)
+                stdout = b'00000000-0000-4000-8000-000000000001\n'
+                if command == boot:
+                    session.update({k: v for k, v in overrides.items() if k != 'stdout'})
+                    stdout = overrides.get('stdout', stdout)
+                rows.extend([session, dict(type='output', conn=conn, stream='stdout', bytes=list(stdout))])
+            rows.append(dict(type='event', event='server_stopped'))
+            data = b''.join(json.dumps(row).encode() + b'\n' for row in rows)
+            return [row['command'] for row in t.adb(data, d85_native_setup=native)['device:s']]
+
+        self.assertEqual(commands(props, boot, features), [props])
+        self.assertEqual(commands(props, boot, features, native=False), [props, boot])
+        self.assertEqual(commands(props, features, boot), [props, boot])
+        self.assertEqual(commands(props, boot, boot, features), [props, boot, boot])
+        other = 'cat /proc/sys/kernel/random/uuid'
+        self.assertEqual(commands(props, other, features), [props, other])
+        for change in (dict(exit_code=1), dict(hang=True), dict(stdout=b''), dict(protocol='v2'),
+                       dict(stdin_bytes=0), dict(handler='script')):
+            with self.subTest(change=change):
+                self.assertEqual(commands(props, boot, features, **change), [props, boot])
+
     def d31_argv(self, *rows):
         import vendor_transport as t
         data = b''.join(json.dumps(dict(event='host_argv',program=program,argv=argv)).encode()+b'\n' for program,argv in rows)

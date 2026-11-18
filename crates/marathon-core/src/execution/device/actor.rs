@@ -516,6 +516,9 @@ impl Shared {
                     shared.transition(DeviceEvent::Terminate);
                 }
                 Err(error) => {
+                    let exhausted = matches!(error, OperationError::Failed(_))
+                        && context.job.cancellation_signal().reason().is_none()
+                        && matches!(shared.machine.borrow().state(), DeviceState::Initializing);
                     let failure = match error {
                         OperationError::Cancelled(reason) => reason.failure().clone(),
                         OperationError::Failed(failure) => failure,
@@ -523,6 +526,9 @@ impl Shared {
                     let message = failure.for_log().message.unwrap_or_else(|| "null".into());
                     shared.log(Level::ERROR, text(&[&"Error ", &message]), Some(failure));
                     shared.transition(DeviceEvent::Terminate);
+                    if exhausted {
+                        shared.device.0.prepare_exhausted();
+                    }
                 }
             }
             Ok(())

@@ -32,10 +32,11 @@ use marathon_logging::{Component, Level};
 use std::{
     collections::HashMap,
     sync::{
-        Arc, Mutex, Weak,
+        Arc, Mutex, OnceLock, Weak,
         atomic::{AtomicBool, AtomicI64, Ordering},
     },
 };
+use uuid::Uuid;
 
 /// D22: how often `wait_out_passing_loss` looks again until the tracker has heard of a lost server.
 const OUTAGE_POLL_MILLIS: i64 = 100;
@@ -45,6 +46,7 @@ const LOGCAT_END_WAIT_MILLIS: i64 = 1000;
 /// D49: lost requests per serial per adb server per run that a device listed as `device` and answering survives. Each one
 /// charges its batch an attempt, so it is a count with no forgiveness, as D41's is. One after this retires the device.
 const REQUEST_LOSSES_PER_DEVICE: u32 = 3;
+const BOOT_ID_COMMAND: &str = "cat /proc/sys/kernel/random/boot_id";
 /// D70: where the batch this device took last stands, so that it is given back uncharged only if none of it started. A
 /// device runs one batch at a time.
 struct BatchRecord {
@@ -79,6 +81,12 @@ enum LossCause {
     /// No longer on the list (`None`), or listed in another state that is not passing, such as `unauthorized`.
     Unlisted(Option<DeviceState>),
 }
+pub(crate) enum ReturnedBoot {
+    Ready,
+    Unready,
+    Rebooted,
+}
+
 /// D41's passing states, as adb names them, for log lines.
 fn passing_text(state: Option<DeviceState>) -> &'static str {
     match state {
@@ -162,11 +170,14 @@ struct Inner {
     lost: AtomicBool,
     /// D48: what an outage or a grace period had waited for it when it was disconnected.
     return_wait_used: AtomicI64,
+    /// D85: when the pool actor exhausted preparation of this instance.
+    prepare_failed_at: OnceLock<i64>,
     /// D70.
     batch: Mutex<Option<BatchRecord>>,
 }
 struct State {
     booted: bool,
+    boot_identity: Option<Uuid>,
     serial: String,
     abi: String,
     version: AndroidVersion,
@@ -198,6 +209,7 @@ impl AndroidDevice {
                 logger,
                 state: Mutex::new(State {
                     booted: false,
+                    boot_identity: None,
                     serial: "Unknown".into(),
                     abi: "Unknown".into(),
                     version: AndroidVersion::default(),
@@ -218,6 +230,7 @@ impl AndroidDevice {
                 disposal: tokio::sync::Mutex::new(false),
                 lost: AtomicBool::new(false),
                 return_wait_used: AtomicI64::new(0),
+                prepare_failed_at: OnceLock::new(),
                 batch: Mutex::default(),
             }),
         }
@@ -232,6 +245,9 @@ impl AndroidDevice {
     }
     pub(crate) fn set_return_wait_used(&self, millis: i64) {
         self.inner.return_wait_used.store(millis, Ordering::Release);
+    }
+    pub(crate) fn prepare_failed_at(&self) -> Option<i64> {
+        self.inner.prepare_failed_at.get().copied()
     }
     /// D24: the provider has dropped this device object.
     fn is_disconnected(&self) -> bool {
@@ -496,6 +512,15 @@ impl AndroidDevice {
             }
         }
         self.fetch_props(context.cancellation.clone()).await?;
+        // An adbd restart keeps the kernel's boot ID. Boot-completed and static boot properties cannot distinguish that
+        // from a full reboot, and SELinux restricts the framework's first-boot timestamp on newer Android versions.
+        let boot_identity = timed(&context, millis(self.timeouts().shell)?, |signal| {
+            Box::pin(self.read_boot_id(signal))
+        })
+        .await;
+        lock(&self.inner.state).boot_identity = self
+            .optional_probe(boot_identity, "Unable to read device boot ID")?
+            .flatten();
         let features = self
             .request(
                 FetchDeviceFeaturesRequest::new(self.adb_serial()),
@@ -731,26 +756,80 @@ impl AndroidDevice {
         }
         Ok(())
     }
-    /// D41: this device came back within its grace period. If it restarted meanwhile it is still booting and has lost
-    /// what setup did, so it has to go through setup again: false, as it is if the device does not answer.
-    pub(crate) async fn finished_booting(&self, context: &VendorContext) -> VendorResult<bool> {
+    async fn read_boot_id(&self, signal: Arc<dyn CancellationSignal>) -> VendorResult<Option<Uuid>> {
+        let response = self
+            .bounded_request(ShellCommandRequest::new(BOOT_ID_COMMAND), signal)
+            .await?;
+        if response.exit_code != 0 {
+            return Ok(None);
+        }
+        Ok(response.output().trim().parse::<Uuid>().ok().filter(|id| !id.is_nil()))
+    }
+    fn optional_probe<T>(&self, probe: VendorResult<Option<T>>, message: &str) -> VendorResult<Option<T>> {
+        match probe {
+            Err(e @ VendorError::Cancelled(_)) => Err(e),
+            Err(e) => {
+                self.log(Level::WARN, message, Some(e.failure()));
+                Ok(None)
+            }
+            Ok(answer) => Ok(answer),
+        }
+    }
+    async fn finished_booting(&self, context: &VendorContext) -> VendorResult<bool> {
         let props = timed(context, millis(self.timeouts().shell)?, |signal| {
             Box::pin(self.bounded_request(GetPropRequest, signal))
         })
         .await;
-        match props {
-            Err(e @ VendorError::Cancelled(_)) => Err(e),
-            Err(e) => {
-                self.log(
-                    Level::WARN,
-                    "Unable to read a returned device's properties",
-                    Some(e.failure()),
-                );
-                Ok(false)
-            }
-            Ok(None) => Ok(false),
-            Ok(Some(props)) => Ok(props.contains_key("sys.boot_completed")),
+        Ok(self
+            .optional_probe(props, "Unable to read a returned device's properties")?
+            .is_some_and(|props| props.contains_key("sys.boot_completed")))
+    }
+    /// D85: both return paths check the setup's boot. D41 also requires an answer with the boot-completed property.
+    pub(crate) async fn returned_boot(
+        &self,
+        context: &VendorContext,
+        check_readiness: bool,
+    ) -> VendorResult<ReturnedBoot> {
+        let previous = lock(&self.inner.state).boot_identity;
+        if previous.is_none() && !check_readiness {
+            return Ok(ReturnedBoot::Ready);
         }
+        // The existing readiness check and the new boot ID read share D41's shell limit. When only the
+        // ID read times out, keep the readiness answer already received.
+        let mut ready = !check_readiness;
+        let readiness = &mut ready;
+        let probe = timed(context, millis(self.timeouts().shell)?, |signal| {
+            Box::pin(async move {
+                if check_readiness {
+                    *readiness = self
+                        .bounded_request(GetPropRequest, signal.clone())
+                        .await?
+                        .contains_key("sys.boot_completed");
+                }
+                if *readiness && previous.is_some() {
+                    self.read_boot_id(signal).await
+                } else {
+                    Ok(None)
+                }
+            })
+        })
+        .await;
+        let message = if ready {
+            "Unable to read a returned device's boot ID"
+        } else {
+            "Unable to read a returned device's properties"
+        };
+        let current = self.optional_probe(probe, message)?.flatten();
+        if let (Some(previous), Some(current)) = (previous, current)
+            && previous != current
+        {
+            return Ok(ReturnedBoot::Rebooted);
+        }
+        Ok(if ready {
+            ReturnedBoot::Ready
+        } else {
+            ReturnedBoot::Unready
+        })
     }
     /// D41: this device came back, and keeps its actor. What adb closed with the transport comes back as in D22.
     pub(crate) async fn resume_after_blip(&self, context: VendorContext) -> VendorResult<()> {
@@ -1125,6 +1204,12 @@ impl Device for AndroidDevice {
                 })
             },
         ))
+    }
+    fn prepare_exhausted(&self) {
+        let clock = &self.runtime().dependencies.clock;
+        if self.inner.prepare_failed_at.set(clock.now_millis()).is_ok() {
+            self.inner.tracker.prepare_failed.notify_one();
+        }
     }
     fn execute<'a>(
         &'a self,

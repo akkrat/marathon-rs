@@ -20,6 +20,7 @@ marathon-dex = { path = "../marathon-dex" }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net", "fs", "process", "macros"] }
 md5 = "=0.7.0"
 futures-util = "=0.3.34"
+uuid = "1"
 
 [dev-dependencies]
 marathon-adb = { path = "../marathon-adb", features = ["server"] }

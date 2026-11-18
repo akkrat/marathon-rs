@@ -215,6 +215,10 @@ fn builtin(world: &World, serial: &str, cmd: &str) -> Option<Response> {
         exit_code: 0,
         hang: false,
     };
+    // The fake keeps the same kernel across adb outages. Scenarios can override this with a shell expectation.
+    if cmd == "cat /proc/sys/kernel/random/boot_id" {
+        return Some(out("00000000-0000-4000-8000-000000000001\n".into()));
+    }
     let t: Vec<&str> = cmd.split_whitespace().collect();
     match t.as_slice() {
         ["getprop"] => world.with_device(serial, |d| {

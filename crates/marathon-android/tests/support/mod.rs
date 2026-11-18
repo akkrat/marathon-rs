@@ -228,18 +228,35 @@ pub fn request_services(server: &FakeAdbServer) -> Vec<String> {
         .filter_map(|r| r["service"].as_str().map(str::to_owned))
         .collect()
 }
+pub const D85_BOOT_ID_SERVICE: &str = "shell:cat /proc/sys/kernel/random/boot_id;echo x$?";
+
+/// The Kotlin recordings predate the setup read. Keep duplicates, recovery reads and other commands visible.
+pub fn without_d85_setup_probe(mut services: Vec<String>, serial: &str) -> Vec<String> {
+    let features = format!("host-serial:{serial}:features");
+    let probes: Vec<_> = services
+        .windows(3)
+        .enumerate()
+        .filter_map(|(index, commands)| {
+            (commands == ["shell:getprop;echo x$?", D85_BOOT_ID_SERVICE, &features]).then_some(index + 1)
+        })
+        .collect();
+    for index in probes.into_iter().rev() {
+        services.remove(index);
+    }
+    services
+}
+
+pub const SETUP_COMMANDS: [&str; 7] = [
+    "getprop",
+    "dumpsys input",
+    "echo $EXTERNAL_STORAGE",
+    "ls /system/bin/screenrecord",
+    "ls /system/bin/md5",
+    "getprop",
+    "cat /proc/sys/kernel/random/boot_id",
+];
 pub fn expect_setup(commands: &[String]) {
-    assert_eq!(
-        &commands[..6],
-        [
-            "getprop",
-            "dumpsys input",
-            "echo $EXTERNAL_STORAGE",
-            "ls /system/bin/screenrecord",
-            "ls /system/bin/md5",
-            "getprop"
-        ]
-    )
+    assert_eq!(&commands[..SETUP_COMMANDS.len()], SETUP_COMMANDS);
 }
 pub async fn finish(mut server: FakeAdbServer, device: AndroidDevice) {
     use marathon_core::vendor::Device;

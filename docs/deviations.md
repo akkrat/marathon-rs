@@ -2279,3 +2279,23 @@ block, including `Marathon run finished` and `\tRaw:`, keep their text format.
 These allowances are not additional numbered deviations.
 
 This guide records approved differences. Proposals that are still pending are not listed here.
+
+## D85 — Android checks the boot before resuming tests
+
+Approved 2026-11-18 (project owner's decision).
+
+A device that returned with the same adb serial after an outage used to keep its old actor even after a full reboot.
+A completed reboot also passed the brief `offline` check for `sys.boot_completed`. In both cases the device could be
+asked to run tests with stale setup. If preparation exhausted its retries while the serial remained `device`, the pool
+lost its actor, but the adb list gave the provider no reason to set up a new instance (U207).
+
+Setup now runs `cat /proc/sys/kernel/random/boot_id`. The per-device recovery task compares that ID before reopening a
+D22 or D41 gate, within `timeoutConfiguration.shell` (D21). A confirmed change sends a disconnect for the old device and
+sets up a new one on the same serial. A batch whose instrumentation never started goes back to the pool uncharged (D70).
+With a matching ID the original actor resumes. With an unavailable ID, D22 still restores the original device and D41
+still uses its boot readiness check.
+
+After the actor exhausts preparation, a device still listed as `device` can be set up once more. A replacement must
+still be current and come within the existing return window. The pool stops waiting at its original D48 deadline if the
+device never becomes ready. D49's per-run request-loss limit does not trigger this retry. See the fake adb witnesses in
+[the x83 findings](wp/x83-findings.md). No Marathonfile changes are needed.

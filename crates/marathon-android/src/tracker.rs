@@ -57,11 +57,14 @@ impl Gate {
 pub struct DeviceStateTracker {
     devices: Mutex<Vec<(String, DeviceState)>>,
     gate: tokio::sync::watch::Sender<Gate>,
+    /// D85: preparation can end while the adb list is unchanged.
+    pub(crate) prepare_failed: tokio::sync::Notify,
 }
 impl Default for DeviceStateTracker {
     fn default() -> Self {
         Self {
             devices: Mutex::default(),
+            prepare_failed: tokio::sync::Notify::new(),
             gate: tokio::sync::watch::Sender::new(Gate {
                 server: true,
                 held: vec![],

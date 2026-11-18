@@ -133,7 +133,7 @@ mod file_sync_test_run_listener_test {
                     listener.before_test_run_in(None, context.clone()).await?;
                     listener.after_test_run_in(context).await?;
                     assert_eq!(
-                        commands(&server)[6..],
+                        commands(&server)[SETUP_COMMANDS.len()..],
                         [
                             "rm -r /sdcard/screenshots",
                             "mkdir /sdcard/screenshots",
@@ -190,7 +190,7 @@ mod file_sync_test_run_listener_test {
                 listener.before_test_run_in(None, context.clone()).await?;
                 listener.after_test_run_in(context).await?;
                 assert_eq!(
-                    commands(&server)[6..],
+                    commands(&server)[SETUP_COMMANDS.len()..],
                     [
                         "md5 /data/local/tmp/fixture1",
                         "md5 /data/local/tmp/fixture2",
@@ -355,7 +355,7 @@ mod file_sync_test_run_listener_test {
                 let listener = FileSyncTestRunListener::new(artifacts(&device));
                 listener.before_test_run_in(Some(&info()), context.clone()).await?;
                 listener.after_test_run_in(context).await?;
-                assert_eq!(commands(&server)[6..], expected);
+                assert_eq!(commands(&server)[SETUP_COMMANDS.len()..], expected);
                 if empty {
                     let path = _temp
                         .path()
@@ -427,7 +427,7 @@ fn file_sync_with_two_instrumentations_prepares_and_pulls_once_d28() {
                 .before_next_instrumentation_in(&second, context.clone())
                 .await?;
             listener.after_test_run_in(context).await?;
-            assert_eq!(commands(&server)[6..], expected);
+            assert_eq!(commands(&server)[SETUP_COMMANDS.len()..], expected);
             finish(server, device).await;
             Ok(())
         })
@@ -545,7 +545,7 @@ mod screen_recorder_test_run_listener_test {
                 }
                 expected.push("ps -A | grep screenrecord".into());
                 expected.extend(paths.iter().map(|p| format!("rm {p}")));
-                assert_eq!(commands[6..], expected);
+                assert_eq!(commands[SETUP_COMMANDS.len()..], expected);
                 if run_failure {
                     let local = artifacts(&device)
                         .file(marathon_core::output::FileType::Video, None, None, Some(js("0")))
@@ -870,7 +870,8 @@ fn scenario(mode: &'static str) {
                 // sessions that pulled the coverage file; `/sdcard/screenshots` is empty and pulls nothing.
                 reference.retain(|s| !s.contains("coverage") && s != "sync:");
             }
-            assert_eq!(services(server.transcript()), reference, "{mode}");
+            let actual = without_d85_setup_probe(services(server.transcript()), device.adb_serial());
+            assert_eq!(actual, reference, "{mode}");
             if let Some(attachments) = attachments {
                 let values = attachments.get(&test()).unwrap_or_default();
                 let observed: Value = checked(serde_json::from_str(&checked(
@@ -992,7 +993,7 @@ fn profiling_run_failure_stops_and_joins_without_pull() {
             let listener = Arc::new(ProfilingRunListener::new(artifacts(&device)));
             let attachments = collector(listener.clone());
             listener.on_event_in(&run_failed(), context.clone()).await?;
-            assert!(commands(&server)[6..].is_empty());
+            assert!(commands(&server)[SETUP_COMMANDS.len()..].is_empty());
             listener.on_event_in(&start(), context.clone()).await?;
             started(&server, "shell:echo 'null'", 1).await;
             listener.on_event_in(&run_failed(), context.clone()).await?;
@@ -1000,7 +1001,7 @@ fn profiling_run_failure_stops_and_joins_without_pull() {
             listener.cleanup_in(context).await?;
             assert!(attachments.get(&test()).is_none());
             assert_eq!(
-                commands(&server)[6..],
+                commands(&server)[SETUP_COMMANDS.len()..],
                 [
                     "echo 'null' | perfetto --txt -c - -o /data/misc/perfetto-traces/pkg.clazz-method-batch.perfetto-trace",
                     "killall perfetto"
@@ -1112,7 +1113,7 @@ fn stop_uses_last_grep_line_and_five_kill_attempts() {
             device.setup(context.clone()).await?;
             stop_screen_record(&device, context).await?;
             assert_eq!(
-                commands(&server)[6..],
+                commands(&server)[SETUP_COMMANDS.len()..],
                 ["ps -A | grep screenrecord", "kill -2 456"].repeat(5)
             );
             finish(server, device).await;
