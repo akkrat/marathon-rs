@@ -643,6 +643,24 @@ impl Device for MacosDevice {
     fn component(&self) -> &Component {
         &self.logger
     }
+    /// D87: a Mac is never replaced by a recovery during its preparation, so its episode is the device actor's attempts.
+    /// The envelope is what one preparation's commands with known limits can take: three directory commands, two in each
+    /// of the installer's three attempts and the test type's probe, ten under `shell`, and the installer's two 1 s
+    /// pauses. A transfer has no limit while it progresses (D54) and is not counted.
+    fn preparation_time_left_millis(&self, configuration: &Configuration) -> Option<i64> {
+        let shell = self
+            .options
+            .vendor
+            .timeout_configuration
+            .shell
+            .to_millis()
+            .unwrap_or(i64::MAX);
+        let envelope = shell.saturating_mul(10).saturating_add(2_000);
+        Some(marathon_core::vendor::preparation_budget_millis(
+            configuration,
+            envelope,
+        ))
+    }
     fn prepare<'a>(&'a self, _: Arc<Configuration>, context: VendorContext) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let device = self.retained()?;
