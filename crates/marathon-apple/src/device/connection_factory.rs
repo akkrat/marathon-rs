@@ -4,12 +4,13 @@ use marathon_logging::{Component, Level};
 
 use crate::{
     cmd::{
-        CommandExecutor, FileBridge, blocking, failure,
+        CommandExecutor, FileBridge, SessionScope, blocking, failure,
         local::{JvmFileBridge, KotlinProcessCommandExecutor},
         remote::{
             rsync::{RsyncFileBridge, RsyncTarget},
             ssh::sshj::{
                 SshFailure, SshjCommandExecutorFactory,
+                client::{TIMEOUT_MILLIS, within},
                 config::SshLogging,
                 error::{ILLEGAL_ARGUMENT_EXCEPTION, ILLEGAL_STATE_EXCEPTION, UNKNOWN_HOST_EXCEPTION},
                 known_hosts::{HostKeyVerifier, OpenSshKnownHosts},
@@ -37,7 +38,7 @@ use std::{
     pin::Pin,
     sync::{Arc, Mutex},
 };
-use tokio::sync::{Semaphore, oneshot, watch};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot, watch};
 
 pub type Executor = Arc<dyn CommandExecutor>;
 pub type Bridge = Arc<dyn FileBridge>;
@@ -94,20 +95,89 @@ pub trait AddressProbe: Send + Sync {
     fn check(&self, transport: Transport, timeout: Duration) -> ConnectionFuture<'_, ()>;
 }
 pub const DEFAULT_MAX_CONCURRENT_CONNECTS: i32 = 8;
+const MAX_SHARED_GENERATIONS: usize = 2;
 struct Lease {
     executor: Executor,
     shared_by: Option<Transport>,
     users: usize,
+    // For connector seams that cannot attach the permit to a real SSH transport.
+    slot: Option<OwnedSemaphorePermit>,
 }
 type Attempt = watch::Sender<Option<ConnectionResult<()>>>;
+type AttemptReceiver = watch::Receiver<Option<ConnectionResult<()>>>;
+
+struct SharedWorker {
+    current: Option<Executor>,
+    pending: Option<Attempt>,
+    slots: Arc<Semaphore>,
+}
+impl Default for SharedWorker {
+    fn default() -> Self {
+        Self {
+            current: None,
+            pending: None,
+            slots: Arc::new(Semaphore::new(MAX_SHARED_GENERATIONS)),
+        }
+    }
+}
+impl SharedWorker {
+    fn is_current(&self, executor: &Executor) -> bool {
+        self.current
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, executor))
+    }
+}
+
+enum SharedAcquire {
+    Reuse(Executor),
+    Wait(AttemptReceiver),
+    Connect {
+        attempt: Attempt,
+        slots: Arc<Semaphore>,
+        reserved: Option<OwnedSemaphorePermit>,
+    },
+}
+
 #[derive(Default)]
 struct State {
     leases: HashMap<usize, Lease>,
-    shared: HashMap<Transport, Executor>,
-    pending: HashMap<Transport, Attempt>,
+    shared: HashMap<Transport, SharedWorker>,
 }
 fn identity(executor: &Executor) -> usize {
     Arc::as_ptr(executor) as *const () as usize
+}
+impl State {
+    fn acquire_shared(&mut self, transport: &Transport) -> SharedAcquire {
+        let worker = self.shared.entry(transport.clone()).or_default();
+        if let Some(attempt) = &worker.pending {
+            return SharedAcquire::Wait(attempt.subscribe());
+        }
+        let reserved;
+        if let Some(executor) = &worker.current {
+            reserved = executor
+                .shared_ssh_is_saturated()
+                .then(|| worker.slots.clone().try_acquire_owned().ok())
+                .flatten();
+            if reserved.is_none() {
+                self.leases
+                    .get_mut(&identity(executor))
+                    .expect("current shared executor has a lease")
+                    .users += 1;
+                return SharedAcquire::Reuse(executor.clone());
+            }
+            // Existing lease holders keep this executor. Only new acquisitions wait for its replacement.
+            worker.current = None;
+        } else {
+            reserved = worker.slots.clone().try_acquire_owned().ok();
+        }
+        let (attempt, _) = watch::channel(None);
+        worker.pending = Some(attempt.clone());
+        SharedAcquire::Connect {
+            attempt,
+            slots: worker.slots.clone(),
+            reserved,
+        }
+    }
 }
 
 pub struct ConnectionFactory {
@@ -264,7 +334,7 @@ impl ConnectionFactory {
     ) -> ConnectionResult<(Option<Executor>, Bridge)> {
         if transport == Transport::Local {
             let (executor, bridge) = self.create_local();
-            self.register(executor.clone(), None);
+            self.register(executor.clone());
             return Ok((Some(executor), bridge));
         }
         let bridge = self.file_bridge(&transport).await?;
@@ -303,116 +373,119 @@ impl ConnectionFactory {
             Arc::new(JvmFileBridge::new(self.runtime.clone(), true)),
         )
     }
-    fn register(&self, executor: Executor, shared_by: Option<Transport>) {
+    fn register(&self, executor: Executor) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(transport) = &shared_by {
-            state.shared.insert(transport.clone(), executor.clone());
-        }
         state.leases.insert(
             identity(&executor),
             Lease {
                 executor,
-                shared_by,
+                shared_by: None,
                 users: 1,
+                slot: None,
             },
         );
     }
     async fn acquire(&self, transport: Transport) -> ConnectionResult<Executor> {
         if !self.ssh.share_worker_connection {
             let executor = self.connect(transport).await?;
-            self.register(executor.clone(), None);
+            self.register(executor.clone());
             return Ok(executor);
         }
         loop {
-            let current = {
-                let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-                let executor = state.shared.get(&transport).cloned();
-                if let Some(executor) = &executor
-                    && let Some(lease) = state.leases.get_mut(&identity(executor))
-                {
-                    lease.users += 1;
-                }
-                executor
-            };
-            if let Some(executor) = current {
-                let check = executor.clone();
-                let connector = self.connector.clone();
-                let (tx, rx) = oneshot::channel();
-                let task = self.runtime.spawn_blocking(Box::new(move || {
-                    let _ = tx.send(connector.connected(check));
-                    Ok(())
-                }));
-                task.join().await?;
-                let alive = rx
-                    .await
-                    .map_err(|e| SshFailure::new(ILLEGAL_STATE_EXCEPTION, e.to_string()))?;
-                match alive {
-                    Ok(true) => return Ok(executor),
-                    Ok(false) => {
+            let action = self
+                .state
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .acquire_shared(&transport);
+            match action {
+                SharedAcquire::Reuse(executor) => {
+                    let alive = self.check_connected(executor.clone()).await;
+                    if let Ok(alive) = alive {
                         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-                        if state
-                            .shared
-                            .get(&transport)
-                            .is_some_and(|current| Arc::ptr_eq(current, &executor))
-                        {
-                            state.shared.remove(&transport);
+                        let worker = state.shared.get_mut(&transport).expect("shared worker is registered");
+                        if worker.is_current(&executor) {
+                            if alive {
+                                return Ok(executor);
+                            }
+                            worker.current = None;
+                        }
+                        if !alive && let Some(lease) = state.leases.get_mut(&identity(&executor)) {
+                            lease.slot = None;
                         }
                     }
-                    Err(error) => {
-                        self.dispose_inner(executor).await?;
-                        return Err(error);
-                    }
+                    self.dispose_inner(executor).await?;
+                    alive?;
                 }
-                self.dispose_inner(executor).await?;
-                continue;
-            }
-            let attempt = {
-                let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-                if state.shared.contains_key(&transport) {
-                    continue;
+                SharedAcquire::Wait(mut rx) => {
+                    self.connector.waiting(&transport);
+                    rx.wait_for(Option::is_some)
+                        .await
+                        .map_err(|e| SshFailure::new(ILLEGAL_STATE_EXCEPTION, e.to_string()))?
+                        .as_ref()
+                        .expect("attempt has finished")
+                        .clone()?;
                 }
-                if let Some(attempt) = state.pending.get(&transport) {
-                    (attempt.clone(), false)
-                } else {
-                    let (attempt, _) = watch::channel(None);
-                    state.pending.insert(transport.clone(), attempt.clone());
-                    (attempt, true)
-                }
-            };
-            if attempt.1 {
-                let result = self.connect(transport.clone()).await;
-                {
+                SharedAcquire::Connect {
+                    attempt,
+                    slots,
+                    reserved,
+                } => {
+                    let connected = self.connect_shared(transport.clone(), slots, reserved).await;
                     let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-                    state.pending.remove(&transport);
-                    if let Ok(executor) = &result {
-                        state.shared.insert(transport.clone(), executor.clone());
-                        state.leases.insert(
-                            identity(executor),
+                    let State { shared, leases } = &mut *state;
+                    let worker = shared.get_mut(&transport).expect("shared worker is registered");
+                    worker.pending = None;
+                    let result = connected.map(|(executor, permit)| {
+                        let slot = executor.hold_shared_ssh_slot(permit);
+                        worker.current = Some(executor.clone());
+                        leases.insert(
+                            identity(&executor),
                             Lease {
                                 executor: executor.clone(),
                                 shared_by: Some(transport.clone()),
                                 users: 1,
+                                slot,
                             },
                         );
-                    }
+                        executor
+                    });
+                    attempt.send_replace(Some(result.as_ref().map(|_| ()).map_err(Clone::clone)));
+                    return result;
                 }
-                attempt
-                    .0
-                    .send_replace(Some(result.as_ref().map(|_| ()).map_err(Clone::clone)));
-                return result;
-            }
-            let mut rx = attempt.0.subscribe();
-            self.connector.waiting(&transport);
-            loop {
-                if let Some(result) = rx.borrow().clone() {
-                    result?;
-                    break;
-                }
-                rx.changed()
-                    .await
-                    .map_err(|e| SshFailure::new(ILLEGAL_STATE_EXCEPTION, e.to_string()))?;
             }
         }
+    }
+    async fn check_connected(&self, executor: Executor) -> ConnectionResult<bool> {
+        let connector = self.connector.clone();
+        let (tx, rx) = oneshot::channel();
+        let task = self.runtime.spawn_blocking(Box::new(move || {
+            let _ = tx.send(connector.connected(executor));
+            Ok(())
+        }));
+        task.join().await?;
+        rx.await
+            .map_err(|e| SshFailure::new(ILLEGAL_STATE_EXCEPTION, e.to_string()))?
+    }
+    async fn connect_shared(
+        &self,
+        transport: Transport,
+        slots: Arc<Semaphore>,
+        reserved: Option<OwnedSemaphorePermit>,
+    ) -> ConnectionResult<(Executor, OwnedSemaphorePermit)> {
+        let permit = match reserved {
+            Some(permit) => permit,
+            // Both slots can still be held by closing transports. This retained acquire must stay bounded.
+            None => within(
+                self.clock.as_ref(),
+                Arc::new(SessionScope::default()),
+                TIMEOUT_MILLIS,
+                slots.acquire_owned(),
+            )
+            .await
+            .ok_or_else(|| unreachable(Some("Timed out waiting for a shared SSH connection slot".into()), None))?
+            .map_err(|e| SshFailure::new(ILLEGAL_STATE_EXCEPTION, e.to_string()))?,
+        };
+        Ok((self.connect(transport).await?, permit))
     }
     async fn connect(&self, transport: Transport) -> ConnectionResult<Executor> {
         self.probe.check(transport.clone(), self.timeout).await?;
@@ -450,12 +523,10 @@ impl ConnectionFactory {
                         shared_by: Some(transport),
                         ..
                     }) = &lease
-                        && state
-                            .shared
-                            .get(transport)
-                            .is_some_and(|current| Arc::ptr_eq(current, &executor))
+                        && let Some(worker) = state.shared.get_mut(transport)
+                        && worker.is_current(&executor)
                     {
-                        state.shared.remove(transport);
+                        worker.current = None;
                     }
                     lease
                 }

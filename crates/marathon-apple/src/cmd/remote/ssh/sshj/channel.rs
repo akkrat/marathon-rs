@@ -308,6 +308,9 @@ impl ExecChannel {
         if closed.is_none() {
             let command = self.update(|s| {
                 s.abandoned = true;
+                if s.closed.is_none() {
+                    self.shared.abandon_session();
+                }
                 s.command.clone()
             });
             self.shared.log_executor_error(format!(

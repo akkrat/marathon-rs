@@ -14,7 +14,7 @@ use crate::cmd::{SessionScope, cancelled};
 use marathon_core::runtime::{CancellationSignal, VendorClock, VendorRuntime, VendorTask};
 use marathon_logging::Level;
 use russh::{
-    Channel, ChannelId, ChannelMsg, Disconnect, Error as RusshError,
+    Channel, ChannelId, ChannelMsg, ChannelOpenFailure, Disconnect, Error as RusshError,
     client::{self, AuthResult, Handle, KeyboardInteractiveAuthResponse},
     keys::{Algorithm, PrivateKey, PrivateKeyWithHashAlg, PublicKeyOrCertificate},
 };
@@ -27,7 +27,7 @@ use std::{
         atomic::{AtomicBool, AtomicU32, Ordering},
     },
 };
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{OwnedSemaphorePermit, oneshot, watch};
 
 pub type SshFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, SshFailure>> + Send + 'a>>;
 
@@ -82,9 +82,20 @@ pub struct ConnectionShared {
     authenticated: AtomicBool,
     host_key_rejection: Mutex<Option<SshFailure>>,
     next_channel: AtomicU32,
+    abandoned_session: AtomicBool,
+    refused_session_logged: AtomicBool,
+    pub(super) saturated: AtomicBool,
+    shared_slot: Mutex<SharedSlot>,
     #[cfg(feature = "test-support")]
     peak_unread: std::sync::atomic::AtomicUsize,
 }
+
+enum SharedSlot {
+    Unassigned,
+    Held { _permit: OwnedSemaphorePermit },
+    TransportEnded,
+}
+
 impl ConnectionShared {
     pub(super) fn new(loggers: SshComponents) -> Arc<Self> {
         Arc::new(Self {
@@ -96,9 +107,42 @@ impl ConnectionShared {
             authenticated: AtomicBool::new(false),
             host_key_rejection: Mutex::new(None),
             next_channel: AtomicU32::new(0),
+            abandoned_session: AtomicBool::new(false),
+            refused_session_logged: AtomicBool::new(false),
+            saturated: AtomicBool::new(false),
+            shared_slot: Mutex::new(SharedSlot::Unassigned),
             #[cfg(feature = "test-support")]
             peak_unread: std::sync::atomic::AtomicUsize::new(0),
         })
+    }
+    pub(super) fn abandon_session(&self) {
+        self.abandoned_session.store(true, Ordering::SeqCst);
+    }
+    fn session_refused(&self, reason: ChannelOpenFailure, failure: &SshFailure) {
+        // OpenSSH uses ConnectFailed for MaxSessions. ResourceShortage is the protocol's capacity code.
+        if matches!(
+            reason,
+            ChannelOpenFailure::ConnectFailed | ChannelOpenFailure::ResourceShortage
+        ) && self.abandoned_session.load(Ordering::SeqCst)
+        {
+            self.saturated.store(true, Ordering::SeqCst);
+        }
+        if !self.refused_session_logged.swap(true, Ordering::SeqCst) {
+            let logging = &self.loggers.logging;
+            let logger = logging.component("marathon_apple::ssh_session_open");
+            logging.log(
+                &logger,
+                Level::WARN,
+                || format!("Worker refused to open an SSH session ({})", reason.description()),
+                Some(failure),
+            );
+        }
+    }
+    pub(super) fn hold_shared_slot(&self, permit: OwnedSemaphorePermit) {
+        let mut slot = self.shared_slot.lock().unwrap_or_else(|e| e.into_inner());
+        if matches!(*slot, SharedSlot::Unassigned) {
+            *slot = SharedSlot::Held { _permit: permit };
+        }
     }
     /// The most unread bytes any stream of this connection has held, for tests that must reach the cap.
     #[cfg(feature = "test-support")]
@@ -185,6 +229,12 @@ pub struct ClientHandler {
     verifier: Arc<dyn HostKeyVerifier>,
     addr: String,
     port: u16,
+}
+impl Drop for ClientHandler {
+    fn drop(&mut self) {
+        // The russh session owns the handler through socket shutdown. Local close only queues DISCONNECT.
+        *self.shared.shared_slot.lock().unwrap_or_else(|e| e.into_inner()) = SharedSlot::TransportEnded;
+    }
 }
 impl client::Handler for ClientHandler {
     type Error = RusshError;
@@ -892,8 +942,9 @@ impl SshConnection {
             .map(|reply| reply.map_or(Err(RusshError::Disconnect), OpenReply::claim));
         let channel = match opened {
             Some(Ok(channel)) => channel,
-            Some(Err(RusshError::ChannelOpenRefused { description, .. })) => {
+            Some(Err(RusshError::ChannelOpenRefused { reason, description })) => {
                 let failure = SshFailure::new(OPEN_FAIL_EXCEPTION, description);
+                self.shared.session_refused(reason, &failure);
                 self.shared.loggers.woke_to(&promise, &failure);
                 return Err(failure);
             }

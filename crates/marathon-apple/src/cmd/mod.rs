@@ -125,6 +125,17 @@ pub trait CommandExecutor: Send + Sync {
     }
     fn execute(&self, request: CommandRequest, context: VendorContext) -> VendorFuture<'_, CommandSession>;
     fn close(&self) -> VendorFuture<'_, ()>;
+    /// D90: a capacity refusal followed a D30 abandonment on this transport.
+    fn shared_ssh_is_saturated(&self) -> bool {
+        false
+    }
+    /// D90: real SSH holds the slot until the socket ends, even after `close` has queued a disconnect.
+    fn hold_shared_ssh_slot(
+        &self,
+        slot: tokio::sync::OwnedSemaphorePermit,
+    ) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        Some(slot)
+    }
     /// D54: ready, with why, once this connection is lost, and never if `close` ends it or nothing can lose it, as for a
     /// local executor.
     fn connection_lost(&self) -> Pin<Box<dyn Future<Output = Failure> + Send>> {

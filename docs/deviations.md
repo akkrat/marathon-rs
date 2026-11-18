@@ -414,7 +414,8 @@ gives the error line instead.
 **A process can survive this.** A signal over an SSH channel is a request that the server may ignore: some servers
 do, such as Tailscale SSH and old OpenSSH versions, and there KILL has no effect. The limit, not the KILL, is what keeps the
 run going. An abandoned process may keep running on the worker and hold one of its `MaxSessions` slots until it ends
-or the connection does; the connection is shared with other sessions and stays up. If the error line appears, look at
+or the connection does. The connection stays up for existing leases, and [D90](#d90--a-saturated-shared-ssh-connection-is-replaced)
+can start a replacement for later leases. If the error line appears, look at
 that process on the worker. On a server that ignores signals, the channel of such a process is now closed after 20 s
 instead of at once. Measured on Xcode 27.2 with iOS 18.6, 26.4 and 27.0 simulators, xcodebuild ended within 5–16 ms of TERM, and at most 3.06 s
 with parallel clones, in 46 runs, so 20 s is ample. A UI test's app under test stays running for at least 90 s after that,
@@ -2547,6 +2548,33 @@ Approved 2026-11-18 (project owner's decision). See
 **Migration action:** a device that needs longer than these figures to get ready, through repeated slow failures, should
 be given a larger `deviceInitializationTimeoutMillis`, which raises the deadline (and also D48's wait and the wait for the
 first device).
+
+## D90 — A saturated shared SSH connection is replaced
+
+With `shareWorkerConnection: true`, an SSH session that D30 abandons can keep one of the worker's `MaxSessions` slots.
+A full connection refuses the next session, which can make iOS read the simulator's state as UNKNOWN and fail its
+preparation. The connection itself stays up, so D44's retries reused the same full connection (U172).
+
+After D30 has abandoned a session on a generation and that generation then receives a capacity refusal, the next shared
+connection acquisition starts one replacement handshake when a slot is available. Concurrent acquisitions share that
+attempt. Capacity refusals are `ResourceShortage` and OpenSSH's `ConnectFailed` for `MaxSessions`. Refusals without a
+preceding abandonment keep the existing sharing policy. The refused command keeps its error, and D30 still retires the
+simulator whose xcodebuild may be running. Each SSH connection logs its first session-open refusal at WARN, including
+with debug off.
+
+The replacement takes new leases. Existing leases continue to use their own connection, which closes after its last
+lease is released. Each shared transport has two generation slots. A closing SSH transport keeps its slot until the
+socket ends. When both slots are occupied, acquisitions may reuse the current generation and can rotate it on a later
+acquisition after a slot frees. If no current generation is available, an acquisition waits up to the SSH reply limit
+(30 s) for a slot and then reports the worker unreachable if both slots are still held. The same factory is used by iOS
+and macOS. iOS can use the replacement on its existing setup or recovery path.
+
+The loopback SSH witness fills a worker capped at two sessions, prepares an iOS simulator on the replacement, finishes
+other sessions on both generations and observes each connection closing once. See the [x88 findings](wp/x88-findings.md).
+Approved 2026-11-18 (project owner's decision).
+
+**Migration action:** none. A shared worker can see an extra simultaneous SSH connection after this failure. Sharing
+is still off by default.
 
 ## Other accepted text differences
 

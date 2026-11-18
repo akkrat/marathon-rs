@@ -82,6 +82,7 @@ struct Fake {
     host: CommandHost,
     logger: Component,
     alive: AtomicBool,
+    saturated: AtomicBool,
     closing: AtomicBool,
     closed: AtomicUsize,
     check: Mutex<Option<Arc<BlockingGate>>>,
@@ -99,6 +100,7 @@ impl Fake {
             },
             logger: logging.component("FakeExecutor"),
             alive: AtomicBool::new(true),
+            saturated: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             closed: AtomicUsize::new(0),
             check: Mutex::new(None),
@@ -127,6 +129,9 @@ impl CommandExecutor for Fake {
         }
         assert!(!self.closing.load(Ordering::SeqCst));
         self.alive.load(Ordering::SeqCst)
+    }
+    fn shared_ssh_is_saturated(&self) -> bool {
+        self.saturated.load(Ordering::SeqCst)
     }
     fn execute(&self, _: CommandRequest, _: VendorContext) -> VendorFuture<'_, CommandSession> {
         Box::pin(async { Err(VendorError::Other(failure(FailureKind::UnsupportedOperation, "unused"))) })
@@ -309,6 +314,67 @@ async fn concurrent_requests_for_a_shared_worker_wait_for_one_connection_and_cou
     assert!(!Arc::ptr_eq(&e, &next));
     f.dispose(next).await.unwrap();
     done(&f).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rotation_shares_one_handshake_and_counts_a_closing_generation_d90() {
+    let (factory, control) = factory(true, 8);
+    let old = get(&factory, "a").await;
+    wait(&control.started, 1).await;
+    let old_fake = control.fake(&old);
+    let check = BlockingGate::new();
+    *old_fake.check.lock().unwrap() = Some(check.clone());
+    let checking = call(&factory, "a");
+    wait(&check.started, 1).await;
+
+    old_fake.saturated.store(true, Ordering::SeqCst);
+    control.block();
+    let owner = call(&factory, "a");
+    let waiter = call(&factory, "a");
+    let replacement_started = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        tokio::select! {
+            permit = control.started.acquire() => { permit.unwrap().forget(); true },
+            _ = check.started.acquire() => false,
+        }
+    })
+    .await;
+    check.release();
+    assert!(
+        matches!(replacement_started, Ok(true)),
+        "an acquire reused the saturated generation"
+    );
+    wait(&control.waiting, 2).await;
+    assert_eq!(control.calls.load(Ordering::SeqCst), 2);
+    control.release.add_permits(2);
+    let new = owner.await.unwrap().unwrap();
+    for task in [checking, waiter] {
+        let lease = task.await.unwrap().unwrap();
+        assert!(Arc::ptr_eq(&lease, &new));
+        factory.dispose(lease).await.unwrap();
+    }
+    assert!(!Arc::ptr_eq(&old, &new));
+
+    old_fake.close_gate.forget_permits(1);
+    let closing = {
+        let factory = factory.clone();
+        tokio::spawn(async move { factory.dispose(old).await })
+    };
+    wait(&old_fake.close_started, 1).await;
+    control.fake(&new).saturated.store(true, Ordering::SeqCst);
+    let capped = get(&factory, "a").await;
+    assert!(Arc::ptr_eq(&capped, &new));
+    assert_eq!(control.calls.load(Ordering::SeqCst), 2);
+    factory.dispose(capped).await.unwrap();
+    old_fake.close_gate.add_permits(1);
+    closing.await.unwrap().unwrap();
+
+    let latest = get(&factory, "a").await;
+    assert!(!Arc::ptr_eq(&new, &latest));
+    assert_eq!(control.calls.load(Ordering::SeqCst), 3);
+    factory.dispose(new).await.unwrap();
+    factory.dispose(latest).await.unwrap();
+    done(&factory).await;
+    assert!(control.created.lock().unwrap().iter().all(|e| e.count() == 1));
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_lost_shared_connection_is_replaced_and_closed_after_its_last_user() {

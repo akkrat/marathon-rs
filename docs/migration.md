@@ -130,7 +130,7 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 | cancel runs with SIGINT or SIGTERM, or take a run's reports as a sign that it finished ([D52](deviations.md#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit)) | A cancelled run writes its reports and terminates its devices whatever `debug` says, and exits with 130 or 143 within 25 s. A second signal exits at once. | Allow 25 s before killing it, and read the exit code to tell whether a run finished. [See below](#cancelling-a-run). |
 
 These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D22, D23, D26, D28–D30, D34, D36, D37, D40, D42, D45, D49,
-D51, D53, D54, D64–D66, D68–D70, D74–D77 and D80–D84. D65 can include a previously missed late pool, lengthen a run and correct its reports and
+D51, D53, D54, D64–D66, D68–D70, D74–D77, D80–D84 and D90. D65 can include a previously missed late pool, lengthen a run and correct its reports and
 existing exit status; it needs no configuration change. D66 turns a SIGQUIT, which used to end the run at once, into a
 logged state dump; a wrapper that sends SIGQUIT and then SIGTERM now gets the dump, then D52's reports and exit status. D2, D3, D6, D8–D12, D14, D20, D24, D25, D67, D71, D72, D78 and D87 have an action of their own, described in their entries and in the
 sections below.
@@ -516,6 +516,11 @@ These fix bugs that Kotlin has, and need no configuration change.
   server that ignores signals can leave it running; an error line starting `Abandoning session` then names the command.
   On iOS an abandoned session retires its simulator, and a pool whose last device it was waits
   ([D48](deviations.md#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)), then ends.
+- **A saturated shared SSH connection is replaced**
+  ([D90](deviations.md#d90--a-saturated-shared-ssh-connection-is-replaced)). With `shareWorkerConnection: true`, a worker
+  that runs out of session slots after an abandoned session can see an extra connection. The old connection stays up
+  for its existing leases, and the next acquisitions can use the new one. Each shared transport has two generation
+  slots. The SSH warning names the session-open refusal even with debug off.
 - **An rsync send that stops moving fails after 300 s, and its device leaves its pool**
   ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails)). If you wrap rsync with `RSYNC4J_RSYNC`, the wrapper now
   also gets `--timeout=300`. On a host with rsync 3, so does the worker's `rsync --server`: check any forced

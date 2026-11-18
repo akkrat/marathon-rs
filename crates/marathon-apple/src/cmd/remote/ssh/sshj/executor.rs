@@ -319,6 +319,16 @@ impl CommandExecutor for SshCommandExecutor {
     fn connected(&self) -> bool {
         self.connection.is_connected()
     }
+    fn shared_ssh_is_saturated(&self) -> bool {
+        self.connection.shared.saturated.load(Ordering::SeqCst)
+    }
+    fn hold_shared_ssh_slot(
+        &self,
+        slot: tokio::sync::OwnedSemaphorePermit,
+    ) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        self.connection.shared.hold_shared_slot(slot);
+        None
+    }
     fn connection_lost(&self) -> std::pin::Pin<Box<dyn Future<Output = Failure> + Send>> {
         let shared = self.connection.shared.clone();
         Box::pin(async move { shared.wait_lost().await.to_failure() })

@@ -90,7 +90,9 @@ component uses the same target),
 `marathon_apple::batch_outcome=warn` with debug off (`debug` with debug on;
 an all-incomplete Apple batch must be diagnosable without debug),
 `marathon_apple::session_close=warn` with debug off (`debug` with debug on;
-an SSH session closed only after KILL, U183), and
+an SSH session closed only after KILL, U183),
+`marathon_apple::ssh_session_open=warn` with debug off (`debug` with debug on;
+the first session-open refusal per SSH connection, D90), and
 `marathon_apple::cmd::remote::ssh::sshj::wire=debug` gated additionally by
 `ssh.debug` on the `Component` (with ssh debug off, only ERROR shows). iOS provisioning timing records are emitted on
 `marathon_core::timing` today; the `marathon_ios::device::timing` directive

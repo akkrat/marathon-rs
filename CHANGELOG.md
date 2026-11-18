@@ -61,6 +61,10 @@ The section for a version becomes the text of its GitHub release, which carries 
   19 minutes instead of 96, and a Mac whose commands hang in about 14 instead of 30 (estimates for those cases with the
   defaults). Healthy runs, and a device that fails once and then gets ready, are unchanged. Raise
   `deviceInitializationTimeoutMillis` to give slow devices longer (U209).
+- **A saturated shared Apple worker can take new devices (D90, U172):** when an abandoned SSH session is followed by
+  a session-capacity refusal, the next connection acquisition can open a replacement. Existing sessions keep running
+  on their original connection, which closes after its last lease is released. Each shared worker transport has at most
+  two live generations. A refusal without abandonment keeps the current connection.
 
 ## 0.14.0
 

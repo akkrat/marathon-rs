@@ -125,6 +125,8 @@ pub struct Chunk {
 #[serde(default, deny_unknown_fields)]
 pub struct Faults {
     pub withhold_close: bool,
+    /// A withheld CLOSE keeps the session's capacity slot until the transport ends.
+    pub hold_withheld_session_slots: bool,
     pub keepalive: Keepalive,
     pub reject_exec: bool,
     /// An `exec` whose string contains this gets no reply and starts nothing, and its session keeps its slot until closed.

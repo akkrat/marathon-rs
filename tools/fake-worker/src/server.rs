@@ -288,6 +288,7 @@ async fn connection(
         stop: lifetime.clone(),
         sessions: HashMap::new(),
         slots: HashMap::new(),
+        withheld_slots: Vec::new(),
         channel_stops: HashMap::new(),
         limit: Arc::new(Semaphore::new(shared.config.max_sessions)),
         withheld: Arc::new(tokio::sync::Mutex::new(HashSet::new())),
@@ -333,6 +334,7 @@ struct Connection {
     sessions: HashMap<ChannelId, Open>,
     channel_stops: HashMap<ChannelId, CancellationToken>,
     slots: HashMap<ChannelId, std::sync::Weak<tokio::sync::Mutex<Option<OwnedSemaphorePermit>>>>,
+    withheld_slots: Vec<OwnedSemaphorePermit>,
     limit: Arc<Semaphore>,
     withheld: Arc<tokio::sync::Mutex<HashSet<ChannelId>>>,
     late_open_taken: bool,
@@ -539,7 +541,20 @@ impl russh::server::Handler for Connection {
         Ok(())
     }
     async fn reply_to_channel_close(&mut self, ch: ChannelId) -> bool {
-        !self.shared.config.script.faults.withhold_close && !self.withheld.lock().await.contains(&ch)
+        let faults = &self.shared.config.script.faults;
+        let withheld = faults.withhold_close || self.withheld.lock().await.contains(&ch);
+        if withheld && faults.hold_withheld_session_slots {
+            // Take the permit before russh wakes the channel reader with CLOSE and the command drops it.
+            let permit = if let Some(open) = self.sessions.remove(&ch) {
+                Some(open.permit)
+            } else if let Some(slot) = self.slots.get(&ch).and_then(std::sync::Weak::upgrade) {
+                slot.lock().await.take()
+            } else {
+                None
+            };
+            self.withheld_slots.extend(permit);
+        }
+        !withheld
     }
     async fn channel_close(&mut self, ch: ChannelId, _s: &mut Session) -> Result<()> {
         self.sessions.remove(&ch);
