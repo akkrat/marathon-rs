@@ -66,11 +66,13 @@ so such a device keeps its 30 attempts. Only slow failures are cut.
    the device's preparation time would run out`). The first attempt of each package always runs. The remote parser's
    installation is not part of a preparation and has no deadline.
 3. iOS keeps the episode on the simulator handle (`apple_simulator_device/episode.rs`):
-   - The first boot attempt of an episode waits the whole of `bootWait`, whatever is left, so a simulator whose
-     preparation waited long before its boot (for its predecessor's artifacts, say) is not cut short. Every later boot
-     waits for at most what is left minus a reserve of `shutdown` + `shell`, the limit of the shutdown that follows a
-     failed boot; with nothing left it boots nothing (`its preparation time has run out`), unless it is already booted.
-   - A second boot attempt is made only if, after the pause, a wait would still fit with the reserve.
+   - The first preparation's boots are as before, whatever is left: both fit in the envelope by construction, unless
+     something before them took long (waiting for a predecessor's artifacts, `await_owner`, say), and then a single
+     failed boot still gets its second attempt. A replacement's boots wait for at most what is left minus a reserve of
+     `shutdown` + `shell`, the limit of the shutdown that follows a failed boot; with nothing left it boots nothing (`its
+     preparation time has run out`), unless it is already booted. Its second attempt is made only if, after the pause,
+     such a wait would still fit. (A first version limited every boot after the episode's first; review found that it
+     took the second attempt from a first preparation that had waited long before booting, and it was narrowed.)
    - A recovery after a loss sets the simulator up again only if, after its pause, a boot would still fit with the
      reserve; otherwise it logs `Simulator <serial> has not got ready within its preparation time, not re-provisioning it
      again` and marks the simulator exhausted, the path the fourth loss already took.
@@ -92,7 +94,8 @@ time is left. Cancelling in-flight work at the deadline would cap such a transfe
 
 - No retry, boot attempt or replacement of a preparation starts after its deadline; the Android installer and the iOS
   boot also start none that could not end before it.
-- The first attempt of everything in the first preparation runs as before; a healthy run makes no other.
+- The first attempt of everything in the first preparation runs as before, and so do both of its boot attempts; a healthy
+  run makes no other.
 - A device without an envelope (Stub, test vehicles) has no deadline.
 - The iOS shutdown after a failed boot keeps its reserve inside the deadline.
 
@@ -133,7 +136,10 @@ Witnesses (each fails without its fix, checked by a temporary mutation; the guar
   the replacement's boot ended inside its window; the sibling then runs the tests. Mutation (iOS opens no episode): given
   up at 25.4 s after three replacements, the test fails. Guard
   `a_replacement_within_the_preparation_deadline_still_recovers_a_simulator_d87`: a failed first preparation is replaced
-  and the replacement runs the tests.
+  and the replacement runs the tests. Guard
+  `a_first_preparation_held_past_its_deadline_keeps_its_second_boot_attempt_d87`: a first preparation held longer than
+  its deadline before booting, whose first boot fails, still boots at its second attempt; it fails with every boot held
+  to the deadline (mutation).
 - `crates/marathon-android/tests/reconnect_test.rs`, the real provider, scheduler, pool, actor, installer and runner on
   fake adb in virtual time, `shell`/`uninstall`/`pushFile` 5 s, `install` 10 s (deadline 199 s), the pool's only device:
   `an_android_device_whose_installs_time_out_leaves_within_its_preparation_deadline_d87`: the run ends at 229.7 s (the

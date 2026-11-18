@@ -53,12 +53,14 @@ struct Timeline {
     pool_lines: Vec<String>,
 }
 
-/// `a`'s probe fails in the setups `probe_fails_in_setup` picks (1 is the first); `b`, with `sibling`, is held in its
-/// preparation until `a` has been given up.
+/// `a`'s probe fails where `probe_fails` says, given the setup (1 is the first) and how many times `a` was booted; `a`'s
+/// first preparation is held `hold_a` ms before its boot; `b`, with `sibling`, is held in its preparation until `a` has
+/// been given up.
 fn run(
     sibling: bool,
-    probe_fails_in_setup: impl Fn(usize) -> bool + Send + Sync + 'static,
+    probe_fails: impl Fn(usize, usize) -> bool + Send + Sync + 'static,
     device_wait: i64,
+    hold_a: u64,
 ) -> TestResult<Timeline> {
     let mut p = recovery_support::RecoveryHarness::settings(
         |v| {
@@ -95,6 +97,7 @@ fn run(
             let cmd: Vec<_> = command.iter().map(String::as_str).collect();
             let mut t = timeline.lock().unwrap();
             let mut hold = false;
+            let mut pause = 0;
             let answer = match cmd.as_slice() {
                 ["xcrun", "simctl", "getenv", "a", "HOME"] => {
                     setups.fetch_add(1, Ordering::SeqCst);
@@ -110,7 +113,7 @@ fn run(
                     boot.answer(&command)
                 }
                 // The readiness probe exits non-zero at once, whatever it printed.
-                ["xcrun", "simctl", "spawn", "a", ..] if probe_fails_in_setup(setups.load(Ordering::SeqCst)) => {
+                ["xcrun", "simctl", "spawn", "a", ..] if probe_fails(setups.load(Ordering::SeqCst), t.boots.len()) => {
                     Some(CommandResult {
                         stdout: vec!["A com.apple.springboard.services".into()],
                         stderr: vec![],
@@ -118,6 +121,10 @@ fn run(
                     })
                 }
                 // `b` joined the pool before its preparation, so it is live (D48) while it is held here.
+                ["pkill", "-f", what] if what.contains(" a ") && t.boots.is_empty() => {
+                    pause = hold_a;
+                    boot.answer(&command)
+                }
                 ["pkill", "-f", what] if what.contains(" b ") => {
                     hold = held.fetch_add(1, Ordering::SeqCst) == 0;
                     boot.answer(&command)
@@ -127,6 +134,7 @@ fn run(
             drop(t);
             let (clock, logs, timeline) = (clock.clone(), logs.clone(), timeline.clone());
             Box::pin(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(pause)).await;
                 if hold {
                     let start = std::time::Instant::now();
                     loop {
@@ -244,7 +252,7 @@ fn run(
 #[test]
 fn a_simulator_whose_probe_never_succeeds_leaves_within_its_preparation_deadline_while_a_sibling_keeps_the_pool_d87()
 -> TestResult {
-    let t = run(true, |_| true, 1_000)?;
+    let t = run(true, |_, _| true, 1_000, 0)?;
     assert!(t.passed, "{t:?}");
     let first = t.setups[0];
     let (given_up, message) = t.given_up.clone().ok_or("a was given up")?;
@@ -272,10 +280,29 @@ fn a_simulator_whose_probe_never_succeeds_leaves_within_its_preparation_deadline
 /// shorter than the deadline (the deadline is the greater of the two).
 #[test]
 fn a_replacement_within_the_preparation_deadline_still_recovers_a_simulator_d87() -> TestResult {
-    let t = run(false, |setup| setup <= 1, 5_000)?;
+    let t = run(false, |setup, _| setup <= 1, 5_000, 0)?;
     assert!(t.passed, "{t:?}");
     assert_eq!(t.setups.len(), 2, "{t:?}");
     assert_eq!(t.boots.len(), 3, "{t:?}");
+    assert!(t.given_up.is_none(), "{t:?}");
+    Ok(())
+}
+
+/// D87 leaves a first preparation's boots as they were: here it is held longer than its whole deadline before it boots,
+/// and its first boot fails once. The second boot attempt still waits the whole of `bootWait`, the simulator gets ready
+/// and runs the tests, with no replacement.
+#[test]
+fn a_first_preparation_held_past_its_deadline_keeps_its_second_boot_attempt_d87() -> TestResult {
+    let t = run(
+        false,
+        |setup, boots| setup == 1 && boots == 1,
+        1_000,
+        DEADLINE as u64 + 500,
+    )?;
+    assert!(t.passed, "{t:?}");
+    assert_eq!(t.setups.len(), 1, "{t:?}");
+    assert_eq!(t.boots.len(), 2, "{t:?}");
+    assert!(t.boots[0] - t.setups[0] > DEADLINE, "{t:?}");
     assert!(t.given_up.is_none(), "{t:?}");
     Ok(())
 }

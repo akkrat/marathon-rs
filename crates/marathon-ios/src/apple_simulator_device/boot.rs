@@ -73,7 +73,7 @@ impl AppleSimulatorDevice {
     ) -> Result<(), super::prepare::PrepareError> {
         for attempt in 1..=2 {
             let started = self.nanos("ios.AppleSimulatorDevice.bootForPreparation")?;
-            // D87: within what is left of the preparation's time, except for its first boot.
+            // D87: a replacement's boot waits only for what is left of the preparation's time.
             let window = self.boot_window_millis();
             let Some(failure) = self.boot_failure(context, window).await? else {
                 return Ok(());

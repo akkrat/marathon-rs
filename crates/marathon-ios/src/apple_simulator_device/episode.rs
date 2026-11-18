@@ -12,9 +12,10 @@ use jcompat::jtime::Duration;
 pub struct PreparationEpisode {
     /// On the run's vendor clock (`services.context.clock`).
     deadline: i64,
-    /// Boot attempts started in it. The first is never shortened, so that a simulator whose preparation waited long
-    /// before it booted (for the artifacts of its predecessor, say) still gets the whole of `bootWait` once.
-    boots: u32,
+    /// Whether a recovery handed it to a replacement. Only a replacement's boots are held to the deadline: the first
+    /// preparation's two fit in it by construction, unless something before them took long (waiting for the artifacts of
+    /// a predecessor, say), and a single failed boot there keeps its second attempt as before.
+    replacement: bool,
 }
 
 fn millis(duration: Duration) -> i64 {
@@ -49,7 +50,7 @@ impl AppleSimulatorDevice {
         let mut state = self.state();
         let episode = state.episode.get_or_insert(PreparationEpisode {
             deadline: now.saturating_add(budget),
-            boots: 0,
+            replacement: false,
         });
         episode.deadline.saturating_sub(now).max(0)
     }
@@ -59,7 +60,10 @@ impl AppleSimulatorDevice {
     }
     /// Takes over the episode of the simulator this one replaces.
     pub fn continue_preparation(&self, episode: PreparationEpisode) {
-        self.state().episode = Some(episode);
+        self.state().episode = Some(PreparationEpisode {
+            replacement: true,
+            ..episode
+        });
     }
     /// Millis left in the unfinished episode; negative once its deadline has passed.
     pub fn preparation_left_millis(&self) -> Option<i64> {
@@ -69,22 +73,22 @@ impl AppleSimulatorDevice {
     pub(super) fn finish_preparation(&self) {
         self.state().episode = None;
     }
-    /// Starts a boot attempt: how long it may wait for the simulator, or `None` for the whole of `bootWait` (no
-    /// episode, or its first boot). A window of zero or less means no time is left for one.
-    pub(super) fn boot_window_millis(&self) -> Option<i64> {
-        let now = self.vendor_now();
-        let reserve = self.boot_reserve_millis();
-        let mut state = self.state();
-        let episode = state.episode.as_mut()?;
-        episode.boots = episode.boots.saturating_add(1);
-        if episode.boots == 1 {
-            return None;
-        }
-        Some(episode.deadline.saturating_sub(now).saturating_sub(reserve))
+    /// The left of a replacement's episode, if this simulator is one.
+    fn replacement_left_millis(&self) -> Option<i64> {
+        let episode = self.state().episode.filter(|e| e.replacement)?;
+        Some(episode.deadline.saturating_sub(self.vendor_now()))
     }
-    /// Whether a boot attempt after `pause_millis` would still have time to wait, with the reserve for its shutdown.
+    /// How long a boot attempt may wait for the simulator: `None` for the whole of `bootWait` (not a replacement), else
+    /// what is left with the reserve for its shutdown kept. Zero or less means no time is left for one.
+    pub(super) fn boot_window_millis(&self) -> Option<i64> {
+        Some(
+            self.replacement_left_millis()?
+                .saturating_sub(self.boot_reserve_millis()),
+        )
+    }
+    /// Whether a replacement's boot attempt after `pause_millis` would still have time to wait, with the reserve.
     pub(super) fn time_for_another_boot(&self, pause_millis: i64) -> bool {
-        self.preparation_left_millis().is_none_or(|left| {
+        self.replacement_left_millis().is_none_or(|left| {
             left.saturating_sub(pause_millis)
                 .saturating_sub(self.boot_reserve_millis())
                 > 0
