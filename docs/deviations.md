@@ -2494,8 +2494,8 @@ less, and the deadline is the same.
   limit, and the 30 s it can take to end after it ([D30](#d30--closing-an-ssh-session-has-a-limit)). So the held
   attempt and its shutdown, which sees the simulator's real state, end by the deadline. A boot that fails for want of
   time leaves the installation beside it to finish rather than cancelling it, and a transfer whose retry the deadline
-  refuses leaves the boot beside it to end on its own; either way the half left running starts no further step (no media
-  upload, second boot attempt, test root, after-install step or extra application). A transfer
+  refuses leaves the boot beside it to end on its own; either way the half left running starts no further step (no upload or resend of the test bundle, media upload, second
+  boot attempt, test root, after-install step or extra application), and finishes only what is running. A transfer
   that stalls is what the preparation reports, whatever its boot did. A simulator that got ready starts afresh
   if it is lost later; one removed from the devices file or added back while a recovery ran is left to that recovery's
   D44 handling, and is never taken out of the run by it.

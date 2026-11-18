@@ -331,6 +331,14 @@ expires, the provider's termination can wait a second 70 s for its devices' disp
 
 Each round-4 witness fails on d75a9ccc, checked in a scratch copy of that tree with the new tests.
 
+## Closing check
+
+*The bundle resend and the initial upload ignored the halt.* The iOS retry gate is now one test, the preparation goes
+on (not halted) and its deadline allows it, and the Apple installer asks the step gate right before each upload of the
+test bundle, after its directories. A transfer in progress still finishes. Witnesses: a replacement with 300 s left
+whose boot runs out of time at 10 s: a send failing at 20 s is not sent again; with the installation's directory taking
+20 s, no upload starts. Both fail on 4212fc34.
+
 ## Incidental bugs
 
 None found.
