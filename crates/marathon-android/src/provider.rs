@@ -56,6 +56,8 @@ struct Inner {
     trackers: MultiServerDeviceStateTracker,
     provider: Mutex<Option<Arc<dyn VendorTask>>>,
     shutdown: tokio::sync::Mutex<bool>,
+    /// D88: why device monitoring ended, if it did other than at termination; the device channel fails with the same.
+    monitor_failure: Mutex<Option<Failure>>,
 }
 impl AdamDeviceProvider {
     pub fn new(runtime: Arc<AndroidRuntime>) -> VendorResult<Self> {
@@ -77,6 +79,7 @@ impl AdamDeviceProvider {
                 trackers: MultiServerDeviceStateTracker::default(),
                 provider: Mutex::default(),
                 shutdown: tokio::sync::Mutex::new(false),
+                monitor_failure: Mutex::default(),
             }),
         })
     }
@@ -86,6 +89,13 @@ impl AdamDeviceProvider {
             .iter()
             .find(|(r, _)| r == reference)
             .map(|(_, d)| d.clone())
+    }
+    /// D88: device monitoring has ended with `cause`. Published (kept for `published_failure`, and the device channel
+    /// failed with it) before anything is logged, so that neither a log sink that fails nor a termination that comes
+    /// while it writes can lose it. The first cause stays.
+    fn publish_failure(&self, cause: Failure) {
+        lock(&self.inner.monitor_failure).get_or_insert_with(|| cause.clone());
+        self.inner.channel.close(Some(cause));
     }
     fn log(&self, level: Level, message: &str, error: Option<&Failure>) {
         self.inner.runtime.emit(&self.inner.logger, level, message, error)
@@ -181,22 +191,26 @@ impl AdamDeviceProvider {
                 .catch_unwind()
                 .await
                 .unwrap_or_else(|payload| Err(VendorError::Other(marathon_core::executor::panic_failure(payload))));
-                if let Err(e) = &result
-                    && !matches!(e, VendorError::Cancelled(_))
-                {
-                    this.log(
-                        Level::ERROR,
-                        "Task stopped due to unrecoverable error",
-                        Some(e.failure()),
-                    );
-                }
                 // U211 (D88): the monitor is the only source of device events and the only one to release a batch held
                 // by an outage or a grace period (D22, D41). If it ends for any reason but the provider's termination,
-                // the device channel fails with the cause, which ends the run (D84) instead of leaving it waiting.
+                // the device channel fails with the cause, which ends the run (D84) instead of leaving it waiting. First,
+                // before the log line below.
                 if let Err(e) = &result
                     && stopped.reason().is_none()
                 {
-                    this.inner.channel.close(Some(e.failure().clone()));
+                    this.publish_failure(e.failure().clone());
+                }
+                if let Err(e) = &result
+                    && !matches!(e, VendorError::Cancelled(_))
+                {
+                    // A log sink that panics costs only this line.
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        this.log(
+                            Level::ERROR,
+                            "Task stopped due to unrecoverable error",
+                            Some(e.failure()),
+                        )
+                    }));
                 }
                 result
             })
@@ -275,7 +289,11 @@ impl AdamDeviceProvider {
             monitors.push(task);
         }
         drop(tx);
-        let result = async {
+        // Cancels the servers' tasks if this future is dropped before it has ended them itself, below.
+        let monitors = CancelOnDrop(monitors);
+        // U211 review: a panic here is this monitor's error, so that the servers' tasks are still ended and joined below,
+        // rather than left tracking (and, once the client is closed, reconnecting) for the rest of the process.
+        let result = std::panic::AssertUnwindSafe(async {
             loop {
                 let event = cancellable(context.cancellation.clone(), async { Ok(rx.recv().await) }).await?;
                 let Some(event) = event else { return Ok(()) };
@@ -487,12 +505,14 @@ impl AdamDeviceProvider {
                     let _ = replaced.send(ReplacementAck::Applied);
                 }
             }
-        }
-        .await;
-        for task in &monitors {
+        })
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|payload| Err(VendorError::Other(marathon_core::executor::panic_failure(payload))));
+        for task in &monitors.0 {
             task.cancel(requested("device monitor ended"));
         }
-        for task in monitors {
+        for task in &monitors.0 {
             let _ = task.join().await;
         }
         result
@@ -1107,7 +1127,11 @@ impl DeviceProvider for AdamDeviceProvider {
                         return Ok((device, identity));
                     }
                 }
-                context.clock.delay(200, context.cancellation.clone()).await?;
+                // D88: a borrow that ends without a device (its caller's deadline cancels it) ends with the failure device
+                // monitoring has published by then, if any, as iOS's does (D84).
+                if let Err(error) = context.clock.delay(200, context.cancellation.clone()).await {
+                    return Err(self.published_failure().map_or(error, VendorError::Other));
+                }
             }
         })
     }
@@ -1119,8 +1143,20 @@ impl DeviceProvider for AdamDeviceProvider {
             move |_| Box::pin(async move { this.terminate_inner().await }),
         ))
     }
+    fn published_failure(&self) -> Option<Failure> {
+        lock(&self.inner.monitor_failure).clone()
+    }
     fn subscribe(&self) -> Arc<dyn EventChannel<DeviceEvent>> {
         self.inner.channel.clone()
+    }
+}
+/// The servers' tracking tasks of one monitor, cancelled when it is dropped before it has ended them.
+struct CancelOnDrop(Vec<Arc<dyn VendorTask>>);
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        for task in &self.0 {
+            task.cancel(requested("device monitor ended"));
+        }
     }
 }
 /// D22: the wait between attempts to reach a lost adb server.

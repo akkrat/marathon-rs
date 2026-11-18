@@ -361,6 +361,9 @@ impl DeviceProvider for TappedProvider {
     fn terminate(&self) -> VendorFuture<'_, ()> {
         self.inner.terminate()
     }
+    fn published_failure(&self) -> Option<Failure> {
+        self.inner.published_failure()
+    }
     fn subscribe(&self) -> Arc<dyn EventChannel<DeviceEvent>> {
         Arc::new(TappedChannel {
             inner: self.inner.subscribe(),
@@ -496,6 +499,8 @@ struct Options {
     device_initialization_timeout_millis: Option<i64>,
     /// The Android `timeoutConfiguration` and `deviceInitializationTimeoutMillis`, instead of the defaults.
     timeouts: Option<(Value, i64)>,
+    /// D88: the tracker panics in `device_provider_init`, the analytics call device monitoring makes for each device.
+    tracker_panics: bool,
 }
 /// The frozen wall clock of a run that keeps its output files, as the native goldens' probe has it.
 const WALL: i64 = 1_577_836_800_000;
@@ -508,6 +513,7 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
         hold_behind,
         results,
         reboot,
+        tracker_panics,
         ..
     } = options;
     let hold = hold_at.map(|class| {
@@ -659,6 +665,10 @@ fn run_with(loaded: Vec<(Value, Vec<Event>, usize)>, options: Options) -> Observ
                                 hold: log_hold,
                                 before_reboot: executor_reboot,
                             });
+                            let mut dependencies = dependencies;
+                            if tracker_panics {
+                                dependencies.tracker = Arc::new(PanicsAtProviderInit);
+                            }
                             let mut services = create_services_with_executor(dependencies, executor).await?;
                             services.provider = Arc::new(TappedProvider {
                                 inner: services.provider,
@@ -2304,4 +2314,66 @@ fn an_android_install_that_times_out_once_is_still_retried_within_the_deadline_d
     assert_eq!(package_installs(&observed), 2 + 1 + 2);
     assert_eq!(logged(&observed, "not retrying"), 0);
     assert_eq!(logged(&observed, "the device's preparation time would run out"), 0);
+}
+
+const TRACKER_PROBE: &str = "D88 probe: the tracker panicked";
+/// A tracker that panics in `device_provider_init`; its other calls succeed.
+struct PanicsAtProviderInit;
+impl marathon_core::wiring::Tracker for PanicsAtProviderInit {
+    fn device_connected<'a>(&'a self, _: &'a DevicePoolId, _: &'a DeviceInfo) -> VendorFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+    fn device_disconnected<'a>(&'a self, _: &'a DevicePoolId, _: &'a DeviceInfo) -> VendorFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+    fn device_provider_init<'a>(
+        &'a self,
+        _: &'a str,
+        _: jcompat::jtime::Instant,
+        _: jcompat::jtime::Instant,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async { panic!("{TRACKER_PROBE}") })
+    }
+    fn device_preparing<'a>(
+        &'a self,
+        _: &'a str,
+        _: jcompat::jtime::Instant,
+        _: jcompat::jtime::Instant,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+    fn test<'a>(&'a self, _: &'a DevicePoolId, _: &'a DeviceInfo, _: &'a TestResult, _: bool) -> VendorFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+/// D88, the whole run: device monitoring panics (here in its analytics call) while the devices are still being set up,
+/// before the run has its scheduler, during remote test discovery. Discovery waits for a device until its deadline and
+/// then ends with the panic as the run's cause, where it used to report that no device came in time and lose the panic.
+#[test]
+fn a_monitor_panic_before_the_scheduler_is_the_runs_cause_d88() {
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (mut script, _, index) = load("same-server");
+    // Setup waits for a boot that never completes, so no device gets ready before the panic or after it.
+    for device in script["devices"].as_array_mut().into_iter().flatten() {
+        device["getprop"]
+            .as_object_mut()
+            .map(|p| p.remove("sys.boot_completed"));
+    }
+    let observed = run_with(
+        vec![(script, vec![], index)],
+        Options {
+            tracker_panics: true,
+            device_initialization_timeout_millis: Some(20_000),
+            ..Options::default()
+        },
+    );
+    let Some(Err(error)) = &observed.result else {
+        panic!(
+            "run ended after {} virtual ms: {:?}",
+            observed.virtual_millis,
+            observed.result.as_ref().map(|r| r.is_ok())
+        );
+    };
+    assert_eq!(error.failure().message.as_deref(), Some(TRACKER_PROBE), "{error:?}");
 }

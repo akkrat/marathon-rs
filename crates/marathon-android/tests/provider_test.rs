@@ -1167,7 +1167,7 @@ impl marathon_core::wiring::Tracker for FailingProviderInit {
         let panics = self.panics;
         Box::pin(async move {
             if panics {
-                panic!("U211 probe: the tracker panicked");
+                panic!("{PROBE}");
             }
             Err(VendorError::Other(marathon_core::executor::shared::failure(
                 FailureKind::IllegalState,
@@ -1248,13 +1248,207 @@ fn device_monitoring_that_ends_fails_the_device_channel_u211() {
                 })
                 .await,
             );
-            assert_eq!(
-                failure.failure().message.as_deref(),
-                Some("U211 probe: the tracker panicked"),
-                "{failure:?}"
-            );
+            assert_eq!(failure.failure().message.as_deref(), Some(PROBE), "{failure:?}");
             provider.terminate().await?;
             checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// The base script with a device whose setup waits for a boot that never completes: no device gets ready.
+fn never_ready_script() -> serde_json::Value {
+    let mut script = base_script(27, vec![]);
+    script["devices"][0]["getprop"]
+        .as_object_mut()
+        .unwrap()
+        .remove("sys.boot_completed");
+    script
+}
+/// The device channel's failure, waited for (the deadline only catches a hang).
+async fn channel_failure(provider: &AdamDeviceProvider) -> VendorError {
+    let channel = provider.subscribe();
+    checked(
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            loop {
+                match channel.receive().await {
+                    Ok(Some(_)) => continue,
+                    Ok(None) => panic!("the device channel closed without a cause"),
+                    Err(error) => return error,
+                }
+            }
+        })
+        .await,
+    )
+}
+const PROBE: &str = "U211 probe: the tracker panicked";
+/// D88 (review): before the run has its scheduler, remote discovery borrows a device and, at its deadline, reads the
+/// provider's published failure. Device monitoring that panicked while the only device was still being set up now
+/// publishes that panic, and a borrow its deadline ends returns it, where it used to end as a plain cancellation and the
+/// run reported that no device came.
+#[test]
+fn a_borrow_ended_by_its_deadline_returns_the_monitors_failure_d88() {
+    let _ports = shared_ports();
+    run(configuration(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(never_ready_script()).await;
+            let provider = AdamDeviceProvider::new(with_tracker(&runtime, server.port(), true))?;
+            provider.initialize(context.clone()).await?;
+            channel_failure(&provider).await;
+            assert_eq!(
+                provider.published_failure().and_then(|f| f.message).as_deref(),
+                Some(PROBE)
+            );
+            let signal = marathon_core::executor::Signal::new();
+            let borrow = provider.borrow_untried(
+                vec![],
+                marathon_core::vendor::VendorContext {
+                    cancellation: signal.clone(),
+                    ..context
+                },
+            );
+            signal.cancel(marathon_core::executor::shared::requested("the discovery deadline"));
+            match checked(tokio::time::timeout(std::time::Duration::from_secs(60), borrow).await) {
+                Err(VendorError::Other(failure)) => assert_eq!(failure.message.as_deref(), Some(PROBE)),
+                other => panic!("{:?}", other.map(|(_, key)| key)),
+            }
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// D88 (review): device monitoring publishes why it ended before it logs it, so a log sink that panics on that line
+/// can no longer keep the device channel open.
+#[test]
+fn a_log_sink_that_panics_does_not_keep_the_device_channel_open_d88() {
+    let _ports = shared_ports();
+    run(configuration(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(never_ready_script()).await;
+            let mut runtime = with_tracker(&runtime, server.port(), true);
+            let sink = runtime.log.clone();
+            std::sync::Arc::get_mut(&mut runtime).unwrap().log =
+                std::sync::Arc::new(move |logger, level, message, cause| {
+                    if message == "Task stopped due to unrecoverable error" {
+                        panic!("the log sink panicked");
+                    }
+                    sink(logger, level, message, cause)
+                });
+            let provider = AdamDeviceProvider::new(runtime)?;
+            provider.initialize(context).await?;
+            let failure = channel_failure(&provider).await;
+            assert_eq!(failure.failure().message.as_deref(), Some(PROBE), "{failure:?}");
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// A tracker whose `device_provider_init` succeeds once and then panics.
+#[derive(Default)]
+struct PanicsOnSecondInit(std::sync::atomic::AtomicUsize);
+impl marathon_core::wiring::Tracker for PanicsOnSecondInit {
+    fn device_connected<'a>(
+        &'a self,
+        _: &'a marathon_core::model::DevicePoolId,
+        _: &'a marathon_core::model::DeviceInfo,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+    fn device_disconnected<'a>(
+        &'a self,
+        _: &'a marathon_core::model::DevicePoolId,
+        _: &'a marathon_core::model::DeviceInfo,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+    fn device_provider_init<'a>(
+        &'a self,
+        _: &'a str,
+        _: jcompat::jtime::Instant,
+        _: jcompat::jtime::Instant,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        let call = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async move {
+            if call > 0 {
+                panic!("{PROBE}");
+            }
+            Ok(())
+        })
+    }
+    fn device_preparing<'a>(
+        &'a self,
+        _: &'a str,
+        _: jcompat::jtime::Instant,
+        _: jcompat::jtime::Instant,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+    fn test<'a>(
+        &'a self,
+        _: &'a marathon_core::model::DevicePoolId,
+        _: &'a marathon_core::model::DeviceInfo,
+        _: &'a marathon_core::model::TestResult,
+        _: bool,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+}
+/// D88 (review): a panic in device monitoring itself used to skip the end of its servers' tracking tasks. One that was
+/// waiting out an outage (D22) kept retrying its server for up to `waitForDevicesTimeoutMillis`, through the provider's
+/// termination. They are now ended with the monitor: once the provider is terminated and dropped, nothing it started
+/// holds its runtime any more. Server A goes away for good, so its task is reconnecting; then a device that comes on
+/// server B makes the tracker panic in the monitor.
+#[test]
+fn a_monitor_that_panics_ends_its_servers_tracking_d88() {
+    let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
+    let mut c = configuration();
+    android(&mut c).wait_for_devices_timeout_millis = 600_000;
+    run(c, |runtime, context| {
+        Box::pin(async move {
+            let mut first = server(base_script(27, vec![])).await;
+            let mut script = base_script(27, vec![]);
+            script["devices"][0]["serial"] = serde_json::json!("emulator-5556");
+            script["devices"][0]["connected"] = serde_json::json!(false);
+            let mut second = server(script).await;
+            let logs = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+            let captured = logs.clone();
+            let mut runtime = change_runtime(&runtime, &[first.port(), second.port()]);
+            {
+                let runtime = std::sync::Arc::get_mut(&mut runtime).unwrap();
+                runtime.dependencies.tracker = std::sync::Arc::new(PanicsOnSecondInit::default());
+                runtime.log =
+                    std::sync::Arc::new(move |_, _, message, _| captured.lock().unwrap().push(message.to_owned()));
+            }
+            let provider = AdamDeviceProvider::new(runtime.clone())?;
+            provider.initialize(context).await?;
+            assert!(matches!(event(&provider).await, DeviceEvent::Connected(_)));
+            first.kill(None);
+            let lost = format!("Lost device tracking on adb server /127.0.0.1:{}", first.port());
+            checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                    while !logs.lock().unwrap().iter().any(|m| m.starts_with(&lost)) {
+                        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                    }
+                })
+                .await,
+            );
+            // Its outage marker is sent to the monitor right after that line, long before B's list can come.
+            checked(second.connect_device("emulator-5556"));
+            let failure = channel_failure(&provider).await;
+            assert_eq!(failure.failure().message.as_deref(), Some(PROBE), "{failure:?}");
+            provider.terminate().await?;
+            drop(provider);
+            checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                    while std::sync::Arc::strong_count(&runtime) > 1 {
+                        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                    }
+                })
+                .await,
+            );
+            checked(first.shutdown().await);
+            checked(second.shutdown().await);
             Ok(())
         })
     });
