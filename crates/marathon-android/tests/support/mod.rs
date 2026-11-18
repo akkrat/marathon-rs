@@ -230,20 +230,96 @@ pub fn request_services(server: &FakeAdbServer) -> Vec<String> {
 }
 pub const D85_BOOT_ID_SERVICE: &str = "shell:cat /proc/sys/kernel/random/boot_id;echo x$?";
 
-/// The Kotlin recordings predate the setup read. Keep duplicates, recovery reads and other commands visible.
-pub fn without_d85_setup_probe(mut services: Vec<String>, serial: &str) -> Vec<String> {
-    let features = format!("host-serial:{serial}:features");
-    let probes: Vec<_> = services
-        .windows(3)
-        .enumerate()
-        .filter_map(|(index, commands)| {
-            (commands == ["shell:getprop;echo x$?", D85_BOOT_ID_SERVICE, &features]).then_some(index + 1)
-        })
-        .collect();
-    for index in probes.into_iter().rev() {
-        services.remove(index);
+/// The Kotlin recordings predate the boot ID and marker commands. Keep the return probe and any
+/// duplicate, misplaced or unsuccessful command visible.
+pub fn d85_omitted_connections(rows: &[Value]) -> std::collections::BTreeSet<u64> {
+    use marathon_adb::client::shell::boot_marker::MarkerCommand;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let mut lanes = BTreeMap::<&str, Vec<(u64, &str)>>::new();
+    for row in rows.iter().filter(|row| row["type"] == "request") {
+        let (Some(conn), Some(service)) = (row["conn"].as_u64(), row["service"].as_str()) else {
+            continue;
+        };
+        if service.starts_with("host:transport:") || service == "shell:logcat -v long" {
+            continue;
+        }
+        let features = service
+            .strip_prefix("host-serial:")
+            .and_then(|rest| rest.strip_suffix(":features"));
+        if let Some(serial) = row["serial"].as_str().or(features) {
+            lanes.entry(serial).or_default().push((conn, service));
+        }
     }
-    services
+    let reply_matches = |conn, command, expected: &[u8]| {
+        let mut stdout = Vec::new();
+        let mut shell = false;
+        for row in rows.iter().filter(|row| row["conn"].as_u64() == Some(conn)) {
+            match row["type"].as_str() {
+                Some("shell") => {
+                    if shell
+                        || row["command"] != command
+                        || row["handler"] != "builtin"
+                        || row["service"] != "shell"
+                        || row["protocol"] != "raw"
+                        || row["exit_code_trick"] != true
+                        || row["exit_code"] != 0
+                        || row["hang"] != false
+                        || !row["stdin_bytes"].is_null()
+                    {
+                        return false;
+                    }
+                    shell = true;
+                }
+                Some("output") => {
+                    if row["stream"] != "stdout" {
+                        return false;
+                    }
+                    let Some(bytes) = row["bytes"].as_array() else {
+                        return false;
+                    };
+                    for byte in bytes {
+                        let Some(byte) = byte.as_u64().and_then(|byte| u8::try_from(byte).ok()) else {
+                            return false;
+                        };
+                        stdout.push(byte);
+                    }
+                }
+                _ => {}
+            }
+        }
+        shell && stdout == expected
+    };
+    let mut omitted = BTreeSet::new();
+    for (serial, requests) in lanes {
+        let features = format!("host-serial:{serial}:features");
+        let mut marked = BTreeSet::new();
+        for (index, &(conn, service)) in requests.iter().enumerate() {
+            let before = index.checked_sub(1).map(|before| requests[before].1);
+            let Some(command) = service.strip_prefix("shell:").and_then(|s| s.strip_suffix(";echo x$?")) else {
+                continue;
+            };
+            let skip = if service == D85_BOOT_ID_SERVICE {
+                before == Some("shell:getprop;echo x$?")
+                    && requests.get(index + 1).is_some_and(|(_, service)| *service == features)
+                    && reply_matches(conn, command, b"00000000-0000-4000-8000-000000000001\n")
+            } else {
+                match MarkerCommand::parse(command) {
+                    Some((MarkerCommand::Write, token)) => {
+                        before == Some("shell:logcat -c;echo x$?")
+                            && reply_matches(conn, command, format!("{token}\n").as_bytes())
+                            && marked.insert(token)
+                    }
+                    Some((MarkerCommand::Remove, token)) => reply_matches(conn, command, b"") && marked.remove(&token),
+                    _ => false,
+                }
+            };
+            if skip {
+                omitted.insert(conn);
+            }
+        }
+    }
+    omitted
 }
 
 pub const SETUP_COMMANDS: [&str; 7] = [

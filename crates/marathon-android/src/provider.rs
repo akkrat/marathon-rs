@@ -262,12 +262,12 @@ impl AdamDeviceProvider {
             loop {
                 let event = cancellable(context.cancellation.clone(), async { Ok(rx.recv().await) }).await?;
                 let Some(event) = event else { return Ok(()) };
-                let (client, updates, retried_prepare) = match event? {
+                let (client, updates, retried_prepare, replaced) = match event? {
                     Tracked::Devices(client, devices) => {
                         let updates = self.inner.trackers.update(&client, &devices);
-                        (client, updates, false)
+                        (client, updates, false, None)
                     }
-                    Tracked::Replace(client, device, reason) => {
+                    Tracked::Replace(client, device, reason, replaced) => {
                         let serial = device.adb_serial().to_owned();
                         let tracker = self.inner.trackers.tracker(&client);
                         let key = (server_name(&client), serial.clone());
@@ -292,7 +292,7 @@ impl AdamDeviceProvider {
                             }
                             Replacement::PrepareFailed => continue,
                             Replacement::Unready | Replacement::InterruptedSetup => retried,
-                            Replacement::Rebooted => false,
+                            Replacement::SetupLost => false,
                         };
                         (
                             client,
@@ -301,6 +301,7 @@ impl AdamDeviceProvider {
                                 (serial, TrackingUpdate::Connected),
                             ],
                             retried_prepare,
+                            replaced,
                         )
                     }
                     Tracked::Handled(done) => {
@@ -431,6 +432,9 @@ impl AdamDeviceProvider {
                             None,
                         )
                     }
+                }
+                if let Some(replaced) = replaced {
+                    let _ = replaced.send(());
                 }
             }
         }
@@ -627,7 +631,7 @@ impl AdamDeviceProvider {
                 {
                     send(
                         tx,
-                        Tracked::Replace(client.clone(), p.device.clone(), Replacement::PrepareFailed),
+                        Tracked::Replace(client.clone(), p.device.clone(), Replacement::PrepareFailed, None),
                     )?;
                     sent = true;
                 }
@@ -829,11 +833,18 @@ impl AdamDeviceProvider {
             }
             Recovered::Resumed => {}
             Recovered::Replace(reason) => {
-                // The old instance must be marked disconnected before its gate opens and wakes its batches.
-                send(tx, Tracked::Replace(client.clone(), device.clone(), reason))?;
-                handled(tx, context.cancellation.clone()).await?;
-                let why = if reason == Replacement::Rebooted {
-                    "rebooted"
+                // A stale replacement drops its acknowledgement. Only an applied disconnect can
+                // release this recovery's hold, once the old instance has been marked lost.
+                let (replaced, confirmation) = tokio::sync::oneshot::channel();
+                send(
+                    tx,
+                    Tracked::Replace(client.clone(), device.clone(), reason, Some(replaced)),
+                )?;
+                if !cancellable(context.cancellation.clone(), async { Ok(confirmation.await.is_ok()) }).await? {
+                    return Ok(());
+                }
+                let why = if reason == Replacement::SetupLost {
+                    "lost its setup"
                 } else {
                     "returned as if restarted"
                 };
@@ -889,7 +900,7 @@ impl AdamDeviceProvider {
         for device in interrupted {
             send(
                 tx,
-                Tracked::Replace(client.clone(), device, Replacement::InterruptedSetup),
+                Tracked::Replace(client.clone(), device, Replacement::InterruptedSetup, None),
             )?;
         }
         handled(tx, context.cancellation.clone()).await?;
@@ -948,9 +959,35 @@ impl AdamDeviceProvider {
         for task in setups {
             let _ = task.join().await;
         }
-        let devices = lock(&self.inner.all_devices).clone();
-        for (_, device) in devices {
+        let mut devices = lock(&self.inner.all_devices).clone();
+        for (_, device) in &devices {
             device.stop_logcat().await;
+        }
+        devices.retain(|(_, device)| device.has_preparation_marker());
+        if !devices.is_empty()
+            && let Ok(limit) = millis(self.inner.runtime.configuration.timeout_configuration.shell)
+        {
+            use futures_util::StreamExt;
+            let context = VendorContext {
+                cancellation: Signal::new(),
+                clock: self.inner.runtime.dependencies.clock.clone(),
+                hooks: self.inner.runtime.dependencies.hooks.clone(),
+            };
+            // Marker cleanup is best effort. Share its deadline so unreachable devices cannot add up.
+            let _ = timed(&context, limit, |signal| {
+                Box::pin(async move {
+                    futures_util::stream::iter(devices)
+                        .for_each_concurrent(RECOVERIES_PER_SERVER, |(_, device)| {
+                            let signal = signal.clone();
+                            async move {
+                                let _ = device.remove_preparation_marker(signal).await;
+                            }
+                        })
+                        .await;
+                    Ok(())
+                })
+            })
+            .await;
         }
         self.inner.factory.close();
         *closed = true;
@@ -1053,7 +1090,12 @@ type TrackedSender = tokio::sync::mpsc::UnboundedSender<VendorResult<Tracked>>;
 /// What the per-server tracking tasks send to the one loop that owns the device events.
 enum Tracked {
     Devices(AndroidDebugBridgeClient, Vec<AdbDevice>),
-    Replace(AndroidDebugBridgeClient, AndroidDevice, Replacement),
+    Replace(
+        AndroidDebugBridgeClient,
+        AndroidDevice,
+        Replacement,
+        Option<tokio::sync::oneshot::Sender<()>>,
+    ),
     /// Answered once everything sent before it has been handled.
     Handled(tokio::sync::oneshot::Sender<()>),
 }
@@ -1062,7 +1104,7 @@ enum Replacement {
     PrepareFailed,
     InterruptedSetup,
     Unready,
-    Rebooted,
+    SetupLost,
 }
 enum TrackStep {
     Next(Option<Result<Vec<AdbDevice>, AdbError>>),
@@ -1358,7 +1400,7 @@ impl Recoveries {
                     };
                     let recovery = async {
                         match device.returned_boot(&context, kind == Recovery::Blip).await? {
-                            ReturnedBoot::Rebooted => return Ok(Recovered::Replace(Replacement::Rebooted)),
+                            ReturnedBoot::SetupLost => return Ok(Recovered::Replace(Replacement::SetupLost)),
                             ReturnedBoot::Unready if kind == Recovery::Blip => {
                                 return Ok(Recovered::Replace(Replacement::Unready));
                             }

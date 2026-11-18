@@ -1,5 +1,6 @@
 //! Shell services: v1 (`shell:`), v2 (`shell,v2,raw:`) and the compat stream that picks one by feature.
 
+pub mod boot_marker;
 pub mod compat;
 pub mod v1;
 pub mod v2;

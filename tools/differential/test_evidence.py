@@ -1121,6 +1121,38 @@ class VendorEvidenceTests(unittest.TestCase):
             with self.subTest(change=change):
                 self.assertEqual(commands(props, boot, features, **change), [props, boot])
 
+    def test_d85_marker_allowance_requires_placement_and_matching_wire_and_reply(self):
+        import vendor_transport as t
+        token = '00000000-0000-4000-8000-000000000002'
+        prefix = f'token={token}; {t.D85_MARKER}'
+        clear = 'logcat -c'
+        write = prefix + t.D85_WRITE
+        remove = prefix + t.D85_REMOVE
+        read = prefix + "printf 'boot '"
+        wrong_remove = remove.replace(token, '00000000-0000-4000-8000-000000000003')
+
+        def commands(*commands, native=True):
+            rows = []
+            for conn, (command, stdout, wire) in enumerate(commands, 1):
+                rows.append(dict(type='request', conn=conn, serial='s', service=f'shell:{wire};echo x$?'))
+                rows.append(dict(type='shell', conn=conn, serial='s', command=command, service='shell',
+                                 protocol='raw', exit_code_trick=True, stdin_bytes=None, stdin_sha256=None,
+                                 handler='builtin', rule=None, exit_code=0, hang=False))
+                rows.append(dict(type='output', conn=conn, stream='stdout', bytes=list(stdout.encode())))
+            rows.append(dict(type='event', event='server_stopped'))
+            data = b''.join(json.dumps(row).encode() + b'\n' for row in rows)
+            lanes = t.adb(data, d85_native_setup=native)
+            return [row['command'] for lane in ('logcat:s', 'device:s') for row in lanes.get(lane, [])]
+
+        cleared, wrote, removed = (clear, '', clear), (write, token+'\n', write), (remove, '', remove)
+        self.assertEqual(commands(cleared, wrote, (read, '', read), removed), [clear, read])
+        self.assertEqual(commands(cleared, wrote, removed, native=False), [clear, write, remove])
+        self.assertEqual(commands(wrote, removed), [write, remove])
+        self.assertEqual(commands(cleared, (write, 'garbage', write), removed), [clear, write, remove])
+        self.assertEqual(commands(cleared, wrote, (remove, '', wrong_remove)), [clear, remove])
+        self.assertEqual(commands(cleared, wrote, removed, removed), [clear, remove])
+        self.assertEqual(commands(cleared, wrote, (wrong_remove, '', wrong_remove), removed), [clear, wrong_remove])
+
     def d31_argv(self, *rows):
         import vendor_transport as t
         data = b''.join(json.dumps(dict(event='host_argv',program=program,argv=argv)).encode()+b'\n' for program,argv in rows)

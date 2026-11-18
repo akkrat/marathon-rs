@@ -25,6 +25,7 @@ serde = { version = "=1.0.229", optional = true, features = ["derive"] }
 serde_json = { version = "=1.0.154", optional = true }
 serde_norway = { version = "=0.9.42", optional = true }
 tokio = { version = "=1.53.2", features = ["fs", "io-util", "macros", "net", "rt", "sync", "time"] }
+uuid = "1"
 
 [dev-dependencies]
 marathon-test-support = { path = "../marathon-test-support" }

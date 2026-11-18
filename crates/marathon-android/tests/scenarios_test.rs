@@ -42,13 +42,13 @@ fn kotlin_commands(rows: &[Value]) -> BTreeMap<String, Vec<String>> {
     commands
 }
 fn native_commands(rows: &[Value]) -> BTreeMap<String, Vec<String>> {
-    transcript_commands(rows)
-        .into_iter()
-        .map(|(serial, commands)| {
-            let commands = without_d85_setup_probe(commands, &serial);
-            (serial, commands)
-        })
-        .collect()
+    let omitted = d85_omitted_connections(rows);
+    let requests: Vec<_> = rows
+        .iter()
+        .filter(|row| row["type"] == "request" && !row["conn"].as_u64().is_some_and(|conn| omitted.contains(&conn)))
+        .cloned()
+        .collect();
+    transcript_commands(&requests)
 }
 #[test]
 fn the_d27_allowance_covers_only_the_root_wipe() {
@@ -72,21 +72,76 @@ fn the_d27_allowance_covers_only_the_root_wipe() {
     );
 }
 #[test]
-fn the_d85_allowance_covers_only_the_boot_id_read_between_setup_properties_and_features() {
-    let row = |service: &str| serde_json::json!({"type":"request","serial":"s","service":service});
+fn the_d85_allowance_only_covers_successful_setup_and_marker_commands() {
+    use marathon_adb::client::shell::boot_marker::MarkerCommand;
+    use serde_json::json;
     let props = "shell:getprop;echo x$?";
     let features = "host-serial:s:features";
     let other = "shell:cat /proc/sys/kernel/random/uuid;echo x$?";
-    let commands = |values: &[&str]| native_commands(&values.iter().copied().map(row).collect::<Vec<_>>())["s"].clone();
-    assert_eq!(commands(&[props, D85_BOOT_ID_SERVICE, features]), [props, features]);
+    let commands = |values: &[(&str, &str)]| {
+        let mut rows = vec![];
+        for (conn, (service, stdout)) in values.iter().enumerate() {
+            rows.push(json!({"type":"request","conn":conn,"serial":"s","service":service}));
+            if let Some(command) = service
+                .strip_prefix("shell:")
+                .and_then(|cmd| cmd.strip_suffix(";echo x$?"))
+            {
+                rows.push(json!({"type":"shell","conn":conn,"command":command,"handler":"builtin",
+                    "service":"shell","protocol":"raw","exit_code_trick":true,"exit_code":0,"hang":false}));
+                rows.push(json!({"type":"output","conn":conn,"stream":"stdout","bytes":stdout.as_bytes()}));
+            }
+        }
+        native_commands(&rows)["s"].clone()
+    };
+    let probe = (D85_BOOT_ID_SERVICE, "00000000-0000-4000-8000-000000000001\n");
+    assert_eq!(commands(&[(props, ""), probe, (features, "")]), [props, features]);
     assert_eq!(
-        commands(&[props, D85_BOOT_ID_SERVICE, D85_BOOT_ID_SERVICE, features]),
+        commands(&[(props, ""), probe, probe, (features, "")]),
         [props, D85_BOOT_ID_SERVICE, D85_BOOT_ID_SERVICE, features]
     );
-    assert_eq!(commands(&[props, other, features]), [props, other, features]);
     assert_eq!(
-        commands(&[props, features, D85_BOOT_ID_SERVICE]),
+        commands(&[(props, ""), (other, ""), (features, "")]),
+        [props, other, features]
+    );
+    assert_eq!(
+        commands(&[(props, ""), (features, ""), probe]),
         [props, features, D85_BOOT_ID_SERVICE]
+    );
+    assert_eq!(
+        commands(&[(props, ""), (probe.0, "invalid"), (features, "")]),
+        [props, probe.0, features]
+    );
+
+    let token = uuid::uuid!("00000000-0000-4000-8000-000000000002");
+    let other_token = uuid::uuid!("00000000-0000-4000-8000-000000000003");
+    let service = |command: MarkerCommand, token| format!("shell:{};echo x$?", command.command(token));
+    let write = service(MarkerCommand::Write, token);
+    let read = service(MarkerCommand::Read, token);
+    let remove = service(MarkerCommand::Remove, token);
+    let wrong_remove = service(MarkerCommand::Remove, other_token);
+    let wrote = format!("{token}\n");
+    let clear = "shell:logcat -c;echo x$?";
+    assert_eq!(
+        commands(&[(clear, ""), (&write, &wrote), (&read, ""), (&remove, "")]),
+        [clear, &read]
+    );
+    assert_eq!(
+        commands(&[(props, ""), (&write, &wrote), (&remove, "")]),
+        [props, &write, &remove]
+    );
+    assert_eq!(
+        commands(&[(clear, ""), (&write, "invalid"), (&remove, "")]),
+        [clear, &write, &remove]
+    );
+    assert_eq!(
+        commands(&[
+            (clear, ""),
+            (&write, &wrote),
+            (&wrong_remove, ""),
+            (&remove, ""),
+            (&remove, "")
+        ]),
+        [clear, &wrong_remove, &remove]
     );
 }
 fn expected(path: &str) -> Vec<Value> {
@@ -118,6 +173,7 @@ fn kotlin_install_matrix() {
     run(c, move |runtime, context| {
         Box::pin(async move {
             let mut server = checked(FakeAdbServer::start(script, ServerOptions::default()).await);
+            server.capture_output();
             let runtime = change_runtime(&runtime, &[server.port()]);
             let provider = AdamDeviceProvider::new(runtime.clone())?;
             provider.initialize(context.clone()).await?;
@@ -173,6 +229,7 @@ fn kotlin_two_devices_setup_and_install_subset() {
     run(c, move |runtime, context| {
         Box::pin(async move {
             let mut server = checked(FakeAdbServer::start(script, ServerOptions::default()).await);
+            server.capture_output();
             let runtime = change_runtime(&runtime, &[server.port()]);
             let provider = AdamDeviceProvider::new(runtime.clone())?;
             provider.initialize(context.clone()).await?;
@@ -219,6 +276,8 @@ fn kotlin_multi_server_disconnect() {
             let [s1, s2] = scripts;
             let mut first = checked(FakeAdbServer::start(s1, ServerOptions::default()).await);
             let mut second = checked(FakeAdbServer::start(s2, ServerOptions::default()).await);
+            first.capture_output();
+            second.capture_output();
             let provider = AdamDeviceProvider::new(change_runtime(&runtime, &[first.port(), second.port()]))?;
             provider.initialize(context).await?;
             for _ in 0..2 {

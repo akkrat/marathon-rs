@@ -192,7 +192,14 @@ fn prepare_leaves_external_storage_alone_d27() {
                 .await?;
             let commands = commands(&server);
             expect_setup(&commands);
-            assert_eq!(commands[SETUP_COMMANDS.len()..], ["logcat -c"]);
+            let prepare = &commands[SETUP_COMMANDS.len()..];
+            assert_eq!(prepare.len(), 2);
+            assert_eq!(prepare[0], "logcat -c");
+            use marathon_adb::client::shell::boot_marker::MarkerCommand;
+            assert!(matches!(
+                MarkerCommand::parse(&prepare[1]),
+                Some((MarkerCommand::Write, _))
+            ));
             finish(server, device).await;
             Ok(())
         })

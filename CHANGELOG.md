@@ -27,9 +27,10 @@ The section for a version becomes the text of its GitHub release, which carries 
   are unchanged. Worker commands can
   list a batch's tests in another order and grouping, `fixed-size` batches can be fuller or emptier and more or fewer,
   and with code coverage on an Android test in another batch gets that batch's coverage file.
-- Android devices that reboot during an adb outage or brief `offline` are set up again before they take more tests.
-  Batches that never started keep their retry quota. If a still-listed device exhausts preparation, Marathon gives it
-  one more setup within the pool's existing return wait (D85).
+- After an adb outage or brief `offline`, Android gets fresh setup when its boot ID changes or a snapshot rollback
+  removes its preparation marker. Batches that never started keep their retry quota. A still-listed device gets one
+  more setup after exhausting preparation, within the pool's existing return wait. A shared-kernel restart that
+  preserves both the boot ID and marker can go undetected (D85).
 - Graphite and InfluxDB writes use a bounded queue. Bursts with room proceed immediately, and sustained load waits
   for capacity. Metrics can be lost if the wait expires, the backend is cooling off, admission closes,
   the delivery task stops, or shutdown reaches its deadline. Gaps can affect the flakiness and duration history

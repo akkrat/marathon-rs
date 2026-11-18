@@ -308,9 +308,13 @@ D27_WIPE = frozenset(['rm -r /sdcard', 'mkdir /sdcard'])
 # D85: the older steady-state recordings have no boot ID read during setup. Match its exact wire request
 # between the setup's final property read and feature query, then require the fake's complete built-in reply.
 D85_BOOT_ID = 'cat /proc/sys/kernel/random/boot_id'
+D85_MARKER = 'marker=/data/local/tmp/.marathon-ready-$token; '
+D85_WRITE = r'''(umask 077; printf '%s\n' "$token" > "$marker") 2>/dev/null && printf '%s\n' "$token"'''
+D85_REMOVE = 'rm -f "$marker"'
+D85_TOKEN = re.compile(r'token=([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})')
 
 
-def d85_setup_probes(rows):
+def d85_setup_requests(rows):
     requests = defaultdict(list)
     for row in rows:
         if row['type'] != 'request':
@@ -319,9 +323,9 @@ def d85_setup_probes(rows):
         serial = row.get('serial')
         if service.startswith('host-serial:') and service.endswith(':features'):
             serial = service[len('host-serial:'):-len(':features')]
-        if serial is not None and not service.startswith('host:transport:'):
+        if serial is not None and not service.startswith('host:transport:') and service != 'shell:logcat -v long':
             requests[serial].append(row)
-    return {
+    boots = {
         (probe['conn'], serial)
         for serial, lane in requests.items()
         for before, probe, after in zip(lane, lane[1:], lane[2:])
@@ -329,14 +333,39 @@ def d85_setup_probes(rows):
         and probe['service'] == f'shell:{D85_BOOT_ID};echo x$?'
         and after['service'] == f'host-serial:{serial}:features'
     }
+    writes = {
+        (write['conn'], serial): token
+        for serial, lane in requests.items()
+        for before, write in zip(lane, lane[1:])
+        if before['service'] == 'shell:logcat -c;echo x$?'
+        and (token := d85_marker_service(write['service'], D85_WRITE))
+    }
+    removals = {
+        (row['conn'], serial): token
+        for serial, lane in requests.items()
+        for row in lane
+        if (token := d85_marker_service(row['service'], D85_REMOVE))
+    }
+    return boots, writes, removals
 
 
-def d85_builtin_probe(session):
+def d85_marker_service(service, suffix):
+    return (service.startswith('shell:') and service.endswith(';echo x$?')
+            and d85_marker_command(service[len('shell:'):-len(';echo x$?')], suffix))
+
+
+def d85_marker_command(command, suffix):
+    prefix, sep, body = command.partition('; ')
+    token = D85_TOKEN.fullmatch(prefix)
+    return token[1] if token and sep and body == D85_MARKER + suffix and int(token[1].replace('-', ''), 16) else None
+
+
+def d85_builtin_reply(session, command, stdout):
     return session == {
-        'serial': session['serial'], 'command': D85_BOOT_ID, 'service': 'shell', 'protocol': 'raw',
+        'serial': session['serial'], 'command': command, 'service': 'shell', 'protocol': 'raw',
         'exit_code_trick': True, 'stdin_bytes': None, 'stdin_sha256': None, 'handler': 'builtin',
         'rule': None, 'exit_code': 0, 'hang': False,
-        'stdout': b'00000000-0000-4000-8000-000000000001\n', 'stderr': b'',
+        'stdout': stdout, 'stderr': b'',
     }
 
 
@@ -374,10 +403,28 @@ def adb(data, ran_the_wipe=False, d85_native_setup=False):
                 lanes['events'].append({k:v for k,v in row.items() if k != 'conn'})
         else:
             raise e.Invalid('unknown ADB transcript record: ' + kind)
-    setup_probes = d85_setup_probes(rows) if d85_native_setup else set()
+    setup_probes, marker_writes, marker_removals = d85_setup_requests(rows) if d85_native_setup else (set(), {}, {})
+    active_markers = set()
     for conn, session in sessions.items():
-        if (conn, session['serial']) in setup_probes and d85_builtin_probe(session):
-            continue
+        serial, command = session['serial'], session['command']
+        if d85_native_setup:
+            if ((conn, serial) in setup_probes
+                    and d85_builtin_reply(session, D85_BOOT_ID, b'00000000-0000-4000-8000-000000000001\n')):
+                continue
+            if (conn, serial) in marker_writes:
+                token = d85_marker_command(command, D85_WRITE)
+                if (token == marker_writes[conn, serial]
+                        and (serial, token) not in active_markers
+                        and d85_builtin_reply(session, command, (token + '\n').encode())):
+                    active_markers.add((serial, token))
+                    continue
+            if (conn, serial) in marker_removals:
+                token = d85_marker_command(command, D85_REMOVE)
+                if (token == marker_removals[conn, serial]
+                        and (serial, token) in active_markers
+                        and d85_builtin_reply(session, command, b'')):
+                    active_markers.remove((serial, token))
+                    continue
         for stream in ('stdout','stderr'):
             session[stream] = base64.b64encode(session[stream]).decode()
         lane = 'logcat:' if session['command'].startswith('logcat') else 'device:'

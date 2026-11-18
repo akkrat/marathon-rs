@@ -13,7 +13,10 @@ use marathon_adb::client::{
     AndroidDebugBridgeClient, AsyncChannelRequest, ChannelStream, ComplexRequest, Feature,
     device::{DeviceState, FetchDeviceFeaturesRequest, ListDevicesRequest},
     reverse::*,
-    shell::v1::ShellCommandRequest,
+    shell::{
+        boot_marker::{BOOT_ID_COMMAND, MarkerCommand},
+        v1::ShellCommandRequest,
+    },
 };
 use marathon_core::{
     error::*,
@@ -46,7 +49,6 @@ const LOGCAT_END_WAIT_MILLIS: i64 = 1000;
 /// D49: lost requests per serial per adb server per run that a device listed as `device` and answering survives. Each one
 /// charges its batch an attempt, so it is a count with no forgiveness, as D41's is. One after this retires the device.
 const REQUEST_LOSSES_PER_DEVICE: u32 = 3;
-const BOOT_ID_COMMAND: &str = "cat /proc/sys/kernel/random/boot_id";
 /// D70: where the batch this device took last stands, so that it is given back uncharged only if none of it started. A
 /// device runs one batch at a time.
 struct BatchRecord {
@@ -84,7 +86,33 @@ enum LossCause {
 pub(crate) enum ReturnedBoot {
     Ready,
     Unready,
-    Rebooted,
+    SetupLost,
+}
+
+#[derive(Clone, Copy)]
+struct PreparationMarker {
+    token: Uuid,
+    confirmed: bool,
+}
+
+fn parse_identity(value: &str) -> Option<Uuid> {
+    value.parse::<Uuid>().ok().filter(|id| !id.is_nil())
+}
+
+fn setup_was_lost(reply: &str, previous: Option<Uuid>, token: Uuid) -> bool {
+    let mut lines = reply.lines();
+    let (Some(boot), Some(marker), None) = (lines.next(), lines.next(), lines.next()) else {
+        return false;
+    };
+    let (Some(boot), Some(marker)) = (boot.strip_prefix("boot "), marker.strip_prefix("marker ")) else {
+        return false;
+    };
+    matches!((previous, parse_identity(boot)), (Some(previous), Some(boot)) if previous != boot)
+        || marker == "missing"
+        || marker
+            .strip_prefix("value=")
+            .and_then(parse_identity)
+            .is_some_and(|current| current != token)
 }
 
 /// D41's passing states, as adb names them, for log lines.
@@ -178,6 +206,7 @@ struct Inner {
 struct State {
     booted: bool,
     boot_identity: Option<Uuid>,
+    preparation_marker: Option<PreparationMarker>,
     serial: String,
     abi: String,
     version: AndroidVersion,
@@ -210,6 +239,7 @@ impl AndroidDevice {
                 state: Mutex::new(State {
                     booted: false,
                     boot_identity: None,
+                    preparation_marker: None,
                     serial: "Unknown".into(),
                     abi: "Unknown".into(),
                     version: AndroidVersion::default(),
@@ -763,7 +793,57 @@ impl AndroidDevice {
         if response.exit_code != 0 {
             return Ok(None);
         }
-        Ok(response.output().trim().parse::<Uuid>().ok().filter(|id| !id.is_nil()))
+        Ok(parse_identity(response.output().trim()))
+    }
+    async fn record_preparation(&self, context: &VendorContext) -> VendorResult<()> {
+        let disposed = cancellable(context.cancellation.clone(), async {
+            Ok(self.inner.disposal.lock().await)
+        })
+        .await?;
+        if *disposed || self.is_disconnected() {
+            return Ok(());
+        }
+        // A snapshot may include the provider setup but precede the APK installation. Publish the
+        // marker only once the pool's preparation has finished.
+        let token = {
+            let mut state = lock(&self.inner.state);
+            let marker = state.preparation_marker.get_or_insert_with(|| PreparationMarker {
+                token: Uuid::new_v4(),
+                confirmed: false,
+            });
+            marker.confirmed = false;
+            marker.token
+        };
+        let probe = timed(context, millis(self.timeouts().shell)?, |signal| {
+            Box::pin(self.bounded_request(ShellCommandRequest::new(MarkerCommand::Write.command(token)), signal))
+        })
+        .await;
+        let confirmed = self
+            .optional_probe(probe, "Unable to write Android preparation marker")?
+            .is_some_and(|reply| reply.exit_code == 0 && parse_identity(reply.output().trim()) == Some(token));
+        lock(&self.inner.state).preparation_marker = Some(PreparationMarker { token, confirmed });
+        Ok(())
+    }
+    async fn clear_preparation_marker(&self, signal: Arc<dyn CancellationSignal>) -> VendorResult<()> {
+        let marker = lock(&self.inner.state).preparation_marker.take();
+        if let Some(marker) = marker
+            && self.adb_server_available()
+            && self.inner.tracker.get_state(self.adb_serial()) == Some(DeviceState::Device)
+        {
+            self.bounded_request(
+                ShellCommandRequest::new(MarkerCommand::Remove.command(marker.token)),
+                signal,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+    pub(crate) async fn remove_preparation_marker(&self, signal: Arc<dyn CancellationSignal>) -> VendorResult<()> {
+        let _disposal = cancellable(signal.clone(), async { Ok(self.inner.disposal.lock().await) }).await?;
+        self.clear_preparation_marker(signal).await
+    }
+    pub(crate) fn has_preparation_marker(&self) -> bool {
+        lock(&self.inner.state).preparation_marker.is_some()
     }
     fn optional_probe<T>(&self, probe: VendorResult<Option<T>>, message: &str) -> VendorResult<Option<T>> {
         match probe {
@@ -790,8 +870,14 @@ impl AndroidDevice {
         context: &VendorContext,
         check_readiness: bool,
     ) -> VendorResult<ReturnedBoot> {
-        let previous = lock(&self.inner.state).boot_identity;
-        if previous.is_none() && !check_readiness {
+        let (previous, marker) = {
+            let state = lock(&self.inner.state);
+            (
+                state.boot_identity,
+                state.preparation_marker.filter(|marker| marker.confirmed),
+            )
+        };
+        if previous.is_none() && marker.is_none() && !check_readiness {
             return Ok(ReturnedBoot::Ready);
         }
         // The existing readiness check and the new boot ID read share D41's shell limit. When only the
@@ -806,24 +892,35 @@ impl AndroidDevice {
                         .await?
                         .contains_key("sys.boot_completed");
                 }
-                if *readiness && previous.is_some() {
-                    self.read_boot_id(signal).await
-                } else {
-                    Ok(None)
+                if !*readiness {
+                    return Ok(false);
                 }
+                if let Some(marker) = marker {
+                    let reply = self
+                        .bounded_request(
+                            ShellCommandRequest::new(MarkerCommand::Read.command(marker.token)),
+                            signal,
+                        )
+                        .await?;
+                    return Ok(reply.exit_code == 0 && setup_was_lost(&reply.output(), previous, marker.token));
+                }
+                Ok(match previous {
+                    Some(previous) => self
+                        .read_boot_id(signal)
+                        .await?
+                        .is_some_and(|current| current != previous),
+                    None => false,
+                })
             })
         })
         .await;
         let message = if ready {
-            "Unable to read a returned device's boot ID"
+            "Unable to read a returned device's setup identity"
         } else {
             "Unable to read a returned device's properties"
         };
-        let current = self.optional_probe(probe, message)?.flatten();
-        if let (Some(previous), Some(current)) = (previous, current)
-            && previous != current
-        {
-            return Ok(ReturnedBoot::Rebooted);
+        if self.optional_probe(probe, message)? == Some(true) {
+            return Ok(ReturnedBoot::SetupLost);
         }
         Ok(if ready {
             ReturnedBoot::Ready
@@ -1110,6 +1207,15 @@ impl AndroidDevice {
                 self.log(Level::WARN, "Unable to remove reverse port forward", Some(e.failure()));
             }
         }
+        if self.has_preparation_marker()
+            && let Ok(limit) = millis(self.timeouts().shell)
+        {
+            let context = self.cleanup_context();
+            let _ = timed(&context, limit, |signal| {
+                Box::pin(self.clear_preparation_marker(signal))
+            })
+            .await;
+        }
         *disposed = true;
         Ok(())
     }
@@ -1200,7 +1306,8 @@ impl Device for AndroidDevice {
                         .dependencies
                         .tracker
                         .device_preparing(&device.serial_number(), start, end)
-                        .await
+                        .await?;
+                    device.record_preparation(&context).await
                 })
             },
         ))
@@ -1467,4 +1574,31 @@ pub fn parse_rotation(output: &str) -> Rotation {
         Rotation::of(jcompat::jnum::parse_int(&trim(parts[1]))?)
     };
     parse().unwrap_or(Rotation::Rotation0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_positive_boot_or_marker_evidence_replaces_a_prepared_device_d85() {
+        let boot = uuid::uuid!("00000000-0000-4000-8000-000000000001");
+        let token = uuid::uuid!("00000000-0000-4000-8000-000000000002");
+        let changed = uuid::uuid!("00000000-0000-4000-8000-000000000003");
+        for (reply, lost) in [
+            (format!("boot {boot}\nmarker value={token}\n"), false),
+            (format!("boot {boot}\nmarker missing\n"), true),
+            (format!("boot {boot}\nmarker value={changed}\n"), true),
+            (format!("boot {changed}\nmarker unknown\n"), true),
+            (format!("boot {boot}\nmarker unknown\n"), false),
+            (format!("boot {boot}\nmarker value=missing\n"), false),
+            (format!("boot {boot}\nmarker value=\n"), false),
+            (format!("boot {changed}\n"), false),
+            ("boot garbage\nmarker garbage\n".into(), false),
+            ("boot unknown\nmarker missing\n".into(), true),
+            ("boot unknown\nmarker missing\nextra\n".into(), false),
+        ] {
+            assert_eq!(setup_was_lost(&reply, Some(boot), token), lost, "{reply:?}");
+        }
+    }
 }

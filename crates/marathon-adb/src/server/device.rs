@@ -210,14 +210,40 @@ fn payload_size(kind: ServiceKind, cmd: &str) -> Option<u64> {
 }
 
 fn builtin(world: &World, serial: &str, cmd: &str) -> Option<Response> {
+    use crate::client::shell::boot_marker::{BOOT_ID_COMMAND, MarkerCommand};
+    const BOOT_ID: &str = "00000000-0000-4000-8000-000000000001";
     let out = |s: String| Response {
         steps: vec![Step::Stdout(s.into_bytes())],
         exit_code: 0,
         hang: false,
     };
     // The fake keeps the same kernel across adb outages. Scenarios can override this with a shell expectation.
-    if cmd == "cat /proc/sys/kernel/random/boot_id" {
-        return Some(out("00000000-0000-4000-8000-000000000001\n".into()));
+    if cmd == BOOT_ID_COMMAND {
+        return Some(out(format!("{BOOT_ID}\n")));
+    }
+    if let Some((operation, token)) = MarkerCommand::parse(cmd) {
+        return world.with_device(serial, |device| match operation {
+            MarkerCommand::Write => {
+                device.preparation_markers.insert(token);
+                out(format!("{token}\n"))
+            }
+            MarkerCommand::Read => {
+                let marker = if device.preparation_markers.contains(&token) {
+                    format!("value={token}")
+                } else {
+                    "missing".into()
+                };
+                out(format!("boot {BOOT_ID}\nmarker {marker}\n"))
+            }
+            MarkerCommand::Remove => {
+                device.preparation_markers.remove(&token);
+                Response {
+                    steps: vec![],
+                    exit_code: 0,
+                    hang: false,
+                }
+            }
+        });
     }
     let t: Vec<&str> = cmd.split_whitespace().collect();
     match t.as_slice() {
@@ -292,13 +318,14 @@ async fn run(
             }
             world.transcript.record(v);
         };
-    let builtin_response =
-        builtin(world, serial, &cmd.text).filter(|_| world.builtins && cmd.kind == ServiceKind::Shell);
     // The expectation is reserved before OKAY, so that concurrent sessions can't both use one limited by
     // `times`, and so that strict mode can refuse the stream itself.
     let (handler, rule, response) = match world.take_rule(serial, cmd.kind, &cmd.text) {
         Some((id, r)) => ("script", Some(id), r),
-        None => match builtin_response {
+        None => match (world.builtins && cmd.kind == ServiceKind::Shell)
+            .then(|| builtin(world, serial, &cmd.text))
+            .flatten()
+        {
             Some(r) => ("builtin", None, r),
             None if world.strict => {
                 world.transcript.warning(format!(

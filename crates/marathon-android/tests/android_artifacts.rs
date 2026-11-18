@@ -812,6 +812,7 @@ fn scenario(mode: &'static str) {
                 tokio::fs::read_to_string(base.join(format!("{mode}.json"))).await,
             )));
             let mut server = checked(FakeAdbServer::start(checked(script.compile(&base)), Default::default()).await);
+            server.capture_output();
             let device = device(&server, runtime);
             device.setup(context.clone()).await?;
             setup_bundle(&device).await;
@@ -870,7 +871,14 @@ fn scenario(mode: &'static str) {
                 // sessions that pulled the coverage file; `/sdcard/screenshots` is empty and pulls nothing.
                 reference.retain(|s| !s.contains("coverage") && s != "sync:");
             }
-            let actual = without_d85_setup_probe(services(server.transcript()), device.adb_serial());
+            let actual = server.transcript();
+            let omitted = d85_omitted_connections(&actual);
+            let actual = services(
+                actual
+                    .into_iter()
+                    .filter(|r| !r["conn"].as_u64().is_some_and(|conn| omitted.contains(&conn)))
+                    .collect(),
+            );
             assert_eq!(actual, reference, "{mode}");
             if let Some(attachments) = attachments {
                 let values = attachments.get(&test()).unwrap_or_default();

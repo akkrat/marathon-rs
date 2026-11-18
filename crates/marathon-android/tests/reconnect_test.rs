@@ -12,6 +12,7 @@
 use marathon_error::{AdbKind, FailureKind, InjectedKind};
 mod support;
 
+use marathon_adb::client::shell::boot_marker::{BOOT_ID_COMMAND, MarkerCommand};
 use marathon_adb::server::{FakeAdbServer, Script, ServerOptions};
 use marathon_adb::testrunner::TestEvent;
 use marathon_android::{
@@ -92,7 +93,7 @@ struct VirtualDuration {
     delaying: Delaying,
     /// U197: the batch whose test is held at its start, given the batch's result.
     hold: Option<Arc<HeldTest>>,
-    /// D85: a full restart invalidates the setup of this device instance.
+    /// D85: a reboot or snapshot rollback invalidates the setup of this device instance.
     before_reboot: Arc<OnceLock<Weak<dyn Device>>>,
 }
 /// U197: holds the runner at the start of one test until the core has accounted for that test's batch, as when the core
@@ -1146,21 +1147,28 @@ fn one_test_script() -> (Value, usize) {
     (script, index)
 }
 
-const BOOT_ID: &str = "cat /proc/sys/kernel/random/boot_id";
+enum OutageReturn {
+    Reboot,
+    SnapshotRollback,
+    SameSetup,
+    Unanswered,
+}
 
-fn return_from_outage_d85(reboot: bool, unanswered: bool) -> Observed {
+fn return_from_outage_d85(outcome: OutageReturn) -> Observed {
     let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
     let (mut script, index) = one_test_script();
-    if reboot {
-        script["devices"][0]["shell"] = json!([
-            {"exact": BOOT_ID, "times": 1, "stdout": "00000000-0000-4000-8000-000000000002\n"}
-        ]);
-    } else if unanswered {
-        script["devices"][0]["shell"] = json!([
-            {"exact": BOOT_ID, "times": 1, "stdout": "00000000-0000-4000-8000-000000000001\n"},
-            {"exact": BOOT_ID, "times": 1, "hang": true}
-        ]);
-    }
+    let probe = "^token=[0-9a-f-]{36}; marker=[^;]+; printf 'boot '";
+    script["devices"][0]["shell"] = match outcome {
+        OutageReturn::Reboot => json!([
+            {"exact": BOOT_ID_COMMAND, "times": 1, "stdout": "00000000-0000-4000-8000-000000000002\n"}
+        ]),
+        OutageReturn::SnapshotRollback => json!([
+            {"regex": probe, "times": 1,
+             "stdout": "boot 00000000-0000-4000-8000-000000000001\nmarker missing\n"}
+        ]),
+        OutageReturn::SameSetup => json!([]),
+        OutageReturn::Unanswered => json!([{"regex": probe, "times": 1, "hang": true}]),
+    };
     let outage = Event {
         server: 0,
         at_ms: 1_000,
@@ -1174,7 +1182,7 @@ fn return_from_outage_d85(reboot: bool, unanswered: bool) -> Observed {
         Options {
             quota: Some(0),
             while_unstarted: true,
-            reboot,
+            reboot: matches!(outcome, OutageReturn::Reboot | OutageReturn::SnapshotRollback),
             ..Options::default()
         },
     )
@@ -1182,7 +1190,15 @@ fn return_from_outage_d85(reboot: bool, unanswered: bool) -> Observed {
 
 #[test]
 fn a_reboot_during_an_outage_replaces_the_device_without_charging_its_parked_batch_d85() {
-    let observed = return_from_outage_d85(true, false);
+    assert_setup_was_replaced(return_from_outage_d85(OutageReturn::Reboot));
+}
+
+#[test]
+fn a_snapshot_rollback_with_the_same_boot_id_and_no_marker_replaces_the_device_d85() {
+    assert_setup_was_replaced(return_from_outage_d85(OutageReturn::SnapshotRollback));
+}
+
+fn assert_setup_was_replaced(observed: Observed) {
     assert!(matches!(observed.result, Some(Ok(true))), "{:?}", observed.lines);
     assert_eq!(
         observed.received.iter().map(|r| r.0).collect::<Vec<_>>(),
@@ -1203,12 +1219,12 @@ fn a_reboot_during_an_outage_replaces_the_device_without_charging_its_parked_bat
 
 #[test]
 fn an_outage_on_the_same_boot_probes_and_reopens_the_original_gate_d85() {
-    assert_outage_kept_the_original_device(return_from_outage_d85(false, false));
+    assert_outage_kept_the_original_device(return_from_outage_d85(OutageReturn::SameSetup));
 }
 
 #[test]
 fn an_unanswered_boot_probe_reopens_the_outage_gate_d85() {
-    assert_outage_kept_the_original_device(return_from_outage_d85(false, true));
+    assert_outage_kept_the_original_device(return_from_outage_d85(OutageReturn::Unanswered));
 }
 
 fn assert_outage_kept_the_original_device(observed: Observed) {
@@ -1220,13 +1236,21 @@ fn assert_outage_kept_the_original_device(observed: Observed) {
         .iter()
         .filter(|r| r["type"] == "shell")
         .collect();
-    assert_eq!(commands.iter().filter(|r| r["command"] == BOOT_ID).count(), 2);
+    assert_eq!(commands.iter().filter(|r| r["command"] == BOOT_ID_COMMAND).count(), 1);
+    let marker_reads: Vec<_> = commands
+        .iter()
+        .enumerate()
+        .filter_map(|(index, row)| {
+            let (command, _) = MarkerCommand::parse(row["command"].as_str()?)?;
+            (command == MarkerCommand::Read).then_some(index)
+        })
+        .collect();
     let first_test = commands
         .iter()
         .position(|r| r["command"].as_str().is_some_and(|cmd| cmd.contains(" -e class ")))
         .unwrap();
-    let probe = commands.iter().rposition(|r| r["command"] == BOOT_ID).unwrap();
-    assert!(probe < first_test);
+    assert_eq!(marker_reads.len(), 1);
+    assert!(marker_reads[0] < first_test);
 }
 
 fn run_prepare_exhaustion(failures: Option<u32>) -> Observed {
