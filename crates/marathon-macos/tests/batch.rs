@@ -733,3 +733,84 @@ fn a_macs_preparation_deadline_is_the_greater_of_the_wait_and_its_commands_d87()
     assert_eq!(h.device().preparation_time_left_millis(&configuration), Some(1_000_000));
     Ok(())
 }
+
+/// A bridge whose send runs in a task of its own, as the rsync bridge's does: dropping the send leaves it running, and
+/// once stopped it takes 3 s to end.
+#[derive(Default)]
+struct SlowlyStoppingSends {
+    entered: Arc<marathon_core::executor::shared::SharedDeferred<()>>,
+    ended: Arc<std::sync::atomic::AtomicBool>,
+}
+impl marathon_apple::cmd::FileBridge for SlowlyStoppingSends {
+    fn send<'a>(&'a self, _: &'a std::path::Path, _: &'a str) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        Box::pin(async { Ok(true) })
+    }
+    fn receive<'a>(&'a self, _: &'a str, _: &'a std::path::Path) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        Box::pin(async { Ok(true) })
+    }
+    fn send_with<'a>(
+        &'a self,
+        _: &'a std::path::Path,
+        _: &'a str,
+        mut stop: marathon_apple::cmd::TransferStop,
+    ) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        let (entered, ended) = (self.entered.clone(), self.ended.clone());
+        let transfer = tokio::spawn(async move {
+            entered.complete(Ok(()));
+            let stopped = stop.stopped().await;
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            ended.store(true, std::sync::atomic::Ordering::SeqCst);
+            Err(stopped.into_error())
+        });
+        Box::pin(async move {
+            transfer.await.map_err(|e| {
+                VendorError::Other(marathon_apple::cmd::failure(FailureKind::IllegalState, e.to_string()))
+            })?
+        })
+    }
+}
+
+/// D93 (x90 left the Mac's sends to x92): a send to a Mac is registered with it, so its disposal stops it and waits for
+/// it, its caller long gone, before the Mac counts as stopped (before: disposal returned at once, the send running on).
+#[tokio::test(start_paused = true)]
+async fn disposal_stops_and_waits_for_a_send_whose_caller_stopped_waiting_d93() -> R {
+    let h = Harness::new("")?;
+    let bridge = Arc::new(SlowlyStoppingSends::default());
+    let commands = marathon_apple::cmd::DeviceCommands::new(h.worker.clone());
+    let binary = marathon_apple::bin::AppleBinaryEnvironment::new(
+        commands.clone(),
+        &h.options.dependencies.configuration,
+        h.options.vendor.timeout_configuration.clone(),
+        h.options.dependencies.io.clone(),
+        h.options.logging.clone(),
+    );
+    let d = MacosDevice::new(
+        "udid".into(),
+        marathon_config::devices::Transport::Local,
+        binary,
+        commands,
+        bridge.clone(),
+        h.options.clone(),
+    );
+    let dir = tempfile::tempdir()?;
+    let signal = Signal::new();
+    let mut context = h.context.clone();
+    context.cancellation = signal.clone();
+    let send = {
+        let (d, src) = (d.clone(), dir.path().to_path_buf());
+        tokio::spawn(async move { d.push_file(&src, "/tmp/marathon/x", &context).await })
+    };
+    bridge.entered.wait().await.map_err(|e| format!("{e:?}"))?;
+    send.abort();
+    let _ = send.await;
+    let disposing = tokio::time::Instant::now();
+    v(d.dispose().await)?;
+    assert!(
+        bridge.ended.load(std::sync::atomic::Ordering::SeqCst),
+        "the Mac was disposed of before the send to it had ended"
+    );
+    assert_eq!(disposing.elapsed(), Duration::from_secs(3));
+    assert!(!d.quarantined());
+    v(d.join_pending().await)?;
+    Ok(())
+}

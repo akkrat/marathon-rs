@@ -129,6 +129,8 @@ struct Hooked {
     prepared: Option<Arc<AtomicBool>>,
     /// Completed when a batch starts.
     started: Option<Arc<SharedDeferred<()>>>,
+    /// D93: where `seal_for_stop` and the cancel of a batch's call are recorded, in the order they reach the device.
+    stop_order: Option<Arc<std::sync::Mutex<Vec<String>>>>,
 }
 #[derive(Default)]
 enum AfterCancel {
@@ -158,6 +160,7 @@ fn hooked(inner: Arc<StubDevice>) -> Hooked {
         clock: std::sync::OnceLock::new(),
         prepared: None,
         started: None,
+        stop_order: None,
     }
 }
 impl Device for Hooked {
@@ -216,6 +219,12 @@ impl Device for Hooked {
                 .execute(configuration, pool, batch, result, context.clone())
                 .await;
             if let Err(VendorError::Cancelled(_)) = &outcome {
+                if let Some(order) = &self.stop_order {
+                    order
+                        .lock()
+                        .unwrap()
+                        .push(format!("cancelled {}", self.info().serial_number));
+                }
                 match &self.after_cancel {
                     AfterCancel::Nothing => {}
                     AfterCancel::CleansUp(millis, done) => {
@@ -241,6 +250,14 @@ impl Device for Hooked {
     }
     fn cancellation_cleanup_millis(&self) -> Option<i64> {
         self.cleanup_bound
+    }
+    fn seal_for_stop(&self) {
+        if let Some(order) = &self.stop_order {
+            order
+                .lock()
+                .unwrap()
+                .push(format!("sealed {}", self.info().serial_number));
+        }
     }
     fn join_cancelled_work(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
@@ -1182,4 +1199,80 @@ fn an_earlier_owners_cancel_does_not_fail_a_later_command_d84() {
         matches!(outcomes[1], Ok(true)),
         "a later command ignores an earlier owner's cancel: {outcomes:?}"
     );
+}
+
+/// D93: the run's stop seals every device, together, before it cancels any device's actor, so that each starts its one
+/// window for ending its work before the cancel reaches it. `serial-2` is preparing and `serial-3` running a batch when the
+/// device channel fails at 3,000 ms.
+#[test]
+fn the_stop_seals_every_device_before_it_cancels_any_d93() {
+    let (factory, script) = script();
+    let order = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = order.clone();
+    let ready: Option<Ready> = Some(Box::new(move |built| {
+        let channel = built.provider.channel();
+        for device in [
+            Hooked {
+                fail_events: Some((channel, 3_000)),
+                stop_order: Some(seen.clone()),
+                cleanup_bound: Some(70_000),
+                ..hooked(stub("serial-2", "modelZ", 600_000))
+            },
+            Hooked {
+                stop_order: Some(seen.clone()),
+                cleanup_bound: Some(70_000),
+                ..hooked(stub("serial-3", "modelA", 1_000))
+            },
+        ] {
+            assert!(built.provider.send(DeviceEvent::Connected(DeviceRef(Arc::new(device)))));
+        }
+    }));
+    let outcome = scenario::drive(factory, script, None, ready);
+    assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
+    let order = order.lock().unwrap().clone();
+    let sealed: Vec<_> = order.iter().filter(|e| e.starts_with("sealed ")).cloned().collect();
+    assert_eq!(sealed.len(), 2, "{order:?}");
+    assert!(sealed.contains(&"sealed serial-2".to_owned()) && sealed.contains(&"sealed serial-3".to_owned()));
+    assert!(order.contains(&"cancelled serial-3".to_owned()), "{order:?}");
+    let last_seal = order.iter().rposition(|e| e.starts_with("sealed ")).unwrap();
+    let first_cancel = order.iter().position(|e| e.starts_with("cancelled ")).unwrap();
+    assert!(
+        last_seal < first_cancel,
+        "a device's call was cancelled before every device was sealed: {order:?}"
+    );
+}
+
+/// D93: the stop waits for its devices together. Both devices leave 40 s of work after their cancelled calls (what
+/// `join_cancelled_work` waits for), within their 70 s bound: the run finishes 40 s after the failure, not 80 s (before,
+/// one device after the other, the second ran past its 75 s and the run finished without it).
+#[test]
+fn the_stop_waits_for_its_devices_together_d93() {
+    let (factory, script) = script();
+    let ready: Option<Ready> = Some(Box::new(move |built| {
+        let channel = built.provider.channel();
+        for device in [
+            Hooked {
+                fail_events: Some((channel, 3_000)),
+                cleanup_bound: Some(70_000),
+                retained_preparation: Some((40_000, Arc::new(AtomicBool::new(false)))),
+                ..hooked(stub("serial-2", "modelZ", 600_000))
+            },
+            Hooked {
+                cleanup_bound: Some(70_000),
+                retained_preparation: Some((40_000, Arc::new(AtomicBool::new(false)))),
+                ..hooked(stub("serial-3", "modelA", 1_000))
+            },
+        ] {
+            assert!(built.provider.send(DeviceEvent::Connected(DeviceRef(Arc::new(device)))));
+        }
+    }));
+    let outcome = scenario::drive(factory, script, None, ready);
+    assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
+    assert!(
+        !logged(&outcome, Level::ERROR, "did not stop within"),
+        "a device was left: {:?}",
+        outcome.lines
+    );
+    assert_eq!(outcome.completed_at, Some(3_000 + 40_000));
+    assert_eq!(run_failure(&outcome), [format!("{PROBE}: the device events failed")]);
 }

@@ -1019,3 +1019,119 @@ async fn a_preparation_after_the_macs_disposal_starts_nothing_u210() -> R {
     v(device.join_pending().await)?;
     Ok(())
 }
+
+/// D93, the run's stop as the Scheduler drives it, then the provider's termination: the Mac is sealed before its batch's
+/// call is cancelled, and the batch's xcodebuild session is held open (its close never returns). Every wait ends within
+/// the one 70 s window sealed at the stop: the call and `join_cancelled_work` end at 70 s and termination takes no more
+/// time (before: termination's disposal and its wait for the preparation each had a window of their own). The session was
+/// not confirmed to have ended, so the lease is never released under it: termination quarantines it, with one WARN.
+#[tokio::test]
+async fn a_mac_whose_work_outlives_the_runs_one_window_keeps_its_lease_d93() -> R {
+    let mut h = Harness::new("")?;
+    Arc::make_mut(&mut h.options.vendor).devices_file = None;
+    std::fs::write(
+        h.root.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: host}]\n",
+    )?;
+    let (p, c) = h.provider();
+    v(p.initialize(h.context.clone()).await)?;
+    v(p.join_pending().await)?;
+    let device = p.snapshot().remove(0);
+    v(marathon_core::vendor::Device::prepare(
+        &*device,
+        h.options.dependencies.configuration.clone(),
+        h.context.clone(),
+    )
+    .await)?;
+    let running = Running::install(&h, vec![]);
+    let signal = marathon_core::executor::shared::Signal::new();
+    let mut context = h.context.clone();
+    context.cancellation = signal.clone();
+    let call = tokio::spawn(support::batch(device.clone(), context));
+    tokio::time::timeout(std::time::Duration::from_secs(60), running.opened.notified()).await?;
+    tokio::time::pause();
+    let stopped = tokio::time::Instant::now();
+    marathon_core::vendor::Device::seal_for_stop(&*device);
+    signal.cancel(marathon_apple::cmd::cancelled("the run is stopping"));
+    assert!(matches!(call.await?, Err(VendorError::Cancelled(_))));
+    v(marathon_core::vendor::Device::join_cancelled_work(&*device).await)?;
+    // Within the window, give or take the paused clock's millisecond rounding of each timer.
+    let window = std::time::Duration::from_secs(70)..std::time::Duration::from_millis(70_010);
+    assert!(window.contains(&stopped.elapsed()), "{:?}", stopped.elapsed());
+    assert_eq!(c.releases.load(Ordering::SeqCst), 0);
+    v(p.terminate().await)?;
+    assert!(
+        window.contains(&stopped.elapsed()),
+        "a second window: {:?}",
+        stopped.elapsed()
+    );
+    assert_eq!(
+        c.releases.load(Ordering::SeqCst),
+        0,
+        "the lease was released under a live session"
+    );
+    assert_eq!(c.quarantines.load(Ordering::SeqCst), 1);
+    assert!(device.quarantined());
+    let warnings: Vec<_> = h
+        .logs
+        .records()
+        .into_iter()
+        .filter(|r| r.level == marathon_logging::Level::WARN)
+        .map(|r| r.message.to_owned())
+        .collect();
+    assert_eq!(
+        warnings
+            .iter()
+            .filter(|m| m.starts_with(&format!(
+                "Work on {} has not finished within 70 s",
+                marathon_core::vendor::Device::info(&*device).serial_number
+            )))
+            .count(),
+        1,
+        "{warnings:?}"
+    );
+    tokio::time::resume();
+    running.release.notify_one();
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(60), device.join_pending()).await?;
+    Ok(())
+}
+
+/// D93: the healthy case is unchanged: a Mac whose batch ended is released once at termination, with no WARN and nothing
+/// quarantined.
+#[tokio::test]
+async fn a_healthy_mac_is_released_once_at_termination_d93() -> R {
+    let mut h = Harness::new("")?;
+    Arc::make_mut(&mut h.options.vendor).devices_file = None;
+    std::fs::write(
+        h.root.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: host}]\n",
+    )?;
+    let (p, c) = h.provider();
+    v(p.initialize(h.context.clone()).await)?;
+    v(p.join_pending().await)?;
+    let device = p.snapshot().remove(0);
+    v(marathon_core::vendor::Device::prepare(
+        &*device,
+        h.options.dependencies.configuration.clone(),
+        h.context.clone(),
+    )
+    .await)?;
+    v(tokio::time::timeout(std::time::Duration::from_secs(60), p.terminate()).await?)?;
+    assert_eq!(c.releases.load(Ordering::SeqCst), 1);
+    assert_eq!(c.quarantines.load(Ordering::SeqCst), 0);
+    assert!(!device.quarantined());
+    assert!(
+        h.logs
+            .records()
+            .iter()
+            .all(|r| r.level != marathon_logging::Level::WARN),
+        "{:?}",
+        h.logs
+            .records()
+            .iter()
+            .map(|r| r.message.to_owned())
+            .collect::<Vec<_>>()
+    );
+    v(device.join_pending().await)?;
+    Ok(())
+}

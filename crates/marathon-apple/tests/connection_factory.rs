@@ -1260,3 +1260,27 @@ fn transport_log_uses_effective_authentication_without_changing_transport_x56() 
     assert!(!text.contains("secret-do-not-print"));
     assert_eq!(transport_log_text(&Transport::Local, Some(&key), "Local"), "Local");
 }
+
+/// D93: a simulator whose work was not confirmed to have ended quarantines its use of a shared connection instead of
+/// releasing it. The sibling sharing that connection keeps it as it is, and its release does not close it (the
+/// quarantined use is kept for the rest of the run); a later acquisition is not given it but a new connection.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_quarantined_lease_keeps_the_shared_connection_open_for_its_sibling_and_out_of_reuse_d93() {
+    let (f, c) = factory(true, 8);
+    let quarantined = get(&f, "a").await;
+    let sibling = get(&f, "a").await;
+    assert!(Arc::ptr_eq(&quarantined, &sibling));
+    let fake = c.fake(&quarantined);
+    f.quarantine(&quarantined);
+    assert!(sibling.connected(), "the sibling's connection was touched");
+    let next = get(&f, "a").await;
+    assert!(
+        !Arc::ptr_eq(&next, &sibling),
+        "a quarantined connection was handed out again"
+    );
+    f.dispose(sibling).await.unwrap();
+    assert_eq!(fake.count(), 0, "the connection closed under the quarantined work");
+    f.dispose(next).await.unwrap();
+    done(&f).await;
+    assert_eq!(fake.count(), 0);
+}

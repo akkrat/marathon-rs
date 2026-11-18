@@ -719,3 +719,160 @@ async fn a_send_to_a_disposed_simulator_is_stopped_before_it_starts_d91() -> Tes
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }
+
+/// D93: holds each simulator's batch in its permission grant until that simulator's gate opens, ignoring cancellation as
+/// a hung command would, and records when each on-dispose lifecycle (`Terminate`'s `ps aux`) runs, by udid.
+struct PerSimulatorGates {
+    gates: std::collections::HashMap<String, Arc<SharedDeferred<()>>>,
+    entered: Arc<AtomicUsize>,
+    lifecycle: Arc<std::sync::Mutex<Vec<(String, tokio::time::Instant)>>>,
+}
+impl PerSimulatorGates {
+    fn attach(h: &Harness, udids: &[&str]) -> Self {
+        let gates: std::collections::HashMap<_, _> =
+            udids.iter().map(|u| ((*u).to_owned(), SharedDeferred::new())).collect();
+        let entered = Arc::new(AtomicUsize::new(0));
+        let lifecycle = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (held, count, seen, boot) = (gates.clone(), entered.clone(), lifecycle.clone(), h.boot.clone());
+        *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
+            let gate = (cmd.get(2).is_some_and(|s| s == "privacy"))
+                .then(|| cmd.iter().find_map(|part| held.get(part)).cloned())
+                .flatten();
+            if let Some(line) = cmd.get(2).filter(|s| s.starts_with("ps aux"))
+                && let Some(udid) = held.keys().find(|u| line.contains(&format!(" {u} ")))
+            {
+                seen.lock().unwrap().push((udid.clone(), tokio::time::Instant::now()));
+            }
+            let (count, reply) = (count.clone(), boot.answer(&cmd));
+            Box::pin(async move {
+                if let Some(gate) = gate {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    gate.wait().await?;
+                }
+                Ok(reply)
+            })
+        });
+        Self {
+            gates,
+            entered,
+            lifecycle,
+        }
+    }
+}
+
+/// D93, the run's stop as the Scheduler drives it (seal every device, then cancel, then each device's cancelled call and
+/// `join_cancelled_work` together, then the provider's disposal), with two simulators and the default 70 s window: `a`'s
+/// batch ends at 69 s, `b`'s is held past 75 s. Every wait ends within the one window sealed at the stop: the devices'
+/// joins end at 70 s and disposal takes no more time (before: disposal waited another 70 s for `b`, then ran its
+/// lifecycle under the live batch). `a` alone runs its on-dispose lifecycle; `b` gets one WARN, no lifecycle, its
+/// commands revoked and its lease marked for quarantine.
+#[tokio::test(start_paused = true)]
+async fn one_window_from_the_runs_stop_and_lifecycle_only_after_confirmed_termination_d93() -> TestResult {
+    let h = harness(70_000)?;
+    h.services
+        .logging
+        .registry
+        .lock()
+        .unwrap()
+        .set_level("marathon_ios::apple_simulator_device", marathon_logging::Level::WARN);
+    h.worker.add(["b"]);
+    let mut devices = Vec::new();
+    for udid in ["a", "b"] {
+        let cycle = Arc::new(
+            marathon_ios::device::worker_provisioning_context::WorkerProvisioningContext::new(
+                marathon_config::devices::Transport::Local,
+                h.clock.clone(),
+            ),
+        );
+        let d = h.device_on(h.worker.clone(), udid, cycle).await?;
+        h.prepare(&d).await.map_err(|e| e.failure().to_string().to_owned())?;
+        devices.push(d);
+    }
+    let (a, b) = (devices[0].clone(), devices[1].clone());
+    let gates = PerSimulatorGates::attach(&h, &["a", "b"]);
+    let mut calls = Vec::new();
+    for d in [&a, &b] {
+        let signal = Signal::new();
+        let batch = spawn_batch(
+            &h,
+            d.clone(),
+            VendorContext {
+                cancellation: signal.clone(),
+                ..h.services.context.clone()
+            },
+        );
+        calls.push((d.clone(), signal, batch));
+    }
+    while gates.entered.load(Ordering::SeqCst) < 2 {
+        tokio::task::yield_now().await;
+    }
+    // The Scheduler's begin_stop: seal both, then cancel both.
+    let stopped = tokio::time::Instant::now();
+    for (d, _, _) in &calls {
+        Device::seal_for_stop(&**d);
+    }
+    for (_, signal, _) in &calls {
+        signal.cancel(cancelled("the run is stopping"));
+    }
+    let (release_a, release_b) = (gates.gates["a"].clone(), gates.gates["b"].clone());
+    tokio::spawn(async move {
+        tokio::time::sleep_until(stopped + std::time::Duration::from_secs(69)).await;
+        release_a.complete(Ok(()));
+    });
+    // The stop routine: each device's cancelled call, then its join_cancelled_work, all devices together.
+    let joins = calls.into_iter().map(|(d, _, batch)| async move {
+        let outcome = batch.await.map(|(outcome, _)| outcome);
+        Device::join_cancelled_work(&*d).await.unwrap();
+        outcome
+    });
+    let outcomes = futures_util::future::join_all(joins).await;
+    assert!(
+        outcomes.iter().all(|o| matches!(o, Ok(Err(VendorError::Cancelled(_))))),
+        "{outcomes:?}"
+    );
+    assert_eq!(stopped.elapsed(), std::time::Duration::from_secs(70));
+    // The provider's termination: both disposals, in what is left of the window (nothing).
+    let before = h.worker.commands.lock().unwrap().len();
+    let (da, db) = tokio::join!(a.dispose(), b.dispose());
+    da.unwrap();
+    db.unwrap();
+    assert_eq!(stopped.elapsed(), std::time::Duration::from_secs(70), "a second window");
+    let lifecycle = gates.lifecycle.lock().unwrap().clone();
+    assert_eq!(
+        lifecycle.iter().map(|(udid, _)| udid.as_str()).collect::<Vec<_>>(),
+        ["a"],
+        "the on-dispose lifecycle runs only for the simulator whose work ended"
+    );
+    assert!(!a.quarantined());
+    assert!(b.quarantined());
+    let warnings: Vec<_> = h
+        .logs
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, level, _, _)| *level == marathon_logging::Level::WARN)
+        .map(|(_, _, message, _)| message.clone())
+        .collect();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].starts_with(&format!(
+            "Device {}'s work was not confirmed to have ended within 70 s",
+            b.serial()
+        )),
+        "{warnings:?}"
+    );
+    // `b`'s batch, let go after the run would have exited, sends nothing more.
+    let sent_after_dispose = h.worker.commands.lock().unwrap()[before..].to_vec();
+    tokio::time::sleep_until(stopped + std::time::Duration::from_secs(80)).await;
+    let mark = h.worker.commands.lock().unwrap().len();
+    release_b.complete(Ok(()));
+    b.join_retained().await.unwrap();
+    let late: Vec<_> = h.worker.commands.lock().unwrap()[mark..].to_vec();
+    assert!(late.is_empty(), "the quarantined simulator sent {late:?}");
+    assert!(
+        sent_after_dispose.iter().all(|c| !c.iter().any(|p| p.contains(" b "))),
+        "{sent_after_dispose:?}"
+    );
+    h.finish(&[a, b]).await;
+    Ok(())
+}
