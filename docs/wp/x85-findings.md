@@ -50,132 +50,160 @@ test vehicles keep Kotlin's 30 attempts, so no oracle or differential recording 
 | Vendor | Envelope | Defaults |
 |---|---|---|
 | iOS | 2 × (`bootWait` + `boot` + `shutdown` + `shell`) + the 10 s pause between boot attempts | 2 × (180 + 30 + 30 + 30) + 10 = 550 s |
-| Android | per package to install (the app if any, each extra app, the test app): 3 × (`shell` + `uninstall` + `pushFile` + `install` + `shell`) + 2 × 1 s; plus 3 × `shell` (mock location, `logcat -c`) | 2 × (3 × 180 + 2) + 60 = 1,144 s with one app and its test app |
-| macOS | 10 × `shell` (three directory commands, two in each of the installer's three attempts, the test type's probe) + 2 × 1 s; the transfer is not counted, it has no limit while it progresses (D54) | 302 s |
+| Android | per package to install (the app if any, each extra app, the test app): 3 × (`shell` + `uninstall` + `pushFile` + `install` + `shell`) + 2 × 1 s; plus `shell` (`logcat -c`) and, with mock location, 2 × `shell` per bundle with an app (`appops set`, then `appops query` if it failed) | 2 × (3 × 180 + 2) + 20 = 1,104 s with one app and its test app; 1,144 s with mock location |
+| macOS | 11 × `shell` (three directory commands, two in each of the installer's three attempts, the test type's probe, the test root's directory) + 2 × 1 s; the transfer is not counted, it has no limit while it progresses (D54) | 332 s |
 
 With the defaults every envelope exceeds the actor's own schedule for a preparation that fails at once (30 attempts, 290 s),
-so such a device keeps its 30 attempts. Only slow failures are cut.
+so such a device keeps its 30 attempts. Only slow failures are cut. The Android figure is the legacy push-and-install path
+in every attempt; a streaming (`abb_exec`/`cmd`) or split install takes less. A tighter figure for those would need the
+device's features at the actor's start and the same choice in the installer's retry test; it is left as is (owner's
+decision, review round 1).
+
+**The rule.** The deadline only refuses to start: an attempt, retry or replacement starts only before it, and whether it
+may start is asked where it starts, after whatever pause or wait precedes it (and also before the pause, so that no pause is
+spent on a retry that could not start). Nothing running is stopped by it.
 
 **What reads it.**
 
-1. The device actor (`with_retry_until`, `crates/marathon-core/src/executor/retry.rs`) makes a retry only if it would
-   start before the deadline; otherwise it returns the last failure and logs `Device <serial> is not prepared within its
-   preparation time of <n> ms, not retrying after <k> attempts` (WARN). An attempt already running is never stopped.
-2. The Android installer (`AndroidAppInstaller::with_deadline`) retries a package only if the pause and another whole
-   attempt fit before the deadline; otherwise it returns that failure (WARN `Not installing <package> on <serial> again:
-   the device's preparation time would run out`). The first attempt of each package always runs. The remote parser's
-   installation is not part of a preparation and has no deadline.
-3. iOS keeps the episode on the simulator handle (`apple_simulator_device/episode.rs`):
-   - The first preparation's boots are as before, whatever is left: both fit in the envelope by construction, unless
-     something before them took long (waiting for a predecessor's artifacts, `await_owner`, say), and then a single
-     failed boot still gets its second attempt. A replacement's boots wait for at most what is left minus a reserve of
-     `shutdown` + `shell`, the limit of the shutdown that follows a failed boot; with nothing left it boots nothing (`its
-     preparation time has run out`), unless it is already booted. Its second attempt is made only if, after the pause,
-     such a wait would still fit. (A first version limited every boot after the episode's first; review found that it
-     took the second attempt from a first preparation that had waited long before booting, and it was narrowed.)
-   - A recovery after a loss sets the simulator up again only if, after its pause, a boot would still fit with the
-     reserve; otherwise it logs `Simulator <serial> has not got ready within its preparation time, not re-provisioning it
-     again` and marks the simulator exhausted, the path the fourth loss already took.
-   - The replacement continues the episode: the recovery hands it to the setup it starts (`carried`), and the provider's
-     admission of the new handle, during that setup, gives it to the handle. Only a loss counted by a recovery (a
-     failed preparation) carries it; a worker's loss does not, and a setup that registers later (a retry's) starts its
-     own. A preparation that ends ready closes the episode, so a later loss in a batch starts afresh.
-4. macOS has only the actor's layer.
+1. The device actor (`with_retry_until`, `crates/marathon-core/src/executor/retry.rs`): a retry only if it starts before the
+   deadline, asked before the 10 s delay and after it; otherwise the last failure and `Device <serial> is not prepared
+   within its preparation time of <n> ms, not retrying after <k> attempts` (WARN).
+2. The Android installer (`AndroidAppInstaller::with_deadline`): a package again only if a whole attempt fits before the
+   deadline, asked before the 1 s pause and after it (WARN `Not installing <package> on <serial> again: …`). The first
+   attempt of each package always runs. The remote parser's installation is not part of a preparation.
+3. The Apple installer (`AppleApplicationInstaller::with_retry_gate`, `with_retry_send_gated`): a failed transfer is sent
+   again only before the deadline, asked before and after the pause. iOS and macOS give it their deadline; the xctest
+   parser's installation has none.
+4. iOS keeps the episode on the simulator handle (`apple_simulator_device/episode.rs`; `PreparationEpisode::may_start` is
+   the one test):
+   - The first preparation's boots are as before: both whole.
+   - A recovery after a failed preparation sets the simulator up again only if the setup starts before the deadline, asked
+     before its pause and after it, and only while the recovery's D44 claim is current; otherwise `Simulator <serial> has
+     not got ready within its preparation time, not re-provisioning it again`, and the simulator is marked exhausted
+     under that claim (`exhaust_claimed`). A recovery whose claim is stale (the simulator was removed or added back) leaves
+     it to D44's paths, so a simulator added back starts afresh.
+   - The episode is handed on through `carried`, with the generation of the recovery's claim, until a setup of that
+     generation registers: the recovery's own, or a D33 or worker retry of it. The provider's admission takes it; a
+     registration past the deadline is dropped (`its new setup is dropped`) and the simulator exhausted. A removal clears
+     it, and a stale generation is discarded.
+   - A replacement's first boot attempt is whole (the whole of `bootWait`), even with less left. Its second attempt is
+     held: it starts only if its bound is ahead, the bound being the deadline less `shutdown` + `shell` and the 30 s a cut
+     command takes to end over SSH (D30, `sshj::client::TIMEOUT_MILLIS`); every state read, readiness probe and `simctl
+     boot` of it is cut at the bound (`within`), so the shutdown starts with its reserve intact.
+   - A boot that fails for want of time (a held attempt, or one refused) returns `PrepareError::OutOfTime`, on which the
+     preparation lets the installation beside it finish instead of cancelling it, then leaves as not booted.
+   - A preparation that ends ready closes the episode, so a later loss in a batch starts afresh.
+5. macOS: the actor's layer and the Apple installer's gate.
 
-**Departure** is through the existing paths: the actor's failed preparation (`Terminate`), iOS `NotBooted` and the
-recovery's give-up. D48 still ends a pool that has no device sooner. Nothing new waits, so nothing can hang on the last
-device of a pool.
+**Departure** is through the existing paths: the actor's failed preparation (`Terminate`), iOS `NotBooted`, the recovery's
+give-up and the dropped setup. D48 still ends a pool that has no device sooner. Nothing new waits, so nothing can hang on
+the last device of a pool.
 
-**Not capped:** a transfer that keeps progressing (D54), and any step already running: the deadline stops new attempts and
-shortens waits, it never cancels. A rsync that runs past the deadline finishes, and only then do the layers see that no
-time is left. Cancelling in-flight work at the deadline would cap such a transfer, which is the owner's decision (below).
+**Not capped:** a transfer that keeps progressing (D54), and any step already running, except the reads, probes and boot
+command of a replacement's held second attempt, which are cut at its bound. A rsync that runs past the deadline finishes.
 
 ## Invariants
 
-- No retry, boot attempt or replacement of a preparation starts after its deadline; the Android installer and the iOS
-  boot also start none that could not end before it.
-- The first attempt of everything in the first preparation runs as before, and so do both of its boot attempts; a healthy
-  run makes no other.
+- No retry, boot attempt, transfer retry, setup or replacement of a preparation starts after its deadline; the test is made
+  where it starts.
+- The first preparation runs as before, and a replacement's first boot is whole; a healthy run makes no other attempt.
+- The deadline cancels nothing but the commands of a held boot attempt; a transfer is never cancelled because of it.
+- A held attempt's shutdown starts with `shutdown` + `shell` left before the deadline.
+- A recovery decides by the deadline only for the generation it claims.
 - A device without an envelope (Stub, test vehicles) has no deadline.
-- The iOS shutdown after a failed boot keeps its reserve inside the deadline.
 
 ## Worst cases, before and after
 
-Defaults, a live sibling (so D48 does not apply), commands other than the probe or the install answering at once. "Before"
-is 0.14.0 / e8cd80be.
+Scenario estimates: computed from the code with the defaults, one failure mode, the other commands answering at once and a
+live sibling (so D48 does not apply); measured only on the witnesses' scaled timelines. "Before" is 0.14.0 / e8cd80be.
 
 | Case | Before | After |
 |---|---|---|
-| iOS, probe fails at once | 4 preparations, about 1,570 s (26 min) | preparation (fails at 371 s), one replacement whose boot waits the 119 s left minus the reserve: given up at about 490 s (8 min) |
-| iOS, probe times out at `shell` (30 s) at each check | about 1,810 s (30 min) | about 520 s (9 min): the replacement's window is 60 s, and its last probe runs 30 s past it |
-| iOS, probe needs KILL (50 s) | about 1,970 s (33 min) | about 540 s (9 min) |
+| iOS, probe fails at once | 4 preparations, about 1,570 s (26 min) | preparation (fails at 371 s), one replacement with one whole boot attempt: given up at about 552 s (9 min) |
+| iOS, probe times out at `shell` (30 s) at each check | about 1,810 s (30 min) | preparation fails at 430 s, replacement's whole attempt to 640 s (11 min) |
+| iOS, probe needs KILL (50 s) | about 1,970 s (33 min) | 470 s, then 700 s (12 min) |
+| iOS, in general | — | the deadline plus one whole boot attempt of a replacement started just before it and its last probe: 550 + 270 + 50 = 870 s (14.5 min) |
 | iOS, any of these, pool's only simulator | 9 to 11 min (D48, x42) | unchanged: D48's wait from the first departure ends it |
 | Android, one package whose install times out at 60 s every time | 30 × 182 + 290 = 5,750 s (96 min) | eight preparations, the last three with one attempt: leaves at about 1,160 s (19 min) |
 | macOS, every command hanging until KILL | about 1,790 s (30 min) | six preparations: about 350 s (6 min) |
 | Any vendor, preparation failing at once | 30 attempts, 290 s | unchanged with default timeouts (each envelope ≥ 290 s) |
 
-The general bound: the deadline, plus what was running when it passed, which finishes under its own limit (a probe: `shell`
-plus 20 s for KILL; an Android preparation started just before the deadline: one attempt per package; a transfer: no limit,
-D54). With `deviceInitializationTimeoutMillis` above the envelope the deadline is that instead.
+The general bound: the deadline, plus what started before it (on iOS a replacement's whole boot attempt; on Android one
+attempt per package of a preparation started just before it; a transfer, which has no limit). With
+`deviceInitializationTimeoutMillis` above the envelope the deadline is that instead.
 
 ## What was verified and how
 
-Witnesses (each fails without its fix, checked by a temporary mutation; the guards pass either way, as they should):
+Witnesses; each fails on 2fed5b75 (checked by putting 2fed5b75's sources back under the new tests) or, for the first
+round's, without its fix (temporary mutation). Guards pass either way, as they should.
 
-- `crates/marathon-core/tests/device_actor.rs`, virtual time: `slow_failing_preparations_stop_at_the_preparation_deadline_d87`
-  (60 s failures in a 200 s episode: 3 attempts, `Terminated` at 200 s, one WARN; 30 attempts without the fix),
-  `an_attempt_that_starts_before_the_deadline_runs_to_its_end_d87`; guards
-  `slow_failing_preparations_without_a_deadline_make_thirty_attempts_d87` and
-  `a_transient_preparation_failure_is_still_retried_within_the_deadline_d87`. Mutation: the actor ignoring the deadline
-  fails the first two.
-- `crates/marathon-ios/tests/simulator_preparation_deadline.rs`, the real scheduler, pool, actor, provider, recovery and boot
-  loop on the fake worker, real time with `bootWait` 3 s, `shell`/`boot`/`shutdown` 0.5 s (deadline 9.1 s), a sibling held
-  in its preparation so that it is live:
-  `a_simulator_whose_probe_never_succeeds_leaves_within_its_preparation_deadline_while_a_sibling_keeps_the_pool_d87`: given
-  up at 8.1 s with the D87 message, two setups, three boots, every boot shut down, the last shutdown before the deadline,
-  the replacement's boot ended inside its window; the sibling then runs the tests. Mutation (iOS opens no episode): given
-  up at 25.4 s after three replacements, the test fails. Guard
-  `a_replacement_within_the_preparation_deadline_still_recovers_a_simulator_d87`: a failed first preparation is replaced
-  and the replacement runs the tests. Guard
-  `a_first_preparation_held_past_its_deadline_keeps_its_second_boot_attempt_d87`: a first preparation held longer than
-  its deadline before booting, whose first boot fails, still boots at its second attempt; it fails with every boot held
-  to the deadline (mutation).
-- `crates/marathon-android/tests/reconnect_test.rs`, the real provider, scheduler, pool, actor, installer and runner on
-  fake adb in virtual time, `shell`/`uninstall`/`pushFile` 5 s, `install` 10 s (deadline 199 s), the pool's only device:
-  `an_android_device_whose_installs_time_out_leaves_within_its_preparation_deadline_d87`: the run ends at 229.7 s (the
-  device leaves inside the deadline, then D48's 30 s), 16 installs (the parser's 2, four preparations of 3, two of 1), one
-  actor WARN, two installer WARNs. Mutations: no deadline: the harness's 400 s limit is reached; installer ignoring it:
-  the run ends at 231.7 s, past the bound. Guard
-  `an_android_install_that_times_out_once_is_still_retried_within_the_deadline_d87`.
-- `crates/marathon-macos/tests/batch.rs::a_macs_preparation_deadline_is_the_greater_of_the_wait_and_its_commands_d87` pins
-  the macOS budget (302 s with defaults, the wait when that is greater).
-
-Suites run: `cargo test -p marathon-core`, `-p marathon-ios`, `-p marathon-android`, `-p marathon-macos`, `-p
-marathon-cli` (see the report for results), `cargo fmt --check`, `cargo clippy` on the changed crates.
+- Core, virtual time: `device_actor.rs` `slow_failing_preparations_stop_at_the_preparation_deadline_d87`,
+  `an_attempt_that_starts_before_the_deadline_runs_to_its_end_d87`; `runtime_behavior.rs`
+  `a_retry_whose_delay_ends_past_the_deadline_is_not_made_d87` (a clock whose delays overshoot: one attempt, cut after the
+  delay). Guards: thirty attempts without a deadline; a transient failure retried.
+- iOS, virtual time, `simulator_preparation_episode.rs`:
+  `a_replacement_gets_one_whole_boot_attempt_with_less_time_left_d87` (10 s left, 20 s to boot: ready);
+  `a_boot_that_runs_out_of_time_leaves_the_transfer_beside_it_to_finish_d87` (the send is not cancelled; not booted only
+  after it finishes); `a_held_boot_cuts_its_final_probe_so_that_the_shutdown_keeps_its_reserve_d87` (hanging probes, the
+  shutdown at 110 s of 200 s, with the fake worker ending a cut command as a real one ends;
+  hangs on 2fed5b75, which the 600 s guard turns into a failure);
+  `a_held_boot_whose_state_read_outlasts_its_bound_does_not_boot_d87`;
+  `a_send_that_fails_after_the_deadline_is_not_sent_again_d87` (one send, three on 2fed5b75);
+  `a_setup_retry_after_a_failed_boot_continues_the_preparations_deadline_d87` (same deadline after a D33 retry);
+  `a_setup_retry_that_registers_past_the_deadline_is_dropped_d87`;
+  `an_old_recovery_out_of_time_does_not_take_a_simulator_added_back_out_of_the_run_d87` (removed while its recovery's
+  disposal is held, the deadline passing meanwhile; added back, it is set up again).
+- iOS, whole run in real time, `simulator_preparation_deadline.rs` (integration check, scaled: `bootWait` 3 s, commands
+  0.5 s, deadline 9.1 s, a live sibling): given up within the deadline plus one boot attempt, after one replacement whose
+  boot was whole; 25.4 s and three replacements without D87. Its bounds now have a whole boot attempt of slack, and its
+  decisions at least a 0.3 s recovery pause. Guards: a single failed preparation replaced; a first preparation held past
+  its deadline keeps its second boot.
+- Android, virtual time: `reconnect_test.rs::an_android_device_whose_installs_time_out_leaves_within_its_preparation_deadline_d87`
+  (`uninstall` 6 s so that every decision has at least 7 s to spare; deadline 195 s; leaves within the deadline plus one
+  attempt; 16 installs); `installer_test.rs::a_preparations_envelope_counts_mock_location_per_bundle_with_an_app_d87`
+  (fails with the old flat 3 × `shell`). Guard: a single timed-out install retried.
+- macOS: `batch.rs::a_macs_preparation_deadline_is_the_greater_of_the_wait_and_its_commands_d87` (332 s).
 
 **Oracle and differential recordings.** None changes, so no comparator allowance is needed: the device-actor oracle
 (`fixtures/oracle/device-actor`, including `thirty failing preparations`) runs the Stub vehicle, which has no deadline; the
 fake-adb Kotlin comparisons (`fixtures/fake-adb/android-reconnect`) fail at most three preparations, quickly, far inside
-any deadline; the CLI differential suites ran unchanged. A narrow allowance would only be needed if the Stub vehicle got an
-envelope, which it has no reason to.
+any deadline; the CLI differential suites ran unchanged.
 
 **Golden diffs:** none. Result files, the Marathonfile, the CLI and worker commands are unchanged except for the commands a
-device no longer gets (later attempts, boots and replacements).
+device no longer gets (later attempts, boots, transfers and replacements) and the cut commands of a held boot attempt.
 
 ## Not verified
 
 - No run on a real simulator, emulator or Mac.
-- The macOS deadline is exercised only through the core actor's tests and a pinned budget, not a whole macOS run.
-- The worst-case figures above are computed from the code and the witnesses' scaled timelines, not measured with the
-  defaults.
+- The macOS deadline is exercised through the core actor's tests, the shared Apple installer gate (iOS witness) and a
+  pinned budget, not a whole macOS run.
+- The Android installer's re-check after its pause has no witness of its own: in virtual time the pause is exact, so the
+  check before it already decides; the core witness covers the same overshoot with the actor's delay.
+- The worst-case figures are scenario estimates, not measurements with the defaults.
 
 ## Owner decisions
 
-- **Progressing transfers stay uncapped (D54).** The deadline never cancels a step in flight, so a slow rsync of a large
-  bundle can still keep an iOS or macOS preparation past it. Capping it means cancelling at the deadline, which would also
-  cut slow but healthy transfers; left to the owner.
-- **Android's envelope is generous** (19 minutes with the defaults and two packages) because it counts the push and the
-  install of every attempt; a tighter one would cut a slow but working device sooner.
+- **Progressing transfers stay uncapped (D54)** (decided in review round 1): the deadline never cancels a transfer.
+- **Android keeps the legacy push-and-install envelope**, about 18 minutes with the defaults and two packages (decided in
+  review round 1).
+
+## Review round 1
+
+1. *A failed replacement setup reset the episode.* The carried episode now stays, with the recovery's claim generation,
+   until a setup of that generation registers (D33 or worker retry included); past the deadline the registration is
+   dropped.
+2. *A transient outage could cost a healthy replacement, and a shortened wait could cancel a transfer.* A replacement's
+   first boot is whole; only its second is held; a boot out of time leaves the installation to finish.
+3. *An old recovery could exhaust a re-added simulator.* The deadline applies only under a current claim, and exhaustion
+   is written under it (`exhaust_claimed`).
+4. *The reserve could be spent before the shutdown.* A held attempt cuts every read, probe and `simctl boot` at its bound,
+   which keeps `shutdown` + `shell` and D30's 30 s before the deadline.
+5. *Checks before waits.* One test, made where each attempt starts: after the actor's delay, the installers' pauses, the
+   recovery's pause and the provisioning permit (at admission).
+6. *Formulas.* Android counts mock-location commands per app bundle; macOS counts the test root's directory; the figures are
+   labelled scenario estimates.
+7. *Wall-clock iOS witness.* The exact behaviour is now witnessed in virtual time with a gated slow final probe; the
+   real-time run stays as an integration check with a whole boot attempt of slack.
 
 ## Incidental bugs
 
