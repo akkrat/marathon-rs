@@ -218,7 +218,8 @@ async fn a_held_boot_cuts_its_final_probe_so_that_the_shutdown_keeps_its_reserve
         (probe && boot.shutdowns.load(Ordering::SeqCst) >= 1)
             .then(|| Box::pin(std::future::pending()) as VendorFuture<'static, Option<CommandResult>>)
     });
-    let error = h.prepare(&d).await.unwrap_err();
+    // A hang guard: without the cut, the hanging probes would hold the attempt for ever.
+    let error = support::bounded(600, h.prepare(&d)).await.unwrap_err();
     assert!(not_booted(&error), "{error:?}");
     let shutdowns: Vec<_> = at(&seen, "shutdown").into_iter().map(|t| t - start).collect();
     assert_eq!(shutdowns.len(), 2, "{shutdowns:?}");

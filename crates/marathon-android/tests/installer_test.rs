@@ -413,3 +413,39 @@ fn install_timeout_messages() {
         });
     }
 }
+
+/// D87 (review item 6): a preparation's envelope counts what can run around the installs: with mock location, up to two
+/// `appops` commands for each bundle with an app, and `logcat -c`. Two bundles with an app and one without, `shell` 1 s,
+/// `uninstall` 2 s, `pushFile` 3 s, `install` 4 s: five installs of 3 × (1 + 2 + 3 + 4 + 1) s + 2 × 1 s, and 1 + 2 × 2
+/// shell commands.
+#[test]
+fn a_preparations_envelope_counts_mock_location_per_bundle_with_an_app_d87() {
+    let mut c = configuration();
+    let a = android(&mut c);
+    let s = |seconds| jcompat::jtime::Duration::of_seconds(seconds);
+    a.timeout_configuration.shell = s(1);
+    a.timeout_configuration.uninstall = s(2);
+    a.timeout_configuration.push_file = s(3);
+    a.timeout_configuration.install = s(4);
+    a.mock_location = true;
+    let apk = |name: &str| fixture(&format!("vendor-android/apk/{name}"));
+    let bundle = |app: bool| marathon_config::vendor::AndroidTestBundleConfiguration {
+        application: app.then(|| apk("app-debug.apk")),
+        test_application: apk("app-debug-androidTest.apk"),
+        extra_applications: None,
+        split_apks: None,
+    };
+    a.outputs = Some(vec![bundle(true), bundle(true), bundle(false)]);
+    a.application_output = None;
+    a.test_application_output = None;
+    run(c, |runtime, _| {
+        Box::pin(async move {
+            assert_eq!(runtime.bundles.len(), 3);
+            assert_eq!(
+                marathon_android::installer::preparation_envelope_millis(&runtime),
+                5 * (3 * 11_000 + 2_000) + (1 + 2 * 2) * 1_000
+            );
+            Ok(())
+        })
+    });
+}
