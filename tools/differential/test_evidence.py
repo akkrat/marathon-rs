@@ -1127,8 +1127,9 @@ class VendorEvidenceTests(unittest.TestCase):
         prefix = f'token={token}; {t.D85_MARKER}'
         clear = 'logcat -c'
         write = prefix + t.D85_WRITE
+        old_write = write.replace('echo "$token"', r'''printf '%s\n' "$token"''')
         remove = prefix + t.D85_REMOVE
-        read = prefix + "printf 'boot '"
+        read = prefix + 'boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null) || boot='
         wrong_remove = remove.replace(token, '00000000-0000-4000-8000-000000000003')
 
         def commands(*commands, native=True):
@@ -1149,6 +1150,7 @@ class VendorEvidenceTests(unittest.TestCase):
         self.assertEqual(commands(cleared, wrote, removed, native=False), [clear, write, remove])
         self.assertEqual(commands(wrote, removed), [write, remove])
         self.assertEqual(commands(cleared, (write, 'garbage', write), removed), [clear, write, remove])
+        self.assertEqual(commands(cleared, (old_write, token+'\n', old_write), removed), [clear, old_write, remove])
         self.assertEqual(commands(cleared, wrote, (remove, '', wrong_remove)), [clear, remove])
         self.assertEqual(commands(cleared, wrote, removed, removed), [clear, remove])
         self.assertEqual(commands(cleared, wrote, (wrong_remove, '', wrong_remove), removed), [clear, wrong_remove])

@@ -309,7 +309,7 @@ D27_WIPE = frozenset(['rm -r /sdcard', 'mkdir /sdcard'])
 # between the setup's final property read and feature query, then require the fake's complete built-in reply.
 D85_BOOT_ID = 'cat /proc/sys/kernel/random/boot_id'
 D85_MARKER = 'marker=/data/local/tmp/.marathon-ready-$token; '
-D85_WRITE = r'''(umask 077; printf '%s\n' "$token" > "$marker") 2>/dev/null && printf '%s\n' "$token"'''
+D85_WRITE = '(umask 077; echo "$token" > "$marker") 2>/dev/null && echo "$token"'
 D85_REMOVE = 'rm -f "$marker"'
 D85_TOKEN = re.compile(r'token=([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})')
 

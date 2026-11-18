@@ -2240,10 +2240,12 @@ lost its actor, but the adb list gave the provider no reason to set up a new ins
 
 Provider setup reads `/proc/sys/kernel/random/boot_id`. After the pool finishes preparation, Marathon writes a random
 UUID to a private `.marathon-ready-<uuid>` file under `/data/local/tmp`. The marker certifies that the app and test APKs
-were installed. Before reopening a D22 or D41 gate, the recovery task reads the boot ID and the marker in one shell
-request, within `timeoutConfiguration.shell` (D21). A changed boot ID, a confirmed missing marker, or a different valid
-UUID triggers fresh setup for that serial. A batch whose instrumentation never started goes back to the pool uncharged
-(D70). Normal disposal and shutdown try to remove the marker from reachable devices.
+were installed. The marker commands use the shell's built-in `echo`, available on API 21 and later. Before reopening
+a D22 or D41 gate, the recovery task reads the boot ID and the marker in one shell request within
+`timeoutConfiguration.shell` (D21). A changed boot ID, a confirmed missing marker, or a different valid UUID triggers
+fresh setup for that serial. When the marker write cannot be confirmed, recovery checks the boot ID alone, so a
+snapshot rollback that preserves the boot ID can go undetected. A batch whose instrumentation never started goes
+back to the pool uncharged (D70). Normal disposal and shutdown try to remove the marker from reachable devices.
 
 A Quick Boot snapshot from before preparation rolls back the marker even when it preserves the kernel boot ID. A
 snapshot saved after preparation retains the marker and the prepared state, so the actor resumes. A shared-kernel

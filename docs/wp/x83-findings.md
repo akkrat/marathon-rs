@@ -84,6 +84,25 @@ comparison and production runner passed after the YAML helper was built. Formatt
 differential registry and evidence checks, release checks, the plan DAG, source inventory, parity matrix and fixture
 checks passed. The released changelog and all goldens stayed unchanged.
 
+## Round 2 review
+
+- **P2-a.** Android 5.0 and 5.1 ship mksh with built-in `echo` and no `printf` builtin. The marker commands use
+  `echo` and filter values before emitting them so malformed backslash sequences cannot change the reply. On a
+  separately started enforcing API 36 emulator, the exact commands wrote, read and removed the marker even with
+  `printf` blocked. The archived round-one write failed under the same conditions. The fake adb integration witness
+  returns an unconfirmed write and then a different boot ID. It verifies a boot-only return probe, a fresh setup and
+  an uncharged batch. API 21 and 22 were checked against their shell sources.
+  [API 21 mksh](https://android.googlesource.com/platform/external/mksh/+/refs/tags/android-5.0.0_r1/src/funcs.c),
+  [API 22 mksh](https://android.googlesource.com/platform/external/mksh/+/refs/tags/android-5.1.1_r1/src/funcs.c).
+- **P3-b.** The event owner explicitly acknowledges when a replacement's instance is no longer current. That
+  acknowledgement releases the superseded instance's wait without logging a new setup. An absent acknowledgement
+  still leaves the wait closed. The unit witness checks both the D22 and D41 waits and fails in a scratch build with
+  the previous early return restored.
+
+Round 2 passed the ADB, Android and CLI suites, including all 34 reconnect tests and the vendor differential. Formatting,
+changed-crate Clippy, differential evidence and registry checks, plan DAG, source inventory, parity matrix and fixture
+checks passed.
+
 ## Incidental bugs
 
 - A new outage clears the prior outage's per-device restoration timestamps in `DeviceStateTracker::server_lost`.

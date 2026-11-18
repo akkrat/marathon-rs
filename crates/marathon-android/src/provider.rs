@@ -275,7 +275,12 @@ impl AdamDeviceProvider {
                             .get(&key)
                             .filter(|p| p.device.is_same(&device))
                             .map(|p| p.retried_prepare);
-                        let Some(retried) = retried else { continue };
+                        let Some(retried) = retried else {
+                            if let Some(replaced) = replaced {
+                                let _ = replaced.send(ReplacementAck::Superseded);
+                            }
+                            continue;
+                        };
                         if tracker.get_state(&serial) != Some(DeviceState::Device) {
                             continue;
                         }
@@ -434,7 +439,7 @@ impl AdamDeviceProvider {
                     }
                 }
                 if let Some(replaced) = replaced {
-                    let _ = replaced.send(());
+                    let _ = replaced.send(ReplacementAck::Applied);
                 }
             }
         }
@@ -828,19 +833,22 @@ impl AdamDeviceProvider {
             }
         };
         match outcome {
-            Recovered::Resumed if kind == Recovery::Blip => {
-                self.log(Level::INFO, &format!("Device {serial} is back"), None);
+            Recovered::Resumed => {
+                if kind == Recovery::Blip {
+                    self.log(Level::INFO, &format!("Device {serial} is back"), None);
+                }
+                kind.release_wait(&tracker, &serial);
             }
-            Recovered::Resumed => {}
             Recovered::Replace(reason) => {
-                // A stale replacement drops its acknowledgement. Only an applied disconnect can
-                // release this recovery's hold, once the old instance has been marked lost.
+                // Only the event owner can confirm that the old instance has been marked lost,
+                // either by this replacement or by the event that superseded it.
                 let (replaced, confirmation) = tokio::sync::oneshot::channel();
                 send(
                     tx,
                     Tracked::Replace(client.clone(), device.clone(), reason, Some(replaced)),
                 )?;
-                if !cancellable(context.cancellation.clone(), async { Ok(confirmation.await.is_ok()) }).await? {
+                let ack = cancellable(context.cancellation.clone(), async { Ok(confirmation.await.ok()) }).await?;
+                if !kind.finish_replacement(&tracker, &serial, ack) {
                     return Ok(());
                 }
                 let why = if reason == Replacement::SetupLost {
@@ -854,10 +862,6 @@ impl AdamDeviceProvider {
                     None,
                 );
             }
-        }
-        match kind {
-            Recovery::Blip => tracker.release(&serial),
-            Recovery::Outage => tracker.restored(&serial),
         }
         if device.prepare_failed_at().is_some() {
             tracker.prepare_failed.notify_one();
@@ -1094,7 +1098,7 @@ enum Tracked {
         AndroidDebugBridgeClient,
         AndroidDevice,
         Replacement,
-        Option<tokio::sync::oneshot::Sender<()>>,
+        Option<tokio::sync::oneshot::Sender<ReplacementAck>>,
     ),
     /// Answered once everything sent before it has been handled.
     Handled(tokio::sync::oneshot::Sender<()>),
@@ -1105,6 +1109,11 @@ enum Replacement {
     InterruptedSetup,
     Unready,
     SetupLost,
+}
+#[derive(Clone, Copy)]
+enum ReplacementAck {
+    Applied,
+    Superseded,
 }
 enum TrackStep {
     Next(Option<Result<Vec<AdbDevice>, AdbError>>),
@@ -1223,6 +1232,21 @@ enum Recovery {
     Blip,
     /// D22: still listed when its server came back. Its boot check, logcat and reverse port forwards precede its gate.
     Outage,
+}
+impl Recovery {
+    fn release_wait(self, tracker: &DeviceStateTracker, serial: &str) {
+        match self {
+            Self::Blip => tracker.release(serial),
+            Self::Outage => tracker.restored(serial),
+        }
+    }
+
+    /// A superseded instance is already lost. Its wait must end, but only an applied replacement is logged.
+    fn finish_replacement(self, tracker: &DeviceStateTracker, serial: &str, ack: Option<ReplacementAck>) -> bool {
+        let Some(ack) = ack else { return false };
+        self.release_wait(tracker, serial);
+        matches!(ack, ReplacementAck::Applied)
+    }
 }
 #[derive(Debug, PartialEq, Eq)]
 enum Recovered {
@@ -1594,6 +1618,33 @@ mod kind_tests {
             assert_eq!(cause, Some(error.failure()));
         }
     }
+    #[test]
+    fn an_acknowledged_superseded_replacement_releases_its_wait_without_claiming_setup_d85() {
+        let serials = ["old".to_owned(), "other".to_owned()];
+        for kind in [Recovery::Blip, Recovery::Outage] {
+            let tracker = DeviceStateTracker::default();
+            let waiting = |serial| match kind {
+                Recovery::Blip => tracker.is_held(serial),
+                Recovery::Outage => tracker.is_restoring(serial),
+            };
+            match kind {
+                Recovery::Blip => {
+                    tracker.hold("old", 1);
+                    tracker.hold("other", 1);
+                }
+                Recovery::Outage => {
+                    tracker.server_lost(1);
+                    tracker.server_back_restoring(&serials);
+                }
+            }
+            assert!(!kind.finish_replacement(&tracker, "old", None));
+            assert!(waiting("old"));
+            assert!(!kind.finish_replacement(&tracker, "old", Some(ReplacementAck::Superseded)));
+            assert!(!waiting("old"));
+            assert!(waiting("other"));
+        }
+    }
+
     /// U170: one recovery per device, a newer one replacing it, and a completion counts only while it is current: one
     /// superseded, dropped or abandoned with its server reports into nothing, so it can release no gate.
     #[test]

@@ -1149,6 +1149,7 @@ fn one_test_script() -> (Value, usize) {
 
 enum OutageReturn {
     Reboot,
+    RebootWithUnconfirmedMarker,
     SnapshotRollback,
     SameSetup,
     Unanswered,
@@ -1157,10 +1158,14 @@ enum OutageReturn {
 fn return_from_outage_d85(outcome: OutageReturn) -> Observed {
     let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
     let (mut script, index) = one_test_script();
-    let probe = "^token=[0-9a-f-]{36}; marker=[^;]+; printf 'boot '";
+    let probe = "^token=[0-9a-f-]{36}; marker=[^;]+; boot=\\$\\(";
     script["devices"][0]["shell"] = match outcome {
         OutageReturn::Reboot => json!([
             {"exact": BOOT_ID_COMMAND, "times": 1, "stdout": "00000000-0000-4000-8000-000000000002\n"}
+        ]),
+        OutageReturn::RebootWithUnconfirmedMarker => json!([
+            {"exact": BOOT_ID_COMMAND, "times": 1, "stdout": "00000000-0000-4000-8000-000000000002\n"},
+            {"regex": "^token=[0-9a-f-]{36}; marker=[^;]+; \\(umask 077; ", "times": 1, "stdout": "unconfirmed\n"}
         ]),
         OutageReturn::SnapshotRollback => json!([
             {"regex": probe, "times": 1,
@@ -1182,7 +1187,10 @@ fn return_from_outage_d85(outcome: OutageReturn) -> Observed {
         Options {
             quota: Some(0),
             while_unstarted: true,
-            reboot: matches!(outcome, OutageReturn::Reboot | OutageReturn::SnapshotRollback),
+            reboot: matches!(
+                outcome,
+                OutageReturn::Reboot | OutageReturn::RebootWithUnconfirmedMarker | OutageReturn::SnapshotRollback
+            ),
             ..Options::default()
         },
     )
@@ -1196,6 +1204,39 @@ fn a_reboot_during_an_outage_replaces_the_device_without_charging_its_parked_bat
 #[test]
 fn a_snapshot_rollback_with_the_same_boot_id_and_no_marker_replaces_the_device_d85() {
     assert_setup_was_replaced(return_from_outage_d85(OutageReturn::SnapshotRollback));
+}
+
+#[test]
+fn an_unconfirmed_marker_write_falls_back_to_the_boot_id_on_return_d85() {
+    let observed = return_from_outage_d85(OutageReturn::RebootWithUnconfirmedMarker);
+    let commands: Vec<_> = observed.transcripts[0]
+        .iter()
+        .filter(|row| row["type"] == "shell")
+        .collect();
+    let boot_reads: Vec<_> = commands
+        .iter()
+        .enumerate()
+        .filter_map(|(at, row)| (row["command"] == BOOT_ID_COMMAND).then_some(at))
+        .collect();
+    let writes: Vec<_> = commands
+        .iter()
+        .enumerate()
+        .filter_map(|(at, row)| {
+            let (operation, _) = MarkerCommand::parse(row["command"].as_str()?)?;
+            (operation == MarkerCommand::Write).then_some((at, row))
+        })
+        .collect();
+    assert_eq!(writes.len(), 2);
+    assert_eq!(writes[0].1["handler"], "script");
+    assert_eq!(boot_reads.len(), 3);
+    assert!(boot_reads[0] < writes[0].0 && writes[0].0 < boot_reads[1] && boot_reads[2] < writes[1].0);
+    assert!(!commands.iter().any(|row| {
+        row["command"]
+            .as_str()
+            .and_then(MarkerCommand::parse)
+            .is_some_and(|(operation, _)| operation == MarkerCommand::Read)
+    }));
+    assert_setup_was_replaced(observed);
 }
 
 fn assert_setup_was_replaced(observed: Observed) {
