@@ -337,18 +337,63 @@ async fn a_monitor_error_after_the_last_simulator_left_fails_the_device_channel_
     Ok(())
 }
 
-/// D84, review round 5: the first simulator's setup panics, so the monitoring fails before any simulator is available
-/// and before a Scheduler exists; a remote parse is waiting to borrow one. The borrow now ends with the monitoring's
-/// cause, which the run then fails with (and `ignoreFailures` maps), instead of polling until the device timeout and
-/// ending the run with no devices.
+/// D84, review rounds 5 and 6: a remote parse's borrow is waiting (in its 200 ms sleep, from 1,000 ms) when the first
+/// simulator's setup panics and the monitoring publishes the panic (at 1,020 ms); the parse's deadline then cancels the
+/// borrow (at 1,050 ms). The borrow ends with the published panic, not with the cancellation, so the run fails with it
+/// (and `ignoreFailures` maps it) instead of with no devices.
 #[tokio::test(start_paused = true)]
-async fn a_borrow_ends_with_the_monitorings_failure_when_no_simulator_is_available_d84() -> TestResult {
+async fn a_borrow_ended_by_its_deadline_ends_with_the_published_failure_d84() -> TestResult {
     let p = provider_support::ProviderHarness::new(|_| {})?;
     std::fs::write(
         p.h.dir.path().join("Marathondevices"),
         "workers:\n- transport: {type: local}\n  devices: [{type: simulator, udid: a}]\n",
     )?;
+    use marathon_core::vendor::{DeviceProvider, VendorContext};
+    let deadline = marathon_core::executor::shared::Signal::new();
+    let borrowing = {
+        let (provider, context) = (
+            p.provider.clone(),
+            VendorContext {
+                cancellation: deadline.clone(),
+                ..p.h.services.context.clone()
+            },
+        );
+        tokio::spawn(async move { provider.borrow_untried(Vec::new(), context).await.map(|_| ()) })
+    };
+    tokio::time::sleep(Duration::from_millis(1_020)).await;
     panic_on(&p.h, |_| true);
+    guarded(
+        "the initialization",
+        p.provider.initialize(p.h.services.context.clone()),
+    )
+    .await
+    .map_err(provider_support::test_error)?;
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    let published = guarded("the device channel", p.provider.subscribe().receive()).await;
+    assert!(published.is_err(), "the monitoring has not published its panic");
+    deadline.cancel(marathon_apple::cmd::cancelled("the parse's deadline"));
+    let borrowed = guarded("the borrow", borrowing).await?;
+    match &borrowed {
+        Err(error) => assert!(is_probe(error), "{error:?}"),
+        Ok(()) => panic!("a simulator was borrowed"),
+    }
+    guarded("the termination", p.provider.terminate())
+        .await
+        .map_err(provider_support::test_error)?;
+    Ok(())
+}
+
+/// D84, review round 6: the monitoring has published a failure (an ordinary error with no simulator yet), and a
+/// simulator is then registered (here by a devices update) before the parse's deadline. The borrow keeps waiting, as it
+/// did before D84, and takes that simulator, so the parse can succeed.
+#[tokio::test(start_paused = true)]
+async fn a_borrow_still_takes_a_simulator_registered_after_a_published_failure_d84() -> TestResult {
+    let p = provider_support::ProviderHarness::new(|_| {})?;
+    std::fs::write(
+        p.h.dir.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: []\n",
+    )?;
+    *p.recovery.reconnect_error.lock().unwrap() = Some(monitor_error());
     use marathon_core::vendor::DeviceProvider;
     guarded(
         "the initialization",
@@ -356,15 +401,19 @@ async fn a_borrow_ends_with_the_monitorings_failure_when_no_simulator_is_availab
     )
     .await
     .map_err(provider_support::test_error)?;
-    let borrowed = guarded(
-        "the borrow",
-        p.provider.borrow_untried(Vec::new(), p.h.services.context.clone()),
-    )
-    .await;
-    match &borrowed {
-        Err(error) => assert!(is_probe(error), "{error:?}"),
-        Ok(_) => panic!("a simulator was borrowed"),
-    }
+    let failed = guarded("the device channel", p.provider.subscribe().receive()).await;
+    assert!(failed.is_err(), "the monitoring did not publish its failure");
+    let borrowing = {
+        let (provider, context) = (p.provider.clone(), p.h.services.context.clone());
+        tokio::spawn(async move { provider.borrow_untried(Vec::new(), context).await.map(|(_, key)| key) })
+    };
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    guarded("the update", p.update(&["a"])).await?;
+    let borrowed = guarded("the borrow", borrowing).await?;
+    assert!(
+        borrowed.is_ok(),
+        "the borrow did not take the registered simulator: {borrowed:?}"
+    );
     guarded("the termination", p.provider.terminate())
         .await
         .map_err(provider_support::test_error)?;

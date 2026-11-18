@@ -987,3 +987,30 @@ fn a_monitoring_failure_a_remote_parse_hears_of_is_the_runs_cause_d84() {
     );
     assert!(!logged(&outcome, Level::WARN, "No devices found"));
 }
+
+/// D84, review round 6: a remote parse waits for a device that never comes (the borrow never returns), and the provider
+/// has published a failure of its device source by the time the parse's deadline (1,050 ms) ends the wait. The parse
+/// ends with that failure, the run's cause, which `ignoreFailures` maps, instead of with no devices.
+#[test]
+fn a_parse_deadline_ends_with_the_providers_published_failure_d84() {
+    let (mut factory, mut script) = script();
+    factory.configuration.configuration.ignore_failures = true;
+    factory.configuration.configuration.device_initialization_timeout_millis = 1_050;
+    factory.parser = Some(marathon_core::vendor::TestParser::Remote(Arc::new(NeverExtracts)));
+    script.events.retain(|(_, event, ..)| event == "end");
+    let ready: Option<Ready> = Some(Box::new(|built| {
+        *built.provider.borrow_delay_millis.lock().unwrap() = i64::MAX;
+        *built.provider.published_failure.lock().unwrap() = Some(failure(
+            FailureKind::Runtime,
+            &format!("{PROBE}: the simulator's setup panicked"),
+        ));
+    }));
+    let outcome = scenario::drive(factory, script, None, ready);
+    assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
+    assert!(matches!(outcome.value, Some(Ok(true))), "{:?}", outcome.value);
+    assert_eq!(
+        run_failure(&outcome),
+        [format!("{PROBE}: the simulator's setup panicked")]
+    );
+    assert!(!logged(&outcome, Level::WARN, "No devices found"));
+}

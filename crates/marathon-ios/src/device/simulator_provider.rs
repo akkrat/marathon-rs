@@ -1269,12 +1269,6 @@ impl DeviceProvider for AppleSimulatorProvider {
                     if devices.keys().any(|key| !tried.contains(key)) {
                         devices.retain(|key, _| !tried.contains(key));
                     }
-                    // D84 (I5): before any Scheduler exists (a remote parse), the monitoring's failure is the borrower's
-                    // to hear of, as the Scheduler's listener would.
-                    let failure = this.state().monitor_failure.clone();
-                    if let (true, Some(failure)) = (devices.is_empty(), failure) {
-                        return Err(VendorError::Other(failure));
-                    }
                     if !devices.is_empty() {
                         let keys: Vec<_> = devices.keys().cloned().collect();
                         let key = caller
@@ -1286,11 +1280,19 @@ impl DeviceProvider for AppleSimulatorProvider {
                             .map(|d| (d.device.clone(), key.clone()))
                             .ok_or_else(|| other(FailureKind::ReplayClock, "Borrow selection is not a device key"));
                     }
-                    caller.clock.delay(200, caller.cancellation.clone()).await?;
+                    // D84 (I5): a borrow that ends without a simulator (its caller's deadline cancels it) ends with the
+                    // failure the monitoring has published by then, if any; until then it keeps waiting for one, which
+                    // a recovery can still bring.
+                    if let Err(error) = caller.clock.delay(200, caller.cancellation.clone()).await {
+                        return Err(this.published_failure().map_or(error, VendorError::Other));
+                    }
                 }
             })
             .await
         })
+    }
+    fn published_failure(&self) -> Option<marathon_core::error::Failure> {
+        self.state().monitor_failure.clone()
     }
     fn subscribe(&self) -> Arc<dyn EventChannel<DeviceEvent>> {
         self.channel.clone()

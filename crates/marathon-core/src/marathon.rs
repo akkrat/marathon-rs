@@ -678,10 +678,14 @@ impl Marathon {
             .await;
         match outcome {
             Ok(Some(())) => Ok(tests.take().unwrap_or_default()),
-            Ok(None) => Err(VendorError::NoDevices(failure(
-                NO_DEVICES,
-                "Timed out waiting for a temporary device for remote test parsing",
-            ))),
+            // D84: ended without a device; a failure the provider has published by now is the reason.
+            Ok(None) => Err(match self.deps.provider.published_failure() {
+                Some(cause) => VendorError::Other(cause),
+                None => VendorError::NoDevices(failure(
+                    NO_DEVICES,
+                    "Timed out waiting for a temporary device for remote test parsing",
+                )),
+            }),
             Err(error) => {
                 let last = last.take();
                 Err(match (error, last) {

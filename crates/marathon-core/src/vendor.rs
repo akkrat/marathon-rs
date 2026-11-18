@@ -113,6 +113,11 @@ pub trait DeviceProvider: Send + Sync {
         })
     }
     fn terminate(&self) -> VendorFuture<'_, ()>;
+    /// D84: the failure this provider has published on its device channel (its device source failed), if any. A remote
+    /// parse that ends without a device reads it: it is then the run's cause, not a no-device timeout. No I/O.
+    fn published_failure(&self) -> Option<crate::error::Failure> {
+        None
+    }
     /// Repeated calls return handles to the same consuming queue, not broadcasts.
     fn subscribe(&self) -> Arc<dyn EventChannel<DeviceEvent>>;
 }

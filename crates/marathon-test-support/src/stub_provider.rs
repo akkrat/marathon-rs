@@ -34,6 +34,8 @@ pub struct StubDeviceProvider {
     /// Virtual time `borrow` takes before returning the device.
     pub borrow_delay_millis: Mutex<i64>,
     pub calls: Mutex<Vec<&'static str>>,
+    /// D84 witnesses: what `published_failure` reports.
+    pub published_failure: Mutex<Option<marathon_core::error::Failure>>,
 }
 impl StubDeviceProvider {
     pub fn new(channel: Arc<SharedChannel<DeviceEvent>>) -> Arc<Self> {
@@ -47,6 +49,7 @@ impl StubDeviceProvider {
             on_subscribe: Mutex::new(None),
             borrow_delay_millis: Mutex::new(0),
             calls: Mutex::default(),
+            published_failure: Mutex::new(None),
         })
     }
     pub fn channel(&self) -> Arc<SharedChannel<DeviceEvent>> {
@@ -120,6 +123,9 @@ impl DeviceProvider for StubDeviceProvider {
             self.channel.close(None);
             Ok(())
         })
+    }
+    fn published_failure(&self) -> Option<marathon_core::error::Failure> {
+        lock(&self.published_failure).clone()
     }
     fn subscribe(&self) -> Arc<dyn EventChannel<DeviceEvent>> {
         lock(&self.calls).push("subscribe");
