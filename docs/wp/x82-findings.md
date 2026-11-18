@@ -205,6 +205,42 @@ returned (P1, a late pool). A D52 signal does not enter it; D52 keeps its own pa
   the provider's device channel with the cause. An ordinary error while devices are connected is logged at ERROR and
   the run carries on with them, as before D84.
 
+## Review round 4 (Sol 6.2 MAX, REQUEST_CHANGES): per-finding status
+
+The orchestrator split the scope: F1, F2, F3 and F6 are fixed here; F4 and F5 move to a follow-up WP (below).
+
+| Item | Status | Fix | Witness (fails on 8a9e7c1b) |
+|---|---|---|---|
+| F1 + two decision points | fixed | One decision point, in `run_under` after the (protected, resumable) finish: the first-cause cell beats any stored outcome, a NoDevices or a finish error, which is then logged ("The run also failed after its first failure"); `run_async` no longer decides. The finish reads how the provider's channel ended after termination (`settle_after_termination`): a failure, or a cancellation nothing in the run asked for, goes through `fail` | `run_supervision::a_device_channel_cancelled_while_the_provider_terminates_fails_the_run_d84`; `a_channel_failure_waiting_at_the_no_device_timeout_is_the_runs_cause_d84` (with `ignoreFailures`, exit 0 for the real cause where NoDevices gave false); `a_channel_failure_the_listener_still_holds_at_the_end_fails_the_run_d84` now fails if the decision point is removed (checked) |
+| F2 | fixed | `on_finish`: settle → analytics → provider → channel end → reports → usage; a step's own error or cancellation is logged and the next steps run; only a requested cancellation stops the finish, and `run_under`'s protected finish then resumes it (`finish_completed`; a signal's finish still makes it a no-op) | `run_supervision::a_cancelled_provider_termination_still_writes_the_reports_d84` |
+| F3 | fixed | `settle` runs first in the finish, so no failure or device work overlaps analytics' close or the provider's termination; it stops a pool if its actor or its supervisor is still running (a device of an ended pool still cleaning up) | `pool_scheduler::settling_waits_for_a_device_its_closed_pool_still_owns_d84` |
+| F6 | fixed, documented | `settle` closes admission (`draining`) before it cancels the listener, and `on_device_connected` returns at once when draining, before and after the history prefetch, so a connection read after that reaches no pool; the drain of late pools stays and is deterministic (always before the reports); D84 lists the healthy-run changes | `pool_scheduler::a_connection_waiting_when_the_run_settles_reaches_no_pool_d84`; `run_supervision::a_device_connecting_while_the_run_finishes_is_not_admitted_d84` |
+| P3 (macOS sleep) | fixed | the lease witness waits on a clock gate that fires when termination begins its bounded preparation wait | `provider::termination_does_not_release_a_lease_under_a_running_preparation_d84` |
+| D84 text | fixed | single decision point, settle-first finish, healthy-run changes, known limits (Android, macOS signal exit, U210, U211) | — |
+
+Tests rewritten because the behaviour they pinned is gone by design: the round-1 "late pool fails while the provider
+terminates" witness becomes `a_device_connecting_while_the_run_finishes_is_not_admitted_d84` (no late pool can start
+during the finish now); the round-2 I1 witness now has the channel fail during termination and the termination fail
+too; the round-3 R3-1b witness becomes `the_reports_hold_the_results_a_stop_drains_d84` (the drain of a stop that a
+channel failure begins mid-run).
+
+Goldens: the run-flow goldens and the differential suites (`marathon-cli` tests) pass unchanged; no golden diff.
+
+## Out of scope / follow-ups (from round 4, for a new WP)
+
+- **F4 → U210, Apple retained preparation after disposal.** macOS: `prepare` (`crates/marathon-macos/src/device.rs:646`)
+  accepts work after the Mac's disposal; a late Mac can begin preparing after `terminate` has disposed of it and
+  `join_preparation` found nothing, and the lease is released mid-installation (`crates/marathon-macos/src/provider.rs:431`).
+  Scenario: a device connects during termination, its preparation starts after disposal. iOS: cancelling during the
+  initial bundle push drops the retry helper's wait on the retained rsync task (`crates/marathon-core/src/executor/retry.rs:50`,
+  `crates/marathon-apple/src/cmd/remote/rsync/rsync_file_bridge.rs:125`), so the preparation can report its end while
+  rsync is still stopping.
+- **F5 → U211, vendor monitor failures bypass supervision.** Android: a failing `device_provider_init` of the tracker
+  (`crates/marathon-android/src/provider.rs:352`) ends device tracking and leaves the channel open; with a batch held
+  behind the D22 outage gate on another server, the run can wait indefinitely. iOS: a panic in the static
+  Marathondevices loader's log callback (`crates/marathon-ios/src/device/simulator_provider/source.rs:29`) is recorded
+  by the blocking task, but initialization waits on the cell it never completed before it joins the task.
+
 ## Review round 3 (Sol 6.2 xhigh, REQUEST_CHANGES): per-finding status
 
 Orchestrator decisions applied: the outcome and the report snapshot have a single authority (the first-cause cell,
