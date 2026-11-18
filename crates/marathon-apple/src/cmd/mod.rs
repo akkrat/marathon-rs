@@ -302,9 +302,10 @@ impl TransferStop {
                 .or_else(|| receipt.as_ref().and_then(|stop| stop.reason()))
         }
     }
-    /// D91: when the device needs the cleanup after a stop to have ended, if sooner than the bridge's own bound.
-    pub(crate) fn deadline(&self) -> Option<i64> {
-        self.receipt.as_ref().and_then(|r| r.deadline())
+    /// D91: the device's hold on this transfer, through which it can ask for the cleanup after a stop to end sooner than
+    /// the bridge's own bound.
+    pub(crate) fn receipt(&self) -> Option<Arc<TransferReceipt>> {
+        self.receipt.clone()
     }
     /// D91: the owner could not confirm that the transfer's processes ended; the receipt says so when it ends.
     pub(crate) fn unconfirmed(&mut self, why: Failure) {

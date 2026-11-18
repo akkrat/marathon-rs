@@ -353,18 +353,18 @@ impl Inner {
         let progress = AtomicI64::new(started);
         let mut nothing_arrived = false;
         let mut stopped = None;
+        // D91: the device's own deadline for this transfer's cleanup, which it may give after the stop has begun.
+        let owner = stop.as_deref().and_then(TransferStop::receipt);
         let unbounded = Bound {
             clock: self.clock.as_ref(),
             at: None,
+            owner: None,
         };
         // D91: from a stop on, every step below is held to one deadline.
         let mut bound = unbounded;
         let stopping = async {
             match stop.as_deref_mut() {
-                Some(stop) => {
-                    let why = stop.stopped().await;
-                    (why, stop.deadline())
-                }
+                Some(stop) => stop.stopped().await,
                 None => std::future::pending().await,
             }
         };
@@ -376,10 +376,10 @@ impl Inner {
                 self.stop_child(&mut child, &descendants, true, wrapped, unbounded).await
             }
             // D54: rsync has said nothing and is not on its way out, so it gets no time to end by itself.
-            (why, by) = stopping => {
+            why = stopping => {
                 stopped = Some(why);
-                let at = self.clock.now_millis().saturating_add(STOP_CLEANUP_MILLIS);
-                bound.at = Some(by.map_or(at, |by| by.min(at)));
+                bound.at = Some(self.clock.now_millis().saturating_add(STOP_CLEANUP_MILLIS));
+                bound.owner = owner.as_deref();
                 self.stop_child(&mut child, &descendants, false, wrapped, bound).await
             }
             _ = descendants.follow(unbounded) => unreachable!("following never ends"),
@@ -404,7 +404,7 @@ impl Inner {
         let stop_sent = stopped.is_some();
         let mut left = None;
         if stop_sent || !reaped {
-            left = Some(descendants.end(bound).await);
+            left = Some(descendants.end(!reaped, bound).await);
         }
         drop(stdin);
         if !matches!(status, Some(Ok(_))) {
@@ -454,7 +454,7 @@ impl Inner {
                 .is_ok_and(|status| is_stall(*status, &err_text, quiet, nothing_arrived));
         // However the stall was decided, and also when rsync ended by itself, what it started goes with it.
         if stalled && left.is_none() {
-            left = Some(descendants.end(bound).await);
+            left = Some(descendants.end(!reaped, bound).await);
         }
         if let Some(left) = left {
             match left {
@@ -867,15 +867,22 @@ fn is_temporary_of(entry: &std::ffi::OsStr, name: &std::ffi::OsStr) -> bool {
         })
 }
 /// D91: the limits on one step of ending a transfer: its own, in real time or on the vendor clock, and, after a stop, what
-/// is left until `at` on the vendor clock. A clock that fails leaves its limits to real time.
+/// is left until `at` on the vendor clock, or until the device's deadline for it (`owner`) if that is sooner, whenever the
+/// device gave it. A clock that fails leaves its limits to real time.
 #[derive(Clone, Copy)]
 struct Bound<'a> {
     clock: &'a dyn VendorClock,
     at: Option<i64>,
+    owner: Option<&'a crate::cmd::TransferReceipt>,
 }
 impl Bound<'_> {
     fn left(&self) -> Option<i64> {
-        self.at.map(|at| at.saturating_sub(self.clock.now_millis()).max(0))
+        let at = self.at?;
+        let at = self
+            .owner
+            .and_then(|owner| owner.deadline())
+            .map_or(at, |by| by.min(at));
+        Some(at.saturating_sub(self.clock.now_millis()).max(0))
     }
     fn expired(&self) -> bool {
         self.left() == Some(0)
@@ -1001,14 +1008,14 @@ impl Descendants {
         }
         order
     }
-    /// After a stall or a stop, with the child reaped: TERM to what it started, 5 s for them to go, then KILL to any still
-    /// there. D91: then which of those seen are still running, looked at for up to 5 s more, or `None` if no listing could
+    /// After a stall or a stop, with the child reaped, or not if `unreaped`, which the caller has sent KILL: TERM to what
+    /// it started, 5 s for them to go, then KILL to any still there. D91: then which of those seen are still running, looked at for up to 5 s more, or `None` if no listing could
     /// tell; all of it within `bound`.
-    async fn end(&self, bound: Bound<'_>) -> Option<Vec<i32>> {
+    async fn end(&self, unreaped: bool, bound: Bound<'_>) -> Option<Vec<i32>> {
         use nix::sys::signal::{Signal, kill};
         let clock = bound.clock;
         let scope: Arc<dyn CancellationSignal> = Arc::new(SessionScope::default());
-        let termed = self.signal(Signal::SIGTERM, false, bound).await;
+        let termed = self.signal(Signal::SIGTERM, unreaped, bound).await;
         if !termed.is_empty() {
             let gone = async {
                 while termed
@@ -1021,7 +1028,7 @@ impl Descendants {
                 }
             };
             if bound.run(None, Some(STOP_STEP_MILLIS), gone).await.is_none() {
-                self.signal(Signal::SIGKILL, false, bound).await;
+                self.signal(Signal::SIGKILL, unreaped, bound).await;
             }
         }
         // A killed orphan is listed until init has reaped it, so the look is repeated for a while.
@@ -1260,6 +1267,7 @@ mod tests {
     const UNBOUNDED: Bound<'static> = Bound {
         clock: &NoClock,
         at: None,
+        owner: None,
     };
 
     #[tokio::test(flavor = "multi_thread")]
