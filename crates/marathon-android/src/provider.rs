@@ -193,8 +193,9 @@ impl AdamDeviceProvider {
                 .unwrap_or_else(|payload| Err(VendorError::Other(marathon_core::executor::panic_failure(payload))));
                 // U211 (D88): the monitor is the only source of device events and the only one to release a batch held
                 // by an outage or a grace period (D22, D41). If it ends for any reason but the provider's termination,
-                // the device channel fails with the cause, which ends the run (D84) instead of leaving it waiting. First,
-                // before the log line below.
+                // the device channel fails with the cause, which ends the run (D84) instead of leaving it waiting. The
+                // monitor publishes its own failure before it joins its servers' tasks; this covers a panic outside its
+                // loop. First-wins, and before the log line below.
                 if let Err(e) = &result
                     && stopped.reason().is_none()
                 {
@@ -509,6 +510,13 @@ impl AdamDeviceProvider {
         .catch_unwind()
         .await
         .unwrap_or_else(|payload| Err(VendorError::Other(marathon_core::executor::panic_failure(payload))));
+        // D88 (review round 2): published before the servers' tasks are joined, which can take a while (a reconnect
+        // reaping its process); a normal finish that cancels this monitor and closes the channel meanwhile must not lose it.
+        if let Err(error) = &result
+            && context.cancellation.reason().is_none()
+        {
+            self.publish_failure(error.failure().clone());
+        }
         for task in &monitors.0 {
             task.cancel(requested("device monitor ended"));
         }

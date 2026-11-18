@@ -1453,3 +1453,203 @@ fn a_monitor_that_panics_ends_its_servers_tracking_d88() {
         })
     });
 }
+/// The provider's task runtime, with a gate on joins: once armed, the join of any task spawned before it was armed (the
+/// monitor's servers' tracking tasks among them) waits until the gate is released, as a tracking task that is still
+/// reaping a reconnect process makes its join wait.
+struct GatedJoins {
+    inner: std::sync::Arc<dyn marathon_core::runtime::VendorRuntime>,
+    gate: std::sync::Arc<JoinGate>,
+}
+#[derive(Default)]
+struct JoinGate {
+    armed: std::sync::atomic::AtomicBool,
+    entered: tokio::sync::Notify,
+    release: std::sync::Arc<marathon_core::executor::SharedDeferred<()>>,
+}
+struct GatedTask {
+    inner: std::sync::Arc<dyn marathon_core::runtime::VendorTask>,
+    gate: std::sync::Arc<JoinGate>,
+    held: bool,
+}
+impl marathon_core::runtime::VendorTask for GatedTask {
+    fn cancel(&self, reason: Cancellation) {
+        self.inner.cancel(reason)
+    }
+    fn join(&self) -> marathon_core::runtime::VendorFuture<'_, ()> {
+        Box::pin(async move {
+            if self.held && self.gate.armed.load(std::sync::atomic::Ordering::SeqCst) {
+                self.gate.entered.notify_one();
+                self.gate.release.wait().await?;
+            }
+            self.inner.join().await
+        })
+    }
+}
+impl GatedJoins {
+    fn wrap(
+        &self,
+        task: std::sync::Arc<dyn marathon_core::runtime::VendorTask>,
+    ) -> std::sync::Arc<dyn marathon_core::runtime::VendorTask> {
+        std::sync::Arc::new(GatedTask {
+            inner: task,
+            gate: self.gate.clone(),
+            held: !self.gate.armed.load(std::sync::atomic::Ordering::SeqCst),
+        })
+    }
+}
+impl marathon_core::runtime::VendorRuntime for GatedJoins {
+    fn spawn_cancellable(
+        &self,
+        body: marathon_core::runtime::VendorTaskBody,
+    ) -> std::sync::Arc<dyn marathon_core::runtime::VendorTask> {
+        self.wrap(self.inner.spawn_cancellable(body))
+    }
+    fn spawn(
+        &self,
+        body: marathon_core::runtime::VendorFuture<'static, ()>,
+    ) -> std::sync::Arc<dyn marathon_core::runtime::VendorTask> {
+        self.wrap(self.inner.spawn(body))
+    }
+    fn spawn_blocking(
+        &self,
+        body: Box<dyn FnOnce() -> VendorResult<()> + Send>,
+    ) -> std::sync::Arc<dyn marathon_core::runtime::VendorTask> {
+        self.wrap(self.inner.spawn_blocking(body))
+    }
+}
+/// Two servers, device A on the first; device B, coming on the second, makes the tracker panic in the monitor, whose
+/// join of its servers' tracking tasks is then held. Returns once that join is waiting.
+async fn monitor_failing_while_joining(
+    runtime: &std::sync::Arc<marathon_android::services::AndroidRuntime>,
+    context: &marathon_core::vendor::VendorContext,
+    first_ready: bool,
+) -> VendorResult<(
+    AdamDeviceProvider,
+    std::sync::Arc<JoinGate>,
+    marathon_adb::server::FakeAdbServer,
+    marathon_adb::server::FakeAdbServer,
+)> {
+    let first = server(if first_ready {
+        base_script(27, vec![])
+    } else {
+        never_ready_script()
+    })
+    .await;
+    let mut script = base_script(27, vec![]);
+    script["devices"][0]["serial"] = serde_json::json!("emulator-5556");
+    script["devices"][0]["connected"] = serde_json::json!(false);
+    let second = server(script).await;
+    let gate = std::sync::Arc::new(JoinGate::default());
+    let tracker = std::sync::Arc::new(PanicsOnSecondInit::default());
+    let mut runtime = change_runtime(runtime, &[first.port(), second.port()]);
+    {
+        let runtime = std::sync::Arc::get_mut(&mut runtime).unwrap();
+        runtime.dependencies.tracker = tracker.clone();
+        runtime.dependencies.io = std::sync::Arc::new(GatedJoins {
+            inner: runtime.dependencies.io.clone(),
+            gate: gate.clone(),
+        });
+    }
+    let provider = AdamDeviceProvider::new(runtime)?;
+    provider.initialize(context.clone()).await?;
+    if first_ready {
+        assert!(matches!(event(&provider).await, DeviceEvent::Connected(_)));
+    } else {
+        // A was connected, its tracker call made; its setup never ends, so no device can be borrowed.
+        checked(
+            tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                while tracker.0.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                }
+            })
+            .await,
+        );
+    }
+    {
+        let entered = gate.entered.notified();
+        tokio::pin!(entered);
+        entered.as_mut().enable();
+        gate.armed.store(true, std::sync::atomic::Ordering::SeqCst);
+        checked(second.connect_device("emulator-5556"));
+        checked(tokio::time::timeout(std::time::Duration::from_secs(60), entered).await);
+    }
+    Ok((provider, gate, first, second))
+}
+/// D88, review round 2: the provider's termination (the run's normal finish) cancels the monitor and closes the device
+/// channel while the monitor, failed, is still joining its servers' tracking tasks. The failure was published only after
+/// those joins, and then suppressed as part of the termination: the run could report success. It is now published first.
+#[test]
+fn a_monitor_failure_survives_a_finish_that_comes_while_it_joins_its_tasks_d88() {
+    let _ports = shared_ports();
+    run(configuration(), |runtime, context| {
+        Box::pin(async move {
+            let (provider, gate, mut first, mut second) =
+                monitor_failing_while_joining(&runtime, &context, true).await?;
+            let channel = provider.subscribe();
+            let provider = std::sync::Arc::new(provider);
+            let terminating = tokio::spawn({
+                let provider = provider.clone();
+                async move { provider.terminate().await }
+            });
+            checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                    while !channel.state().closed_for_send {
+                        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                    }
+                })
+                .await,
+            );
+            gate.release.complete(Ok(()));
+            checked(checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), terminating).await,
+            ))?;
+            let failure = loop {
+                match channel.receive().await {
+                    Ok(Some(_)) => continue,
+                    Ok(None) => panic!("the device channel was closed without the monitor's failure"),
+                    Err(error) => break error,
+                }
+            };
+            assert_eq!(failure.failure().message.as_deref(), Some(PROBE), "{failure:?}");
+            checked(first.shutdown().await);
+            checked(second.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// D88, review round 2: before the run has its scheduler, a remote discovery whose deadline comes while the failed
+/// monitor still joins its tasks reads the provider's published failure, which was not yet set.
+#[test]
+fn a_discovery_deadline_while_the_monitor_joins_its_tasks_returns_its_failure_d88() {
+    let _ports = shared_ports();
+    run(configuration(), |runtime, context| {
+        Box::pin(async move {
+            let (provider, gate, mut first, mut second) =
+                monitor_failing_while_joining(&runtime, &context, false).await?;
+            assert_eq!(
+                provider.published_failure().and_then(|f| f.message).as_deref(),
+                Some(PROBE)
+            );
+            let signal = marathon_core::executor::Signal::new();
+            signal.cancel(marathon_core::executor::shared::requested("the discovery deadline"));
+            let borrowed = provider
+                .borrow_untried(
+                    vec![],
+                    marathon_core::vendor::VendorContext {
+                        cancellation: signal,
+                        ..context
+                    },
+                )
+                .await;
+            match borrowed {
+                Err(VendorError::Other(failure)) => assert_eq!(failure.message.as_deref(), Some(PROBE)),
+                other => panic!("{:?}", other.map(|(_, key)| key)),
+            }
+            gate.release.complete(Ok(()));
+            provider.terminate().await?;
+            checked(first.shutdown().await);
+            checked(second.shutdown().await);
+            Ok(())
+        })
+    });
+}
