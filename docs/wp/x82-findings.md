@@ -146,8 +146,18 @@ has a parity-matrix row (they are review witnesses), so no row changes. The JVM 
   future mid-run, which drops the same state an unwind does.
 - Real devices: not run. The changes only act on a panic or an unexpected cancellation, which the farm runs do not
   produce on demand.
-- A queue whose own pool has failed (a pool panic) cannot take its replies; it ends at its next reply to the pool,
-  with what is left in its mailbox. The results it took before are kept.
+- (Superseded in round 2: a draining queue no longer replies to its pool, so a failed pool no longer ends its queue.)
+- The pool's round-2 guards on `terminate_now` and `start_return_wait` (a handler already running when the stop begins)
+  have no witness of their own: no scenario I could build loses a result through them, since a pool's own `IsEmpty` is
+  answered after what was delivered before it. They make I2's "does not end itself, waits for no device" hold.
+- The P4 witness calls `Scheduler::stopping`, which is new in round 2, so it cannot be run on 384f96de; there the guard
+  only cancelled the tree, and nothing could wait for it.
+- Android's cancelled-call bound: Android declares none (its cleanup after a cancel runs listener steps under an
+  uncancellable signal, each ADB request bounded by its configured timeout, with no overall figure to derive), so a
+  stopping run waits for an Android device until it ends, as D68 did. A vendor call that waited for the provider's
+  termination would still hold such a run; no Android call does.
+- The drain waits for each queue to handle what it holds; a queue's calls are bounded by D51 (tracker, 30 s per send)
+  and D67 (console, 60 s), not by the stop itself.
 - Other vendors' device monitors (Android, macOS) were not changed; the reviewer's P3 was about iOS, whose monitor
   also sets up the first simulators.
 
@@ -194,6 +204,22 @@ returned (P1, a late pool). A D52 signal does not enter it; D52 keeps its own pa
 - **I5 iOS monitoring.** A panic in the monitor, or an error when the provider has no device a run could use, fails
   the provider's device channel with the cause. An ordinary error while devices are connected is logged at ERROR and
   the run carries on with them, as before D84.
+
+## Review round 2 (Sol 6.2, REQUEST_CHANGES): per-finding status
+
+| Item | Status | Commit | Witness (fails on 384f96de) |
+|---|---|---|---|
+| P1 / I1: a finish error replaced the stored cause | fixed | `fb59853f` | `run_supervision::a_cleanup_error_after_the_first_failure_does_not_replace_it_d84` |
+| R2-1 / I3: a pool failure cancelled sibling queues; a reply to the failed pool ended its queue | fixed | `fb59853f` | `pool_scheduler::a_pool_failure_leaves_every_queue_the_results_delivered_to_it_d84` (both pools hold a Track with a buffered result; pool A panics) |
+| R2-2 / I4: the 24 s deadline cut vendor cleanup | fixed | `fb59853f`, `d476a606` | `run_supervision::a_cleanup_within_the_devices_own_bound_is_waited_for_d84` (30 s cleanup, 60 s device bound); `a_device_call_waiting_for_the_runs_end_holds_it_only_for_its_own_bound_d84` (P5 still broken, at the device's bound) |
+| R2-3 / I2: a draining pool could admit a device | fixed | `fb59853f` | `pool_scheduler::a_device_added_after_the_failure_is_not_started_d84` (AddDevice buffered behind a busy pool B while pool A's drain is held) |
+| P4 / I4: the unwind guard did not wait | fixed | `fb59853f` | `pool_scheduler::the_stop_an_unwind_begins_waits_for_a_slow_cleanup_d84` (uses the new `Scheduler::stopping`; see "Not verified") |
+| I5: a mid-run iOS monitor error newly failed a run that could finish | fixed | `d476a606` | `simulator_panic::a_monitor_error_with_a_device_connected_lets_the_run_carry_on_d84`; also `a_monitor_error_with_no_device_fails_the_device_channel_d84` |
+| D84 text overstated | fixed | this docs commit | PLAN row, deviations section (what is preserved, the bound, what can be lost), migration, CHANGELOG |
+
+The round-1 verified list still holds: every earlier witness passes (the round-1 P5 witness was renamed and now expects
+the device's own bound, 30 s + 5 s, instead of 24 s). Run: `cargo test --no-fail-fast` on core, test-support, apple,
+ios, macos, android and cli, all pass; clippy `-D warnings` on the changed crates and `cargo fmt --check` clean.
 
 ## Review round 1 (Sol 6.2, REQUEST_CHANGES): per-finding status
 
