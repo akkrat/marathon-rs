@@ -2266,9 +2266,10 @@ the run. Other unexpected ends still left the run hanging, or ended it without s
   nothing in the run asked for (only a signal, D52, or the run's normal end stops the run's listening), is such a
   cause, also when it is read only after the provider has terminated. A failure that reaches the run only after the
   run was cancelled (a signal, or its owner cancelling it) is explained by that cancellation: it is logged at WARN and
-  the run stops, but no cause is recorded ([U215](found-bugs.md)). A run its owner or a signal cancelled never ends as a
-  success, whatever it had reached: without a cause recorded before the cancel, it ends cancelled (exit 1, 0 with
-  `ignoreFailures`).
+  the run stops, but no cause is recorded ([U215](found-bugs.md)). A run its owner or a signal asked to stop, at any
+  time until its outcome is decided (also while its finish runs after the run itself has ended), ends cancelled unless
+  a cause was recorded before the request: whatever it had reached, a success or a no-device timeout, it exits 1, or 0
+  with `ignoreFailures`.
 - **The run stops in order.** At that failure the run admits no more work: no pool takes a new device, starts a batch
   or a retry, waits for a device to return or ends itself, and no new pool is created. The device listener stops, and
   every device's work is cancelled as at a D52 cancel. The run then waits for each device to end its cancelled call and
@@ -2316,7 +2317,8 @@ the run. Other unexpected ends still left the run hanging, or ended it without s
   of a run failed with no devices. A provider that publishes none (Android, macOS, the Stub vendor) keeps the
   no-device outcome.
 - **Direct callers of `runAsync`** (the run's own tests) do not go through the run's decision point: they get what
-  the run task reached, which can be a success after a failure the finish recorded. `marathon run` always decides.
+  the run task reached, which can be a success after a failure the finish recorded. They have no owner, so only a
+  signal counts as a request to stop. `marathon run` always decides.
 - **Changes in runs without a failure.** A device that connects while the run finishes is not admitted: its
   connection, and any device event still waiting when the run settles, is dropped, so no pool starts for it and its
   device is not in the reports' device data. A pool a device started after D65's boundary is stopped when the run

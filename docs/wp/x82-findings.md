@@ -247,6 +247,25 @@ Revert checks (scratch copy, these tests on the older product): on 3a7a789f both
 passed; the equal-value cancel recorded the failure). On d5b0181d the owner-cancel witness passes: before U215 the late
 failure was recorded, so 0f1122a7 introduced item 1 and this round closes it.
 
+### x82b re-check r2 (Sol 6.2): the owner's cancel during the protected finish
+
+*Owner cancellation lost precedence during the protected finish.* After a no-device timeout the run task has completed;
+an owner's cancel while the protected finish waits for the provider's termination reaches the run's root but not the
+completed task's signal, which `fail` read. A channel failure then became the run's cause, and a normal close left the
+no-device outcome (`false`, even with `ignoreFailures`). Fix, structural: one run-scoped record of a request to stop,
+`RunCancellation` (in `execution::scheduler`). `run_under` gives it the owner's job for the whole run; a signal's finish
+records its request before it stops anything. `Scheduler::fail` and the decision point read only it, never a task's
+signal; both run on the core thread, so a request and a failure are ordered as they happen. At the decision point a
+recorded cause wins; otherwise a request turns a success or a no-device outcome into a cancellation (another error
+the run reached keeps its cause, and maps as a cancellation does). Direct `runAsync` callers have no owner: for them
+only a signal is a request. Witnesses: `run_supervision::an_owner_cancel_during_the_protected_finish_explains_a_channel_failure_d84`
+(a) and `..._outranks_no_devices_d84` (b), both with `ignoreFailures: true` and the logged cause checked; both fail
+on 8609d61f (a: the channel's failure is the cause; b: `Ok(false)`, no devices).
+
+Checks: core and iOS suites (1,303 tests) pass; the CLI D52 suites (`shutdown_reports`, `signal_windows`) pass; stress
+with 0 failures: the D68 test ×200, `run_supervision` ×100 with default threads and ×100 with one, `run_flow_witnesses`
+D52 tests ×100.
+
 ## Gate (remote Linux): the round-5 signal witness made event-driven
 
 The gate failed `run_supervision::a_signal_while_the_run_settles_keeps_the_reports_first_d84` on Linux. Cause: the
