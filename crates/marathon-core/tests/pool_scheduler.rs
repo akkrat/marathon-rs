@@ -2110,3 +2110,269 @@ fn a_scheduler_that_stops_before_it_returns_stops_its_pools_d84() {
         })
     });
 }
+
+/// Holds each Track of a test result of a pool while that pool's gate is closed.
+struct PoolGatedTrack(Arc<RecordingTracker>, Vec<(&'static str, Gate)>);
+impl marathon_core::wiring::Tracker for PoolGatedTrack {
+    fn device_connected<'a>(&'a self, p: &'a DevicePoolId, d: &'a DeviceInfo) -> VendorFuture<'a, ()> {
+        marathon_core::wiring::Tracker::device_connected(self.0.as_ref(), p, d)
+    }
+    fn device_disconnected<'a>(&'a self, p: &'a DevicePoolId, d: &'a DeviceInfo) -> VendorFuture<'a, ()> {
+        marathon_core::wiring::Tracker::device_disconnected(self.0.as_ref(), p, d)
+    }
+    fn device_provider_init<'a>(
+        &'a self,
+        s: &'a str,
+        a: jcompat::jtime::Instant,
+        b: jcompat::jtime::Instant,
+    ) -> VendorFuture<'a, ()> {
+        marathon_core::wiring::Tracker::device_provider_init(self.0.as_ref(), s, a, b)
+    }
+    fn device_preparing<'a>(
+        &'a self,
+        s: &'a str,
+        a: jcompat::jtime::Instant,
+        b: jcompat::jtime::Instant,
+    ) -> VendorFuture<'a, ()> {
+        marathon_core::wiring::Tracker::device_preparing(self.0.as_ref(), s, a, b)
+    }
+    fn test<'a>(&'a self, p: &'a DevicePoolId, d: &'a DeviceInfo, r: &'a TestResult, f: bool) -> VendorFuture<'a, ()> {
+        let gate = self
+            .1
+            .iter()
+            .find(|(pool, _)| *pool == p.name)
+            .map(|(_, gate)| gate.clone());
+        Box::pin(async move {
+            if let Some(gate) = gate {
+                gate.wait().await;
+            }
+            marathon_core::wiring::Tracker::test(self.0.as_ref(), p, d, r, f).await
+        })
+    }
+}
+
+/// A test device whose pool's handler panics when it reads the device's worker, as it does when the device asks for a
+/// batch.
+struct PanicsInPool(Arc<TestDevice>);
+impl Device for PanicsInPool {
+    fn info(&self) -> DeviceInfo {
+        self.0.info()
+    }
+    fn abi(&self) -> String {
+        self.0.abi()
+    }
+    fn worker_id(&self) -> Option<String> {
+        panic!("the pool's handler panicked")
+    }
+    fn component(&self) -> &marathon_logging::Component {
+        self.0.component()
+    }
+    fn prepare<'a>(&'a self, configuration: Arc<Configuration>, context: VendorContext) -> VendorFuture<'a, ()> {
+        self.0.prepare(configuration, context)
+    }
+    fn execute<'a>(
+        &'a self,
+        configuration: Arc<Configuration>,
+        pool: DevicePoolId,
+        batch: BatchRef,
+        result: Arc<Deferred<TestBatchResults>>,
+        context: VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        self.0.execute(configuration, pool, batch, result, context)
+    }
+    fn dispose(&self) -> VendorFuture<'_, ()> {
+        self.0.dispose()
+    }
+}
+
+fn prepared_after(serial: &str, model: &str, millis: i64) -> Arc<TestDevice> {
+    TestDevice::new_with_model(
+        serial,
+        model,
+        None,
+        Some(on_prepare(move |context| async move {
+            context.clock.delay(millis, context.cancellation.clone()).await
+        })),
+        slow_execute(100),
+    )
+}
+
+/// D84, review round 2 (R2-1, I3): in pools A and B, test1 has ended and its Track is held, and test2's result waits in
+/// the queue's mailbox. Then pool A's handler panics. B's queue is not cancelled by A's failure, and A's queue does not
+/// end on a reply to its failed pool: both take their delivered results before they are stopped.
+#[test]
+fn a_pool_failure_leaves_every_queue_the_results_delivered_to_it_d84() {
+    scheduling_test(|h| {
+        Box::pin(async move {
+            let (gate_a, gate_b) = (Gate::default(), Gate::default());
+            let run = Run::new_with_shard(
+                &h,
+                waiting_with_models(),
+                Arc::new(PoolGatedTrack(
+                    h.tracker.clone(),
+                    vec![("A", gate_a.clone()), ("B", gate_b.clone())],
+                )),
+                tests(2, "marathon_core::execution::scheduler"),
+            );
+            h.run_current().await;
+            for (serial, model, duration) in [("a1", "A", 100), ("a2", "A", 200), ("b1", "B", 100), ("b2", "B", 200)] {
+                run.connect(&device(serial, model, duration, false));
+            }
+            let panicking = PanicsInPool(prepared_after("a3", "A", 300));
+            assert!(
+                run.provider
+                    .channel
+                    .try_send(DeviceEvent::Connected(DeviceRef(Arc::new(panicking))))
+                    .is_ok()
+            );
+            advance(&h, 400).await;
+            assert!(h.tracker.events().is_empty(), "{:?}", h.tracker.events());
+            gate_a.open();
+            gate_b.open();
+            h.advance_until_idle().await;
+            let tracked = h.tracker.events();
+            for serial in ["a1", "a2", "b1", "b2"] {
+                assert!(
+                    tracked.iter().any(|event| event.ends_with(&format!("on {serial}"))),
+                    "{serial}'s delivered result was not tracked: {tracked:?}"
+                );
+            }
+            match run.result.borrow().as_ref() {
+                Some((_, Err(VendorError::Other(cause)))) => {
+                    assert_eq!(cause.message.as_deref(), Some("the pool's handler panicked"));
+                }
+                other => panic!("expected the pool's panic, got {other:?}"),
+            }
+            run.finish(&h).await;
+        })
+    });
+}
+
+/// D84, review round 2 (R2-3, I2): pool B is busy (its last device left and it waits for its held queue's answer)
+/// when a new device's AddDevice is buffered for it, and the subscription fails at that moment. Pool A's drain is
+/// held, so B handles the AddDevice while the run is already stopping. A draining pool admits no device: none is
+/// prepared.
+#[test]
+fn a_device_added_after_the_failure_is_not_started_d84() {
+    scheduling_test(|h| {
+        Box::pin(async move {
+            let (gate_a, gate_b) = (Gate::default(), Gate::default());
+            let run = Run::new_with_shard(
+                &h,
+                waiting_with_models(),
+                Arc::new(PoolGatedTrack(
+                    h.tracker.clone(),
+                    vec![("A", gate_a.clone()), ("B", gate_b.clone())],
+                )),
+                tests(2, "marathon_core::execution::scheduler"),
+            );
+            h.run_current().await;
+            let a1 = device("a1", "A", 100, false);
+            let b1 = device("b1", "B", 100, false);
+            run.connect(&a1);
+            run.connect(&b1);
+            advance(&h, 150).await;
+            run.disconnect(&b1);
+            h.run_current().await;
+            let prepared = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let flag = prepared.clone();
+            let b2 = TestDevice::new_with_model(
+                "b2",
+                "B",
+                None,
+                Some(on_prepare(move |_| {
+                    flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                    async { Ok(()) }
+                })),
+                slow_execute(100),
+            );
+            run.connect(&b2);
+            run.provider.channel.close(Some(ise("device events failed")));
+            advance(&h, 200).await;
+            gate_b.open();
+            advance(&h, 1000).await;
+            assert!(
+                !prepared.load(std::sync::atomic::Ordering::SeqCst),
+                "a device was started after the run began to stop"
+            );
+            assert!(b2.batches().is_empty());
+            gate_a.open();
+            h.advance_until_idle().await;
+            match run.result.borrow().as_ref() {
+                Some((_, Err(VendorError::Other(cause)))) => {
+                    assert_eq!(cause.message.as_deref(), Some("device events failed"));
+                }
+                other => panic!("expected the subscription's cause, got {other:?}"),
+            }
+            run.finish(&h).await;
+        })
+    });
+}
+
+/// D84, review round 2 (P4, I4): `execute` unwinding (its future dropped mid-batch, which drops the same state) begins
+/// the run's stop, and that stop, which the run owner joins before it finishes, waits for the cancelled batch's cleanup
+/// (3 s here, ignoring the cancellation).
+#[test]
+fn the_stop_an_unwind_begins_waits_for_a_slow_cleanup_d84() {
+    scheduling_test(|h| {
+        Box::pin(async move {
+            let run = Run::manual(
+                &h,
+                waiting(),
+                h.tracker.clone(),
+                tests(1, "marathon_core::execution::scheduler"),
+                Arc::new(Analytics::from_lookup(Arc::new(NoMetrics))),
+            );
+            let gate = Gate::default();
+            let (scheduler, stop) = (run.scheduler.clone(), gate.clone());
+            h.core.spawn(
+                run.parent.clone(),
+                Box::new(move |_| {
+                    Box::pin(async move {
+                        let execute = scheduler.execute();
+                        tokio::pin!(execute);
+                        let _ = futures_util::future::select(execute, Box::pin(stop.wait())).await;
+                        Ok(())
+                    })
+                }),
+            );
+            h.run_current().await;
+            let cleaned = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let done = cleaned.clone();
+            let slow = TestDevice::new_with_model(
+                "slow",
+                "test",
+                None,
+                None,
+                on_execute(move |e| {
+                    let done = done.clone();
+                    async move {
+                        let reason = e.context.cancellation.cancelled().await;
+                        let _ = e
+                            .context
+                            .clock
+                            .delay(3000, marathon_core::executor::shared::Signal::new())
+                            .await;
+                        done.store(true, std::sync::atomic::Ordering::SeqCst);
+                        Err(VendorError::Cancelled(reason))
+                    }
+                }),
+            );
+            run.connect(&slow);
+            advance(&h, 500).await;
+            assert_eq!(slow.batches().len(), 1);
+            gate.open();
+            h.run_current().await;
+            let stopping = run.scheduler.stopping().expect("the unwind began the run's stop");
+            advance(&h, 500 + 2999).await;
+            assert!(
+                !matches!(stopping.state(), JobState::Completed(_)),
+                "the stop did not wait for the cleanup"
+            );
+            h.advance_until_idle().await;
+            assert!(matches!(stopping.state(), JobState::Completed(_)));
+            assert!(cleaned.load(std::sync::atomic::Ordering::SeqCst));
+            run.finish(&h).await;
+        })
+    });
+}

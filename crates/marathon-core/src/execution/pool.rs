@@ -67,6 +67,7 @@ pub struct DevicePool {
     /// The `SupervisorJob` of the queue and the device actors.
     pub supervisor: JobRef,
     diagnostics: Rc<RefCell<Vec<DeviceActorRef>>>,
+    draining: Rc<std::cell::Cell<bool>>,
 }
 impl DevicePool {
     pub(crate) fn diagnostic(&self, out: &mut String, budget: &mut usize) {
@@ -95,6 +96,22 @@ impl DevicePool {
         }
         *budget -= shown;
         crate::diagnostics::omitted(out, devices.len() - shown, "devices");
+    }
+    /// D84: the run is stopping after an internal failure. From now on the pool, and its queue, take what is delivered
+    /// to them and start nothing: the pool's handler forwards a device's completed results to the queue and answers the
+    /// Scheduler's drain barrier, and drops every other message, so it admits no device, starts no batch or retry,
+    /// waits for no device and does not end itself. The Scheduler stops it.
+    pub fn drain(&self) {
+        self.draining.set(true);
+        self.queue.drain();
+    }
+    /// D84: the pool's device actors, each with its device.
+    pub fn devices(&self) -> Vec<(JobRef, DeviceRef)> {
+        self.diagnostics
+            .borrow()
+            .iter()
+            .map(|actor| (actor.actor.job(), actor.device.clone()))
+            .collect()
     }
     /// `actor.coroutineContext.job.isCompleted`.
     pub fn terminated(&self) -> bool {
@@ -153,6 +170,8 @@ pub struct DevicePoolActor {
     /// that ends with none starts it again at that moment. Time with a device counts, so a device that keeps coming back
     /// without finishing anything can't hold the run open for ever.
     away_since: Option<i64>,
+    /// D84: see `DevicePool::drain`.
+    draining: Rc<std::cell::Cell<bool>>,
     /// D48: the latest time a live device went away, what its vendor had waited for it included, since a test last ended.
     /// The pool lacks a device from the latest of these, whatever order the devices are removed in.
     departed: Option<i64>,
@@ -250,7 +269,9 @@ impl DevicePoolActor {
         let clock: Rc<dyn SchedulerClock> = parts.core.clock();
         let built = Rc::new(RefCell::new(None));
         let diagnostics = Rc::new(RefCell::new(Vec::new()));
+        let draining = Rc::new(std::cell::Cell::new(false));
         let handler = DevicePoolActor {
+            draining: draining.clone(),
             core: parts.core.clone(),
             pool_id: parts.pool_id,
             configuration: parts.configuration,
@@ -298,6 +319,7 @@ impl DevicePoolActor {
             queue,
             supervisor,
             diagnostics,
+            draining,
         }
     }
 
@@ -319,7 +341,14 @@ impl DevicePoolActor {
     }
 
     async fn handle(&mut self, message: DevicePoolMessage, task: &TaskContext) -> OperationResult<()> {
+        if self.draining.get() {
+            self.handle_draining(message);
+            return Ok(());
+        }
         match message {
+            DevicePoolMessage::FromScheduler(FromScheduler::Drain(barrier)) => {
+                barrier.0.complete(Ok(()));
+            }
             DevicePoolMessage::FromScheduler(FromScheduler::AddDevice(device)) => self.add_device(device),
             DevicePoolMessage::FromScheduler(FromScheduler::RemoveDevice(device)) => {
                 self.remove_device(device, task).await?
@@ -348,6 +377,28 @@ impl DevicePoolActor {
             DevicePoolMessage::ReturnWaitOver(number) => self.return_wait_over(number, task).await?,
         }
         Ok(())
+    }
+
+    /// D84: see `DevicePool::drain`. A device's results go to the queue as they would have; nothing else is acted on.
+    fn handle_draining(&mut self, message: DevicePoolMessage) {
+        match message {
+            DevicePoolMessage::FromDevice(FromDevice::CompletedTestBatch(device, results)) => {
+                self.release_assignment(&device);
+                self.send_to_queue(QueueMessage::Completed(device.0.info(), results));
+            }
+            DevicePoolMessage::FromScheduler(FromScheduler::Drain(barrier)) => {
+                barrier.0.complete(Ok(()));
+            }
+            DevicePoolMessage::FromScheduler(FromScheduler::AddDevice(device)) => {
+                self.debug(&[
+                    S("pool "),
+                    J(&self.pool()),
+                    S(": the run is stopping, not adding device "),
+                    J(&serial(&device)),
+                ]);
+            }
+            _ => {}
+        }
     }
 
     async fn on_queue_terminated(&mut self, task: &TaskContext) -> OperationResult<()> {

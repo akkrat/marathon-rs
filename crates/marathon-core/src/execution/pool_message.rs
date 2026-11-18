@@ -18,7 +18,23 @@ pub enum FromScheduler {
     AddDevice(DeviceRef),
     RemoveDevice(DeviceRef),
     Terminate,
+    /// D84: answered once every message sent to the pool before it has been handled.
+    Drain(DrainBarrier),
 }
+/// D84: the pool's answer to `Drain`, a cell the Scheduler waits on. Equal by identity.
+#[derive(Clone)]
+pub struct DrainBarrier(pub std::sync::Arc<crate::executor::shared::SharedDeferred<()>>);
+impl std::fmt::Debug for DrainBarrier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DrainBarrier")
+    }
+}
+impl PartialEq for DrainBarrier {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Eq for DrainBarrier {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FromDevice {
     IsReady(DeviceRef),

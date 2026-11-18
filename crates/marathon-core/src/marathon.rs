@@ -621,12 +621,25 @@ impl Marathon {
             scheduler.execute().await?
         };
 
-        self.on_finish(task.job.cancellation_signal()).await?;
-        // D84: the run's machinery can still fail after the Scheduler has returned, in a pool a late device started while
-        // the run finished. That failure stopped it, and it is the run's outcome.
+        let finished = self.on_finish(task.job.cancellation_signal()).await;
+        // D84 (I1): the run's machinery can still fail after the Scheduler has returned, in a pool a late device started
+        // while the run finished. That stop is waited for, and its first cause is the run's error; an error of the finish
+        // itself is then only logged.
+        if let Some(stop) = scheduler.stopping() {
+            let _ = stop.join().await;
+        }
         if let Some(cause) = scheduler.failure() {
+            if let Err(error) = finished {
+                self.log(
+                    LOGGER,
+                    Level::ERROR,
+                    "Finishing the run failed after its first failure".into(),
+                    Some(error.failure().clone()),
+                );
+            }
             return Err(VendorError::Other(cause));
         }
+        finished?;
         Ok(result)
     }
 
@@ -1058,6 +1071,16 @@ impl Marathon {
                 _ => VendorError::Cancelled(requested("Marathon run was cancelled")),
             }),
         };
+        // D84 (I4): a stop the Scheduler began (an internal failure, or its unwind when the run task panicked) is waited
+        // for before anything closes; it is bounded by the vendors' own bounds for ending a cancelled call.
+        let stop = self
+            .diagnostic_scheduler
+            .borrow()
+            .as_ref()
+            .and_then(Scheduler::stopping);
+        if let Some(stop) = stop {
+            let _ = stop.join().await;
+        }
         if outcome.is_err() {
             // invokeOnCompletion { runBlocking { withContext(NonCancellable) { onFinish() } } }.
             // A failing finish there is reported by the completion handler, not rethrown:

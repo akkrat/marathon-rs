@@ -68,6 +68,12 @@ pub trait Device: Send + Sync {
     fn return_wait_used_millis(&self) -> i64 {
         0
     }
+    /// D84: how long a cancelled call of this device can take to end, by the vendor's own bound for cleaning up after a
+    /// cancel; `None` when there is no overall bound and the call ends once each request it waits on has timed out. A
+    /// run stopping after an internal failure waits this long (plus a margin) for the device before it finishes anyway.
+    fn cancellation_cleanup_millis(&self) -> Option<i64> {
+        None
+    }
     /// D70: this device is leaving the pool while it holds `batch`, whose result is not in. True if the vendor has
     /// started none of it and from now on will not start any: the batch then goes back to the queue with no attempt
     /// charged, as a batch that never reached the device does. A vendor that has started part of it may instead complete

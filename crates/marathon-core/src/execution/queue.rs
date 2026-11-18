@@ -79,6 +79,7 @@ pub struct QueueHandle {
     actor: Rc<RuntimeActor<QueueMessage>>,
     diagnostics: Rc<Cell<QueueCounts>>,
     busy: Rc<Cell<bool>>,
+    draining: Rc<Cell<bool>>,
 }
 #[derive(Clone, Copy, Default)]
 struct QueueCounts {
@@ -99,6 +100,12 @@ impl QueueHandle {
             counts.active,
             self.busy.get()
         );
+    }
+    /// D84: the run is stopping after an internal failure. From now on the queue takes what is delivered to it and hands
+    /// out nothing: no batch, no retry, and no message to its pool, which may have failed (a reply to a failed pool would
+    /// end the queue with what is left in its mailbox). It does not close itself either; the Scheduler stops it.
+    pub fn drain(&self) {
+        self.draining.set(true);
     }
     /// `trySend(..).isSuccess`: false once the queue has closed itself.
     pub fn try_send(&self, message: QueueMessage) -> bool {
@@ -214,6 +221,8 @@ impl Place {
 /// The `ActorHandler`. Its state is owned by the receive loop, so no borrow
 /// crosses an await.
 pub struct QueueActor {
+    /// D84: see `QueueHandle::drain`.
+    draining: Rc<Cell<bool>>,
     pool: Weak<dyn Actor<DevicePoolMessage>>,
     pool_id: DevicePoolId,
     shard: TestShard,
@@ -362,7 +371,9 @@ impl QueueActor {
             ..QueueCounts::default()
         }));
         let busy = Rc::new(Cell::new(false));
+        let draining = Rc::new(Cell::new(false));
         let handler = QueueActor {
+            draining: draining.clone(),
             pool: Rc::downgrade(&pool),
             pool_id,
             shard,
@@ -399,6 +410,7 @@ impl QueueActor {
             actor,
             diagnostics,
             busy,
+            draining,
         }
     }
 
@@ -419,6 +431,10 @@ impl QueueActor {
     }
     async fn send_pool(&self, message: FromQueue) -> OperationResult<()> {
         self.diagnostic_counts();
+        // D84: a draining queue tells its pool nothing.
+        if self.draining.get() {
+            return Ok(());
+        }
         // A closed pool fails the send as `pool.send` throws: a cancellation, or the close cause.
         let Some(pool) = self.pool.upgrade() else {
             return Err(crate::executor::shared::requested("Channel was cancelled").into());
@@ -625,6 +641,10 @@ impl QueueActor {
     /// Idle devices of the pool don't ask for work until they are notified, so the queue also has to terminate on its
     /// own once nothing is left to run
     async fn on_batch_released(&mut self) -> OperationResult<()> {
+        // D84: a draining queue neither notifies its pool nor closes itself.
+        if self.draining.get() {
+            return Ok(());
+        }
         if !self.queue.is_empty() {
             // values.flatten().toSet(): a LinkedHashSet, first occurrences in order. A device's own retries are kept off it by
             // the queue (D82); the pool's order only matters for workers, whose other devices may be parked.
@@ -724,6 +744,10 @@ impl QueueActor {
     /// A device that could only get retries from its own worker is served after the other devices of `requests`, which may take
     /// them, and gets what is left
     async fn on_request_batches(&mut self, requests: Vec<RequestBatch>) -> OperationResult<()> {
+        // D84: a draining queue hands out no batch.
+        if self.draining.get() {
+            return Ok(());
+        }
         let mut pending = requests;
         while !pending.is_empty() && !self.terminated {
             let index = pending
@@ -826,6 +850,10 @@ impl QueueActor {
     }
 
     async fn on_request_batch(&mut self, device: DeviceInfo, worker_id: Option<String>) -> OperationResult<()> {
+        // D84: a draining queue hands out no batch.
+        if self.draining.get() {
+            return Ok(());
+        }
         let serial = device.serial_number.clone();
         self.debug("request next batch for device ", &serial);
         if let Some(worker) = &worker_id {

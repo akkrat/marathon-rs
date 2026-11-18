@@ -135,6 +135,8 @@ struct Hooked {
     cancel_events: bool,
     /// What a cancelled batch does before its call returns.
     after_cancel: AfterCancel,
+    /// What the device says of how long its cancelled calls can take (`Device::cancellation_cleanup_millis`).
+    cleanup_bound: Option<i64>,
 }
 #[derive(Default)]
 enum AfterCancel {
@@ -153,6 +155,7 @@ fn hooked(inner: Arc<StubDevice>) -> Hooked {
         fail_events: None,
         cancel_events: false,
         after_cancel: AfterCancel::Nothing,
+        cleanup_bound: None,
     }
 }
 impl Device for Hooked {
@@ -217,6 +220,9 @@ impl Device for Hooked {
             }
             outcome
         })
+    }
+    fn cancellation_cleanup_millis(&self) -> Option<i64> {
+        self.cleanup_bound
     }
     fn dispose(&self) -> VendorFuture<'_, ()> {
         self.inner.dispose()
@@ -353,7 +359,11 @@ fn a_run_task_that_panics_fails_the_run_with_the_panic_d84() {
 /// Before the run starts: a hooked device that fails the device channel at 3,000 ms, while `serial-1` and `serial-3`
 /// run test1 and test2 (1,000 to 6,000 ms); `serial-3` does `after_cancel` when its batch is cancelled. `terminate`
 /// runs when the provider is terminated.
-fn fail_while_running(after_cancel: AfterCancel, terminate: impl Fn() + Send + Sync + 'static) -> Option<Ready> {
+fn fail_while_running(
+    after_cancel: AfterCancel,
+    cleanup_bound: Option<i64>,
+    terminate: impl Fn() + Send + Sync + 'static,
+) -> Option<Ready> {
     let terminate = Arc::new(terminate);
     Some(Box::new(move |built| {
         let channel = built.provider.channel();
@@ -364,6 +374,7 @@ fn fail_while_running(after_cancel: AfterCancel, terminate: impl Fn() + Send + S
             },
             Hooked {
                 after_cancel,
+                cleanup_bound,
                 ..hooked(stub("serial-3", "modelA", 1_000))
             },
         ] {
@@ -391,7 +402,7 @@ fn the_run_waits_for_a_cancelled_batch_to_clean_up_before_it_finishes_d84() {
     let cleaned = Arc::new(AtomicBool::new(false));
     let cleaned_before_terminate = Arc::new(AtomicBool::new(false));
     let (done, seen) = (cleaned.clone(), cleaned_before_terminate.clone());
-    let ready = fail_while_running(AfterCancel::CleansUp(3_000, cleaned.clone()), move || {
+    let ready = fail_while_running(AfterCancel::CleansUp(3_000, cleaned.clone()), None, move || {
         seen.store(done.load(Ordering::SeqCst), Ordering::SeqCst);
     });
     let outcome = scenario::drive(factory, script, None, ready);
@@ -405,20 +416,20 @@ fn the_run_waits_for_a_cancelled_batch_to_clean_up_before_it_finishes_d84() {
     assert_eq!(run_failure(&outcome), [format!("{PROBE}: the device events failed")]);
 }
 
-/// D84, review round 1: a cancelled batch whose call only ends when the provider is terminated cannot hold the run for
-/// ever. The failure is logged when it happens; the run waits D52's limit (24 s) for the devices, then finishes, and its
-/// termination releases the call.
+/// D84, review rounds 1 and 2: a cancelled batch whose call only ends when the provider is terminated cannot hold the
+/// run for ever. The failure is logged when it happens; the run waits for the device as long as it says a cancelled call
+/// can take (30 s here) and 5 s more, then finishes without it, and its termination releases the call.
 #[test]
-fn a_device_call_waiting_for_the_runs_end_holds_it_only_for_a_limited_time_d84() {
+fn a_device_call_waiting_for_the_runs_end_holds_it_only_for_its_own_bound_d84() {
     let (factory, script) = script();
     let released = SharedDeferred::new();
     let release = released.clone();
-    let ready = fail_while_running(AfterCancel::WaitsFor(released.clone()), move || {
+    let ready = fail_while_running(AfterCancel::WaitsFor(released.clone()), Some(30_000), move || {
         release.complete(Ok(()));
     });
     let outcome = scenario::drive(factory, script, None, ready);
     assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
-    assert_eq!(outcome.completed_at, Some(3_000 + 24_000));
+    assert_eq!(outcome.completed_at, Some(3_000 + 30_000 + 5_000));
     assert!(released.completed().is_some());
     assert!(logged(
         &outcome,
@@ -428,8 +439,33 @@ fn a_device_call_waiting_for_the_runs_end_holds_it_only_for_a_limited_time_d84()
     assert!(logged(
         &outcome,
         Level::ERROR,
-        "The pools and devices did not stop within 24 s of the failure; finishing the run anyway"
+        "Device serial-3 did not stop within 35000 ms of the run's stop; finishing the run without it"
     ));
+    assert_eq!(run_failure(&outcome), [format!("{PROBE}: the device events failed")]);
+}
+
+/// D84, review round 2 (R2-2): a cancelled batch whose cleanup takes longer than D52's 24 s, but within what its device
+/// says a cancelled call can take (60 s), is waited for: the provider is terminated only after it.
+#[test]
+fn a_cleanup_within_the_devices_own_bound_is_waited_for_d84() {
+    let (factory, script) = script();
+    let cleaned = Arc::new(AtomicBool::new(false));
+    let cleaned_before_terminate = Arc::new(AtomicBool::new(false));
+    let (done, seen) = (cleaned.clone(), cleaned_before_terminate.clone());
+    let ready = fail_while_running(
+        AfterCancel::CleansUp(30_000, cleaned.clone()),
+        Some(60_000),
+        move || {
+            seen.store(done.load(Ordering::SeqCst), Ordering::SeqCst);
+        },
+    );
+    let outcome = scenario::drive(factory, script, None, ready);
+    assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
+    assert!(
+        cleaned_before_terminate.load(Ordering::SeqCst),
+        "the provider was terminated while a cancelled batch was still cleaning up"
+    );
+    assert_eq!(outcome.completed_at, Some(3_000 + 30_000));
     assert_eq!(run_failure(&outcome), [format!("{PROBE}: the device events failed")]);
 }
 
@@ -469,4 +505,39 @@ fn a_pool_that_fails_while_the_run_finishes_fails_the_run_d84() {
         .filter(|label| label.ends_with("Actor"))
         .collect::<Vec<_>>();
     assert!(alive.is_empty(), "actors still alive after the run: {alive:?}");
+}
+
+/// D84, review round 2 (P1, I1): the late pool fails while the provider terminates, and the termination then fails too.
+/// The pool's failure is the run's error; the termination's is only logged.
+#[test]
+fn a_cleanup_error_after_the_first_failure_does_not_replace_it_d84() {
+    let (factory, script) = script();
+    let ready: Option<Ready> = Some(Box::new(|built| {
+        let channel = built.provider.channel();
+        let panicking = SharedDeferred::new();
+        let late = Arc::new(Hooked {
+            worker_panics: true,
+            panicking: Some(panicking.clone()),
+            ..hooked(stub("serial-2", "modelZ", 1_000))
+        });
+        *built.provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
+            let (channel, late, panicking) = (channel.clone(), late.clone(), panicking.clone());
+            Box::pin(async move {
+                let _ = channel.try_send(DeviceEvent::Connected(DeviceRef(late)));
+                let _ = panicking.wait().await;
+                Err(VendorError::Other(failure(
+                    FailureKind::IllegalState,
+                    &format!("{PROBE}: the termination failed"),
+                )))
+            })
+        }));
+    }));
+    let outcome = scenario::drive(factory, script, None, ready);
+    assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
+    assert_eq!(run_failure(&outcome), [format!("{PROBE}: the pool's handler panicked")]);
+    assert!(logged(
+        &outcome,
+        Level::ERROR,
+        "Finishing the run failed after its first failure"
+    ));
 }
