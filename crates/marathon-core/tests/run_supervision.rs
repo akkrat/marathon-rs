@@ -823,8 +823,10 @@ impl marathon_core::report::Reporter for SlowReports {
 /// The console. When it is given the output only the run's finish flushes (the line of the run's last pool ending,
 /// "terminate pool"), it connects the late device and holds that flush until the late device's batch is running: the
 /// late device's pool starts after D65's boundary, while the finish is under way.
+/// The late device and the channel to connect it on, once.
+type LateConnection = Arc<std::sync::Mutex<Option<(Arc<SharedChannel<DeviceEvent>>, DeviceRef)>>>;
 struct ConnectsLateWhileFinishing {
-    late: Arc<std::sync::Mutex<Option<(Arc<SharedChannel<DeviceEvent>>, DeviceRef)>>>,
+    late: LateConnection,
     running: Arc<SharedDeferred<()>>,
 }
 impl marathon_core::output::ConsoleSink for ConnectsLateWhileFinishing {
@@ -865,7 +867,7 @@ fn a_signal_while_the_run_settles_keeps_the_reports_first_d84() {
     let running = SharedDeferred::new();
     let events: Arc<std::sync::Mutex<Vec<(String, i64)>>> = Arc::default();
     factory.signal_trigger = Some(trigger.clone());
-    let late: Arc<std::sync::Mutex<Option<(Arc<SharedChannel<DeviceEvent>>, DeviceRef)>>> = Arc::default();
+    let late: LateConnection = Arc::default();
     factory.console_sink = Some(Arc::new(ConnectsLateWhileFinishing {
         late: late.clone(),
         running: running.clone(),
