@@ -135,6 +135,11 @@ impl<T: Clone + Eq + Hash, K: Clone + Ord> OrderedQueue<T, K> {
         self.copies.get(probe).map_or(0, |copies| copies.positions.len())
     }
 
+    #[cfg(feature = "test-support")]
+    pub(crate) fn indexed_copy_count(&self) -> usize {
+        self.copies.values().map(|copies| copies.positions.len()).sum()
+    }
+
     pub(crate) fn take_all(&mut self, probes: &[T]) -> Vec<T> {
         self.positions_of(probes)
             .iter()
@@ -208,6 +213,9 @@ impl<K: Clone + Ord> OrderedQueue<crate::model::Test, K> {
         self.take_head_class_by(|test| test.to_class_name('.'))
     }
 }
+
+#[cfg(test)]
+mod class_batch_timing;
 
 #[cfg(test)]
 mod tests {

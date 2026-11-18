@@ -5,14 +5,18 @@ mod support;
 
 use indexmap::IndexMap;
 use marathon_config::schema::{
-    BatchingStrategyConfiguration, ExecutionMode, ExecutionStrategyConfiguration, SortingStrategyConfiguration,
+    BatchingStrategyConfiguration, ExecutionMode, ExecutionStrategyConfiguration, RetryStrategyConfiguration,
+    SortingStrategyConfiguration,
 };
 use marathon_core::{
     execution::{FromQueue, queue::QueueMessage},
     model::{MetaProperty, Test, TestStatus},
 };
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use std::{cmp::Reverse, collections::HashMap};
+use std::{
+    cmp::Reverse,
+    collections::{HashMap, HashSet},
+};
 use support::*;
 
 #[derive(Clone, Copy, Debug)]
@@ -30,18 +34,31 @@ struct Coverage {
     formatted_class_collision: bool,
     fixed_duplicate: bool,
     last_mile: bool,
+    dropped_after_pass: bool,
+    dropped_after_failure: bool,
 }
 
 struct ScanQueue {
     queued: Vec<Test>,
     priorities: HashMap<Test, u8>,
     retries: IndexMap<Test, Vec<usize>>,
+    decided: HashSet<Test>,
 }
 
 impl ScanQueue {
     fn enqueue(&mut self, tests: impl IntoIterator<Item = Test>) {
         self.queued.extend(tests);
         self.queued.sort_by_key(|test| Reverse(self.priorities[test]));
+    }
+
+    fn decide(&mut self, tests: &[Test]) -> bool {
+        let old_len = self.queued.len();
+        for test in tests {
+            self.decided.insert(test.clone());
+            self.queued.retain(|queued| queued != test);
+            self.retries.shift_remove(test);
+        }
+        self.queued.len() < old_len
     }
 
     fn batch(&mut self, batching: Batching, place: usize, seen: &mut Coverage) -> (Vec<Test>, Vec<(Test, usize)>) {
@@ -148,10 +165,7 @@ fn indexed_batches_match_scan_selection_with_retries_and_requeues_u213() {
         percentile: 90.0,
         time_limit: epoch(),
     };
-    config.execution_strategy = ExecutionStrategyConfiguration {
-        mode: ExecutionMode::AllSuccess,
-        fast: false,
-    };
+    config.retry_strategy = RetryStrategyConfiguration::NoRetry;
     config.uncompleted_test_retry_quota = 256;
 
     run(move |core| {
@@ -161,6 +175,12 @@ fn indexed_batches_match_scan_selection_with_retries_and_requeues_u213() {
             let workers = [None, Some("worker-b")];
             for seed in 0..96 {
                 let mut rng = StdRng::seed_from_u64(seed);
+                let (mode, fast) = match (seed / 2) % 3 {
+                    0 => (ExecutionMode::AllSuccess, false),
+                    1 => (ExecutionMode::AnySuccess, true),
+                    _ => (ExecutionMode::AllSuccess, true),
+                };
+                config.execution_strategy = ExecutionStrategyConfiguration { mode, fast };
                 let batching = if seed % 2 == 0 {
                     Batching::ClassName
                 } else {
@@ -231,6 +251,7 @@ fn indexed_batches_match_scan_selection_with_retries_and_requeues_u213() {
                     queued: Vec::new(),
                     priorities,
                     retries: IndexMap::new(),
+                    decided: HashSet::new(),
                 };
                 reference.enqueue(rounds.into_iter().flatten());
                 for step in 0..128 {
@@ -265,9 +286,12 @@ fn indexed_batches_match_scan_selection_with_retries_and_requeues_u213() {
                         }
                         assert!(actor.send(QueueMessage::RejectBatch(device.clone(), batch)).await);
                     } else {
-                        let (retry, pass): (Vec<_>, Vec<_>) = expected
+                        let (retry, completed): (Vec<_>, Vec<_>) = expected
                             .into_iter()
                             .partition(|_| step < 48 && rng.random_range(0..4) == 0);
+                        let (failed, passed): (Vec<_>, Vec<_>) = completed
+                            .into_iter()
+                            .partition(|_| fast && step < 48 && rng.random_range(0..4) == 0);
                         let results = |tests: &[Test], status| {
                             tests
                                 .iter()
@@ -275,20 +299,36 @@ fn indexed_batches_match_scan_selection_with_retries_and_requeues_u213() {
                                 .collect()
                         };
                         let outcome = batch_results(
-                            results(&pass, TestStatus::Passed),
-                            vec![],
+                            results(&passed, TestStatus::Passed),
+                            results(&failed, TestStatus::Failure),
                             results(&retry, TestStatus::Incomplete),
                         );
+                        // The actor processes passes, incomplete results and then failures.
+                        if fast && mode == ExecutionMode::AnySuccess {
+                            seen.dropped_after_pass |= reference.decide(&passed);
+                        }
+                        let retry: Vec<_> = retry
+                            .into_iter()
+                            .filter(|test| !reference.decided.contains(test))
+                            .collect();
                         for test in &retry {
                             reference.retries.entry(test.clone()).or_default().push(place);
                         }
                         reference.enqueue(retry);
+                        if fast && mode == ExecutionMode::AllSuccess {
+                            seen.dropped_after_failure |= reference.decide(&failed);
+                        }
                         assert!(actor.send(QueueMessage::Completed(device.clone(), outcome)).await);
                     }
                     actor.replies();
                     let snapshot = actor.snapshot.borrow();
                     let snapshot = snapshot.as_ref().unwrap();
                     assert_tests(&snapshot.queue, &reference.queued, seed, step);
+                    assert_eq!(
+                        snapshot.indexed_copies,
+                        reference.queued.len(),
+                        "seed {seed}, step {step}: copy index after the outcome"
+                    );
                     let by_place = |place: usize| -> Vec<_> {
                         reference
                             .retries
@@ -317,6 +357,7 @@ fn indexed_batches_match_scan_selection_with_retries_and_requeues_u213() {
                 seen.formatted_class_collision && seen.fixed_duplicate && seen.last_mile,
                 "{seen:?}"
             );
+            assert!(seen.dropped_after_pass && seen.dropped_after_failure, "{seen:?}");
             Ok(())
         })
     });

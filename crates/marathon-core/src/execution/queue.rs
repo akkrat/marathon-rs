@@ -128,6 +128,8 @@ impl QueueHandle {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QueueSnapshot {
     pub queue: Vec<Test>,
+    /// Number of positions in the copy index, including any stale entries.
+    pub indexed_copies: usize,
     /// The workers of the queued retries, as Kotlin's `retryWorkers` has them.
     pub retry_workers: Vec<(Test, Vec<String>)>,
     /// D82: the serial numbers of the devices without a worker that queued retries.
@@ -903,6 +905,7 @@ impl QueueActor {
         if let Some(observer) = &self.observer {
             observer(QueueSnapshot {
                 queue: self.queue.iter().cloned().collect(),
+                indexed_copies: self.queue.indexed_copy_count(),
                 retry_workers: self.snapshot_places(|place| place.worker()),
                 retry_devices: self.snapshot_places(|place| match place {
                     Place::Device(serial) => Some(serial),

@@ -31,16 +31,23 @@ copies of a completed test. Those scans also affected `fixed-size` and `isolate`
 
 ## Local timing
 
-Single optimized queue-only run on an Apple M5 Pro, arm64 macOS, with Rust 1.99.0 and `rustc -O`.
-The harness used the baseline and indexed `OrderedQueue` implementations with synthetic tests, a constant
-sort key and one ASCII-named test per class. Both sides used the same synthetic test record and formatted
-class name. Build time covers insertion, and drain time includes the indexed side's lazy class-index build.
-Timing covers batch membership selection and removal. Device work, replay IDs and reporting were outside the sample.
+Run the [ignored timing test](../../crates/marathon-core/src/strategy/queue/class_batch_timing.rs) in release mode.
+
+```sh
+cargo test -p marathon-core --release --lib compare_scan_and_indexed_class_batches -- --ignored --nocapture
+```
+
+The harness compares the baseline ordered-map scan with the production index using synthetic inputs, a constant
+sort key and one ASCII-named test per class. Both sides use the same `Test` and class formatter. Insertion time
+covers queue construction, and drain time includes the indexed side's lazy class-index build. Timing covers
+batch membership selection and removal. Device work, replay IDs and reporting are outside the sample.
+
+Single local run on an Apple M5 Pro, arm64 macOS, with Rust 1.99.0.
 
 | One-test classes | Baseline insertion | Indexed insertion | Baseline drain | Indexed drain |
 |---:|---:|---:|---:|---:|
-| 10,000 | 0.902 ms | 3.038 ms | 1.675 s | 7.087 ms |
-| 50,000 | 2.118 ms | 5.750 ms | 41.870 s | 20.657 ms |
+| 10,000 | 0.485 ms | 1.209 ms | 1.905 s | 5.865 ms |
+| 50,000 | 2.304 ms | 8.288 ms | 52.268 s | 42.840 ms |
 
 ## Verification
 
@@ -49,6 +56,11 @@ Timing covers batch membership selection and removal. Device work, replay IDs an
   It compares ordered batches and their IDs, queued copies and their metadata, and worker and device retry
   placement. The cases exercise priority ties, D83 rounds, formatted class collisions, D82 exclusion and
   fallback, rejected batches, fixed-size duplicate rejection and last-mile selection.
+  Fast seeds also require queued copies to be dropped after a pass in `ANY_SUCCESS` and a failure in
+  `ALL_SUCCESS`. The test compares the copy index's count with the scan queue after every outcome so it can
+  catch stale positions even when the ordered queue has already dropped the copies.
+  In a scratch copy, removing entries from the ordered map without updating the indexes failed at seed 3,
+  step 0, with 31 indexed positions for 25 remaining copies.
 - `class_selection_formats_once_per_queued_test_u213` limits a full drain of 4,096 distinct one-test classes
   and one extra copy to 4,096 name evaluations. Reinstating the scan in a scratch copy failed the witness
   on the first batch, with 4,098 evaluations. A separate index test exercises forced sequence compaction,
@@ -57,7 +69,8 @@ Timing covers batch membership selection and removal. Device work, replay IDs an
   harness tests passed locally. The workspace and remote gates are assigned to the orchestrator.
 - `cargo test --no-fail-fast` for `marathon-core`, `marathon-cli`, `marathon-android`, `marathon-apple`,
   `marathon-ios`, `marathon-macos`, `marathon-analytics` and `marathon-test-support` completed with
-  2,439 passed, 33 ignored and zero failures.
+  2,439 passed, 33 ignored and zero failures. The review follow-up reran `marathon-core` with 911 passed,
+  zero failures and the timing test ignored in the regular suite.
 
 ## Golden diff
 
