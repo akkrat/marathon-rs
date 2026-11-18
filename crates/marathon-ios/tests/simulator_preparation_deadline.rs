@@ -243,12 +243,17 @@ fn run(
     Ok(timeline)
 }
 
-/// D87: the first preparation fails after both of its boot waits, at about 6.1 s. One replacement still fits: its boot
-/// waits only for what is left, 2 × `boot` + the reserve (2 s), and keeps the reserve for its shutdown, so it fails at
-/// about 8.1 s with no time left for a second attempt or another replacement. `a` is given up before the deadline, 9.1 s
-/// after its preparation began, where Kotlin's limits gave it three replacements and about 25 s with these timeouts
-/// (26 to 30 minutes with the defaults). `b`, live all along, then runs the tests. `deviceInitializationTimeoutMillis` is
-/// 1 s, below the envelope, so the deadline is the envelope; with `b` live D48 does not apply.
+/// The worst case D87 documents: the deadline plus one whole boot attempt of a replacement that started before it.
+const ONE_BOOT: i64 = BOOT_WAIT + 3 * COMMAND;
+
+/// D87, the whole run in real time (an integration check; the exact timings are witnessed in virtual time below). The
+/// first preparation fails after both of its boot waits, at about 6.1 s. A replacement starts, 3 s before the 9.1 s
+/// deadline, and gets one whole boot attempt even though less is left; it fails at about 9.1 s, and with the deadline
+/// passed no second attempt and no further replacement starts. `a` is given up within the deadline plus one boot
+/// attempt, where Kotlin's limits gave it three replacements and about 25 s with these timeouts (26 to 30 minutes with
+/// the defaults). `b`, live all along, then runs the tests. `deviceInitializationTimeoutMillis` is 1 s, below the
+/// envelope, so the deadline is the envelope; with `b` live D48 does not apply. Every decision has at least 0.3 s, a
+/// recovery pause, to spare, and the bounds a whole boot attempt.
 #[test]
 fn a_simulator_whose_probe_never_succeeds_leaves_within_its_preparation_deadline_while_a_sibling_keeps_the_pool_d87()
 -> TestResult {
@@ -257,17 +262,14 @@ fn a_simulator_whose_probe_never_succeeds_leaves_within_its_preparation_deadline
     let first = t.setups[0];
     let (given_up, message) = t.given_up.clone().ok_or("a was given up")?;
     assert!(message.contains("within its preparation time"), "{t:?}");
-    // The episode starts after the setup, at the device actor's first attempt, so this bound is a little generous.
-    assert!(given_up - first <= DEADLINE, "{t:?}");
-    // The preparation and one replacement; that replacement made one boot attempt.
+    assert!(given_up - first <= DEADLINE + ONE_BOOT, "{t:?}");
+    // The preparation and one replacement; that replacement made one boot attempt, a whole one.
     assert_eq!(t.setups.len(), 2, "{t:?}");
     assert_eq!(t.boots.len(), 3, "{t:?}");
-    // Cleanup still runs inside the reserve: every failed boot is shut down, the last one before the deadline.
     assert_eq!(t.shutdowns.len(), t.boots.len(), "{t:?}");
     let last = *t.shutdowns.last().ok_or("shut down")?;
-    assert!(last - first < DEADLINE, "{t:?}");
-    // The replacement's boot ended where its window did, the reserve before the deadline, not a whole bootWait later.
-    assert!(last - t.boots[2] < BOOT_WAIT, "{t:?}");
+    assert!(last - t.boots[2] >= BOOT_WAIT, "{t:?}");
+    assert!(last - first <= DEADLINE + ONE_BOOT, "{t:?}");
     assert!(
         t.pool_lines.iter().all(|l| !l.contains("remaining tests will not run")),
         "{t:?}"

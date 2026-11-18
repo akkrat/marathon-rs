@@ -2205,9 +2205,10 @@ fn a_batch_lost_after_it_started_writes_what_ran_u197() {
 
 // ---- D87: one deadline for a device's preparation -------------------------------------------
 
-/// `shell`, `uninstall` and `pushFile` 5 s, `install` 10 s: one attempt to install a package can take 30 s, and the
-/// envelope of a preparation with two packages is 2 × (3 × 30 + 2 × 1) + 3 × 5 = 199 s.
-const D87_ENVELOPE_MILLIS: i64 = 199_000;
+/// `shell` and `pushFile` 5 s, `uninstall` 6 s, `install` 10 s: one attempt to install a package can take 31 s, and the
+/// envelope of a preparation with two packages, without mock location, is 2 × (3 × 31 + 2 × 1) + 5 (logcat) = 195 s.
+const D87_ENVELOPE_MILLIS: i64 = 195_000;
+const D87_ATTEMPT_MILLIS: i64 = 31_000;
 /// `deviceInitializationTimeoutMillis`, below the envelope: the deadline is the envelope, and D48's wait after the
 /// device has left this long.
 const D87_DEVICE_WAIT: i64 = 30_000;
@@ -2227,7 +2228,7 @@ fn run_install_timeouts(transient: bool) -> Observed {
         rules.push(json!({"prefix": "package install", "service": "abb_exec", "stdout": "Success\n"}));
     }
     devices[0]["shell"] = json!(rules);
-    let timeouts = json!({"shell": "PT5S", "uninstall": "PT5S", "pushFile": "PT5S", "install": "PT10S"});
+    let timeouts = json!({"shell": "PT5S", "uninstall": "PT6S", "pushFile": "PT5S", "install": "PT10S"});
     run_with(
         vec![(script, vec![], index)],
         Options {
@@ -2248,7 +2249,9 @@ fn package_installs(observed: &Observed) -> usize {
 
 /// D87: each preparation fails after its three attempts at the app time out, about 32 s. The device actor retries every
 /// 10 s while a retry starts before the deadline, and an installation is retried only while another attempt fits before
-/// it, so the device leaves at about 198 s, inside the 199 s deadline, and D48's 30 s wait ends the run. Kotlin's limits,
+/// it: preparations start at 0, 42, 84, 126, 168 and 188 s, the last two with a single attempt, so the device leaves at
+/// about 198 s, within the deadline plus the attempt that started before it, and D48's 30 s wait ends the run. Every
+/// decision has at least 7 s to spare. Kotlin's limits,
 /// 30 attempts of the preparation with three installer attempts each, would take about 21 minutes with these timeouts
 /// (96 with the defaults); the harness gives up at 400 s.
 #[test]
@@ -2261,13 +2264,13 @@ fn an_android_device_whose_installs_time_out_leaves_within_its_preparation_deadl
         observed.result.as_ref().map(|r| r.is_ok())
     );
     assert!(
-        observed.virtual_millis <= D87_ENVELOPE_MILLIS + D87_DEVICE_WAIT + 2000,
+        observed.virtual_millis <= D87_ENVELOPE_MILLIS + D87_ATTEMPT_MILLIS + D87_DEVICE_WAIT,
         "{} virtual ms",
         observed.virtual_millis
     );
     let cut = logged(
         &observed,
-        "is not prepared within its preparation time of 199000 ms, not retrying after",
+        "is not prepared within its preparation time of 195000 ms, not retrying after",
     );
     assert_eq!(cut, 1);
     // The parser's two, then four preparations with three attempts and two whose single attempt left no time for another.

@@ -23,13 +23,18 @@ pub(crate) fn install_attempt_millis(t: &marathon_config::vendor::AndroidTimeout
         .saturating_add(ms(t.shell))
 }
 /// D87: what one preparation can take with all three attempts of every package's installation running to their limits,
-/// and the shell commands around them (mock location, clearing logcat).
-pub(crate) fn preparation_envelope_millis(runtime: &AndroidRuntime) -> i64 {
+/// and the shell commands around them: with mock location, up to two `appops` commands for each bundle with an app, and
+/// clearing logcat.
+pub fn preparation_envelope_millis(runtime: &AndroidRuntime) -> i64 {
     let installs = runtime
         .bundles
         .iter()
         .map(|b| i64::from(b.files.application.is_some()) + b.files.extra_applications.len() as i64 + 1)
         .sum::<i64>();
+    let appops = match runtime.configuration.mock_location {
+        true => 2 * runtime.bundles.iter().filter(|b| b.files.application.is_some()).count() as i64,
+        false => 0,
+    };
     let per_install = install_attempt_millis(&runtime.configuration.timeout_configuration)
         .saturating_mul(3)
         .saturating_add(2 * INSTALL_RETRY_PAUSE_MILLIS);
@@ -41,7 +46,7 @@ pub(crate) fn preparation_envelope_millis(runtime: &AndroidRuntime) -> i64 {
         .unwrap_or(i64::MAX);
     installs
         .saturating_mul(per_install)
-        .saturating_add(shell.saturating_mul(3))
+        .saturating_add(shell.saturating_mul(appops + 1))
 }
 impl AndroidAppInstaller {
     pub fn new(runtime: Arc<AndroidRuntime>) -> Self {
@@ -55,19 +60,31 @@ impl AndroidAppInstaller {
         self.deadline = deadline;
         self
     }
-    /// Whether another attempt, after its pause, can end before the deadline.
-    fn retry_fits(&self) -> bool {
+    /// D87's test for a retry: whether another attempt, starting `after` ms from now, can end before the deadline. Asked
+    /// before the pause and again where the attempt starts, after it.
+    fn retry_fits(&self, after: i64) -> bool {
         self.deadline.is_none_or(|deadline| {
             self.runtime
                 .dependencies
                 .clock
                 .now_millis()
-                .saturating_add(INSTALL_RETRY_PAUSE_MILLIS)
+                .saturating_add(after)
                 .saturating_add(install_attempt_millis(
                     &self.runtime.configuration.timeout_configuration,
                 ))
                 <= deadline
         })
+    }
+    fn not_again(&self, package: &str, device: &AndroidDevice) {
+        self.log(
+            Level::WARN,
+            &format!(
+                "Not installing {} on {} again: the device's preparation time would run out",
+                package.to_owned(),
+                device.serial_number().to_owned()
+            ),
+            None,
+        );
     }
     fn log(&self, level: Level, message: &str, error: Option<&Failure>) {
         self.runtime.emit(
@@ -289,23 +306,19 @@ impl AndroidAppInstaller {
                 Ok(()) => return Ok(()),
                 Err(e @ VendorError::Cancelled(_)) => return Err(e),
                 Err(e) if attempt == 2 => return Err(e),
-                Err(e) if !self.retry_fits() => {
-                    self.log(
-                        Level::WARN,
-                        &format!(
-                            "Not installing {} on {} again: the device's preparation time would run out",
-                            package.to_owned(),
-                            device.serial_number().to_owned()
-                        ),
-                        None,
-                    );
+                Err(e) if !self.retry_fits(INSTALL_RETRY_PAUSE_MILLIS) => {
+                    self.not_again(package, device);
                     return Err(e);
                 }
-                Err(_) => {
+                Err(e) => {
                     context
                         .clock
                         .delay(INSTALL_RETRY_PAUSE_MILLIS, context.cancellation.clone())
-                        .await?
+                        .await?;
+                    if !self.retry_fits(0) {
+                        self.not_again(package, device);
+                        return Err(e);
+                    }
                 }
             }
         }
