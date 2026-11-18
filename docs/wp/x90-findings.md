@@ -188,3 +188,13 @@ The test runtime `HeldJoins` now also holds the joins of chosen blocking calls a
 
 Note on the admission lock: it is a `std` mutex held while rsync is forked, inside the blocking thread that starts it;
 the bridge's own task takes it only to check or record a quarantine, for as long as a fork takes at worst.
+
+Stress after round 1 (the primitive changed every path, so all ten D91 witnesses were run again), each alone with
+`--exact`: 50/50 for every one, and 20/20 for every one with 12 busy processes on the CPU. The first full run of the
+crates' tests found one race in the stall witness's own stand-in (the test could read its listing count while the shell
+was still writing it); it now moves a finished file into place.
+
+Run after round 1: `cargo fmt --check`; `cargo clippy -p marathon-apple -p marathon-ios -p marathon-macos --all-targets
+-- -D warnings`; `cargo test --no-fail-fast` of `marathon-apple`, `marathon-ios`, `marathon-macos`, `marathon-cli` and
+`marathon-test-support` (1,184 passed, 33 ignored; the stall witness's race above, then `rsync_file_bridge.rs` again,
+76/76). Not run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test --workspace`.
