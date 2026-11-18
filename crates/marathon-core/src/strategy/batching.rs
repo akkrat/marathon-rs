@@ -91,7 +91,7 @@ impl BatchingStrategy {
         hooks: &dyn ReplayHooks,
     ) -> Result<TestBatch, BatchingError>
     where
-        K: Ord,
+        K: Clone + Ord,
     {
         if queue.is_empty() {
             return Err(BatchingError::EmptyQueue);
@@ -114,17 +114,7 @@ impl BatchingStrategy {
                 };
                 fixed_size(queue, *size, duration, *last_mile_length, metrics, identifier)?
             }
-            Self::ClassName => {
-                let selector = queue.peek().map(|t| t.to_class_name('.'));
-                // D60: retain priority order, including every matching copy.
-                let group: Vec<Test> = queue
-                    .iter()
-                    .filter(|t| Some(t.to_class_name('.')) == selector)
-                    .cloned()
-                    .collect();
-                queue.remove_all(&group);
-                group
-            }
+            Self::ClassName => queue.take_head_class(),
             Self::Isolate => queue.poll().into_iter().collect(),
         };
         // The UUID default parameter runs when TestBatch is constructed, after the
@@ -143,7 +133,7 @@ fn fixed_size<K>(
     identifier: Option<&dyn TestBundleIdentifier>,
 ) -> Result<Vec<Test>, BatchingError>
 where
-    K: Ord,
+    K: Clone + Ord,
 {
     // Last mile: below the threshold batching stops so the tail runs in parallel.
     if i64::try_from(queue.len()).unwrap_or(i64::MAX) < i64::from(last_mile_length) {

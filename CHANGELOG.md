@@ -4,6 +4,7 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## Unreleased
 
+- **Faster `class-name` batching on large suites.** The runner indexes queued tests by class and preserves batch membership and order.
 - **A retry goes to another Android device (D82):** a test that comes back incomplete from an Android device (for
   example when its instrumentation ends before the test starts), or that fails and is retried, is now left to the
   pool's other devices while other tests are queued. One emulator that keeps failing no longer takes the same test back

@@ -34,7 +34,11 @@ pub async fn configuration_family(
 }
 // WP 1.1/1.4, 3.2–3.4: consume the ordered queue and UTF-8 full matching.
 // Metrics I/O must be bridged off core before invoking a synchronous key extraction.
-pub fn strategies_and_filters<K: Ord>(queue: &mut OrderedQueue<Test, K>, regex: &JavaRegex, input: &str) -> Vec<Test> {
+pub fn strategies_and_filters<K: Clone + Ord>(
+    queue: &mut OrderedQueue<Test, K>,
+    regex: &JavaRegex,
+    input: &str,
+) -> Vec<Test> {
     let copies = queue.iter().cloned().collect();
     if regex.matches(input) {
         let _next = queue.poll();

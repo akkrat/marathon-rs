@@ -668,27 +668,18 @@ impl QueueActor {
     fn next_batch(&mut self, device: &DeviceInfo, worker: Option<&str>) -> OperationResult<BatchRef> {
         let place = Place::of(device, worker);
         let avoided = self.own_retries(&place);
-        let copies: Vec<Test> = if avoided.is_empty() {
-            Vec::new()
-        } else {
-            self.queue
-                .iter()
-                .filter(|test| avoided.contains(test))
-                .cloned()
-                .collect()
-        };
         let identifier = self.bundle_identifier.as_deref();
-        let batch = if copies.is_empty() || copies.len() == self.queue.len() {
-            self.batching
-                .process(&mut self.queue, self.lookup.as_ref(), identifier, self.hooks.as_ref())
-        } else {
-            self.queue.remove_all(&avoided);
+        let batch = if !avoided.is_empty() && !self.only_retries_of(&avoided) {
+            let copies = self.queue.take_all(&avoided);
             let batch = self
                 .batching
                 .process(&mut self.queue, self.lookup.as_ref(), identifier, self.hooks.as_ref());
             // Kotlin's `finally`: restored even when batching throws.
             self.queue.add_all(copies);
             batch
+        } else {
+            self.batching
+                .process(&mut self.queue, self.lookup.as_ref(), identifier, self.hooks.as_ref())
         }
         .map_err(batching_error)?;
         let mut taken = Vec::new();
@@ -703,7 +694,7 @@ impl QueueActor {
 
     /// Queued tests all of whose copies are retries of attempts on `place`, in retryWorkers order.
     fn own_retries(&self, place: &Place) -> Vec<Test> {
-        own_retries(&self.retry_workers, self.queue.iter(), place)
+        own_retries(&self.retry_workers, &self.queue, place)
     }
 
     /// A device at `place` has taken a copy of `test`: the copy that suits it best, i.e. one that isn't a retry if there is
@@ -714,8 +705,8 @@ impl QueueActor {
         // Counted after the batch has taken its copies, so two copies of one test in a
         // batch see the same count. ClassName takes every copy, so each still takes one
         // worker while any is left (WP 3.7 K3, refuted by the oracle).
-        let copies = self.queue.iter().filter(|it| *it == test).count() + 1;
         let workers = self.retry_workers.get_mut(test)?;
+        let copies = self.queue.count(test) + 1;
         if copies > workers.len() {
             return None;
         }
@@ -765,7 +756,11 @@ impl QueueActor {
             return false;
         }
         let avoided = self.own_retries(place);
-        !avoided.is_empty() && self.queue.iter().all(|test| avoided.contains(test))
+        self.only_retries_of(&avoided)
+    }
+
+    fn only_retries_of(&self, avoided: &[Test]) -> bool {
+        avoided.iter().map(|test| self.queue.count(test)).sum::<usize>() == self.queue.len()
     }
 
     fn process_test_action(
@@ -970,31 +965,13 @@ fn charge_uncompleted<'t>(
 
 /// `ownRetries`: the tests of `retry_workers` whose queued copies are all retries from `place`, in its order.
 ///
-/// Every device asks with a place since D82, so the queue is counted only for the tests that have retries from `place`: a test
-/// with none never qualifies (Kotlin's `count == copies[test]` needs a queued copy), and most requests find none.
-fn own_retries<'a>(
-    retry_workers: &IndexMap<Test, Vec<Place>>,
-    queue: impl Iterator<Item = &'a Test>,
-    place: &Place,
-) -> Vec<Test> {
-    let own: Vec<(&Test, usize)> = retry_workers
+fn own_retries(retry_workers: &IndexMap<Test, Vec<Place>>, queue: &TestQueue, place: &Place) -> Vec<Test> {
+    retry_workers
         .iter()
-        .filter_map(|(test, places)| {
+        .filter(|(test, places)| {
             let own = places.iter().filter(|it| *it == place).count();
-            (own > 0).then_some((test, own))
+            own > 0 && queue.count(test) == own
         })
-        .collect();
-    if own.is_empty() {
-        return Vec::new();
-    }
-    let mut copies: HashMap<&Test, usize> = own.iter().map(|(test, _)| (*test, 0)).collect();
-    for test in queue {
-        if let Some(count) = copies.get_mut(test) {
-            *count += 1;
-        }
-    }
-    own.into_iter()
-        .filter(|(test, own)| copies.get(test) == Some(own))
         .map(|(test, _)| test.clone())
         .collect()
 }
@@ -1056,28 +1033,26 @@ mod tests {
             (b.clone(), vec![here.clone(), here.clone()]),
             (c.clone(), vec![there.clone()]),
         ]);
-        let queue = [&a, &b, &b, &c, &a];
+        let mut queue = TestQueue::new(Box::new(|_| crate::strategy::SortKey::Constant));
+        queue.add_all([&a, &b, &b, &c, &a].into_iter().cloned());
         let kotlin = |place: &Place| -> Vec<Test> {
             retry_workers
                 .iter()
                 .filter(|(test, places)| {
                     let own = places.iter().filter(|it| *it == place).count();
-                    let copies = queue.iter().filter(|it| **it == *test).count();
+                    let copies = queue.iter().filter(|it| *it == *test).count();
                     copies > 0 && own == copies
                 })
                 .map(|(test, _)| test.clone())
                 .collect()
         };
         // d is not queued, a has a copy from elsewhere, b's two copies are both from here.
-        assert_eq!(
-            own_retries(&retry_workers, queue.into_iter(), &here),
-            std::slice::from_ref(&b)
-        );
-        assert_eq!(own_retries(&retry_workers, queue.into_iter(), &here), kotlin(&here));
-        assert_eq!(own_retries(&retry_workers, queue.into_iter(), &there), kotlin(&there));
+        assert_eq!(own_retries(&retry_workers, &queue, &here), std::slice::from_ref(&b));
+        assert_eq!(own_retries(&retry_workers, &queue, &here), kotlin(&here));
+        assert_eq!(own_retries(&retry_workers, &queue, &there), kotlin(&there));
         let elsewhere = Place::Device("serial-C".into());
-        assert_eq!(own_retries(&retry_workers, queue.into_iter(), &elsewhere), []);
+        assert_eq!(own_retries(&retry_workers, &queue, &elsewhere), []);
         assert_eq!(kotlin(&elsewhere), []);
-        assert_eq!(own_retries(&IndexMap::new(), queue.into_iter(), &here), []);
+        assert_eq!(own_retries(&IndexMap::new(), &queue, &here), []);
     }
 }

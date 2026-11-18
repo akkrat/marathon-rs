@@ -40,7 +40,7 @@ fn no_sorting_queue(tests: Vec<Test>) -> TestQueue {
     queue.add_all(tests);
     queue
 }
-fn process<K: Ord>(
+fn process<K: Clone + Ord>(
     strategy: &BatchingStrategy,
     queue: &mut OrderedQueue<Test, K>,
     identifier: Option<&dyn TestBundleIdentifier>,
@@ -429,7 +429,7 @@ fn batching_strategy(spec: &Value) -> BatchingStrategy {
 }
 
 /// C33's old batching rule on the native queue isolates the accepted-slot change in D50.
-fn kotlin_fixed_size<K: Ord>(
+fn kotlin_fixed_size<K: Clone + Ord>(
     spec: &Value,
     queue: &mut OrderedQueue<Test, K>,
     metrics: &dyn MetricsLookup,
