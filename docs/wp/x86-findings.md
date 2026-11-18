@@ -70,8 +70,10 @@ cancellation ends it there. The monitor catches a panic in its loop as its error
 servers' tracking tasks (a `CancelOnDrop` guard cancels them too if the monitor's future is dropped), and each server's
 tracking task catches its own panic and sends it to the monitor as an error. When the monitor ends with an error and its
 own signal was not cancelled (only the provider's termination cancels it), `publish_failure` keeps the cause for
-`published_failure` and closes the device channel with it, and only then is the ERROR line logged, under
-`catch_unwind`. Under D84 the failed channel is the run's cause: the run stops, its reports are written, and it exits 1
+`published_failure` and closes the device channel with it. The monitor does that itself as soon as its loop has ended,
+before it cancels and joins its servers' tracking tasks (review round 2: a join can take a while, and a normal finish
+that cancelled the monitor and closed the channel meanwhile suppressed the failure); its task does it again, first-wins,
+for a panic outside the loop, and only then logs the ERROR line, under `catch_unwind`. Under D84 the failed channel is the run's cause: the run stops, its reports are written, and it exits 1
 (0 with `ignoreFailures`). Before the Scheduler exists (remote test discovery), the run reads `published_failure` when
 discovery ends without a device, and a borrow its deadline ends returns the published failure, as iOS's does. The
 channel's close is first-wins, so a close after termination's `close(None)` changes nothing.
@@ -110,7 +112,8 @@ so the branch never sees an acknowledgement. Replacements that reach it otherwis
   bound for a cancelled call has passed since the cancellation. No other use of the retry helper waits for a cancelled
   attempt.
 - Android device monitoring ends only by the provider's termination, or with its cause published (the device channel
-  failed, `published_failure` set) before anything else is done; either way its servers' tracking tasks have ended.
+  failed, `published_failure` set) before anything else is done, its servers' tasks' joins included; either way its
+  servers' tracking tasks have ended.
 - An analytics call never ends Android device tracking.
 - iOS initialization never waits for a blocking result that a panic dropped.
 
@@ -131,6 +134,8 @@ checked in a scratch worktree of that commit with only the new tests (and the te
 | R1-2 | `marathon-android/tests/provider_test.rs::a_borrow_ended_by_its_deadline_returns_the_monitors_failure_d88` (fake adb; setup never completes) | no published failure |
 | R1-2 | `marathon-android/tests/reconnect_test.rs::a_monitor_panic_before_the_scheduler_is_the_runs_cause_d88` (whole run, remote discovery, virtual time) | the run reported that no device came |
 | R1-3 | `marathon-android/tests/provider_test.rs::a_log_sink_that_panics_does_not_keep_the_device_channel_open_d88` (fake adb) | the channel never failed (60 s guard) |
+| R2 | `marathon-android/tests/provider_test.rs::a_monitor_failure_survives_a_finish_that_comes_while_it_joins_its_tasks_d88` (fake adb, two servers; the runtime holds the monitor's join of its tracking tasks; the provider's termination cancels the monitor and closes the channel meanwhile) | the channel ended with no cause, so the run would report success (fails on 38491a32) |
+| R2 | `marathon-android/tests/provider_test.rs::a_discovery_deadline_while_the_monitor_joins_its_tasks_returns_its_failure_d88` (the same hold; no device ready; a borrow cut by its deadline) | no published failure (fails on 38491a32) |
 | R1-4 | `marathon-android/tests/provider_test.rs::a_monitor_that_panics_ends_its_servers_tracking_d88` (fake adb, two servers: A lost and reconnecting, then a device on B makes the tracker panic) | after termination and the provider's drop, A's tracking task still held the runtime (60 s guard) |
 
 The R1-4 witness needed a second shape: with one server, an orphaned tracking task ends at termination anyway (a closed
@@ -155,6 +160,8 @@ counts below are per test.
 | `a_log_sink_that_panics_does_not_keep_the_device_channel_open_d88` | 50/50 | 20/20 |
 | `a_monitor_that_panics_ends_its_servers_tracking_d88` | 50/50 | 20/20 |
 | `a_monitor_panic_before_the_scheduler_is_the_runs_cause_d88` | 50/50 | 20/20 |
+| `a_monitor_failure_survives_a_finish_that_comes_while_it_joins_its_tasks_d88` (round 2) | 50/50 | 20/20 |
+| `a_discovery_deadline_while_the_monitor_joins_its_tasks_returns_its_failure_d88` (round 2) | 50/50 | 20/20 |
 
 Run on this Mac: `cargo fmt --check`; `cargo clippy -p marathon-core -p marathon-apple -p marathon-ios -p marathon-macos
 -p marathon-android --all-targets -- -D warnings`; `cargo test --no-fail-fast` of those five crates and of
@@ -174,6 +181,24 @@ fails, the Linux gate.
 | P2-3: Android logged a terminal failure before publishing it (a panicking sink kept the channel open; a slow one let termination close it cleanly) | fixed | `publish_failure` first, then the log line under `catch_unwind` | `a_log_sink_that_panics_does_not_keep_the_device_channel_open_d88` |
 | P3-4: a monitor panic skipped its servers' tracking tasks' end (one reconnecting kept retrying) | fixed | the monitor catches a panic in its loop as its error and then cancels and joins its tasks; a `CancelOnDrop` guard cancels them if its future is dropped | `a_monitor_that_panics_ends_its_servers_tracking_d88` |
 | Docs: U212 also covers a Mac's preparation and an iOS simulator's setup; the stress record | fixed | U212 row and incidental-bugs entry; per-witness stress counts above | — |
+
+## Review round 2 (Sol 6.2 high): items 1 and 4 closed, 2 and 3 open through one P2
+
+| Finding | Status | Fix | Witness (fails on 38491a32) |
+|---|---|---|---|
+| P2: Android can lose a monitor failure while it joins its tracking tasks (published only after the joins; a normal finish closing the channel meanwhile suppressed it, and a discovery deadline then reported no devices) | fixed | the monitor publishes its failure as soon as its loop ends, before it cancels and joins its servers' tracking tasks | `a_monitor_failure_survives_a_finish_that_comes_while_it_joins_its_tasks_d88`, `a_discovery_deadline_while_the_monitor_joins_its_tasks_returns_its_failure_d88` |
+
+The witnesses order the race by events: a test runtime (`GatedJoins`) holds the join of every task spawned before it is
+armed, so the monitor, failed, waits in its join while the test terminates the provider (it waits until the channel is
+closed) or borrows with a deadline that has passed, and only then releases the join. They check the provider: its channel
+ends with the panic, and `published_failure` and the borrow return it. That a failed channel or a published failure
+read at the finish or at discovery's deadline is the run's error is D84's, witnessed in the core with the Stub vendor and
+for Android by the whole-run `a_monitor_panic_before_the_scheduler_is_the_runs_cause_d88`.
+
+**Known limit (from the re-check, a follow-up next to U212).** The bound on an iOS preparation's wait for its send ends
+the wait, not the send: a wedged rsync send stays owned by the bridge's retained task (`RsyncFileBridge::owned`) after the
+70 s, and the simulator's disposal joins the preparation (`stop_and_join`), not the bridge's task. The send then ends on
+its own, through D31's stall limit or its process ending, or with the bridge at the end of the run.
 
 ## Golden diffs
 
