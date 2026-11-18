@@ -135,10 +135,10 @@ impl SocketFactory {
         idle_timeout_ms: Option<i64>,
     ) -> Result<Socket, AdbError> {
         self.initialize();
-        self.check_open()?;
         if self.is_sealed() {
-            return Err(AdbError::VertxClosed);
+            return Err(AdbError::ScopeSealed);
         }
+        self.check_open()?;
         let connect = async {
             let connect = TcpStream::connect(addr);
             let result = match connect_timeout(connect_timeout_ms.unwrap_or(self.connect_timeout_ms)) {

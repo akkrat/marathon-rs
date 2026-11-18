@@ -285,16 +285,14 @@ fn channel_failure_with_trickling_pull(socket_idle_disabled: bool) {
             checked(replay.advance_to(start + 54_999).await);
             assert!(!peer_closed(&server), "grace ended before the reserve");
             checked(replay.advance_to(start + 55_000).await);
-            if device.client().socket_factory().is_closed() {
-                until(|| peer_closed(&server) && requests(&server, SERIAL, "rm -f \"$marker\"") == 1).await;
-                checked(replay.advance_to(start + 59_999).await);
-                assert!(
-                    result.borrow().is_none(),
-                    "marker was still outstanding before the deadline"
-                );
-            }
+            assert!(device.client().socket_factory().is_closed());
+            until(|| peer_closed(&server) && requests(&server, SERIAL, "rm -f \"$marker\"") == 1).await;
+            checked(replay.advance_to(start + 59_999).await);
+            assert!(
+                result.borrow().is_none(),
+                "marker was still outstanding before the deadline"
+            );
             checked(replay.advance_to(start + 65_000).await);
-            // Assert the outcome before waiting for TCP EOF, so the unfixed run fails by virtual time.
             let outcome = result.borrow_mut().take().expect("run still waiting after 65 seconds");
             assert!(!checked(outcome));
             assert!(console.lines().iter().any(|line| matches!(
@@ -303,7 +301,7 @@ fn channel_failure_with_trickling_pull(socket_idle_disabled: bool) {
             )));
             assert_eq!(device.cancellation_cleanup_millis(), Some(60_000));
             assert!(matches!(denied, Err(VendorError::Cancelled(_))));
-            assert!(refused.is_err());
+            assert!(matches!(refused, Err(VendorError::Cancelled(_))));
             let later: Vec<_> = server.transcript()[before..]
                 .iter()
                 .filter(|r| r["type"] == "request" && r["serial"] == SERIAL)
@@ -394,8 +392,9 @@ fn forcing_one_devices_pull_keeps_its_adb_sibling_working_d92() {
             let output = checked(tempfile::tempdir());
             let path = output.path().join("result");
             let receiving = first.clone();
+            let pull_context = context.clone();
             let pull = runtime.dependencies.io.spawn(Box::pin(async move {
-                receiving.pull_file(REMOTE, &path.to_string_lossy(), context).await
+                receiving.pull_file(REMOTE, &path.to_string_lossy(), pull_context).await
             }));
             until(|| trickled(&server)).await;
             let disposing = first.clone();
@@ -409,6 +408,10 @@ fn forcing_one_devices_pull_keeps_its_adb_sibling_working_d92() {
             until(|| peer_closed(&server)).await;
             assert!(matches!(pull.join().await, Err(VendorError::Cancelled(_))));
             dispose.join().await?;
+            let sealed_shell = first
+                .safe_execute_shell_command("echo should-not-be-sent", "", context)
+                .await;
+            assert!(matches!(sealed_shell, Err(VendorError::Cancelled(_))));
             assert!(removed.upgrade().is_none());
             check_sibling().await;
             assert!(files_under(output.path()).is_empty());

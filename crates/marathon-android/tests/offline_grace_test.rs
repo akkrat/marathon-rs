@@ -357,6 +357,55 @@ fn with_executor(runtime: &Arc<AndroidRuntime>, ports: &[u16], executor: Arc<Los
     })
 }
 
+#[test]
+fn a_plain_disconnect_still_returns_device_lost_d92() {
+    let _ports = shared_ports();
+    run_with_stopped_clock(configuration(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(base_script(27, vec![])).await;
+            let executor = Arc::new(Lost::default());
+            let runtime = with_executor(&runtime, &[server.port()], executor.clone());
+            let provider = AdamDeviceProvider::new(runtime.clone())?;
+            provider.initialize(context.clone()).await?;
+            let device = connected(&provider).await;
+            logcat_streams(&[(&server, 1)]).await;
+            let batch = tokio::spawn({
+                let device = device.clone();
+                async move {
+                    device
+                        .0
+                        .execute(
+                            runtime.dependencies.configuration.clone(),
+                            DevicePoolId { name: "pool".into() },
+                            Arc::new(TestBatch {
+                                tests: vec![],
+                                id: "batch".into(),
+                            }),
+                            SharedDeferred::new(),
+                            context,
+                        )
+                        .await
+                }
+            });
+            until(|| executor.1.load(Ordering::SeqCst) == 1).await;
+            checked(server.disconnect_device(SERIAL));
+            let DeviceEvent::Disconnected(gone) = event(&provider).await else {
+                panic!("plain disconnect");
+            };
+            assert_eq!(gone, device);
+            executor.0.notify_one();
+            let outcome = checked(checked(tokio::time::timeout(Duration::from_secs(60), batch).await));
+            assert!(
+                matches!(outcome, Err(VendorError::DeviceLost(ref cause)) if cause.message.as_deref() == Some("lost")),
+                "{outcome:?}"
+            );
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
 /// The trap D22's review found in `execute`, here for a blip. A device loss during a grace period, or from one that has
 /// just ended, or just before the tracker hears of one, costs only the batch. New batches wait. A device loss with adb
 /// saying `device` throughout, on a device that does not answer (D49), is still one.

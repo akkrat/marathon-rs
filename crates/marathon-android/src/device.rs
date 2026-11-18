@@ -179,10 +179,12 @@ pub struct AndroidDevice {
 }
 struct Inner {
     reference: Mutex<Option<Weak<dyn Device>>>,
+    server_client: AndroidDebugBridgeClient,
     client: AndroidDebugBridgeClient,
     /// D21: for requests under a configured timeout or watchdog, or silent by nature.
     bounded_client: AndroidDebugBridgeClient,
     cleanup_client: AndroidDebugBridgeClient,
+    remote_cleanup_limit: Option<Arc<tokio::sync::Semaphore>>,
     work: DeviceWork,
     screenrecord_active: AtomicBool,
     perfetto_active: AtomicBool,
@@ -235,16 +237,27 @@ impl AndroidDevice {
         tracker: Arc<DeviceStateTracker>,
         runtime: Arc<AndroidRuntime>,
     ) -> Self {
+        Self::with_remote_cleanup_limit(client, adb_serial, tracker, runtime, None)
+    }
+    pub(crate) fn with_remote_cleanup_limit(
+        server_client: AndroidDebugBridgeClient,
+        adb_serial: String,
+        tracker: Arc<DeviceStateTracker>,
+        runtime: Arc<AndroidRuntime>,
+        remote_cleanup_limit: Option<Arc<tokio::sync::Semaphore>>,
+    ) -> Self {
         let logger = runtime.component("marathon_android::device");
-        let cleanup_client = client.scoped().without_idle_limit();
-        let client = client.scoped();
+        let cleanup_client = server_client.scoped().without_idle_limit();
+        let client = server_client.scoped();
         Self {
             inner: Arc::new(Inner {
                 reference: Mutex::default(),
                 bounded_client: client.without_idle_limit(),
                 work: DeviceWork::new(client.socket_factory().clone()),
+                server_client,
                 client,
                 cleanup_client,
+                remote_cleanup_limit,
                 screenrecord_active: AtomicBool::new(false),
                 perfetto_active: AtomicBool::new(false),
                 adb_serial,
@@ -451,7 +464,7 @@ impl AndroidDevice {
         })
         .await
     }
-    /// [`Self::request`] for a request bounded by its caller (D21).
+    /// A request bounded by its caller (D21).
     async fn bounded_request<R: ComplexRequest>(
         &self,
         request: R,
@@ -714,6 +727,7 @@ impl AndroidDevice {
         message: &str,
     ) -> VendorResult<Option<ShellCommandResult>> {
         match result {
+            Err(e @ VendorError::Cancelled(_)) if self.stopping() => Err(e),
             Err(e) if e.failure().kind != FailureKind::Adb(AdbKind::TransportClosed) => {
                 self.log(Level::ERROR, message, Some(e.failure()));
                 Ok(None)
@@ -917,17 +931,6 @@ impl AndroidDevice {
         }
         Ok(())
     }
-    async fn clear_preparation_marker(&self, context: VendorContext) -> VendorResult<()> {
-        let marker = lock(&self.inner.state).preparation_marker.take();
-        if let Some(marker) = marker
-            && self.adb_server_available()
-            && self.inner.tracker.get_state(self.adb_serial()) == Some(DeviceState::Device)
-        {
-            let command = MarkerCommand::Remove.command(marker.token);
-            self.cleanup_shell(&command, context).await?;
-        }
-        Ok(())
-    }
     fn optional_probe<T>(&self, probe: VendorResult<Option<T>>, message: &str) -> VendorResult<Option<T>> {
         match probe {
             Err(e @ VendorError::Cancelled(_)) => Err(e),
@@ -1043,7 +1046,16 @@ impl AndroidDevice {
         if self.is_held() {
             return LossCause::Passing(passing_text(self.inner.tracker.get_state(self.adb_serial())));
         }
-        let devices = match self.request(ListDevicesRequest, None, signal).await {
+        // The server can still answer for a device whose own request scope was sealed on disconnect.
+        let devices = cancellable(signal, async {
+            self.inner
+                .server_client
+                .execute(ListDevicesRequest, None)
+                .await
+                .map_err(adb_error)
+        })
+        .await;
+        let devices = match devices {
             // Counted as the server's absence, as D22 has it; the line says only what is known.
             Err(VendorError::Cancelled(_)) => {
                 return LossCause::Passing("the device's state could not be checked before the request was cancelled");
@@ -1321,7 +1333,7 @@ impl AndroidDevice {
         let joined = async {
             tokio::join!(
                 self.inner.work.idle(),
-                self.cleanup_remote(remove_reverse, context.clone())
+                self.cleanup_remote(remove_reverse, deadline, context.clone())
             );
         };
         let expired = if left > 0 {
@@ -1334,7 +1346,7 @@ impl AndroidDevice {
             true
         };
         self.inner.cleanup_client.close();
-        if expired {
+        if expired || context.clock.now_millis() >= deadline {
             let error = other(
                 FailureKind::Timeout,
                 format!("Android cleanup could not be confirmed for {}", self.serial_number()),
@@ -1344,27 +1356,52 @@ impl AndroidDevice {
         }
         Ok(())
     }
-    async fn cleanup_remote(&self, remove_reverse: bool, context: VendorContext) {
-        let reverse = async {
-            if remove_reverse {
-                self.remove_reverse_forwards().await;
+    async fn cleanup_remote(&self, remove_reverse: bool, deadline: i64, context: VendorContext) {
+        let rules = if remove_reverse {
+            std::mem::take(&mut *lock(&self.inner.reverse))
+        } else {
+            Vec::new()
+        };
+        let marker = lock(&self.inner.state).preparation_marker.take().filter(|_| {
+            self.adb_server_available() && self.inner.tracker.get_state(self.adb_serial()) == Some(DeviceState::Device)
+        });
+        let recording = self.inner.screenrecord_active.load(Ordering::Acquire);
+        let profiling = self.inner.perfetto_active.load(Ordering::Acquire);
+        if rules.is_empty() && marker.is_none() && !recording && !profiling {
+            return;
+        }
+        // Queue only the remote commands. Every device can close and join its local work by its own deadline.
+        let _permit = match &self.inner.remote_cleanup_limit {
+            Some(limit) => match limit.acquire().await {
+                Ok(permit) => Some(permit),
+                Err(_) => return,
+            },
+            None => None,
+        };
+        // A peer can release a slot at our deadline before our own timer wakes.
+        if context.clock.now_millis() >= deadline {
+            return;
+        }
+        let reverse = self.remove_reverse_forwards(rules);
+        let marker = async {
+            if let Some(marker) = marker {
+                let command = MarkerCommand::Remove.command(marker.token);
+                let _ = self.cleanup_shell(&command, context.clone()).await;
             }
         };
-        let marker = self.clear_preparation_marker(context.clone());
         let recording = async {
-            if self.inner.screenrecord_active.load(Ordering::Acquire) {
+            if recording {
                 let _ = crate::artifact_listeners::video::stop_screen_record_for_cleanup(self, context.clone()).await;
             }
         };
         let profiling = async {
-            if self.inner.perfetto_active.load(Ordering::Acquire) {
+            if profiling {
                 let _ = self.cleanup_shell("killall perfetto", context.clone()).await;
             }
         };
         let _ = tokio::join!(reverse, marker, recording, profiling);
     }
-    async fn remove_reverse_forwards(&self) {
-        let rules = std::mem::take(&mut *lock(&self.inner.reverse));
+    async fn remove_reverse_forwards(&self, rules: Vec<RemotePortSpec>) {
         for local in rules {
             if let Err(e) = self
                 .inner

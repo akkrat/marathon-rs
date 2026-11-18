@@ -21,14 +21,17 @@ With default timeouts the allowance is 60 seconds. If work remains at 55 seconds
 device's established sockets and pending connects. Listener registration is sealed and the listener lists are
 cleared. Producer finalizers and remote stop commands then share the time left. Cleanup can enter this phase
 earlier when the work has already finished. The cleanup commands use a separate request group for the same
-device, which closes at the common deadline. The provider's root factory closes at provider termination. Other
-devices' request groups remain usable when one device stops.
+device, which closes at the common deadline. Eight devices per server can issue remote cleanup commands at once.
+A device queued for a slot closes and joins its local work on its own deadline. The root factory serves list
+probes for disconnected devices and closes at provider termination. Other devices' request groups remain usable.
 
 Disabled socket idle timeouts contribute zero. Saturation leaves room for the scheduler's
 margin without producing the clock's infinite-delay sentinel. D21 still applies to healthy operations, including
-silent requests with their own timeout, file-sync directories and video chunks. Pulls stage bytes beside the
-destination and publish only after the sync protocol finishes and the writer drains. Requests from multiple
-devices can target the same final path without a cancelled pull deleting a completed sibling's output.
+silent requests with their own timeout, file-sync directories and video chunks. Pulls stage bytes in the system
+temporary directory and publish after the sync writer drains. An ordinary timeout still publishes bytes received
+so far. A refused sync handshake leaves the destination parent absent because the writer never opened. A
+nonempty transfer whose writer opened retains the base behavior of creating a missing parent. An interrupted
+device discards its own staged output without deleting a completed sibling's file.
 
 ## Remote state after forced closure
 
@@ -56,6 +59,14 @@ pending, and the sibling witness found the stopped device's factory still open. 
 batch ending after a disconnect also verifies that retirement lets the monitor acknowledge the update.
 Each of the three concurrency witnesses passed 50 repetitions and an additional run with 18 CPU load workers.
 Real-device behavior and the Linux integration gate belong to the integration run.
+
+The review follow-up added fake-ADB cases for a plain disconnect, a partial file after an ordinary pull timeout,
+a refused receive handshake, the per-server cleanup limit and a failed recorder stop. All five reproduced their
+regressions at `e57dd727`. The disconnect, both pull cases and the recorder case matched `f7a02f59` in a scratch
+checkout. The limit case held eight markers on each of two servers and verified local socket closure for all 18
+devices. A slot freed at the deadline cannot admit a queued command. The force-point check now runs on both
+whole-run cases, and sealed ordinary and shell requests report cancellation. All eight D92 concurrency cases
+passed 50 repetitions and a further run with 18 CPU load workers.
 
 ### Golden diffs and incidental bugs
 

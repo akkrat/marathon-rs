@@ -32,6 +32,8 @@ pub enum AdbError {
     /// `io.vertx.core.impl.NoStackTraceThrowable: Vert.x closed`: a request made after `close()`. It is a
     /// `Throwable`, not an `Exception`, so Kotlin's `catch (e: Exception)` lets it through.
     VertxClosed,
+    /// The Android device stopped admitting requests to this scope (D92).
+    ScopeSealed,
     /// `io.netty.channel.StacklessClosedChannelException`, with no message: the idle timer closed the
     /// connection under a write the server did not take in (JVM probe `idle-blocked-write`).
     ClosedChannel,
@@ -67,6 +69,7 @@ impl AdbError {
             AdbError::RequestValidation(_) => FailureKind::Adb(AdbKind::RequestValidation),
             AdbError::IllegalState(_) => FailureKind::IllegalState,
             AdbError::VertxClosed => FailureKind::Adb(AdbKind::TransportClosed),
+            AdbError::ScopeSealed => FailureKind::Cancelled,
             AdbError::ClosedChannel => FailureKind::Adb(AdbKind::ClosedChannel),
             AdbError::MalformedResponse(_) => FailureKind::IndexOutOfBounds,
             AdbError::Io(_) => FailureKind::Io,
@@ -90,6 +93,7 @@ impl AdbError {
         match self {
             AdbError::Connect(c) => Some(&c.message),
             AdbError::VertxClosed => Some("Vert.x closed"),
+            AdbError::ScopeSealed => Some("Android device is stopping"),
             AdbError::ClosedChannel => None,
             AdbError::RequestRejected(m)
             | AdbError::RequestValidation(m)

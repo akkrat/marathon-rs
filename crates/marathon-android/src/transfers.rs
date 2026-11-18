@@ -76,20 +76,11 @@ impl AndroidDevice {
                         .await?;
                         return Ok(());
                     }
-                    // A pool or run attachment may have the same destination on several devices.
-                    // Only the request that finishes gets to publish bytes at that path.
+                    // Keep an interrupted device from touching a sibling's attachment. Stage outside the
+                    // output tree, where even a hard process exit cannot leave an artifact directory.
                     let destination = PathBuf::from(local);
-                    let parent = destination
-                        .parent()
-                        .filter(|path| !path.as_os_str().is_empty())
-                        .unwrap_or_else(|| Path::new("."))
-                        .to_owned();
                     let staging = blocking(self.runtime().dependencies.io.as_ref(), move || {
-                        std::fs::create_dir_all(&parent).map_err(io)?;
-                        tempfile::Builder::new()
-                            .prefix(".marathon-pull-")
-                            .tempdir_in(parent)
-                            .map_err(io)
+                        tempfile::Builder::new().prefix("marathon-pull-").tempdir().map_err(io)
                     })
                     .await?;
                     let staged = staging.path().join("file");
@@ -124,9 +115,14 @@ impl AndroidDevice {
                         Ok(())
                     }
                     .await;
-                    completion.close().await.map_err(adb_error)?;
-                    result?;
-                    tokio::fs::rename(staged, destination).await.map_err(io)
+                    let closed = completion.close().await.map_err(adb_error);
+                    // A regular pull timeout still leaves the bytes already written, as the
+                    // recorder can publish an attachment even when safe_pull_file reports a timeout.
+                    if !self.stopping() || (result.is_ok() && closed.is_ok()) {
+                        publish_pull(&staged, &destination).await?;
+                    }
+                    closed?;
+                    result
                 }),
             )
             .await;
@@ -682,6 +678,27 @@ impl AndroidDevice {
             _ => Ok(()),
         }
     }
+}
+async fn publish_pull(staged: &Path, destination: &Path) -> VendorResult<()> {
+    let mut source = match tokio::fs::File::open(staged).await {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(io(e)),
+    };
+    // The original sync writer creates parents only after opening the receive stream. A
+    // failed handshake never creates a destination or its parent.
+    if let Some(parent) = destination.parent().filter(|path| !path.as_os_str().is_empty()) {
+        tokio::fs::create_dir_all(parent).await.map_err(io)?;
+    }
+    if tokio::fs::hard_link(staged, destination).await.is_ok() {
+        return Ok(());
+    }
+    // For a different filesystem or an existing destination, retain File::create's
+    // semantics for permissions and symlinks.
+    use tokio::io::AsyncWriteExt;
+    let mut output = tokio::fs::File::create(destination).await.map_err(io)?;
+    tokio::io::copy(&mut source, &mut output).await.map_err(io)?;
+    output.flush().await.map_err(io)
 }
 fn with_cause(mut error: VendorError, cause: VendorError) -> VendorError {
     match &mut error {

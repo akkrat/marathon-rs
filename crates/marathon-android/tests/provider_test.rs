@@ -30,6 +30,95 @@ fn d(s: &str, state: S) -> AdbDevice {
         state,
     }
 }
+
+#[test]
+fn termination_limits_remote_cleanup_on_each_server_within_the_device_deadline_d92() {
+    use serde_json::json;
+    use std::{sync::Arc, time::Duration};
+    let _ports = shared_ports();
+    let mut config = configuration();
+    android(&mut config).timeout_configuration.shell = jcompat::jtime::Duration::of_seconds(60);
+    run_with_driven_clock(config, |runtime, context, clock| {
+        Box::pin(async move {
+            let mut script = base_script(27, vec![]);
+            let model = script["devices"][0].clone();
+            script["devices"] = json!(
+                (0..9)
+                    .map(|i| {
+                        let mut device = model.clone();
+                        device["serial"] = json!(format!("emulator-{}", 5554 + 2 * i));
+                        device
+                    })
+                    .collect::<Vec<_>>()
+            );
+            script["shell"].as_array_mut().unwrap().extend([
+                json!({"exact":"logcat -c","stdout":""}),
+                json!({"regex":"token=.*; marker=.*; rm -f ", "output":[{"gate":"markers"}]}),
+            ]);
+            let mut first = server(script.clone()).await;
+            let mut second = server(script).await;
+            let runtime = change_runtime(&runtime, &[first.port(), second.port()]);
+            let provider = Arc::new(AdamDeviceProvider::new(runtime.clone())?);
+            provider.initialize(context.clone()).await?;
+            let subscription = provider.subscribe();
+            let mut devices = Vec::new();
+            for _ in 0..18 {
+                let Some(DeviceEvent::Connected(device)) =
+                    checked(tokio::time::timeout(Duration::from_secs(60), subscription.receive()).await)?
+                else {
+                    panic!("expected a connected device");
+                };
+                devices.push(device);
+            }
+            let preparations = devices.iter().map(|device| {
+                device
+                    .0
+                    .prepare(runtime.dependencies.configuration.clone(), context.clone())
+            });
+            for prepared in futures_util::future::join_all(preparations).await {
+                prepared?;
+            }
+            let scopes: Vec<_> = devices
+                .iter()
+                .map(|device| {
+                    provider
+                        .android_device(device)
+                        .unwrap()
+                        .client()
+                        .socket_factory()
+                        .clone()
+                })
+                .collect();
+            logcat_streams(&[(&first, 9), (&second, 9)]).await;
+            let termination = runtime
+                .dependencies
+                .io
+                .spawn(Box::pin(async move { provider.terminate().await }));
+            let removals = |server: &marathon_adb::server::FakeAdbServer| {
+                commands(server)
+                    .into_iter()
+                    .filter(|command| command.contains("rm -f \"$marker\""))
+                    .count()
+            };
+            checked(
+                tokio::time::timeout(Duration::from_secs(60), async {
+                    while removals(&first) < 8 || removals(&second) < 8 {
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                })
+                .await,
+            );
+            clock.advance_to(59_999).await;
+            assert!(scopes.iter().all(|scope| scope.is_closed()));
+            clock.advance_to(60_000).await;
+            checked(tokio::time::timeout(Duration::from_secs(60), termination.join()).await)?;
+            checked(first.shutdown().await);
+            checked(second.shutdown().await);
+            assert_eq!((removals(&first), removals(&second)), (8, 8));
+            Ok(())
+        })
+    });
+}
 #[test]
 fn tracker_vanished_first_and_non_device_retention() {
     let _ports = shared_ports();

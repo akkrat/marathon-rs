@@ -2642,9 +2642,11 @@ instrumentation and optional artifact pulls can no longer start there. In-flight
 `timeoutConfiguration.shell`, `install`, `pullFile` or enabled `socketIdleTimeout`, with a five-second floor.
 The defaults give 60 seconds. The final five seconds are included in that allowance. If work is still in flight at
 that point, the device cancels pending connects, closes its request sockets, unregisters its listeners and joins
-its producers. An incomplete pull cannot publish its file. D85 marker removal, reverse-forward removal and recorder
-stop attempts share the remaining time. Provider termination reuses a cleanup already started. Active siblings retain
-their own connections. Healthy pulls and video chunks keep their normal timeouts, including D21's idle policy.
+its producers. Pulls interrupted by teardown discard their partial output. D85 marker removal, reverse-forward
+removal and recorder stop attempts share the remaining time, with at most eight devices per ADB server issuing these
+cleanup commands at once. Provider termination reuses a cleanup already started. Active siblings retain their own
+connections. Healthy pulls and video chunks keep their normal timeouts, including D21's idle policy and the partial
+file left by an ordinary pull timeout.
 
 D84 adds five seconds to its wait for the device, so the default Scheduler device wait is at most 65 seconds from the
 stop. The original failure and results already committed to the queues still reach the reports. D52's signal deadline

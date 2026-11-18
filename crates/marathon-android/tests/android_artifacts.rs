@@ -1130,6 +1130,43 @@ fn stop_uses_last_grep_line_and_five_kill_attempts() {
     });
 }
 #[test]
+fn a_failed_recorder_stop_does_not_restart_probes_at_disposal_d92() {
+    let mut c = configuration();
+    let temp = output(&mut c);
+    run(c, move |runtime, context| {
+        Box::pin(async move {
+            let _temp = temp;
+            let mut script = base_script(33, vec![]);
+            script["shell"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"prefix":"screenrecord ","hang":true}));
+            let server = server(script).await;
+            let device = device(&server, runtime);
+            device.setup(context.clone()).await?;
+            let listener = ScreenRecorderTestBatchListener::new(artifacts(&device), ScreenRecordingPolicy::OnAny);
+            listener.on_event_in(&start(), context.clone()).await?;
+            started(&server, "shell:screenrecord", 1).await;
+            let cancelled = marathon_core::executor::Signal::new();
+            cancelled.cancel(marathon_core::executor::shared::requested("stop was cancelled"));
+            let outcome = listener
+                .on_event_in(
+                    &end(),
+                    VendorContext {
+                        cancellation: cancelled,
+                        ..context
+                    },
+                )
+                .await;
+            assert!(matches!(outcome, Err(marathon_core::error::VendorError::Cancelled(_))));
+            // The stop attempt joined its recorder. The strict fake refuses any later ps or kill command.
+            finish(server, device).await;
+            Ok(())
+        })
+    });
+}
+
+#[test]
 fn unhealthy_run_failure_joins_recording_without_pull() {
     let mut c = configuration();
     let temp = output(&mut c);

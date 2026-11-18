@@ -6,6 +6,138 @@ use marathon_config::vendor::*;
 use marathon_core::error::*;
 use serde_json::json;
 use support::*;
+
+#[test]
+fn a_healthy_pull_timeout_still_leaves_the_partial_file_d92() {
+    use std::{collections::HashSet, path::PathBuf, time::Duration};
+
+    let mut config = configuration();
+    android(&mut config).timeout_configuration.pull_file = jcompat::jtime::Duration::of_seconds(1);
+    run_with_driven_clock(config, |runtime, context, clock| {
+        Box::pin(async move {
+            let mut script = base_script(27, vec![]);
+            script["devices"][0]["files"] =
+                json!([{"path":"/partial","content":"Partial artifact","recv_cut":"trickle"}]);
+            let mut server = server(script).await;
+            let destination_dir = checked(tempfile::tempdir());
+            let destination = destination_dir.path().join("artifact");
+            let temp = std::env::temp_dir();
+            let staged = |root: &std::path::Path| -> Vec<PathBuf> {
+                checked(std::fs::read_dir(root))
+                    .filter_map(Result::ok)
+                    .filter_map(|entry| {
+                        entry
+                            .file_name()
+                            .to_str()
+                            .filter(|name| name.trim_start_matches('.').starts_with("marathon-pull-"))
+                            .map(|_| entry.path().join("file"))
+                    })
+                    .collect()
+            };
+            let unrelated: HashSet<_> = staged(&temp).into_iter().collect();
+            let pulling = device(&server, runtime.clone());
+            let path = destination.clone();
+            let pull = runtime.dependencies.io.spawn(Box::pin(async move {
+                pulling
+                    .safe_pull_file("/partial", &path.to_string_lossy(), context)
+                    .await
+            }));
+            checked(
+                tokio::time::timeout(Duration::from_secs(60), async {
+                    loop {
+                        // The virtual deadline runs after the client has written DATA. The base
+                        // writes directly and x91 writes at the staging path until the pull ends.
+                        if std::iter::once(destination.clone())
+                            .chain(staged(destination_dir.path()))
+                            .chain(staged(&temp).into_iter().filter(|path| !unrelated.contains(path)))
+                            .any(|path| std::fs::read(path).is_ok_and(|bytes| bytes == b"P"))
+                        {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                })
+                .await,
+            );
+            clock.advance_to(1_000).await;
+            pull.join().await?;
+            assert_eq!(checked(std::fs::read(&destination)), b"P");
+            assert_eq!(checked(std::fs::read_dir(destination_dir.path())).count(), 1);
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
+#[test]
+fn a_refused_pull_handshake_leaves_the_destination_parent_absent_d92() {
+    use marathon_adb::client::{AndroidDebugBridgeClient, SocketFactory};
+    use marathon_android::{device::AndroidDevice, tracker::DeviceStateTracker};
+    use std::{sync::Arc, time::Duration};
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::{TcpListener, TcpStream},
+    };
+
+    async fn request(stream: &mut TcpStream, command: &str) {
+        let mut length = [0; 4];
+        checked(stream.read_exact(&mut length).await);
+        let mut bytes = vec![0; checked(usize::from_str_radix(checked(std::str::from_utf8(&length)), 16))];
+        checked(stream.read_exact(&mut bytes).await);
+        assert_eq!(bytes, command.as_bytes());
+    }
+
+    run(configuration(), |runtime, context| {
+        Box::pin(async move {
+            let listener = checked(TcpListener::bind(("127.0.0.1", 0)).await);
+            let addr = checked(listener.local_addr());
+            let peer = tokio::spawn(async move {
+                for status in [b"OKAY".as_slice(), b"FAIL0007refused"] {
+                    let (mut stream, _) = checked(listener.accept().await);
+                    request(&mut stream, "host:transport:emulator-5554").await;
+                    checked(stream.write_all(b"OKAY").await);
+                    request(&mut stream, "sync:").await;
+                    checked(stream.write_all(status).await);
+                    if status == b"OKAY" {
+                        let mut stat = [0; 13];
+                        checked(stream.read_exact(&mut stat).await);
+                        assert_eq!(&stat[..4], b"STAT");
+                        assert_eq!(&stat[8..], b"/file");
+                        let mut reply = b"STAT".to_vec();
+                        for bits in [0o100644_u32, 12, 0] {
+                            reply.extend(bits.to_le_bytes());
+                        }
+                        checked(stream.write_all(&reply).await);
+                    }
+                }
+            });
+            let client = AndroidDebugBridgeClient::new(
+                addr.ip(),
+                addr.port(),
+                Arc::new(SocketFactory::new(10_000, 30_000)),
+                None,
+            );
+            let device = AndroidDevice::new(
+                client,
+                "emulator-5554".into(),
+                Arc::new(DeviceStateTracker::default()),
+                runtime,
+            );
+            let temp = checked(tempfile::tempdir());
+            let parent = temp.path().join("absent");
+            let destination = parent.join("artifact").to_string_lossy().into_owned();
+            let pull = device.pull_file("/file", &destination, context);
+            let err = checked(tokio::time::timeout(Duration::from_secs(60), pull).await).unwrap_err();
+            assert_eq!(
+                err.failure().kind,
+                FailureKind::Adb(marathon_error::AdbKind::RequestRejected)
+            );
+            assert!(!parent.exists());
+            checked(checked(tokio::time::timeout(Duration::from_secs(60), peer).await));
+            Ok(())
+        })
+    });
+}
 #[test]
 fn test_create_remote_directory() {
     remote_command("mkdir /sdcard", 0)

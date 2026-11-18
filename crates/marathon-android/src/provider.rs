@@ -296,6 +296,7 @@ impl AdamDeviceProvider {
         // rather than left tracking (and, once the client is closed, reconnecting) for the rest of the process.
         let result = std::panic::AssertUnwindSafe(async {
             let mut retiring: HashMap<_, Vec<Arc<dyn VendorTask>>> = HashMap::new();
+            let mut cleanup_limits = HashMap::new();
             loop {
                 let event = cancellable(context.cancellation.clone(), async { Ok(rx.recv().await) }).await?;
                 let Some(event) = event else { return Ok(()) };
@@ -371,11 +372,15 @@ impl AdamDeviceProvider {
                                 .get(&(server.clone(), serial.clone()))
                                 .cloned()
                                 .unwrap_or_default();
-                            let device = AndroidDevice::new(
+                            let cleanup_limit = cleanup_limits
+                                .entry((client.host(), client.port()))
+                                .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(RECOVERIES_PER_SERVER)));
+                            let device = AndroidDevice::with_remote_cleanup_limit(
                                 client.clone(),
                                 serial.clone(),
                                 self.inner.trackers.tracker(&client),
                                 self.inner.runtime.clone(),
+                                Some(cleanup_limit.clone()),
                             );
                             if let Some(deadline) = continued {
                                 device.continue_preparation(deadline);

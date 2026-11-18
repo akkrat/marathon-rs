@@ -129,12 +129,18 @@ impl ScreenRecorderTestBatchListener {
             let _ = job.join().await;
         }
     }
+    async fn join_after_stop(&self) {
+        self.join().await;
+        if !self.artifacts.device.stopping() {
+            self.artifacts.device.screenrecord_active(false);
+        }
+    }
     async fn stop(&self, context: VendorContext) -> VendorResult<()> {
         lock(&self.state).cancelling = true;
         let start = self.artifacts.now("android.ScreenRecorderTestBatchListener.stop")?;
         let result = stop_screen_record(&self.artifacts.device, context).await;
         if result.is_err() {
-            self.join().await;
+            self.join_after_stop().await;
             return result;
         }
         let end = self.artifacts.now("android.ScreenRecorderTestBatchListener.stop")?;
@@ -148,10 +154,7 @@ impl ScreenRecorderTestBatchListener {
         self.artifacts
             .device
             .log_named("ScreenRecorderTestBatchListener", Level::TRACE, "cancel", None);
-        self.join().await;
-        if !self.artifacts.device.stopping() {
-            self.artifacts.device.screenrecord_active(false);
-        }
+        self.join_after_stop().await;
         let end = self.artifacts.now("android.ScreenRecorderTestBatchListener.join")?;
         self.artifacts.device.log_named(
             "ScreenRecorderTestBatchListener",

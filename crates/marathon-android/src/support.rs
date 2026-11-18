@@ -40,7 +40,12 @@ pub(crate) fn throwable(t: AdbFailure) -> Failure {
     }
 }
 pub fn adb_error(e: AdbError) -> VendorError {
-    VendorError::Other(throwable(e.to_failure()))
+    let failure = throwable(e.to_failure());
+    if e == AdbError::ScopeSealed {
+        VendorError::Cancelled(Cancellation::Requested(failure))
+    } else {
+        VendorError::Other(failure)
+    }
 }
 /// What `execution_error` turns into a lost device: the adb server refused the device or the connection went.
 pub(crate) fn means_device_loss(e: &VendorError) -> bool {
