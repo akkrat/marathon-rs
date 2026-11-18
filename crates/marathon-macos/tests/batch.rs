@@ -709,7 +709,7 @@ fn a_macs_preparation_deadline_is_the_greater_of_the_wait_and_its_commands_d87()
     let mut h = Harness::new("")?;
     let mut configuration = (*h.options.dependencies.configuration).clone();
     configuration.device_initialization_timeout_millis = 180_000;
-    let mut deadline = |h: &mut Harness, test_type: Option<TestType>, grants: Vec<(String, Vec<MacosPermission>)>| {
+    let deadline = |h: &mut Harness, test_type: Option<TestType>, grants: Vec<(String, Vec<MacosPermission>)>| {
         let mut vendor = (*h.options.vendor).clone();
         if let Some(bundle) = vendor.bundle.as_mut() {
             bundle.test_type = test_type;
