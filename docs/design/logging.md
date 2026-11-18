@@ -297,6 +297,8 @@ and once more with the total and counts by cause when the last tracker owner rel
 it. The count covers submissions made during and after backend close. The
 drain-and-close timeout warns when its deadline expires. These warnings remain
 visible with debug off.
+Failed Apple setup and preparation timing also uses this target. Each warning
+goes through the run's log queue with the device serial, operation and cause (U212).
 
 ## What is gone
 

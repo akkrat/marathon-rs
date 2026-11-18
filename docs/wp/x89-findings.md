@@ -56,6 +56,25 @@ existing rules. The CLI's `differential_vendors` suite matched all 16 native cap
 the committed JVM recordings, including the healthy iOS and macOS paths and the Android
 controls. The golden diff is empty.
 
+## Review follow-up
+
+Timing warnings now go through the run's `ServiceLog` using the existing
+`marathon_core::analytics::event_pipeline` component. The message names the device serial
+and says whether setup or preparation was measured. The original failure is attached as the
+cause. Core uses its existing logging dependencies.
+
+- The four Apple entry points each have a healthy-instrumentation body failure and a caller
+  cancellation test. The cancellation tests wait until a command in the body is held and
+  compare the exact reason returned. All eight are regression pins that passed on
+  `f7a02f59` and with this change. Core also checks that a failed body with healthy
+  instrumentation reads the start timestamp only and calls neither the tracker nor the warning sink.
+- The twelve fault witnesses now check one queued WARN with the serial, operation and cause.
+  In a scratch copy at `83c4fa1b`, all twelve reached admission and failed at the missing
+  queue record. All passed with the change. The 23 focused tests passed 50 parallel
+  repetitions and one run with four CPU workers.
+- The changed-crate, CLI and logging suites, strict Clippy, formatting and evidence
+  validators passed. All 16 native vendor captures matched the committed recordings again.
+
 ## Incidental bugs
 
 None found. Physical Apple devices and the orchestrator's workspace and Linux gates remain

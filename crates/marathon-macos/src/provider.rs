@@ -217,7 +217,6 @@ impl AppleMacosProvider {
             .push(device.clone());
         let label = "core.Track.trackProviderDevicePreparing";
         track_device_operation(
-            label,
             context.cancellation.as_ref(),
             || async { context.hooks.instant(label).map_err(crate::clock_error) },
             device.setup(context),
@@ -229,6 +228,7 @@ impl AppleMacosProvider {
                         .await
                 }
             },
+            |error| device.timing_log.warn("setup", &device.info().serial_number, error),
         )
         .await?;
         Ok(device)

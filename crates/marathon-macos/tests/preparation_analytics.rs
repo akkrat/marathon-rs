@@ -49,6 +49,21 @@ async fn check(fault: TimingFault, setup: bool) -> R {
     assert_eq!(provider.subscribe().state().queued, 0);
     assert_eq!(provider.snapshot().len(), 1);
     fault.verify(hooks.as_ref(), label, &events);
+    let warnings = h
+        .logs
+        .records()
+        .into_iter()
+        .filter(|record| record.target == "marathon_core::analytics::event_pipeline")
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1);
+    let warning = &warnings[0];
+    let operation = if setup { "setup" } else { "preparation" };
+    assert_eq!(
+        warning.message,
+        format!("Could not record {operation} timing for device udid@local")
+    );
+    assert_eq!(warning.level, marathon_logging::Level::WARN);
+    assert!(warning.cause.is_some());
     v(provider.terminate().await)?;
     v(provider.join_pending().await)?;
     Ok(())

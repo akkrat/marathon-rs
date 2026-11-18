@@ -4,7 +4,10 @@ mod provider_support;
 mod simulator_support;
 mod support;
 
-use marathon_core::{analytics::Track, vendor::DeviceProvider};
+use marathon_core::{
+    analytics::{DeviceTimingLog, Track},
+    vendor::DeviceProvider,
+};
 use marathon_test_support::apple::preparation_analytics::TimingFault;
 use provider_support::{ProviderHarness, count, home, test_error};
 use simulator_support::TestResult;
@@ -21,7 +24,13 @@ async fn check(fault: TimingFault, setup: bool) -> TestResult {
     };
     let (hooks, tracker, events) = fault.instrument(label);
     let mut p = ProviderHarness::new(|_| {})?;
-    p.h.services.track = Track::new(p.h.services.runtime.clone(), hooks.clone());
+    let logging = &p.h.services.logging;
+    let sink = logging.sink.clone();
+    p.h.services.track =
+        Track::new(p.h.services.runtime.clone(), hooks.clone()).with_device_timing_log(DeviceTimingLog::new(
+            Arc::new(move |logger, level, message, error| sink(logger, level, message.into(), error.cloned())),
+            &logging.registry,
+        ));
     p.h.services.track.add(tracker);
     p.provider = ProviderHarness::build(&p.h, p.connections.clone(), p.recovery.clone())?;
     p.update(&["a"]).await?;
@@ -49,6 +58,22 @@ async fn check(fault: TimingFault, setup: bool) -> TestResult {
     assert!(!device.disposed());
     assert!(!device.lost());
     fault.verify(hooks.as_ref(), label, &events);
+    {
+        let logs = p.h.logs.lock().unwrap();
+        let warnings = logs
+            .iter()
+            .filter(|(name, _, _, _)| name == "marathon_core::analytics::event_pipeline")
+            .collect::<Vec<_>>();
+        assert_eq!(warnings.len(), 1);
+        let (_, level, message, cause) = warnings[0];
+        let operation = if setup { "setup" } else { "preparation" };
+        assert_eq!(
+            message,
+            &format!("Could not record {operation} timing for device a@local")
+        );
+        assert_eq!(*level, marathon_logging::Level::WARN);
+        assert!(cause.is_some());
+    }
     p.finish().await
 }
 

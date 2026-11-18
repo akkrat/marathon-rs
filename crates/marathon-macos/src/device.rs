@@ -35,7 +35,7 @@ use marathon_config::{
     vendor::{MacosConfiguration, MacosPermission},
 };
 use marathon_core::{
-    analytics::track_device_operation,
+    analytics::{DeviceTimingLog, track_device_operation},
     artifacts::{FileLogWriter, LogListener},
     error::{Failure, VendorError, VendorResult},
     executor::shared::{SharedDeferred, Signal},
@@ -107,6 +107,7 @@ pub struct MacosDevice {
     commands: Arc<ExecutorWorkerCommands>,
     remote: RemoteFileManager,
     logger: Component,
+    pub(crate) timing_log: DeviceTimingLog,
     facts: Mutex<Facts>,
     execution: Mutex<Execution>,
     listeners: Arc<LineListeners>,
@@ -127,6 +128,7 @@ impl MacosDevice {
         let serial: String = format!("{udid}@{}", binary.command_executor.host().id);
         let storage = storage_path_for(&udid);
         let logger = options.logging.component("marathon_macos::device");
+        let timing_log = DeviceTimingLog::new(options.dependencies.log.clone(), &options.dependencies.logging);
         let commands = Arc::new(ExecutorWorkerCommands {
             executor: binary.command_executor.clone(),
             timeouts: Arc::new(options.vendor.timeout_configuration.clone()),
@@ -142,6 +144,7 @@ impl MacosDevice {
             commands,
             remote,
             logger,
+            timing_log,
             facts: Mutex::new(Facts {
                 info: DeviceInfo {
                     operating_system: OperatingSystem {
@@ -735,7 +738,6 @@ impl Device for MacosDevice {
             let task = self.tasks.spawn(&*self.options.dependencies.io, async move {
                 let label = "core.Track.trackDevicePreparing";
                 let outcome = panic_as_error(track_device_operation(
-                    label,
                     own_context.cancellation.as_ref(),
                     || async { own_context.hooks.instant(label).map_err(crate::clock_error) },
                     device.prepare_inner(&own_context),
@@ -746,6 +748,7 @@ impl Device for MacosDevice {
                             .tracker
                             .device_preparing(&device.serial, start, finish)
                     },
+                    |error| device.timing_log.warn("preparation", &device.serial, error),
                 ))
                 .await;
                 done.complete(Ok(()));

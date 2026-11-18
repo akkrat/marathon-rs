@@ -126,7 +126,11 @@ pub async fn construct_with_parser_libraries(
         device::connection_factory::ConnectionFactory,
     };
     use marathon_core::{
-        analytics::Track, error::VendorError, executor::shared::Signal, logging::LogRecord, vendor::VendorContext,
+        analytics::{DeviceTimingLog, Track},
+        error::VendorError,
+        executor::shared::Signal,
+        logging::LogRecord,
+        vendor::VendorContext,
     };
     let VendorConfiguration::Ios(config) = &dependencies.configuration.vendor_configuration else {
         return Err(VendorError::Other(failure(
@@ -185,7 +189,8 @@ pub async fn construct_with_parser_libraries(
         logging.clone(),
     )
     .map_err(|e| VendorError::Other(failure(FailureKind::IllegalArgument, &e.0)))?;
-    let track = Track::new(dependencies.io.clone(), dependencies.hooks.clone());
+    let track = Track::new(dependencies.io.clone(), dependencies.hooks.clone())
+        .with_device_timing_log(DeviceTimingLog::new(dependencies.log.clone(), &dependencies.logging));
     track.add(dependencies.tracker.clone());
     let files = Arc::new(FileManager::new(
         dependencies.configuration.output_configuration.max_path,

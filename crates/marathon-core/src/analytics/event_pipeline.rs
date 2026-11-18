@@ -3,7 +3,7 @@
 //! TrackerInternal.kt, TrackerInternalAdapter.kt and ExecutionReportGenerator.kt.
 
 use futures_util::FutureExt;
-use marathon_logging::{Component, Level};
+use marathon_logging::{Component, Level, LogSettings};
 
 use crate::{
     artifact_io::*,
@@ -661,14 +661,34 @@ async fn catch_tracking<T>(work: impl Future<Output = VendorResult<T>>) -> Vendo
         .unwrap_or_else(|payload| Err(VendorError::Other(crate::executor::panic_failure(payload))))
 }
 
+#[derive(Clone)]
+pub struct DeviceTimingLog {
+    log: ServiceLog,
+    component: Component,
+}
+impl DeviceTimingLog {
+    pub fn new(log: ServiceLog, registry: &Mutex<LogSettings>) -> Self {
+        let component = registry
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .component(module_path!());
+        Self { log, component }
+    }
+
+    pub fn warn(&self, operation: &str, serial: &str, failure: &Failure) {
+        let message = format!("Could not record {operation} timing for device {serial}");
+        (self.log)(&self.component, Level::WARN, &message, Some(failure));
+    }
+}
+
 /// D51: losing a preparation metric must not turn successful device work into a failed attempt.
 /// The body stays in the caller's future, outside both instrumentation boundaries.
 pub async fn track_device_operation<T, Read, TrackEvent>(
-    label: &'static str,
     cancellation: &dyn CancellationSignal,
     read_clock: impl Fn() -> Read,
     body: impl Future<Output = VendorResult<T>>,
     track: impl FnOnce(Instant, Instant) -> TrackEvent,
+    warn: impl FnOnce(&Failure),
 ) -> VendorResult<T>
 where
     Read: Future<Output = VendorResult<Instant>>,
@@ -694,9 +714,7 @@ where
         {
             return Err(VendorError::Cancelled(reason));
         }
-        let _ = catch_unwind(AssertUnwindSafe(|| {
-            tracing::warn!("Could not record device timing for {label}: {}", error.failure());
-        }));
+        let _ = catch_unwind(AssertUnwindSafe(|| warn(error.failure())));
     }
     result
 }
@@ -706,6 +724,7 @@ pub struct Track {
     io: Arc<dyn VendorRuntime>,
     clock: Arc<dyn WallClock>,
     delegates: Arc<Mutex<Vec<Arc<dyn Tracker>>>>,
+    device_timing_log: Option<DeviceTimingLog>,
 }
 impl Track {
     pub fn new(io: Arc<dyn VendorRuntime>, clock: Arc<dyn WallClock>) -> Self {
@@ -713,7 +732,12 @@ impl Track {
             io,
             clock,
             delegates: Arc::default(),
+            device_timing_log: None,
         }
+    }
+    pub fn with_device_timing_log(mut self, log: DeviceTimingLog) -> Self {
+        self.device_timing_log = Some(log);
+        self
     }
     pub fn add(&self, tracker: Arc<dyn Tracker>) {
         self.delegates.lock().unwrap_or_else(|e| e.into_inner()).push(tracker);
@@ -722,7 +746,7 @@ impl Track {
     pub async fn track_device_preparing<'a, T: Send + 'a>(
         &self,
         cancellation: &dyn CancellationSignal,
-        serial: impl FnOnce() -> String + Send + 'a,
+        serial: impl Fn() -> String + Send + Sync + 'a,
         body: VendorFuture<'a, T>,
     ) -> VendorResult<T> {
         self.prepare(cancellation, serial, body, false).await
@@ -730,7 +754,7 @@ impl Track {
     pub async fn track_provider_device_preparing<'a, T: Send + 'a>(
         &self,
         cancellation: &dyn CancellationSignal,
-        serial: impl FnOnce() -> String + Send + 'a,
+        serial: impl Fn() -> String + Send + Sync + 'a,
         body: VendorFuture<'a, T>,
     ) -> VendorResult<T> {
         self.prepare(cancellation, serial, body, true).await
@@ -738,17 +762,17 @@ impl Track {
     async fn prepare<'a, T: Send + 'a>(
         &self,
         cancellation: &dyn CancellationSignal,
-        serial: impl FnOnce() -> String + Send + 'a,
+        serial: impl Fn() -> String + Send + Sync + 'a,
         body: VendorFuture<'a, T>,
         provider: bool,
     ) -> VendorResult<T> {
-        let label = if provider {
-            "core.Track.trackProviderDevicePreparing"
+        let (label, operation) = if provider {
+            ("core.Track.trackProviderDevicePreparing", "setup")
         } else {
-            "core.Track.trackDevicePreparing"
+            ("core.Track.trackDevicePreparing", "preparation")
         };
+        let serial = &serial;
         track_device_operation(
-            label,
             cancellation,
             || {
                 let clock = self.clock.clone();
@@ -765,6 +789,11 @@ impl Track {
                     self.device_provider_init(&serial, start, finish).await
                 } else {
                     self.device_preparing(&serial, start, finish).await
+                }
+            },
+            |error| {
+                if let Some(log) = &self.device_timing_log {
+                    log.warn(operation, &serial(), error);
                 }
             },
         )

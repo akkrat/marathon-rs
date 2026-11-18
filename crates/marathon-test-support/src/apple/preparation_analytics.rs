@@ -2,9 +2,11 @@
 
 use marathon_core::{
     analytics::{MappingTracker, TrackerInternalAdapter},
+    error::Cancellation,
     executor::{
         RuntimeClock,
         hooks::{RuntimeHooks, Tape},
+        shared::Signal,
     },
     report::{DevicePreparingEvent, DeviceProviderPreparingEvent},
     runtime::VendorFuture,
@@ -12,8 +14,62 @@ use marathon_core::{
 };
 use std::sync::{
     Arc,
+    atomic::AtomicBool,
     atomic::{AtomicUsize, Ordering},
 };
+use tokio::sync::Notify;
+
+use super::FakeSimulatorWorker;
+
+pub struct HeldCommand {
+    entered: Arc<Notify>,
+    release: Arc<Notify>,
+}
+impl HeldCommand {
+    pub fn attach(worker: &FakeSimulatorWorker, matches: impl Fn(&[String]) -> bool + Send + Sync + 'static) -> Self {
+        let entered = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let mut hook = worker.before.lock().unwrap();
+        let original = hook.clone();
+        let (start, gate) = (entered.clone(), release.clone());
+        let held = AtomicBool::new(false);
+        *hook = Arc::new(move |command| {
+            let pause = matches(&command) && !held.swap(true, Ordering::SeqCst);
+            let (start, gate, original) = (start.clone(), gate.clone(), original.clone());
+            Box::pin(async move {
+                if pause {
+                    start.notify_one();
+                    gate.notified().await;
+                }
+                original(command).await
+            })
+        });
+        worker.cancellable_before.store(true, Ordering::SeqCst);
+        Self { entered, release }
+    }
+
+    pub async fn cancel_during<T>(
+        self,
+        operation: impl std::future::Future<Output = T>,
+        signal: &Signal,
+        reason: Cancellation,
+    ) -> T {
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            tokio::pin!(operation);
+            tokio::select! {
+                _ = &mut operation => panic!("the device body returned before the held command"),
+                _ = self.entered.notified() => {}
+            }
+            signal.cancel(reason);
+            let outcome = operation.await;
+            // Mac preparation may keep running after its caller returns.
+            self.release.notify_one();
+            outcome
+        })
+        .await
+        .expect("the caller must return while the command is held")
+    }
+}
 
 #[derive(Clone, Copy)]
 pub enum TimingFault {

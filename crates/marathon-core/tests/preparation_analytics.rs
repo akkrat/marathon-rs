@@ -2,20 +2,20 @@
 
 use jcompat::jtime::Instant;
 use marathon_core::{
-    analytics::track_device_operation,
+    analytics::{DeviceTimingLog, track_device_operation},
     error::{Cancellation, Failure, VendorError},
     executor::shared::{Signal, failure, requested},
     runtime::CancellationSignal,
 };
 use marathon_error::FailureKind;
+use marathon_logging::{Level, LogSettings};
 use std::{
     cell::Cell,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
 };
-use tracing_subscriber::{Layer, layer::SubscriberExt};
 
 fn failure_detail() -> Failure {
     failure(FailureKind::IllegalState, "failed")
@@ -23,18 +23,18 @@ fn failure_detail() -> Failure {
 
 #[tokio::test]
 async fn preparation_instrumentation_failures_warn_once_and_keep_the_body_result_u212() {
-    struct Warnings(Arc<AtomicUsize>);
-    impl<S: tracing::Subscriber> Layer<S> for Warnings {
-        fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
-            assert_eq!(event.metadata().target(), "marathon_core::analytics::event_pipeline");
-            assert_eq!(*event.metadata().level(), tracing::Level::WARN);
-            self.0.fetch_add(1, Ordering::SeqCst);
-        }
-    }
     let warnings = Arc::new(AtomicUsize::new(0));
-    let subscriber = tracing_subscriber::registry().with(Warnings(warnings.clone()));
-    tracing::subscriber::set_global_default(subscriber).expect("isolated warning subscriber");
-    let label = "core.Track.trackDevicePreparing";
+    let count = warnings.clone();
+    let log = DeviceTimingLog::new(
+        Arc::new(move |component, level, message, cause| {
+            assert_eq!(component.target(), "marathon_core::analytics::event_pipeline");
+            assert_eq!(level, Level::WARN);
+            assert_eq!(message, "Could not record preparation timing for device sim@worker");
+            assert!(cause.is_some());
+            count.fetch_add(1, Ordering::SeqCst);
+        }),
+        &Mutex::new(LogSettings::default()),
+    );
     enum Fault {
         Clock(usize),
         ConstructTracker,
@@ -55,7 +55,6 @@ async fn preparation_instrumentation_failures_warn_once_and_keep_the_body_result
         let operations = Cell::new(0);
         let tracking = Cell::new(0);
         let result = track_device_operation(
-            label,
             &Signal::default(),
             || async {
                 let read = reads.get();
@@ -81,6 +80,7 @@ async fn preparation_instrumentation_failures_warn_once_and_keep_the_body_result
                     Err(VendorError::Cancelled(Cancellation::Requested(failure_detail())))
                 }
             },
+            |error| log.warn("preparation", "sim@worker", error),
         )
         .await;
         assert_eq!(result, Ok(42));
@@ -92,11 +92,11 @@ async fn preparation_instrumentation_failures_warn_once_and_keep_the_body_result
 
     let failed = VendorError::Other(failure_detail());
     let outcome = track_device_operation(
-        label,
         &Signal::default(),
         || async { Err(VendorError::Other(Failure::from_kind(FailureKind::ReplayClock, None))) },
         async { Err::<(), _>(failed.clone()) },
         |_, _| async { panic!("a failed body has no preparation event") },
+        |error| log.warn("preparation", "sim@worker", error),
     )
     .await;
     assert_eq!(outcome, Err(failed));
@@ -104,13 +104,38 @@ async fn preparation_instrumentation_failures_warn_once_and_keep_the_body_result
 }
 
 #[tokio::test]
+async fn a_failed_body_with_healthy_instrumentation_keeps_its_error_u212() {
+    let reads = Cell::new(0);
+    let tracked = Cell::new(false);
+    let warned = Cell::new(false);
+    let failed = VendorError::Other(failure_detail());
+    let outcome = track_device_operation(
+        &Signal::default(),
+        || async {
+            reads.set(reads.get() + 1);
+            Ok(Instant::EPOCH)
+        },
+        async { Err::<(), _>(failed.clone()) },
+        |_, _| async {
+            tracked.set(true);
+            Ok(())
+        },
+        |_| warned.set(true),
+    )
+    .await;
+    assert_eq!(outcome, Err(failed));
+    assert_eq!(reads.get(), 1);
+    assert!(!tracked.get());
+    assert!(!warned.get());
+}
+
+#[tokio::test]
 async fn preparation_propagates_the_callers_cancellation_u212() {
-    let label = "core.Track.trackDevicePreparing";
     let signal = Signal::new();
     let reason = requested("the caller stopped preparation");
     let tracking_entered = tokio::sync::Notify::new();
+    let warned = Cell::new(false);
     let operation = track_device_operation(
-        label,
         signal.as_ref(),
         || async { Ok(Instant::EPOCH) },
         async { Ok(()) },
@@ -119,6 +144,7 @@ async fn preparation_propagates_the_callers_cancellation_u212() {
             signal.cancelled().await;
             Err(VendorError::Cancelled(Cancellation::Requested(failure_detail())))
         },
+        |_| warned.set(true),
     );
     let cancel = async {
         tracking_entered.notified().await;
@@ -130,4 +156,5 @@ async fn preparation_propagates_the_callers_cancellation_u212() {
     .await
     .expect("caller cancellation must finish preparation");
     assert_eq!(outcome, Err(VendorError::Cancelled(reason)));
+    assert!(!warned.get());
 }
