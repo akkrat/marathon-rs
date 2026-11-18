@@ -4,7 +4,7 @@ use super::*;
 use marathon_apple::{
     apple_device_test_runner::{AppleDeviceTestRunner, RunError},
     cmd::{
-        failure,
+        Termination, failure,
         remote::ssh::sshj::error::{CONNECTION_EXCEPTION, ILLEGAL_STATE_EXCEPTION, TRANSPORT_EXCEPTION, is_instance},
         retained_tasks::panic_as_error,
     },
@@ -27,6 +27,12 @@ impl Drop for InstalledLines<'_> {
     }
 }
 
+/// D93: what a sealed simulator's one window covers.
+struct Receipt {
+    batches: Vec<Arc<BatchJob>>,
+    preparations: Vec<Arc<prepare::PreparationJob>>,
+    transfers: Vec<Arc<marathon_apple::cmd::TransferReceipt>>,
+}
 pub(super) struct BatchJob {
     signal: Arc<Signal>,
     done: Arc<SharedDeferred<()>>,
@@ -68,19 +74,14 @@ impl AppleSimulatorDevice {
         });
         let rejected = {
             let mut state = self.state();
-            if state.disposal.is_some() {
-                true
-            } else {
+            let refusal = state.refusal(&self.serial);
+            if refusal.is_none() {
                 state.running = Some(job.clone());
-                false
             }
+            refusal
         };
-        if rejected {
-            return Err(BatchLoss::new(failure(
-                FailureKind::IllegalState,
-                format!("Device {} has been disposed", self.serial),
-            ))
-            .into_vendor());
+        if let Some(refusal) = rejected {
+            return Err(BatchLoss::new(failure(FailureKind::IllegalState, refusal)).into_vendor());
         }
         let device = self.this()?;
         let running = job.clone();
@@ -302,9 +303,225 @@ impl AppleSimulatorDevice {
         }
         Err(error.into_vendor())
     }
+    /// A batch whose call was cancelled. D93: once the simulator is sealed this is part of its one window, and what did
+    /// not end in it is for its disposal to report; otherwise the call has its own window, as in Kotlin.
     async fn join_cancelled(&self, job: &Arc<BatchJob>, context: &VendorContext) -> VendorResult<()> {
-        self.stop_and_join(Some(job.clone()), Vec::new(), Vec::new(), context)
-            .await
+        let sealed = self.state().shutdown_by;
+        match sealed {
+            Some(deadline) => {
+                if let Termination::Unconfirmed(_) = self.finish_work(Some(job.clone()), deadline, context).await? {
+                    self.retire();
+                }
+                Ok(())
+            }
+            None => {
+                self.stop_and_join(Some(job.clone()), Vec::new(), Vec::new(), context)
+                    .await
+            }
+        }
+    }
+    /// D93: seals the simulator, once: from now on it starts no batch, preparation or send, and its window for ending
+    /// what it runs (`cancelled_batch_millis`) starts. Returns when that window ends, on the vendor clock. No I/O, no
+    /// blocking: the run's stop calls it on the core thread.
+    pub(super) fn seal(&self) -> i64 {
+        let mut state = self.state();
+        self.seal_locked(&mut state)
+    }
+    fn seal_locked(&self, state: &mut State) -> i64 {
+        *state.shutdown_by.get_or_insert_with(|| {
+            self.services
+                .context
+                .clock
+                .now_millis()
+                .saturating_add(self.services.timeouts.cancelled_batch_millis.max(0))
+        })
+    }
+    /// D93: what the sealed simulator still runs, which its one window covers: `batch` (the one a cancelled call was
+    /// running) and the one running now, its preparations and the sends not ended. Sealed, it registers nothing new.
+    fn receipt(&self, batch: Option<Arc<BatchJob>>) -> Receipt {
+        let state = self.state();
+        let running = state
+            .running
+            .clone()
+            .filter(|r| !batch.as_ref().is_some_and(|b| Arc::ptr_eq(b, r)));
+        Receipt {
+            batches: batch.into_iter().chain(running).collect(),
+            preparations: state.preparations.clone(),
+            transfers: state.unended_transfers(),
+        }
+    }
+    /// D93: stops what the sealed simulator still runs and waits for it until `deadline`; then says whether all of it has
+    /// ended: the batches, the preparations, each send with its cleanup confirmed (D91), and the last xcodebuild session,
+    /// whose producer must have ended with its command closed. In the last part of the window (the force reserve), a
+    /// session whose producer still runs is stopped. Every caller passes the one deadline, so no wait outlasts it.
+    pub(super) async fn finish_work(
+        &self,
+        batch: Option<Arc<BatchJob>>,
+        deadline: i64,
+        context: &VendorContext,
+    ) -> VendorResult<Termination> {
+        let receipt = self.receipt(batch);
+        let disposed = || {
+            marathon_core::error::Cancellation::Requested(failure(
+                FailureKind::JobCancelled,
+                format!("Device {} is being disposed", self.serial),
+            ))
+        };
+        for job in &receipt.batches {
+            job.signal.cancel(marathon_core::error::Cancellation::Requested(failure(
+                FailureKind::JobCancelled,
+                "LazyDeferredCoroutine was cancelled",
+            )));
+        }
+        for preparation in &receipt.preparations {
+            preparation.signal.cancel(disposed());
+        }
+        for transfer in &receipt.transfers {
+            transfer.stop(disposed(), Some(deadline));
+        }
+        let clock = context.clock.clone();
+        let reserve =
+            marathon_apple::cmd::device_commands::force_reserve_millis(self.services.timeouts.cancelled_batch_millis);
+        let graceful = deadline.saturating_sub(reserve).saturating_sub(clock.now_millis());
+        if !self.wait_for(&receipt, graceful, context).await? {
+            let session = self.state().last_session.clone().filter(|s| s.ended().is_none());
+            let left = deadline.saturating_sub(clock.now_millis()).max(0);
+            let forced = async {
+                if let Some(session) = session {
+                    let protected = VendorContext {
+                        cancellation: Signal::new(),
+                        ..context.clone()
+                    };
+                    let _ = session
+                        .stop(marathon_apple::bin::java_duration_of_millis(left), &protected)
+                        .await;
+                }
+            };
+            let (_, waited) = tokio::join!(forced, self.wait_for(&receipt, left, context));
+            waited?;
+        }
+        let mut left = Vec::new();
+        if receipt.batches.iter().any(|b| b.done.completed().is_none()) {
+            left.push("its batch has not ended".to_owned());
+        }
+        if receipt.preparations.iter().any(|p| p.done.completed().is_none()) {
+            left.push("a preparation has not ended".to_owned());
+        }
+        for transfer in &receipt.transfers {
+            match transfer.ended() {
+                None => left.push("a send has not ended".to_owned()),
+                Some(marathon_apple::cmd::TransferCleanup::Unconfirmed(why)) => left.push(format!(
+                    "a send's cleanup was not confirmed ({})",
+                    why.message.as_deref().unwrap_or_default()
+                )),
+                Some(marathon_apple::cmd::TransferCleanup::Confirmed) => {}
+            }
+        }
+        if let Some(session) = self.state().last_session.clone().filter(|s| s.stopping()) {
+            match session.ended() {
+                None => left.push("its xcodebuild session has not ended".to_owned()),
+                Some(false) => left.push("its xcodebuild session's command did not close".to_owned()),
+                Some(true) => {}
+            }
+        }
+        Ok(if left.is_empty() {
+            Termination::Confirmed
+        } else {
+            Termination::Unconfirmed(left)
+        })
+    }
+    /// Waits up to `millis` for everything in `receipt`, and then for the last xcodebuild session's producer (a batch
+    /// opens its session itself); whether all of it ended. Nothing left: no wait, only a look.
+    async fn wait_for(&self, receipt: &Receipt, millis: i64, context: &VendorContext) -> VendorResult<bool> {
+        let ended = |device: &Self| {
+            receipt.batches.iter().all(|b| b.done.completed().is_some())
+                && receipt.preparations.iter().all(|p| p.done.completed().is_some())
+                && receipt.transfers.iter().all(|t| t.ended().is_some())
+                && device
+                    .state()
+                    .last_session
+                    .as_ref()
+                    .is_none_or(|s| !s.stopping() || s.ended().is_some())
+        };
+        if ended(self) {
+            return Ok(true);
+        }
+        if millis <= 0 {
+            return Ok(false);
+        }
+        let cells: Vec<_> = receipt
+            .batches
+            .iter()
+            .map(|b| b.done.clone())
+            .chain(receipt.preparations.iter().map(|p| p.done.clone()))
+            .collect();
+        let sends = receipt.transfers.clone();
+        let me = self.this()?;
+        // Joining observes completion, not the jobs' results; the timeout only bounds this wait.
+        let finished = context
+            .clock
+            .with_timeout_or_null(
+                Signal::new(),
+                millis,
+                Box::new(move |signal| {
+                    Box::pin(async move {
+                        for done in cells {
+                            match done.wait_in(signal.clone()).await {
+                                Err(VendorError::Cancelled(reason)) if done.completed().is_none() => {
+                                    return Err(VendorError::Cancelled(reason));
+                                }
+                                _ => {}
+                            }
+                        }
+                        for send in sends {
+                            if let Err(VendorError::Cancelled(reason)) = send.wait_in(signal.clone()).await
+                                && send.ended().is_none()
+                            {
+                                return Err(VendorError::Cancelled(reason));
+                            }
+                        }
+                        let session = me.state().last_session.clone().filter(|s| s.stopping());
+                        if let Some(session) = session {
+                            tokio::select! { biased;
+                                reason = signal.cancelled() => return Err(VendorError::Cancelled(reason)),
+                                _ = session.wait_ended() => {}
+                            }
+                        }
+                        Ok(())
+                    })
+                }),
+            )
+            .await?
+            .is_some();
+        Ok(finished && ended(self))
+    }
+    /// D93: the disposal could not confirm that the simulator's work had ended: one WARN naming it and what was left, no
+    /// on-dispose lifecycle, no further command from it, and its lease quarantined rather than released.
+    fn quarantine(&self, left: &[String], window: i64) {
+        let limit = marathon_core::error::duration_for_log(marathon_apple::bin::java_duration_of_millis(window));
+        let why = failure(
+            FailureKind::IllegalState,
+            format!(
+                "Device {}'s work was not confirmed to have ended: {}",
+                self.serial,
+                left.join(", ")
+            ),
+        );
+        self.commands.revoke(why);
+        {
+            let mut state = self.state();
+            state.quarantined = true;
+            state.retired = true;
+        }
+        self.log(
+            Level::WARN,
+            format!(
+                "Device {}'s work was not confirmed to have ended within {limit} ({}); not running its on-dispose lifecycle, sending it no further command and keeping its connection out of use",
+                self.serial,
+                left.join(", "),
+            ),
+            None,
+        );
     }
     /// Cancels the batch, the preparations and the sends given and waits for all of them within one bound, the cancelled
     /// batch's. U179: it waits on their completion cells, not on the retained tasks, which also hold disposal itself.
@@ -434,19 +651,14 @@ impl AppleSimulatorDevice {
     }
     pub async fn dispose_and_join(&self) -> VendorResult<()> {
         let started = SharedDeferred::new();
-        let (current, running, preparations, transfers, owner) = {
+        let (current, deadline, owner) = {
             let mut state = self.state();
             let owner = state.disposal.is_none();
             let current = state.disposal.get_or_insert_with(|| started.clone()).clone();
             // U179: from here on no preparation starts (`prepare_device` checks `disposal` under this lock), and, D91, no
-            // send (`send_stop`).
-            (
-                current,
-                state.running.clone(),
-                state.preparations.clone(),
-                state.unended_transfers(),
-                owner,
-            )
+            // send (`send_stop`). D93: the window is the one the run's stop sealed, or starts with this first disposal.
+            let deadline = self.seal_locked(&mut state);
+            (current, deadline, owner)
         };
         if owner {
             let device = self.this()?;
@@ -460,11 +672,21 @@ impl AppleSimulatorDevice {
                 // D84: a panic is published to every caller too; the device is then as disposed as the panic left it.
                 let outcome = panic_as_error(async {
                     let disposed: VendorResult<()> = async {
-                        device.stop_and_join(running, preparations, transfers, &context).await?;
-                        if device.connected() {
-                            device
-                                .handle_lifecycle(&device.services.vendor.lifecycle_configuration.on_dispose, &context)
-                                .await?;
+                        // D93: only work confirmed to have ended lets the on-dispose lifecycle run.
+                        match device.finish_work(None, deadline, &context).await? {
+                            Termination::Confirmed => {
+                                if device.connected() {
+                                    device
+                                        .handle_lifecycle(
+                                            &device.services.vendor.lifecycle_configuration.on_dispose,
+                                            &context,
+                                        )
+                                        .await?;
+                                }
+                            }
+                            Termination::Unconfirmed(left) => {
+                                device.quarantine(&left, device.services.timeouts.cancelled_batch_millis)
+                            }
                         }
                         Ok(())
                     }

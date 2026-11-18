@@ -291,7 +291,7 @@ async fn dropping_a_disposal_waiter_does_not_abandon_the_shared_completion() -> 
     Ok(())
 }
 #[tokio::test]
-async fn preparation_continues_after_its_caller_is_cancelled() -> R {
+async fn preparation_continues_after_its_caller_is_cancelled_until_disposal_stops_it_d93() -> R {
     let h = Harness::new("")?;
     let d = h.device();
     v(d.setup(&h.context).await)?;
@@ -319,17 +319,21 @@ async fn preparation_continues_after_its_caller_is_cancelled() -> R {
     timeout(Duration::from_secs(60), entered.notified()).await?;
     signal.cancel(cancelled("caller"));
     assert!(matches!(task.await?, Err(VendorError::Cancelled(_))));
-    v(d.dispose().await)?;
+    // D93: the cancelled caller left the preparation running; the Mac's disposal stops it and waits for it to end.
+    let device = d.clone();
+    let mut disposal = tokio::spawn(async move { device.dispose().await });
+    still_waiting(&mut disposal).await;
     assert!(h.bridge.sent.lock().unwrap().is_empty());
     release.notify_one();
-    v(timeout(Duration::from_secs(60), d.join_pending()).await?)?;
+    v(timeout(Duration::from_secs(60), disposal).await??)?;
+    assert!(!d.quarantined());
+    assert!(matches!(
+        timeout(Duration::from_secs(60), d.join_pending()).await?,
+        Err(VendorError::Cancelled(_))
+    ));
     assert!(
-        h.bridge
-            .sent
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|(p, _)| p.ends_with(".xctestrun"))
+        h.bridge.sent.lock().unwrap().is_empty(),
+        "the stopped preparation went on"
     );
     Ok(())
 }

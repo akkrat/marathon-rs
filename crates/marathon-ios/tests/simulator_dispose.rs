@@ -139,20 +139,59 @@ async fn a_cancelled_batch_that_has_not_finished_in_time_takes_the_simulator_out
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }
+/// D93, in place of the Kotlin `disposal stops waiting for a batch that has not finished in time`, which ran the
+/// on-dispose lifecycle while the batch was still blocked (parity row `n/a`, `x92: D93`). Disposal still stops waiting at
+/// its bound, but a batch that has not ended by then lets no lifecycle run: one WARN names the simulator, its commands are
+/// revoked and it is quarantined, so its lease is not released. The batch, let go later, sends nothing more.
 #[tokio::test(start_paused = true)]
-async fn disposal_stops_waiting_for_a_batch_that_has_not_finished_in_time() -> TestResult {
+async fn disposal_that_cannot_confirm_the_batch_ended_skips_the_on_dispose_lifecycle_d93() -> TestResult {
     let h = harness(300)?;
+    h.services
+        .logging
+        .registry
+        .lock()
+        .unwrap()
+        .set_level("marathon_ios::apple_simulator_device", marathon_logging::Level::WARN);
     let (d, _) = prepared(&h).await?;
     let gate = PermissionGate::attach(&h);
     let batch = spawn_batch(&h, d.clone(), h.services.context.clone());
     gate.entered.wait().await.unwrap();
+    let started = tokio::time::Instant::now();
     d.dispose().await.unwrap();
+    assert_eq!(started.elapsed(), std::time::Duration::from_millis(300));
     assert!(!gate.finished.load(Ordering::SeqCst));
-    assert_eq!(gate.lifecycle.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        gate.lifecycle.load(Ordering::SeqCst),
+        0,
+        "the lifecycle ran under a live batch"
+    );
     assert!(d.retired());
     assert!(d.disposed());
+    assert!(d.quarantined());
+    let warnings: Vec<_> = h
+        .logs
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, level, _, _)| *level == marathon_logging::Level::WARN)
+        .map(|(_, _, message, _)| message.clone())
+        .collect();
+    assert_eq!(
+        warnings,
+        [format!(
+            "Device {}'s work was not confirmed to have ended within 0.3 s (its batch has not ended); not running its \
+             on-dispose lifecycle, sending it no further command and keeping its connection out of use",
+            d.serial()
+        )]
+    );
+    let before = h.worker.commands.lock().unwrap().len();
     gate.release.complete(Ok(()));
     assert!(matches!(batch.await?.0, Err(VendorError::DeviceLost(_))));
+    assert_eq!(
+        h.worker.commands.lock().unwrap().len(),
+        before,
+        "a revoked simulator sent a command"
+    );
     assert!(!d.lost());
     h.finish(&[d]).await;
     Ok(())
@@ -267,8 +306,10 @@ async fn disposal_stops_waiting_for_a_preparation_that_has_not_ended_in_time_u17
     d.dispose().await.unwrap();
     assert_eq!(started.elapsed(), std::time::Duration::from_secs(1));
     assert!(d.disposed());
+    // D93: one WARN for the disposal (before: `Cancelled preparation of … disposing of the simulator anyway`).
     let warning = format!(
-        "Cancelled preparation of {} has not finished within 1 s, disposing of the simulator anyway",
+        "Device {}'s work was not confirmed to have ended within 1 s (a preparation has not ended); not running its \
+         on-dispose lifecycle, sending it no further command and keeping its connection out of use",
         d.serial()
     );
     assert_eq!(

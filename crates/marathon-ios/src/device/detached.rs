@@ -94,6 +94,9 @@ impl ProvisioningConnections for DetachedConnections {
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()> {
         self.inner.release(executor)
     }
+    fn quarantine(&self, executor: &Executor) {
+        self.inner.quarantine(executor)
+    }
 }
 
 /// The provider overrides SimulatorProvisioner's legacy nullable `create` call with
@@ -116,5 +119,8 @@ impl ProvisioningConnections for ProviderConnections {
     }
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()> {
         Box::pin(async move { self.0.dispose(executor).await })
+    }
+    fn quarantine(&self, executor: &Executor) {
+        self.0.quarantine(executor)
     }
 }

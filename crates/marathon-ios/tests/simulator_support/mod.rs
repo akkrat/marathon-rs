@@ -297,11 +297,13 @@ impl Harness {
         cycle: Arc<WorkerProvisioningContext>,
         bridge: marathon_apple::device::connection_factory::Bridge,
     ) -> TestResult<Arc<AppleSimulatorDevice>> {
-        let bin = self.binary(executor.clone());
+        let commands = marathon_apple::cmd::DeviceCommands::new(executor.clone());
+        let bin = self.binary(commands.clone());
         let record = cycle.simulator(udid, &bin, false, &self.services.context).await?;
         let built = AppleSimulatorConstructor(self.services.clone()).construct(SimulatorConstruction {
             transport: Transport::Local,
             executor,
+            commands,
             bridge,
             bin,
             record: record.clone(),

@@ -46,6 +46,11 @@ pub trait ProvisioningConnections: Send + Sync {
         })
     }
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()>;
+    /// D93: instead of `release`, for a simulator whose work could not be confirmed to have ended: its use of the
+    /// connection is kept for the rest of the run and never handed to another acquisition. Keeping it is the default.
+    fn quarantine(&self, executor: &Executor) {
+        let _ = executor;
+    }
 }
 impl ProvisioningConnections for Arc<ConnectionFactory> {
     fn transport_log_text(&self, transport: &Transport, local: &str) -> String {
@@ -59,6 +64,9 @@ impl ProvisioningConnections for Arc<ConnectionFactory> {
     }
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()> {
         Box::pin(async move { self.dispose(executor).await })
+    }
+    fn quarantine(&self, executor: &Executor) {
+        ConnectionFactory::quarantine(self, executor)
     }
 }
 /// Mirrors the source's mockable simctl service; production keeps wrapper parsing/timeouts.

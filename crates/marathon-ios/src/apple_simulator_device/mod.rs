@@ -128,12 +128,27 @@ struct State {
     transfers: Vec<Arc<marathon_apple::cmd::TransferReceipt>>,
     /// D87: the preparation that has not ended in a ready simulator.
     episode: Option<PreparationEpisode>,
+    /// D93: the simulator is stopping, sealed by the run's stop or by its first disposal, whichever came first: when, on
+    /// the vendor clock, its work is to have ended. Every wait for that work ends there; no new work starts.
+    shutdown_by: Option<i64>,
+    /// D93: its disposal could not confirm that its work had ended: its lease is quarantined, not released.
+    quarantined: bool,
     last_session: Option<Arc<marathon_apple::xcodebuild_session::XcodebuildSession>>,
 }
 impl State {
     /// D91: the sends registered that have not ended. `send_stop` prunes the others as it registers one.
     fn unended_transfers(&self) -> Vec<Arc<marathon_apple::cmd::TransferReceipt>> {
         self.transfers.iter().filter(|t| t.ended().is_none()).cloned().collect()
+    }
+    /// U179, D91, D93: why no new batch, preparation or send may start, if none may: disposal, or the run's stop.
+    fn refusal(&self, serial: &str) -> Option<String> {
+        if self.disposal.is_some() {
+            Some(format!("Device {serial} has been disposed"))
+        } else if self.shutdown_by.is_some() {
+            Some(format!("Device {serial} is stopping"))
+        } else {
+            None
+        }
     }
 }
 pub struct AppleSimulatorDevice {
@@ -143,7 +158,9 @@ pub struct AppleSimulatorDevice {
     transport: Transport,
     sdk: Sdk,
     bin: Arc<AppleBinaryEnvironment>,
+    /// The lease; commands go through `commands`.
     executor: Executor,
+    commands: Arc<marathon_apple::cmd::DeviceCommands>,
     bridge: Bridge,
     shared_transfers: Arc<SharedTransfers>,
     remote: RemoteFileManager,
@@ -160,6 +177,7 @@ impl AppleSimulatorDevice {
         let SimulatorConstruction {
             transport,
             executor,
+            commands,
             bridge,
             bin,
             record,
@@ -174,7 +192,7 @@ impl AppleSimulatorDevice {
             storage_path.clone(),
             udid.clone(),
             Arc::new(ExecutorWorkerCommands {
-                executor: executor.clone(),
+                executor: commands.clone(),
                 timeouts: Arc::new(services.vendor.timeout_configuration.clone()),
             }),
             services.logging.clone(),
@@ -219,6 +237,8 @@ impl AppleSimulatorDevice {
             preparations: Vec::new(),
             transfers: Vec::new(),
             episode: None,
+            shutdown_by: None,
+            quarantined: false,
             last_session: None,
         };
         Arc::new_cyclic(move |me| Self {
@@ -229,6 +249,7 @@ impl AppleSimulatorDevice {
             sdk,
             bin,
             executor,
+            commands,
             bridge,
             shared_transfers,
             remote,
@@ -285,6 +306,11 @@ impl AppleSimulatorDevice {
     }
     pub fn retire(&self) {
         self.state().retired = true;
+    }
+    /// D93: its disposal could not confirm that its work had ended, so its lease is to be quarantined, not released
+    /// (`ProvisioningConnections::quarantine`).
+    pub fn quarantined(&self) -> bool {
+        self.state().quarantined
     }
     /// The output-line listeners installed now (D84 witnesses).
     #[doc(hidden)]
@@ -356,25 +382,23 @@ impl Device for AppleSimulatorDevice {
     /// D84 (R3-2): a cancelled preparation goes on in a retained task until it is stopped. D74's join stops it and
     /// waits for it (and for a batch still running, and, D91, for sends still running) within the same bound, as disposal
     /// does.
+    /// D93: within what is left of the window the run's stop sealed (`seal_for_stop`), not a window of its own.
     fn join_cancelled_work(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
-            let (running, preparations, transfers) = {
-                let state = self.state();
-                (
-                    state.running.clone(),
-                    state.preparations.clone(),
-                    state.unended_transfers(),
-                )
-            };
-            if running.is_none() && preparations.is_empty() && transfers.is_empty() {
-                return Ok(());
-            }
             let context = VendorContext {
                 cancellation: marathon_core::executor::shared::Signal::new(),
                 ..self.services.context.clone()
             };
-            self.stop_and_join(running, preparations, transfers, &context).await
+            let deadline = self.seal();
+            if let marathon_apple::cmd::Termination::Unconfirmed(_) = self.finish_work(None, deadline, &context).await?
+            {
+                self.retire();
+            }
+            Ok(())
         })
+    }
+    fn seal_for_stop(&self) {
+        self.seal();
     }
     fn info(&self) -> DeviceInfo {
         self.state().info.clone()

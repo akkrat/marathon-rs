@@ -201,6 +201,27 @@ impl XcodebuildSession {
         let s = self.state.lock().unwrap_or_else(|e| e.into_inner());
         s.stopped && (!s.started || s.finished) && s.close_failure.is_none()
     }
+    /// D93: `None` while the session's producer runs; once it has ended (or if it never started), whether its command
+    /// was closed without a failure, so that nothing of the session is left on the worker as far as it can tell.
+    pub fn ended(&self) -> Option<bool> {
+        let s = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        (!s.started || s.finished).then(|| s.close_failure.is_none())
+    }
+    /// D93: whether the session has been told to stop (its batch has ended, or someone stopped it). A stopping device
+    /// waits only for these: one nobody has stopped, such as a parse's, is its owner's to end.
+    pub fn stopping(&self) -> bool {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).stopped
+    }
+    /// D93: waits until [`Self::ended`] is known.
+    pub async fn wait_ended(&self) {
+        loop {
+            let changed = self.changed.notified();
+            if self.ended().is_some() {
+                return;
+            }
+            changed.await;
+        }
+    }
     pub fn abandoned(&self) -> bool {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).abandoned
     }

@@ -508,6 +508,36 @@ impl ConnectionFactory {
         );
         task.join().await
     }
+    /// D93: instead of a release, for a device whose work could not be confirmed to have ended. Its use of the connection
+    /// is kept for the rest of the run, so the connection never closes under that work, and no later acquisition is given
+    /// it: a shared connection that is the worker's current one stops being current, and the next acquisition connects
+    /// anew. Its other users keep it as it is and release their own uses as before (D90).
+    pub fn quarantine(&self, executor: &Executor) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let shared_by = match state.leases.get(&identity(executor)) {
+            Some(lease) => lease.shared_by.clone(),
+            None => return,
+        };
+        if let Some(transport) = shared_by
+            && let Some(worker) = state.shared.get_mut(&transport)
+            && worker.is_current(executor)
+        {
+            worker.current = None;
+        }
+        drop(state);
+        // The device has logged its WARN; this is the connection's side of it.
+        self.logging.log(
+            &self.logger,
+            Level::DEBUG,
+            || {
+                format!(
+                    "Keeping a connection to {} open and out of use for the rest of the run: work on it was not confirmed to have ended",
+                    executor.host().id
+                )
+            },
+            None,
+        );
+    }
     async fn dispose_inner(&self, executor: Executor) -> VendorResult<()> {
         let released = {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());

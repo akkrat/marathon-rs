@@ -79,6 +79,11 @@ pub trait Device: Send + Sync {
     fn cancellation_cleanup_millis(&self) -> Option<i64> {
         None
     }
+    /// D93: the run is stopping. Called for every device of the run's pools before any of their actors is cancelled, on
+    /// the core thread: no I/O, no blocking. A vendor with a bound for a cancelled call starts that one window now and
+    /// admits no new work: the cancelled call, `join_cancelled_work` and the device's disposal all end within what is
+    /// left of it, rather than each with a window of its own. Idempotent.
+    fn seal_for_stop(&self) {}
     /// D84: ends, or waits for, the work this device keeps running after a cancelled call returned to its caller (an
     /// Apple preparation runs on in a retained task), so that a stopping run can wait for it before the provider
     /// terminates. Bounded by the run with `cancellation_cleanup_millis`, which must cover it.

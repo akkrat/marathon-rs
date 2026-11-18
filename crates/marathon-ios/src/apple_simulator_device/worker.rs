@@ -4,7 +4,7 @@ use super::*;
 use jcompat::jtime::Duration;
 use marathon_apple::{
     cmd::{
-        CommandResult, failure,
+        CommandExecutor, CommandResult, failure,
         write_file::{MAX_WRITTEN_FILE_SIZE, write_file},
     },
     worker_commands,
@@ -40,7 +40,7 @@ impl AppleSimulatorDevice {
         command: Vec<String>,
         context: &VendorContext,
     ) -> VendorResult<CommandResult> {
-        self.executor
+        self.commands
             .critical_execute(
                 marathon_apple::cmd::CommandRequest::new(command, Duration::of_seconds(7 * 24 * 60 * 60)),
                 context.clone(),
@@ -60,12 +60,9 @@ impl AppleSimulatorDevice {
         let receipt = marathon_apple::cmd::TransferReceipt::new();
         {
             let mut state = self.state();
-            if state.disposal.is_some() {
+            if let Some(refusal) = state.refusal(&self.serial) {
                 receipt.stop(
-                    marathon_core::error::Cancellation::Requested(failure(
-                        FailureKind::IllegalState,
-                        format!("Device {} has been disposed", self.serial),
-                    )),
+                    marathon_core::error::Cancellation::Requested(failure(FailureKind::IllegalState, refusal)),
                     None,
                 );
             } else {
@@ -234,7 +231,7 @@ impl AppleDevice for AppleSimulatorDevice {
         context: &'a VendorContext,
     ) -> VendorFuture<'a, Option<CommandResult>> {
         worker_commands::execute_worker_command(
-            self.executor.as_ref(),
+            self.commands.as_ref(),
             &self.services.vendor.timeout_configuration,
             command,
             context,
@@ -298,7 +295,7 @@ impl AppleDevice for AppleSimulatorDevice {
                 .await?;
                 if let Some(bytes) = bytes
                     && write_file(
-                        self.executor.as_ref(),
+                        self.commands.as_ref(),
                         &bytes,
                         dst,
                         self.services.vendor.timeout_configuration.shell,

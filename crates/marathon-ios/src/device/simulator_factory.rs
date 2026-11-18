@@ -46,7 +46,10 @@ impl<H> std::fmt::Debug for ConstructedSimulator<H> {
 }
 pub struct SimulatorConstruction {
     pub transport: Transport,
+    /// The simulator's lease on its worker's connection, which the provider releases.
     pub executor: Executor,
+    /// D93: the simulator's own handle on that connection, which `bin` is built on and which its disposal can revoke.
+    pub commands: Arc<marathon_apple::cmd::DeviceCommands>,
     pub bridge: Bridge,
     pub bin: Arc<AppleBinaryEnvironment>,
     pub record: SimctlDevice,
@@ -123,12 +126,14 @@ impl<H: Clone + Send + Sync> SimulatorCreating for SimulatorFactory<H> {
         Box::pin(async move {
             let cancellation = caller.cancellation.clone();
             let started = self.timing.elapsed()?;
-            let bin = (self.binaries)(executor.clone());
+            let commands = marathon_apple::cmd::DeviceCommands::new(executor.clone());
+            let bin = (self.binaries)(commands.clone());
             let record = cycle.simulator(&udid, &bin, false, &caller).await?;
             let sdk = simulator_sdk(record.device_type_identifier.as_deref());
             let built = self.constructor.construct(SimulatorConstruction {
                 transport,
                 executor,
+                commands,
                 bridge,
                 bin,
                 record: record.clone(),

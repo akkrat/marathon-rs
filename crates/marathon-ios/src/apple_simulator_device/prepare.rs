@@ -73,12 +73,9 @@ impl AppleSimulatorDevice {
         // disposal either sees this preparation or this one sees disposal.
         let job = {
             let mut state = self.state();
-            if state.disposal.is_some() {
+            if let Some(refusal) = state.refusal(&self.serial) {
                 return Err(VendorError::Cancelled(marathon_core::error::Cancellation::Requested(
-                    failure(
-                        FailureKind::IllegalState,
-                        format!("Device {} has been disposed", self.serial),
-                    ),
+                    failure(FailureKind::IllegalState, refusal),
                 )));
             }
             let job = Arc::new(PreparationJob {

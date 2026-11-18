@@ -182,6 +182,8 @@ pub struct Connections {
     pub bridge: Arc<RecordingBridge>,
     pub creates: AtomicUsize,
     pub releases: AtomicUsize,
+    /// D93: leases kept out of use instead of released.
+    pub quarantines: AtomicUsize,
     pub null: std::sync::atomic::AtomicBool,
 }
 impl MacosConnections for Connections {
@@ -199,6 +201,9 @@ impl MacosConnections for Connections {
             self.releases.fetch_add(1, Ordering::SeqCst);
             Ok(())
         })
+    }
+    fn quarantine(&self, _: &Executor) {
+        self.quarantines.fetch_add(1, Ordering::SeqCst);
     }
 }
 pub struct Harness {
@@ -369,8 +374,9 @@ impl Harness {
     }
     /// A udid with a `-` is an arm64e Mac's (`apple_arch`).
     pub fn device_with_udid(&self, udid: &str) -> Arc<MacosDevice> {
+        let commands = marathon_apple::cmd::DeviceCommands::new(self.worker.clone());
         let binary = AppleBinaryEnvironment::new(
-            self.worker.clone(),
+            commands.clone(),
             &self.options.dependencies.configuration,
             self.options.vendor.timeout_configuration.clone(),
             self.options.dependencies.io.clone(),
@@ -380,6 +386,7 @@ impl Harness {
             udid.into(),
             Transport::Local,
             binary,
+            commands,
             self.bridge.clone(),
             self.options.clone(),
         )
@@ -390,6 +397,7 @@ impl Harness {
             bridge: self.bridge.clone(),
             creates: AtomicUsize::new(0),
             releases: AtomicUsize::new(0),
+            quarantines: AtomicUsize::new(0),
             null: std::sync::atomic::AtomicBool::new(false),
         });
         let provider = AppleMacosProvider::new(

@@ -6,6 +6,7 @@ use marathon_error::{AppleKind, FailureKind};
 pub mod base_command;
 pub mod channel;
 pub mod command_session_output;
+pub mod device_commands;
 pub mod line_buffer;
 pub mod local;
 pub mod remote;
@@ -20,6 +21,7 @@ pub mod write_file;
 use crate::extensions::Durations;
 pub use base_command::{BaseCommand, CommandSession, ExitCode, SessionControl, SessionScope};
 pub use command_session_output::consume_output;
+pub use device_commands::{DeviceCommands, Termination};
 use jcompat::jtime::Duration;
 use marathon_core::{
     error::{Cancellation, Failure, VendorError, VendorResult},

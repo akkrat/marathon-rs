@@ -723,6 +723,7 @@ async fn unsupported_sdk_warns_twice_and_disabled_is_silent() -> TestResult {
             marathon_ios::device::simulator_factory::SimulatorConstruction {
                 transport: marathon_config::devices::Transport::Local,
                 executor: h.worker.clone(),
+                commands: marathon_apple::cmd::DeviceCommands::new(h.worker.clone()),
                 bridge: Arc::new(Bridge::default()),
                 bin,
                 record,

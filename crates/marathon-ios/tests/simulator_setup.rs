@@ -137,6 +137,7 @@ async fn construction_does_no_io_and_partial_setup_disposal_keeps_lateinit_failu
         SimulatorConstruction {
             transport: Transport::Local,
             executor: h.worker.clone(),
+            commands: marathon_apple::cmd::DeviceCommands::new(h.worker.clone()),
             bridge: Arc::new(support::BridgeMock),
             bin,
             record,

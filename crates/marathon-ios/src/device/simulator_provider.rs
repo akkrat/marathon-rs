@@ -1202,6 +1202,20 @@ impl AppleSimulatorProvider {
         self.state().monitoring = Some(task);
         Ok(())
     }
+    /// A82, A90 (D74): a simulator's lease is released after its disposal. D93: unless that disposal could not confirm
+    /// that the simulator's work had ended; the lease is then quarantined, so that the connection never closes under that
+    /// work and no other simulator is given it.
+    async fn release_lease(
+        &self,
+        simulator: &Simulator,
+        executor: marathon_apple::device::connection_factory::Executor,
+    ) -> VendorResult<()> {
+        if simulator.quarantined() {
+            self.services.connections.quarantine(&executor);
+            return Ok(());
+        }
+        self.services.connections.release(executor).await
+    }
     async fn terminate_inner(&self) -> VendorResult<()> {
         let _lifecycle = self.lifecycle.lock().await;
         self.log(Level::DEBUG, || "Terminating AppleSimulatorProvider".into(), None);
@@ -1239,7 +1253,7 @@ impl AppleSimulatorProvider {
             let lease = ours(&device.handle).then(|| device.handle.executor());
             dispose_then_release(device.device.0.dispose(), async {
                 match lease {
-                    Some(executor) => self.services.connections.release(executor).await,
+                    Some(executor) => self.release_lease(&device.handle, executor).await,
                     None => Ok(()),
                 }
             })
@@ -1258,7 +1272,7 @@ impl AppleSimulatorProvider {
             std::mem::take(&mut state.replaced)
         };
         for device in replaced.into_iter().filter(|d| ours(d)) {
-            let _ = self.services.connections.release(device.executor()).await;
+            let _ = self.release_lease(&device, device.executor()).await;
         }
         for event in self.events.take() {
             let _ = event.join().await;

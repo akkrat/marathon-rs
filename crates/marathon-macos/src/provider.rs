@@ -38,6 +38,11 @@ pub trait MacosConnections: Send + Sync {
     }
     fn create(&self, transport: Transport, context: VendorContext) -> VendorFuture<'_, (Option<Executor>, Bridge)>;
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()>;
+    /// D93: instead of `release`, for a Mac whose work could not be confirmed to have ended: its use of the connection is
+    /// kept for the rest of the run and never handed to another acquisition. Keeping it is the default.
+    fn quarantine(&self, executor: &Executor) {
+        let _ = executor;
+    }
 }
 impl MacosConnections for Arc<ConnectionFactory> {
     fn transport_log_text(&self, transport: &Transport, local: &str) -> String {
@@ -52,6 +57,9 @@ impl MacosConnections for Arc<ConnectionFactory> {
     }
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()> {
         Box::pin(async move { self.dispose(executor).await })
+    }
+    fn quarantine(&self, executor: &Executor) {
+        ConnectionFactory::quarantine(self, executor)
     }
 }
 pub struct AppleMacosProvider {
@@ -199,8 +207,10 @@ impl AppleMacosProvider {
         context: &VendorContext,
     ) -> VendorResult<Arc<MacosDevice>> {
         let deps = &self.options.dependencies;
+        // D93: every command of the Mac goes through its own handle on the lease, which its disposal can revoke.
+        let commands = marathon_apple::cmd::DeviceCommands::new(executor);
         let binary = AppleBinaryEnvironment::new(
-            executor,
+            commands.clone(),
             &deps.configuration,
             self.options.vendor.timeout_configuration.clone(),
             deps.io.clone(),
@@ -210,7 +220,7 @@ impl AppleMacosProvider {
         if marathon_apple::bin::kt::trim(&udid).is_empty() {
             udid = binary.ioreg.get_udid(context).await?;
         }
-        let device = MacosDevice::new(udid, transport, binary, bridge, self.options.clone());
+        let device = MacosDevice::new(udid, transport, binary, commands, bridge, self.options.clone());
         self.retained
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -248,6 +258,28 @@ impl AppleMacosProvider {
             );
         }
     }
+    /// A89, A82 (D74): a Mac's lease is released after its disposal. D93: unless that disposal could not confirm that the
+    /// Mac's work had ended; the lease is then quarantined, so that the connection never closes under that work.
+    async fn release_after_disposal(&self, device: &MacosDevice) -> VendorResult<()> {
+        if device.quarantined() {
+            self.connections.quarantine(&device.executor());
+            return Ok(());
+        }
+        self.connections.release(device.executor()).await
+    }
+    async fn release_after_disposal_logged(&self, device: &MacosDevice) {
+        let host = device.executor().host().id.clone();
+        if let Err(error) = self.release_after_disposal(device).await
+            && self.options.logging.enabled(&self.logger, Level::ERROR)
+        {
+            (self.options.logging.sink)(
+                &self.logger,
+                Level::ERROR,
+                format!("Failed to release connection to worker {host}"),
+                Some(error.failure().clone()),
+            );
+        }
+    }
     async fn connect(&self, device: Arc<MacosDevice>, _context: &VendorContext) -> VendorResult<()> {
         let previous = {
             let mut devices = self.devices.lock().unwrap_or_else(|e| e.into_inner());
@@ -267,7 +299,7 @@ impl AppleMacosProvider {
                 ),
             );
             let disposed = device.dispose().await;
-            self.release_logged(device.executor()).await;
+            self.release_after_disposal_logged(&device).await;
             return disposed;
         };
         let mut disposed = Ok(());
@@ -280,7 +312,7 @@ impl AppleMacosProvider {
             disposed = previous.dispose().await;
             // D84 (R3-2): not under a preparation the replaced Mac still runs, within its bound.
             let _ = previous.join_preparation().await;
-            self.release_logged(previous.executor()).await;
+            self.release_after_disposal_logged(&previous).await;
             // A107: a failed disposal no longer stops the replacement. The old Mac leaves the registry and the new one
             // is registered and announced; the (fatal) error is returned afterwards, so it still ends the run.
             self.registry.remove(&DeviceRef(previous));
@@ -434,7 +466,7 @@ impl DeviceProvider for AppleMacosProvider {
                 let disposed = device.dispose().await;
                 // D84 (R3-2): not under a preparation the run left running, within the Mac's bound.
                 let _ = device.join_preparation().await;
-                let released = self.connections.release(device.executor()).await;
+                let released = self.release_after_disposal(&device).await;
                 let outcome = disposed.and(released);
                 // M-x69-2: the Mac has left the map and its lease is released, so it leaves the registry too, even on a
                 // fatal disposal.

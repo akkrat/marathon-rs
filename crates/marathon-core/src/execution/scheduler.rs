@@ -570,6 +570,7 @@ impl Inner {
         if let Some(subscription) = subscription {
             subscription.cancel(reason.clone());
         }
+        let mut children = Vec::new();
         let mut devices = Vec::new();
         for pool in &pools {
             let queue = pool.queue.job();
@@ -579,20 +580,32 @@ impl Inner {
                     continue;
                 }
                 if let Some((_, device)) = actors.iter().find(|(job, _)| Rc::ptr_eq(job, &child)) {
-                    let cleanup = device.0.begin_stop().map(|cleanup| {
-                        let vendor = self.parts.core.vendor();
-                        self.parts.core.spawn_cleanup(Box::new(move |_| {
-                            Box::pin(async move {
-                                crate::executor::bridge::call_vendor(vendor.as_ref(), Signal::new(), move |_| cleanup)
-                                    .await
-                                    .map_err(vendor_to_operation)
-                            })
-                        }))
-                    });
-                    devices.push((child.clone(), device.clone(), cleanup));
+                    devices.push((child.clone(), device.clone()));
                 }
-                child.cancel(reason.clone());
+                children.push(child);
             }
+        }
+        // D93: every device starts its one window for ending its work, together, and D92: its vendor cleanup is started,
+        // before any actor's cancel reaches it.
+        let devices: Vec<StoppingDevice> = devices
+            .into_iter()
+            .map(|(child, device)| {
+                device.0.seal_for_stop();
+                let cleanup = device.0.begin_stop().map(|cleanup| {
+                    let vendor = self.parts.core.vendor();
+                    self.parts.core.spawn_cleanup(Box::new(move |_| {
+                        Box::pin(async move {
+                            crate::executor::bridge::call_vendor(vendor.as_ref(), Signal::new(), move |_| cleanup)
+                                .await
+                                .map_err(vendor_to_operation)
+                        })
+                    }))
+                });
+                (child, device, cleanup)
+            })
+            .collect();
+        for child in &children {
+            child.cancel(reason.clone());
         }
         let routine = self.parts.core.spawn_cleanup(Box::new(move |_| {
             Box::pin(async move {
@@ -619,29 +632,32 @@ impl Inner {
     ) {
         let clock = self.parts.core.clock();
         let timer = self.parts.core.job(JobKind::Ordinary, None);
-        for (job, device, cleanup) in devices {
-            // The device's cancelled call, then what the vendor keeps running after it (R3-2: an Apple preparation),
-            // both within the device's one bound.
-            let vendor = self.parts.core.vendor();
-            let held = device.0.clone();
-            let ended = async move {
-                let _ = job.join().await;
-                if let Some(cleanup) = cleanup {
-                    let _ = cleanup.join().await;
-                } else {
-                    let _ = crate::executor::bridge::call_vendor(vendor.as_ref(), Signal::new(), move |_| {
-                        Box::pin(async move { held.join_cancelled_work().await })
-                    })
-                    .await;
-                }
-            };
-            match device.0.cancellation_cleanup_millis() {
-                None => ended.await,
-                Some(bound) => {
-                    let limit = bound.saturating_add(STOP_MARGIN_MILLIS);
-                    let left = started.saturating_add(limit).saturating_sub(clock.now_millis()).max(0);
-                    if let Either::Right(_) = race(ended, clock.delay(left, timer.clone())).await {
-                        self.log(
+        // D93: all devices together, so that one device's wait does not delay the stop of another's work.
+        let joins = devices.into_iter().map(|(job, device, cleanup)| {
+            let (clock, timer) = (clock.clone(), timer.clone());
+            async move {
+                // The device's cancelled call, then its vendor cleanup (D92) or what the vendor keeps running after it
+                // (R3-2: an Apple preparation; D93: the Apple device's one receipt), within the device's one bound.
+                let vendor = self.parts.core.vendor();
+                let held = device.0.clone();
+                let ended = async move {
+                    let _ = job.join().await;
+                    if let Some(cleanup) = cleanup {
+                        let _ = cleanup.join().await;
+                    } else {
+                        let _ = crate::executor::bridge::call_vendor(vendor.as_ref(), Signal::new(), move |_| {
+                            Box::pin(async move { held.join_cancelled_work().await })
+                        })
+                        .await;
+                    }
+                };
+                match device.0.cancellation_cleanup_millis() {
+                    None => ended.await,
+                    Some(bound) => {
+                        let limit = bound.saturating_add(STOP_MARGIN_MILLIS);
+                        let left = started.saturating_add(limit).saturating_sub(clock.now_millis()).max(0);
+                        if let Either::Right(_) = race(ended, clock.delay(left, timer.clone())).await {
+                            self.log(
                             Level::ERROR,
                             format!(
                                 "Device {} did not stop within {} ms of the run's stop; finishing the run without it",
@@ -650,10 +666,12 @@ impl Inner {
                             ),
                             None,
                         );
+                        }
                     }
                 }
             }
-        }
+        });
+        futures_util::future::join_all(joins).await;
         timer.cancel(requested("The devices have stopped"));
         for pool in &pools {
             let barrier = crate::execution::pool_message::DrainBarrier(SharedDeferred::new());

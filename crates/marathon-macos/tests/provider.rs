@@ -706,8 +706,10 @@ impl marathon_core::runtime::VendorClock for NotifyJoin {
         millis: i64,
         body: marathon_core::runtime::VendorTimeoutBody<'a>,
     ) -> marathon_core::runtime::VendorFuture<'a, Option<()>> {
+        // D93: the disposal's wait, for what is left of its window before the force reserve (65 s of 70 s).
         if self.watching.load(Ordering::SeqCst)
-            && Some(millis) == marathon_macos::device::CANCELLED_BATCH_TIMEOUT.to_millis()
+            && millis > 60_000
+            && Some(millis) <= marathon_macos::device::CANCELLED_BATCH_TIMEOUT.to_millis()
         {
             self.entered.notify_one();
         }
@@ -920,14 +922,17 @@ async fn termination_does_not_release_a_lease_under_a_running_preparation_d84() 
     release.notify_one();
     v(tokio::time::timeout(std::time::Duration::from_secs(60), terminating).await??)?;
     assert_eq!(c.releases.load(Ordering::SeqCst), 1);
-    v(device.join_pending().await)?;
+    assert_eq!(c.quarantines.load(Ordering::SeqCst), 0);
+    // D93: the termination stopped the preparation, which ended with that stop when its held command returned.
+    assert!(matches!(device.join_pending().await, Err(VendorError::Cancelled(_))));
     Ok(())
 }
 
 /// D84, review round 3 (R3-2): the wait is bounded by the Mac's own bound for a cancelled call
-/// (`cancelled_batch_timeout`); past it, termination logs that it stopped waiting and releases the lease.
+/// (`cancelled_batch_timeout`); past it, termination logs that it stopped waiting. D93: and, the preparation not having
+/// ended, quarantines the lease rather than releasing it under the preparation (before: released).
 #[tokio::test]
-async fn termination_stops_waiting_for_a_preparation_after_the_macs_bound_d84() -> R {
+async fn termination_stops_waiting_for_a_preparation_after_the_macs_bound_and_keeps_its_lease_d93() -> R {
     let mut h = Harness::new("")?;
     Arc::make_mut(&mut h.options.vendor).devices_file = None;
     h.options.cancelled_batch_timeout = jcompat::jtime::duration_of(0, 300_000_000).unwrap();
@@ -951,17 +956,29 @@ async fn termination_stops_waiting_for_a_preparation_after_the_macs_bound_d84() 
     signal.cancel(marathon_apple::cmd::cancelled("the run is stopping"));
     assert!(matches!(prepare.await?, Err(VendorError::Cancelled(_))));
     v(tokio::time::timeout(std::time::Duration::from_secs(60), p.terminate()).await?)?;
-    assert_eq!(c.releases.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        c.releases.load(Ordering::SeqCst),
+        0,
+        "the lease was released under a running preparation"
+    );
+    assert_eq!(c.quarantines.load(Ordering::SeqCst), 1);
+    let warnings: Vec<_> = h
+        .logs
+        .take()
+        .into_iter()
+        .filter(|record| record.level == marathon_logging::Level::WARN)
+        .map(|record| record.message.to_owned())
+        .collect();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(
-        h.logs
-            .take()
-            .iter()
-            .any(|record| record.message.contains("has not finished within")
-                && record.message.contains("Preparation of")),
-        "the expired wait was not logged"
+        warnings[0].contains("has not finished within 0.3 s") && warnings[0].contains("its preparation has not ended"),
+        "{warnings:?}"
     );
     release.notify_one();
-    v(tokio::time::timeout(std::time::Duration::from_secs(60), device.join_pending()).await?)?;
+    assert!(matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(60), device.join_pending()).await?,
+        Err(VendorError::Cancelled(_))
+    ));
     Ok(())
 }
 
