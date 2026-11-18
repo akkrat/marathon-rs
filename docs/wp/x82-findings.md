@@ -229,6 +229,24 @@ are unchanged. Audit: no other test in `pool_scheduler.rs` or `run_supervision.r
 moment (the other cancels are not raced against a gate; the channel cancels in `run_supervision` are the failures
 themselves).
 
+### x82b review (Sol 6.2): two P2s
+
+1. *An owner's cancel during cleanup could turn a failed run green.* With all tests passed, the owner cancels the run
+   while the provider terminates, and the provider then fails its device channel: the cancel suppressed the late
+   failure (U215), and the decision point accepted the stored success. Fix: at the decision point, a recorded cause
+   wins; otherwise a run its owner (the job `run_under` was given) or a signal cancelled ends cancelled, whatever it
+   stored. Witness `run_supervision::an_owner_cancel_during_the_finish_never_ends_the_run_green_d84` (its own small
+   driver, which owns the run): `false` without `ignoreFailures`; on 3a7a789f the run passed (see below for d5b0181d).
+2. *Equal failure values defeated cancellation precedence.* `fail` told the subscription's own propagation from a
+   request by comparing the cancellation's failure with the cause. Fix: no comparison at all: the subscription task is
+   scoped, so its failure never cancels the run's task (it reaches the run only through `fail`, which stops it and
+   records the cause), and any cancellation of the run's task is therefore a request. Witness: the D68 test's
+   `BeforeAnEqualFailure` case (the owner cancels with exactly `IllegalState: track failed`).
+
+Revert checks (scratch copy, these tests on the older product): on 3a7a789f both witnesses fail (the owner-cancel run
+passed; the equal-value cancel recorded the failure). On d5b0181d the owner-cancel witness passes: before U215 the late
+failure was recorded, so 0f1122a7 introduced item 1 and this round closes it.
+
 ## Gate (remote Linux): the round-5 signal witness made event-driven
 
 The gate failed `run_supervision::a_signal_while_the_run_settles_keeps_the_reports_first_d84` on Linux. Cause: the
