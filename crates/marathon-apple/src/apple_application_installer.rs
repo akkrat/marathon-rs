@@ -56,6 +56,9 @@ pub struct AppleApplicationInstaller<'a> {
     code_coverage: bool,
     /// D87: whether a retry of the transfer may start; by default always.
     may_retry: &'a (dyn Fn() -> bool + Send + Sync),
+    /// D87: whether the next step (the test root, the after-install hook, an extra application) may start; by default
+    /// always.
+    may_continue: &'a (dyn Fn() -> bool + Send + Sync),
 }
 fn always() -> bool {
     true
@@ -80,6 +83,7 @@ impl<'a> AppleApplicationInstaller<'a> {
             owned_hook: None,
             code_coverage: false,
             may_retry: &always,
+            may_continue: &always,
         }
     }
     pub fn with_after_install(mut self, hook: &'a dyn AfterInstall) -> Self {
@@ -103,6 +107,7 @@ impl<'a> AppleApplicationInstaller<'a> {
             owned_hook: None,
             code_coverage: false,
             may_retry: &always,
+            may_continue: &always,
         }
     }
     pub fn with_owned_after_install(mut self, hook: Arc<dyn AfterInstall>) -> Self {
@@ -118,6 +123,19 @@ impl<'a> AppleApplicationInstaller<'a> {
     pub fn with_retry_gate(mut self, may_retry: &'a (dyn Fn() -> bool + Send + Sync)) -> Self {
         self.may_retry = may_retry;
         self
+    }
+    /// D87: the installation starts each of its later steps (the test root, the after-install hook, each extra
+    /// application) only while `may_continue` says so; one that may not start ends the installation with an error,
+    /// which the caller, already failing for another reason, does not report. A step in progress is never stopped.
+    pub fn with_step_gate(mut self, may_continue: &'a (dyn Fn() -> bool + Send + Sync)) -> Self {
+        self.may_continue = may_continue;
+        self
+    }
+    fn next_step(&self, step: &str) -> FactoryResult<()> {
+        match (self.may_continue)() {
+            true => Ok(()),
+            false => Err(setup(format!("the preparation has stopped before {step}")).into()),
+        }
     }
     fn log(&self, level: Level, message: String) {
         self.logging.log(&self.logger, level, || message.to_owned(), None);
@@ -238,6 +256,7 @@ impl<'a> AppleApplicationInstaller<'a> {
             }
             remote
         };
+        self.next_step("the test root")?;
         self.device_log("Generating test root for ", device);
         let name = binary.file_name().and_then(|n| n.to_str()).unwrap_or_default();
         let mut parts = bundle.relative_binary_path();
@@ -255,6 +274,7 @@ impl<'a> AppleApplicationInstaller<'a> {
             .with_code_coverage(coverage)
             .generate(test_type, &bundle, use_xctest_parser, context)
             .await?;
+        self.next_step("the after-install step")?;
         self.owned_hook
             .as_deref()
             .unwrap_or(self.hook)
@@ -269,6 +289,7 @@ impl<'a> AppleApplicationInstaller<'a> {
                 ))
                 .into());
             }
+            self.next_step("an extra application")?;
             let local = extra.clone();
             let shown = extra.to_string_lossy().into_owned();
             let name = shown.to_owned();

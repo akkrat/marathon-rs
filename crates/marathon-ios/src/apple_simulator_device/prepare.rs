@@ -209,9 +209,13 @@ impl AppleSimulatorDevice {
             }),
             ..context.clone()
         };
+        // D87: set once one half has failed for want of time (a boot out of time, a transfer retry refused). The other
+        // half, left to finish what it is doing, starts no further step.
+        let halted = std::sync::atomic::AtomicBool::new(false);
+        let may_continue = || !halted.load(std::sync::atomic::Ordering::SeqCst);
         let installation = async {
             let start = self.timing.elapsed()?;
-            let installer = AppleSimulatorApplicationInstaller::new(self);
+            let installer = AppleSimulatorApplicationInstaller::new(self).with_step_gate(&may_continue);
             match installer.prepare_installation(&installation_ctx).await {
                 Ok(()) => {}
                 Err(error) if installer.refused() => return Err(PrepareError::Refused(error)),
@@ -223,13 +227,23 @@ impl AppleSimulatorDevice {
         };
         let simulator = async {
             let start = self.timing.elapsed()?;
-            self.handle_lifecycle(&self.services.vendor.lifecycle_configuration.on_prepare, &simulator_ctx)
-                .await?;
-            self.disable_hardware_keyboard(&simulator_ctx).await?;
-            self.boot_for_preparation(&simulator_ctx).await?;
-            AppleSimulatorMediaImporter::new(self)
-                .import_media(&simulator_ctx)
-                .await?;
+            // D87: halted, it starts nothing more; its result is then not reported.
+            if may_continue() {
+                self.handle_lifecycle(&self.services.vendor.lifecycle_configuration.on_prepare, &simulator_ctx)
+                    .await?;
+            }
+            if may_continue() {
+                self.disable_hardware_keyboard(&simulator_ctx).await?;
+            }
+            if may_continue() {
+                self.boot_for_preparation(&simulator_ctx, &may_continue).await?;
+            }
+            if may_continue() {
+                AppleSimulatorMediaImporter::new(self)
+                    .with_step_gate(&may_continue)
+                    .import_media(&simulator_ctx)
+                    .await?;
+            }
             Ok::<_, PrepareError>(self.timing.elapsed()?.wrapping_sub(start))
         };
         tokio::pin!(installation, simulator);
@@ -237,13 +251,13 @@ impl AppleSimulatorDevice {
             result = &mut installation => match result {
                 Ok(time) => (time, simulator.await?),
                 // D87: a retry the deadline refused stops nothing beside it; the boot ends on its own first.
-                Err(error @ PrepareError::Refused(_)) => { let _ = simulator.await; return Err(error.settled()); },
+                Err(error @ PrepareError::Refused(_)) => { halted.store(true, std::sync::atomic::Ordering::SeqCst); let _ = simulator.await; return Err(error.settled()); },
                 Err(error) => { simulator_signal.cancel(cancelled("Preparation sibling failed")); let _ = simulator.await; return Err(error); },
             },
             result = &mut simulator => match result {
                 Ok(time) => (installation.await.map_err(PrepareError::settled)?, time),
                 // D87: the installation runs on; a transfer in progress ends as it would.
-                Err(PrepareError::OutOfTime(reason)) => return Err(terminal_transfer(installation.await).unwrap_or(PrepareError::Boot(reason))),
+                Err(PrepareError::OutOfTime(reason)) => { halted.store(true, std::sync::atomic::Ordering::SeqCst); return Err(terminal_transfer(installation.await).unwrap_or(PrepareError::Boot(reason))); },
                 Err(error) => { installation_signal.cancel(cancelled("Preparation sibling failed")); return Err(terminal_transfer(installation.await).unwrap_or(error.settled())); },
             },
             reason = context.cancellation.cancelled() => {

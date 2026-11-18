@@ -67,9 +67,11 @@ impl AppleSimulatorDevice {
     fn nanos(&self, label: &'static str) -> VendorResult<i64> {
         self.services.monotonic.nanos(label).map_err(clock_error)
     }
+    /// `may_continue`: D87, whether the second attempt may start; false once the preparation is failing beside it.
     pub(super) async fn boot_for_preparation(
         &self,
         context: &VendorContext,
+        may_continue: &(dyn Fn() -> bool + Send + Sync),
     ) -> Result<(), super::prepare::PrepareError> {
         use super::prepare::PrepareError;
         let pause = self.services.timeouts.boot_retry_pause_millis;
@@ -116,7 +118,7 @@ impl AppleSimulatorDevice {
                 return Err(out_of_time());
             }
             context.clock.delay(pause, context.cancellation.clone()).await?;
-            if !self.may_start_command(bound, 0, self.state_read_cost()) {
+            if !self.may_start_command(bound, 0, self.state_read_cost()) || !may_continue() {
                 return Err(out_of_time());
             }
         }

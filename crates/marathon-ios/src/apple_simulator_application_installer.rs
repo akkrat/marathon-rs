@@ -14,13 +14,24 @@ pub struct AppleSimulatorApplicationInstaller<'a> {
     device: &'a AppleSimulatorDevice,
     /// D87: whether the deadline refused a retry of a transfer.
     refused: std::sync::atomic::AtomicBool,
+    /// D87: whether the installation may start its next step.
+    may_continue: &'a (dyn Fn() -> bool + Send + Sync),
+}
+fn always() -> bool {
+    true
 }
 impl<'a> AppleSimulatorApplicationInstaller<'a> {
     pub fn new(device: &'a AppleSimulatorDevice) -> Self {
         Self {
             device,
             refused: std::sync::atomic::AtomicBool::new(false),
+            may_continue: &always,
         }
+    }
+    /// D87: the installation starts each later step only while `may_continue` says so.
+    pub fn with_step_gate(mut self, may_continue: &'a (dyn Fn() -> bool + Send + Sync)) -> Self {
+        self.may_continue = may_continue;
+        self
     }
     /// D87: whether the installation's failure is one whose retry the preparation's deadline refused to start.
     pub fn refused(&self) -> bool {
@@ -41,6 +52,7 @@ impl<'a> AppleSimulatorApplicationInstaller<'a> {
             .with_code_coverage(services.configuration.is_code_coverage_enabled)
             .with_after_install(self)
             .with_retry_gate(&may_retry)
+            .with_step_gate(self.may_continue)
             .prepare_installation(self.device, false, context)
             .await
             .map_err(|e| e.into_vendor())
