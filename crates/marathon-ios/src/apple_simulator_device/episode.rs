@@ -1,21 +1,29 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorDevice.kt
 //!
 //! D87: one deadline for a simulator's preparation, from its device actor's first attempt through the boot attempts of
-//! every preparation and the recoveries that set it up again after a failed boot, so that these retries cannot multiply.
+//! every preparation and the recoveries (and their setup retries) that set it up again after a failed boot, so that
+//! these retries cannot multiply. The deadline only refuses to start work: nothing in progress is stopped by it, a
+//! transfer least of all (D54). The one shortened wait is a replacement's second boot attempt, which ends where its
+//! shutdown still fits.
 
 use super::*;
 use jcompat::jtime::Duration;
 
-/// A preparation that has not ended in a ready simulator. It passes from a simulator that failed to boot to the one its
-/// recovery sets up in its place.
+/// A preparation that has not ended in a ready simulator. It passes from a simulator that failed to boot to the setups
+/// its recovery makes in its place.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PreparationEpisode {
     /// On the run's vendor clock (`services.context.clock`).
     deadline: i64,
-    /// Whether a recovery handed it to a replacement. Only a replacement's boots are held to the deadline: the first
-    /// preparation's two fit in it by construction, unless something before them took long (waiting for the artifacts of
-    /// a predecessor, say), and a single failed boot there keeps its second attempt as before.
+    /// Whether a recovery handed it to a replacement. The first preparation's boots are as they were; a replacement's
+    /// first boot is a whole one too, and only its second is held to the deadline.
     replacement: bool,
+}
+impl PreparationEpisode {
+    /// D87's one test: whether a new attempt, retry or replacement may start at `now`, on the vendor clock.
+    pub fn may_start(&self, now: i64) -> bool {
+        now < self.deadline
+    }
 }
 
 fn millis(duration: Duration) -> i64 {
@@ -23,7 +31,7 @@ fn millis(duration: Duration) -> i64 {
 }
 
 impl AppleSimulatorDevice {
-    fn vendor_now(&self) -> i64 {
+    pub(super) fn vendor_now(&self) -> i64 {
         self.services.context.clock.now_millis()
     }
     /// One preparation with both boot attempts running to their limits: 2 × (`bootWait` + `boot` + `shutdown` +
@@ -41,6 +49,12 @@ impl AppleSimulatorDevice {
     pub fn boot_reserve_millis(&self) -> i64 {
         let t = &self.services.vendor.timeout_configuration;
         millis(t.shutdown).saturating_add(millis(t.shell))
+    }
+    /// What a held boot attempt keeps before the deadline: the shutdown's limit, and the most a command cut at the end of
+    /// its wait takes to end over SSH (D30: TERM, KILL after 20 s, then CLOSE, 30 s in all).
+    fn held_boot_reserve_millis(&self) -> i64 {
+        self.boot_reserve_millis()
+            .saturating_add(marathon_apple::cmd::remote::ssh::sshj::client::TIMEOUT_MILLIS)
     }
     /// The device actor's start: continues the episode this simulator took over, or opens one.
     pub(super) fn open_preparation(&self, configuration: &Configuration) -> i64 {
@@ -65,33 +79,19 @@ impl AppleSimulatorDevice {
             ..episode
         });
     }
-    /// Millis left in the unfinished episode; negative once its deadline has passed.
-    pub fn preparation_left_millis(&self) -> Option<i64> {
-        let episode = self.state().episode?;
-        Some(episode.deadline.saturating_sub(self.vendor_now()))
-    }
     pub(super) fn finish_preparation(&self) {
         self.state().episode = None;
     }
-    /// The left of a replacement's episode, if this simulator is one.
-    fn replacement_left_millis(&self) -> Option<i64> {
+    /// Whether a new attempt or retry of this simulator's preparation may start `after` ms from now. Without an
+    /// unfinished episode, always.
+    pub fn may_start_attempt(&self, after: i64) -> bool {
+        let episode = self.state().episode;
+        episode.is_none_or(|e| e.may_start(self.vendor_now().saturating_add(after)))
+    }
+    /// Where a replacement's held boot attempt must end its wait, on the vendor clock; `None` for a simulator that is not
+    /// a replacement, whose boots are whole.
+    pub(super) fn held_boot_end(&self) -> Option<i64> {
         let episode = self.state().episode.filter(|e| e.replacement)?;
-        Some(episode.deadline.saturating_sub(self.vendor_now()))
-    }
-    /// How long a boot attempt may wait for the simulator: `None` for the whole of `bootWait` (not a replacement), else
-    /// what is left with the reserve for its shutdown kept. Zero or less means no time is left for one.
-    pub(super) fn boot_window_millis(&self) -> Option<i64> {
-        Some(
-            self.replacement_left_millis()?
-                .saturating_sub(self.boot_reserve_millis()),
-        )
-    }
-    /// Whether a replacement's boot attempt after `pause_millis` would still have time to wait, with the reserve.
-    pub(super) fn time_for_another_boot(&self, pause_millis: i64) -> bool {
-        self.replacement_left_millis().is_none_or(|left| {
-            left.saturating_sub(pause_millis)
-                .saturating_sub(self.boot_reserve_millis())
-                > 0
-        })
+        Some(episode.deadline.saturating_sub(self.held_boot_reserve_millis()))
     }
 }

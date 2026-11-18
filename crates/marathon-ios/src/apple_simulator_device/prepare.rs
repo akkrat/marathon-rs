@@ -13,6 +13,9 @@ use marathon_error::{AppleKind, FailureKind};
 #[derive(Clone)]
 pub(super) enum PrepareError {
     Boot(String),
+    /// D87: a boot that failed because the preparation's time ran out: a held attempt, or one refused. As `Boot`, but
+    /// the installation beside it is left to finish rather than cancelled, so that the deadline never stops a transfer.
+    OutOfTime(String),
     Vendor(VendorError),
 }
 impl From<VendorError> for PrepareError {
@@ -77,7 +80,7 @@ impl AppleSimulatorDevice {
                         .await
                         .map_err(|error| match error {
                             PrepareError::Vendor(error) => error,
-                            PrepareError::Boot(message) => {
+                            PrepareError::Boot(message) | PrepareError::OutOfTime(message) => {
                                 VendorError::Other(failure(FailureKind::Apple(AppleKind::Boot), message))
                             }
                         })
@@ -121,7 +124,7 @@ impl AppleSimulatorDevice {
                 }
                 return Err(error);
             }
-            Err(PrepareError::Boot(reason)) => {
+            Err(PrepareError::Boot(reason) | PrepareError::OutOfTime(reason)) => {
                 self.mark_lost();
                 return Err(VendorError::LeavePool {
                     reason: LeavePoolReason::NotBooted,
@@ -209,6 +212,8 @@ impl AppleSimulatorDevice {
             },
             result = &mut simulator => match result {
                 Ok(time) => (installation.await?, time),
+                // D87: the installation runs on; a transfer in progress ends as it would.
+                Err(PrepareError::OutOfTime(reason)) => { let _ = installation.await; return Err(PrepareError::Boot(reason)); },
                 Err(error) => { installation_signal.cancel(cancelled("Preparation sibling failed")); let _ = installation.await; return Err(error); },
             },
             reason = context.cancellation.cancelled() => {

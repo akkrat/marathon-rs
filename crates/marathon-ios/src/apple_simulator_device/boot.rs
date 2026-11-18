@@ -71,11 +71,13 @@ impl AppleSimulatorDevice {
         &self,
         context: &VendorContext,
     ) -> Result<(), super::prepare::PrepareError> {
+        use super::prepare::PrepareError;
+        let pause = self.services.timeouts.boot_retry_pause_millis;
         for attempt in 1..=2 {
+            // D87: a replacement's second attempt is held to its preparation's deadline; every other boot is whole.
+            let bound = if attempt == 2 { self.held_boot_end() } else { None };
             let started = self.nanos("ios.AppleSimulatorDevice.bootForPreparation")?;
-            // D87: a replacement's boot waits only for what is left of the preparation's time.
-            let window = self.boot_window_millis();
-            let Some(failure) = self.boot_failure(context, window).await? else {
+            let Some(failure) = self.boot_failure(context, bound).await? else {
                 return Ok(());
             };
             let suffix = format!(
@@ -97,28 +99,78 @@ impl AppleSimulatorDevice {
             );
             self.shutdown_after_failed_boot(context).await?;
             if attempt == 2 {
-                return Err(super::prepare::PrepareError::Boot(format!(
-                    "it failed to boot: {reason}"
-                )));
+                let reason = format!("it failed to boot: {reason}");
+                return Err(match bound {
+                    Some(_) => PrepareError::OutOfTime(reason),
+                    None => PrepareError::Boot(reason),
+                });
             }
-            // D87: no second attempt that would have no time left to wait once the pause is over.
-            if !self.time_for_another_boot(self.services.timeouts.boot_retry_pause_millis) {
-                return Err(super::prepare::PrepareError::Boot(format!(
+            // D87: no held attempt that could not start after the pause.
+            let out_of_time = || {
+                PrepareError::OutOfTime(format!(
                     "it failed to boot: {reason}, and its preparation time has run out"
-                )));
+                ))
+            };
+            if self
+                .held_boot_end()
+                .is_some_and(|end| self.vendor_now().saturating_add(pause) >= end)
+            {
+                return Err(out_of_time());
             }
-            context
-                .clock
-                .delay(
-                    self.services.timeouts.boot_retry_pause_millis,
-                    context.cancellation.clone(),
-                )
-                .await?;
+            context.clock.delay(pause, context.cancellation.clone()).await?;
+            if self.held_boot_end().is_some_and(|end| self.vendor_now() >= end) {
+                return Err(out_of_time());
+            }
         }
         Ok(())
     }
-    /// `window`: D87's limit on the wait, in millis, when it is shorter than `bootWait`; zero or less boots nothing.
-    async fn boot_failure(&self, context: &VendorContext, window: Option<i64>) -> VendorResult<Option<String>> {
+    /// D87: `work`, cut when the vendor clock reaches `bound`; `None` if it was cut or the bound has passed. Without a
+    /// bound, `work` as it is.
+    async fn within<'a, T: Send + 'a>(
+        &'a self,
+        bound: Option<i64>,
+        context: &'a VendorContext,
+        work: impl FnOnce(VendorContext) -> VendorFuture<'a, T> + Send + 'a,
+    ) -> VendorResult<Option<T>> {
+        let Some(bound) = bound else {
+            return work(context.clone()).await.map(Some);
+        };
+        let left = bound.saturating_sub(self.vendor_now());
+        if left <= 0 {
+            return Ok(None);
+        }
+        let slot = std::sync::Mutex::new(None);
+        let result = &slot;
+        let done = context
+            .clock
+            .with_timeout_or_null(
+                context.cancellation.clone(),
+                left,
+                Box::new(move |signal| {
+                    Box::pin(async move {
+                        let ctx = VendorContext {
+                            cancellation: signal,
+                            ..context.clone()
+                        };
+                        let value = work(ctx).await?;
+                        *result.lock().unwrap_or_else(|e| e.into_inner()) = Some(value);
+                        Ok(())
+                    })
+                }),
+            )
+            .await?;
+        Ok(done.and_then(|()| slot.into_inner().unwrap_or_else(|e| e.into_inner())))
+    }
+    /// The simulator's state, read within `bound`.
+    async fn state_within(&self, bound: Option<i64>, context: &VendorContext) -> VendorResult<Option<SimulatorState>> {
+        self.within(bound, context, |ctx| {
+            Box::pin(async move { self.simulator_state(&ctx).await })
+        })
+        .await
+    }
+    /// `bound`: D87's end of a held attempt's wait, on the vendor clock. Every read, probe and `simctl boot` of the
+    /// attempt is cut there, so that the shutdown after it starts with its reserve intact.
+    async fn boot_failure(&self, context: &VendorContext, bound: Option<i64>) -> VendorResult<Option<String>> {
         let wait = self.services.vendor.timeout_configuration.boot_wait;
         let started = self.nanos("ios.AppleSimulatorDevice.nanoTime")?;
         let nanos = wait
@@ -126,54 +178,63 @@ impl AppleSimulatorDevice {
             .checked_mul(1_000_000_000)
             .and_then(|n| n.checked_add(wait.nanos()))
             .ok_or_else(|| VendorError::Other(failure(FailureKind::Arithmetic, "long overflow")))?;
-        let window = window.filter(|millis| millis.saturating_mul(1_000_000) < nanos);
-        let nanos = window.map_or(nanos, |millis| millis.max(0).saturating_mul(1_000_000));
-        let waited = || match window {
-            Some(millis) => format!("the {millis} ms left of its preparation time"),
-            None => wait.to_string(),
-        };
         let deadline = started.saturating_add(nanos);
+        let out_of_time = |state: Option<SimulatorState>| {
+            Some(format!(
+                "it has not booted within its preparation time, its state is {}",
+                state.map_or("not read", |s| s.name())
+            ))
+        };
         // D79: a simulator seen booting (device.plist state 3) that later reads Shutdown was shut down or
         // crashed and will not boot by itself, so the wait ends there as a failed attempt instead of at
         // `bootWait`. Shutdown before the first Booting read (e.g. a device.plist not yet rewritten after
         // `simctl boot`, or a Creating simulator) keeps the Kotlin wait.
         let mut seen_booting = false;
-        let first = self.simulator_state(context).await?;
-        if first != SimulatorState::Booted && window.is_some_and(|millis| millis <= 0) {
-            return Ok(Some(format!(
-                "its preparation time has run out, its state is {}",
-                first.name()
-            )));
-        }
+        let Some(first) = self.state_within(bound, context).await? else {
+            return Ok(out_of_time(None));
+        };
         match first {
             SimulatorState::Booted => return Ok(None),
             SimulatorState::Creating => {}
             SimulatorState::Booting => seen_booting = true,
             SimulatorState::Shutdown => {
-                if let Err(error) = self.bin.xcrun.simctl.simulator.boot(&self.udid, &[], context).await {
-                    if error.failure().kind != FailureKind::Apple(AppleKind::Command) {
-                        return Err(error);
-                    }
-                    let now = self.simulator_state(context).await?;
-                    seen_booting = now == SimulatorState::Booting;
-                    if !matches!(now, SimulatorState::Booting | SimulatorState::Booted) {
-                        return Ok(Some(format!(
-                            "simctl boot failed ({}), its state is {}",
-                            error
-                                .failure()
-                                .message
-                                .as_ref()
-                                .map(|s| s.to_owned().lines().map(str::trim).collect::<Vec<_>>().join(" "))
-                                .unwrap_or_else(|| "null".into()),
-                            now.name()
-                        )));
+                let booted = self
+                    .within(bound, context, |ctx| {
+                        Box::pin(async move { self.bin.xcrun.simctl.simulator.boot(&self.udid, &[], &ctx).await })
+                    })
+                    .await;
+                match booted {
+                    Ok(Some(_)) => {}
+                    Ok(None) => return Ok(out_of_time(Some(first))),
+                    Err(error) => {
+                        if error.failure().kind != FailureKind::Apple(AppleKind::Command) {
+                            return Err(error);
+                        }
+                        let Some(now) = self.state_within(bound, context).await? else {
+                            return Ok(out_of_time(None));
+                        };
+                        seen_booting = now == SimulatorState::Booting;
+                        if !matches!(now, SimulatorState::Booting | SimulatorState::Booted) {
+                            return Ok(Some(format!(
+                                "simctl boot failed ({}), its state is {}",
+                                error
+                                    .failure()
+                                    .message
+                                    .as_ref()
+                                    .map(|s| s.to_owned().lines().map(str::trim).collect::<Vec<_>>().join(" "))
+                                    .unwrap_or_else(|| "null".into()),
+                                now.name()
+                            )));
+                        }
                     }
                 }
             }
             SimulatorState::Unknown => return Ok(Some("its state is UNKNOWN".into())),
         }
         loop {
-            let state = self.simulator_state(context).await?;
+            let Some(state) = self.state_within(bound, context).await? else {
+                return Ok(out_of_time(None));
+            };
             if state == SimulatorState::Booted {
                 self.log(Level::DEBUG, format!("Device {} booted!", self.udid), None);
                 return Ok(None);
@@ -188,20 +249,22 @@ impl AppleSimulatorDevice {
             let left = deadline.saturating_sub(self.nanos("ios.AppleSimulatorDevice.nanoTime")?);
             if left <= 0 {
                 return Ok(Some(format!(
-                    "it has not booted within {}, its state is {}",
-                    waited(),
+                    "it has not booted within {wait}, its state is {}",
                     state.name()
                 )));
             }
+            let held = bound.map(|end| end.saturating_sub(self.vendor_now()));
+            if held.is_some_and(|held| held <= 0) {
+                return Ok(out_of_time(Some(state)));
+            }
+            let pause = self
+                .services
+                .timeouts
+                .boot_poll_interval_millis
+                .min(left.saturating_add(999_999) / 1_000_000);
             context
                 .clock
-                .delay(
-                    self.services
-                        .timeouts
-                        .boot_poll_interval_millis
-                        .min(left.saturating_add(999_999) / 1_000_000),
-                    context.cancellation.clone(),
-                )
+                .delay(held.map_or(pause, |held| pause.min(held)), context.cancellation.clone())
                 .await?;
             self.log(Level::DEBUG, format!("Device {} is still booting...", self.udid), None);
         }
