@@ -718,12 +718,15 @@ impl Device for MacosDevice {
             let done = SharedDeferred::new();
             {
                 // U210: registered under the lock that disposal installs itself with, so a disposed Mac starts no
-                // preparation, and `join_preparation` after a disposal sees every preparation there is.
+                // preparation, and `join_preparation` after a disposal sees every preparation there is. A cancellation,
+                // as iOS refuses a disposed simulator's (U179): the device actor does not retry it.
                 let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
                 if execution.disposal.is_some() {
-                    return Err(lost(failure(
-                        FailureKind::IllegalState,
-                        format!("Device {} has been disposed", self.serial.to_owned()),
+                    return Err(VendorError::Cancelled(marathon_core::error::Cancellation::Requested(
+                        failure(
+                            FailureKind::IllegalState,
+                            format!("Device {} has been disposed", self.serial.to_owned()),
+                        ),
                     )));
                 }
                 execution.preparation = Some(done.clone());

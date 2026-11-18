@@ -967,7 +967,8 @@ async fn termination_stops_waiting_for_a_preparation_after_the_macs_bound_d84() 
 
 /// U210: a Mac's preparation that begins only after termination has disposed of it (a late device actor) starts nothing:
 /// the disposed Mac refuses it under the lock its disposal took, so termination's wait for preparations, which ran before
-/// it, has missed none, and no installation runs on a Mac whose lease is released.
+/// it, has missed none, and no installation runs on a Mac whose lease is released. The refusal is a cancellation, which
+/// the device actor does not retry.
 #[tokio::test]
 async fn a_preparation_after_the_macs_disposal_starts_nothing_u210() -> R {
     let mut h = Harness::new("")?;
@@ -990,7 +991,7 @@ async fn a_preparation_after_the_macs_disposal_starts_nothing_u210() -> R {
     )
     .await;
     assert!(
-        matches!(&prepared, Err(VendorError::DeviceLost(f)) if f.to_string().contains("has been disposed")),
+        matches!(&prepared, Err(VendorError::Cancelled(reason)) if reason.failure().to_string().contains("has been disposed")),
         "{prepared:?}"
     );
     assert_eq!(
