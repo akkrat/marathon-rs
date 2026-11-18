@@ -86,10 +86,19 @@ impl AppleSimulatorDevice {
         let episode = self.state().episode;
         episode.is_none_or(|e| e.may_start(self.vendor_now().saturating_add(after)))
     }
-    /// Where a replacement's held boot attempt must have ended, its commands run to their limits, so that the shutdown
-    /// after it still fits before the deadline; `None` for a simulator that is not a replacement, whose boots are whole.
+    /// Where a replacement's held boot attempt must have ended, its commands run to their worst cases, so that the shutdown
+    /// after it, its own commands at their worst too, still ends by the deadline; `None` for a simulator that is not a
+    /// replacement, whose boots are whole.
     pub(super) fn held_boot_end(&self) -> Option<i64> {
         let episode = self.state().episode.filter(|e| e.replacement)?;
-        Some(episode.deadline.saturating_sub(self.boot_reserve_millis()))
+        Some(episode.deadline.saturating_sub(self.shutdown_worst_case_millis()))
+    }
+    /// D87: the most the shutdown after a failed boot can take: its descriptor read (`shell`) and `simctl shutdown`
+    /// (`shutdown`), each at its worst, from asking for its SSH channel to D30's escalation. Its own limit, `shutdown` +
+    /// `shell`, ends the wait for them, but not the commands, which end through their own limits.
+    fn shutdown_worst_case_millis(&self) -> i64 {
+        let t = &self.services.vendor.timeout_configuration;
+        let worst = |d: Duration| marathon_apple::cmd::remote::ssh::sshj::client::command_worst_case_millis(millis(d));
+        worst(t.shell).saturating_add(worst(t.shutdown))
     }
 }
