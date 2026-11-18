@@ -2563,8 +2563,9 @@ simulator whose xcodebuild may be running. Each SSH connection logs its first se
 with debug off.
 
 The replacement takes new leases. Existing leases continue to use their own connection, which closes after its last
-lease is released. Each shared transport has two generation slots. A closing SSH transport keeps its slot until the
-socket ends. When both slots are occupied, acquisitions may reuse the current generation and can rotate it on a later
+lease is released. Each shared transport has two generation slots. An observed transport loss or closure frees the slot
+immediately, even while the socket is still being torn down. A queued local disconnect holds the slot while the transport
+is still open. When both slots are occupied, acquisitions may reuse the current generation and can rotate it on a later
 acquisition after a slot frees. If no current generation is available, an acquisition waits up to the SSH reply limit
 (30 s) for a slot and then reports the worker unreachable if both slots are still held. The same factory is used by iOS
 and macOS. iOS can use the replacement on its existing setup or recovery path.

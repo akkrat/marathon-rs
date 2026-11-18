@@ -64,7 +64,8 @@ The section for a version becomes the text of its GitHub release, which carries 
 - **A saturated shared Apple worker can take new devices (D90, U172):** when an abandoned SSH session is followed by
   a session-capacity refusal, the next connection acquisition can open a replacement. Existing sessions keep running
   on their original connection, which closes after its last lease is released. Each shared worker transport has at most
-  two live generations. A refusal without abandonment keeps the current connection.
+  two live generations. If the replacement also fills after an abandonment while the first connection still has leases,
+  preparation can still fail until a generation slot frees. A refusal without abandonment keeps the current connection.
 
 ## 0.14.0
 

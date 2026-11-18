@@ -19,6 +19,8 @@ the transport ends. This makes the slot exhaustion reproducible with two session
   refusal makes that generation eligible for replacement. OpenSSH uses `SSH2_OPEN_CONNECT_FAILED` when `session_open`
   fails at `MaxSessions`. [OpenSSH channel-open code](https://github.com/openssh/openssh-portable/blob/master/serverloop.c),
   [OpenSSH session limits](https://github.com/openssh/openssh-portable/blob/master/session.c).
+- The abandonment flag stays set after a late CLOSE. If the peer has already freed the abandoned session's slot, an
+  ordinary later `MaxSessions` refusal can still rotate that generation once, subject to the two-generation cap.
 - A refusal without a preceding D30 abandonment keeps the current generation. A low configured session limit can
   produce ordinary contention. Replacing connections in response would turn that contention into repeated logins. Each
   connection logs its first session-open refusal at WARN, including with debug off. The existing error and `safe_execute`
@@ -27,10 +29,11 @@ the transport ends. This makes the slot exhaustion reproducible with two session
   acquisitions wait for that attempt. A health check pins the old lease while it runs and checks that the executor is
   still current before handing it out. Handshake and close I/O run outside the lock. The retained acquire path still
   releases a lease whose caller cancels or drops before accepting it.
-- Two permits per transport bound the number of shared generations. For real SSH the client handler keeps the permit
-  until the transport ends, including while a queued disconnect is still being sent. At the cap a current executor can
-  still be leased. If there is no current executor, a pending acquisition waits up to 30 s for a permit. A failed
-  replacement leaves the old leases usable and lets a later acquisition retry under the existing provider policies.
+- Two permits per transport bound the number of live shared generations. Observing transport loss or handle closure
+  releases the permit before socket teardown and prevents late lease registration from taking it back. A queued local
+  disconnect keeps its permit until closure or loss is observed. At the cap a current executor can still be leased.
+  If there is no current executor, a pending acquisition waits up to 30 s for a permit. A failed replacement leaves the
+  old leases usable and lets a later acquisition retry under the existing provider policies.
 - Each old lease stays bound to its own executor until released. The old connection is closed once, on the last release.
   Active sessions and connection-loss notifications stay bound to that executor. D30 still retires the simulator that
   abandoned its batch. iOS can acquire the replacement during D33/D44 setup. macOS uses the same connection factory and
@@ -47,6 +50,10 @@ the transport ends. This makes the slot exhaustion reproducible with two session
 - `connection_factory::rotation_shares_one_handshake_and_counts_a_closing_generation_d90` gates a health check, the
   replacement handshake and the old executor's close. Concurrent acquisitions must share the replacement, the delayed
   health check must not hand out the retired executor, and a closing generation must still count against the cap.
+- `connection_factory::two_lost_shared_transports_allow_a_third_connection_before_teardown_d90` reports two transport
+  losses with both SSH reapers paused. The third acquisition completes before either old socket closes. On `5ce89875`
+  the test times out waiting for a generation slot. The fix passed 50 consecutive runs and one run under load from four
+  CPU workers.
 - In a scratch worktree at `d5b0181d`, with the test and fake-worker fault copied in, the wire witness failed at the
   rotation assertion. The factory witness failed in the scratch worktree after disabling the rotation decision, when
   an acquisition went back to the saturated executor. Both witnesses passed 50 consecutive runs and one run under load

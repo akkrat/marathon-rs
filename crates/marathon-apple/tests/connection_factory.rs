@@ -7,7 +7,10 @@ use jcompat::JavaRegex;
 use marathon_apple::{
     cmd::{
         CommandExecutor, CommandHost, CommandRequest, CommandSession, failure,
-        remote::ssh::sshj::{DisconnectReason, SshFailure, config::SshLogging, error::*},
+        remote::ssh::sshj::{
+            DisconnectReason, SshCommandExecutor, SshFailure, SshjCommandExecutorFactory, config::SshLogging, error::*,
+            known_hosts::PromiscuousVerifier,
+        },
     },
     device::{connection_factory::*, connection_failures::is_transient_connection_failure},
     logparser::parser::*,
@@ -16,13 +19,17 @@ use marathon_config::{
     devices::Transport,
     vendor::{RsyncConfiguration, SshAuthentication, SshConfiguration},
 };
-use marathon_core::{error::VendorError, runtime::VendorFuture, vendor::VendorContext};
+use marathon_core::{
+    error::{VendorError, VendorResult},
+    runtime::{VendorFuture, VendorRuntime, VendorTask, VendorTaskBody},
+    vendor::VendorContext,
+};
 use std::sync::{
     Arc, Condvar, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use support::{Clock, Runtime, duration, ssh};
-use tokio::sync::Semaphore;
+use tokio::sync::{Semaphore, watch};
 fn worker(name: &str) -> Transport {
     Transport::Ssh {
         addr: name.into(),
@@ -397,6 +404,137 @@ async fn a_lost_shared_connection_is_replaced_and_closed_after_its_last_user() {
     f.dispose(next3).await.unwrap();
     done(&f).await;
 }
+
+struct PausedSshTasks(watch::Sender<bool>);
+impl VendorRuntime for PausedSshTasks {
+    fn spawn(&self, body: VendorFuture<'static, ()>) -> Arc<dyn VendorTask> {
+        let mut resume = self.0.subscribe();
+        Runtime.spawn(Box::pin(async move {
+            let _ = resume.wait_for(|ready| *ready).await;
+            body.await
+        }))
+    }
+    fn spawn_cancellable(&self, body: VendorTaskBody) -> Arc<dyn VendorTask> {
+        Runtime.spawn_cancellable(body)
+    }
+    fn spawn_blocking(&self, body: Box<dyn FnOnce() -> VendorResult<()> + Send>) -> Arc<dyn VendorTask> {
+        Runtime.spawn_blocking(body)
+    }
+}
+
+struct LoopbackConnector {
+    port: u16,
+    ssh: Arc<SshjCommandExecutorFactory>,
+    opened: Arc<Mutex<Vec<Arc<SshCommandExecutor>>>>,
+}
+impl Connector for LoopbackConnector {
+    fn prepare(&self, _: Transport) -> ConnectionFuture<'_, PreparedConnection> {
+        let (port, ssh, opened) = (self.port, self.ssh.clone(), self.opened.clone());
+        Box::pin(async move {
+            let connect: PreparedConnection = Box::new(move || {
+                Box::pin(async move {
+                    // Run the handshake here so the test can pause the SSH reaper without pausing acquisitions.
+                    let connected = ssh
+                        .connect_with(
+                            || ssh.create_client("127.0.0.1", port, Arc::new(PromiscuousVerifier), false),
+                            "127.0.0.1",
+                            port,
+                            ssh::password(),
+                        )
+                        .await?;
+                    let config = connected.client.config.loggers.config.clone();
+                    let connection = connected.client.into_connection()?;
+                    let executor = Arc::new(SshCommandExecutor::new(
+                        connected.host,
+                        connection,
+                        ssh.channel_capacity,
+                        config,
+                    ));
+                    opened.lock().unwrap().push(executor.clone());
+                    Ok(executor as Executor)
+                })
+            });
+            Ok(connect)
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_lost_shared_transports_allow_a_third_connection_before_teardown_d90()
+-> Result<(), Box<dyn std::error::Error>> {
+    support::watchdog(async {
+        let wire = ssh::fake(ssh::suite_script(), 2).await;
+        let (logging, _) = ssh::logging(false);
+        let resume = watch::channel(false).0;
+        let mut ssh = SshjCommandExecutorFactory::new(
+            logging.clone(),
+            Arc::new(PausedSshTasks(resume.clone())),
+            Arc::new(Clock::default()),
+        );
+        ssh.keep_alive_interval = duration(0);
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let factory = ConnectionFactory::with_seams(
+            false,
+            config(true),
+            rsync(),
+            duration(1000),
+            DEFAULT_MAX_CONCURRENT_CONNECTS,
+            Arc::new(Runtime),
+            Arc::new(ssh::ScaledClock::new(30)),
+            logging,
+            Arc::new(LoopbackConnector {
+                port: wire.port(),
+                ssh: Arc::new(ssh),
+                opened: opened.clone(),
+            }),
+            Arc::new(Probe),
+        )
+        .map_err(|error| format!("{error:?}"))?;
+        let transport = Transport::Ssh {
+            addr: "127.0.0.1".into(),
+            port: i32::from(wire.port()),
+            authentication: None,
+            check_reachability: false,
+        };
+        let acquire = || async {
+            factory
+                .connect_worker(transport.clone(), support::context())
+                .await
+                .map_err(|error| format!("{error:?}"))
+        };
+        let mut leases = Vec::new();
+        for index in 0..2 {
+            leases.push(acquire().await?);
+            let executor = opened.lock().unwrap()[index].clone();
+            // The keep-alive reports loss this way. The gate leaves both sockets connected on the worker.
+            assert!(executor.connection().shared.die(SshFailure::transport(
+                DisconnectReason::ConnectionLost,
+                "fixture transport loss"
+            )));
+            assert!(!executor.connected());
+        }
+        let third = acquire().await;
+        assert_eq!(wire.events("connection_end").await.len(), 0);
+        leases.push(third.map_err(|error| format!("a known loss must free its slot before teardown: {error}"))?);
+        assert_eq!(wire.events("connection").await.len(), 3);
+
+        resume.send_replace(true);
+        for lease in leases {
+            factory
+                .dispose(lease)
+                .await
+                .map_err(|error| error.failure().to_string().to_owned())?;
+        }
+        factory
+            .join_pending()
+            .await
+            .map_err(|error| error.failure().to_string().to_owned())?;
+        wire.worker.shutdown().await.map_err(|error| error.to_string())?;
+        Ok(())
+    })
+    .await
+}
+
 async fn checked(lost: bool, other: bool) {
     let (f, c) = factory(true, 8);
     let e = get(&f, "a").await;

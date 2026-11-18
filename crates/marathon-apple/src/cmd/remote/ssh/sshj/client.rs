@@ -93,7 +93,7 @@ pub struct ConnectionShared {
 enum SharedSlot {
     Unassigned,
     Held { _permit: OwnedSemaphorePermit },
-    TransportEnded,
+    Released,
 }
 
 impl ConnectionShared {
@@ -144,6 +144,9 @@ impl ConnectionShared {
             *slot = SharedSlot::Held { _permit: permit };
         }
     }
+    fn release_shared_slot(&self) {
+        *self.shared_slot.lock().unwrap_or_else(|e| e.into_inner()) = SharedSlot::Released;
+    }
     /// The most unread bytes any stream of this connection has held, for tests that must reach the cap.
     #[cfg(feature = "test-support")]
     pub fn peak_unread(&self) -> usize {
@@ -177,22 +180,31 @@ impl ConnectionShared {
     }
     /// `TransportImpl.disconnect` suppresses the `Dying` line for a local close.
     fn set_death(&self, cause: SshFailure, log_cause: bool, closed_locally: bool) -> bool {
-        {
+        let first = {
             let mut death = self.death.lock().unwrap_or_else(|e| e.into_inner());
             if death.is_some() {
-                return false;
+                false
+            } else {
+                // sshj logs before notifying promises. Keep the cause private too: a channel whose russh
+                // queue closes concurrently must not retrieve it and log its wake-up ahead of this line.
+                if log_cause {
+                    self.loggers.dying(&cause);
+                }
+                // Under the lock and before `dead`: nobody sees this death without knowing whose it was.
+                self.closed_locally.store(closed_locally, Ordering::SeqCst);
+                *death = Some(cause);
+                true
             }
-            // sshj logs before notifying promises. Keep the cause private too: a channel whose russh
-            // queue closes concurrently must not retrieve it and log its wake-up ahead of this line.
-            if log_cause {
-                self.loggers.dying(&cause);
-            }
-            // Under the lock and before `dead`: nobody sees this death without knowing whose it was.
-            self.closed_locally.store(closed_locally, Ordering::SeqCst);
-            *death = Some(cause);
+        };
+        // A known loss frees capacity before russh can finish flushing the socket. A healthy local close
+        // only queues DISCONNECT, so it continues to count until we observe the handle close or the handler drop.
+        if !closed_locally {
+            self.release_shared_slot();
         }
-        self.dead.send_replace(true);
-        true
+        if first {
+            self.dead.send_replace(true);
+        }
+        first
     }
     /// The error a channel or request receives when the transport is gone.
     pub fn channel_failure(&self) -> SshFailure {
@@ -232,8 +244,7 @@ pub struct ClientHandler {
 }
 impl Drop for ClientHandler {
     fn drop(&mut self) {
-        // The russh session owns the handler through socket shutdown. Local close only queues DISCONNECT.
-        *self.shared.shared_slot.lock().unwrap_or_else(|e| e.into_inner()) = SharedSlot::TransportEnded;
+        self.shared.release_shared_slot();
     }
 }
 impl client::Handler for ClientHandler {
@@ -903,7 +914,11 @@ pub struct SshConnection {
 impl SshConnection {
     /// `SSHClient.isConnected`: the transport is alive.
     pub fn is_connected(&self) -> bool {
-        !self.shared.is_dead() && !self.handle.is_closed()
+        if self.handle.is_closed() {
+            self.shared.release_shared_slot();
+            return false;
+        }
+        !self.shared.is_dead()
     }
     pub fn handle(&self) -> HandleRef {
         self.handle_ref.clone()

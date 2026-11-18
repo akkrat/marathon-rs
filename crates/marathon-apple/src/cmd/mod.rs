@@ -129,7 +129,7 @@ pub trait CommandExecutor: Send + Sync {
     fn shared_ssh_is_saturated(&self) -> bool {
         false
     }
-    /// D90: real SSH holds the slot until the socket ends, even after `close` has queued a disconnect.
+    /// D90: real SSH holds the slot until transport loss or closure is observed.
     fn hold_shared_ssh_slot(
         &self,
         slot: tokio::sync::OwnedSemaphorePermit,
