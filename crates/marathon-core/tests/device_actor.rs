@@ -778,3 +778,106 @@ fn returning_a_batch_projects_its_diagnostic_but_preserves_reason_data_x56_r1() 
         assert!(!message.contains("LazyDeferredCoroutine") && !message.contains("MILLISECONDS"));
     }
 }
+
+// ---- D87: one deadline for a preparation ---------------------------------------------------
+
+/// Attempts that each fail after `fail_after` millis on a device whose episode has `left` millis.
+fn slow_failures(left: Option<i64>, fail_after: i64) -> Outcome {
+    scenario(PoolMode::Open, move |run| {
+        Box::pin(async move {
+            let prepare = prepare_script(move |context| async move {
+                context.clock.delay(fail_after, context.cancellation.clone()).await?;
+                Err(VendorError::DeviceSetup(ise("install timed out")))
+            });
+            run.start(ScriptedDevice::with_preparation_time(
+                Stub::default(),
+                Some(prepare),
+                None,
+                left,
+            ));
+            run.send(DeviceEvent::Initialize);
+            run.run_current().await;
+            run.advance_until_idle().await;
+        })
+    })
+}
+
+fn terminated_at(outcome: &Outcome) -> Option<i64> {
+    outcome.entries.iter().find_map(|e| match e {
+        Entry::Pool {
+            at,
+            message: FromDevice::Terminated(_),
+            ..
+        } => Some(*at),
+        _ => None,
+    })
+}
+
+/// D87: attempts that fail after 60 s each, in an episode of 200 s, start at 0, 70 and 140 s; a fourth would start at
+/// 210 s, after the deadline, so the device leaves when the third fails, at 200 s, instead of after 30 attempts.
+#[test]
+fn slow_failing_preparations_stop_at_the_preparation_deadline_d87() {
+    let outcome = slow_failures(Some(200_000), 60_000);
+    assert_eq!(outcome.calls.0, 3, "{:?}", texts(&outcome));
+    assert_eq!(outcome.describe(), ["Terminated"]);
+    assert_eq!(terminated_at(&outcome), Some(200_000));
+    let cut: Vec<_> = texts(&outcome)
+        .into_iter()
+        .filter(|t| t.contains("not retrying"))
+        .collect();
+    assert_eq!(
+        cut,
+        [
+            "Warn Device serial-1 is not prepared within its preparation time of 200000 ms, not retrying after 3 attempts"
+        ]
+    );
+}
+
+/// Without a deadline the same failures make Kotlin's 30 attempts: the vendors without an envelope keep that.
+#[test]
+fn slow_failing_preparations_without_a_deadline_make_thirty_attempts_d87() {
+    let outcome = slow_failures(None, 60_000);
+    assert_eq!(outcome.calls.0, 30);
+    assert_eq!(terminated_at(&outcome), Some(30 * 60_000 + 29 * 10_000));
+}
+
+/// A retry that starts before the deadline runs, whatever is left after it starts: an attempt in progress is never
+/// stopped by the deadline. Here the second attempt starts at 70 s, 10 s before an 80 s deadline, and fails at 130 s.
+#[test]
+fn an_attempt_that_starts_before_the_deadline_runs_to_its_end_d87() {
+    let outcome = slow_failures(Some(80_001), 60_000);
+    assert_eq!(outcome.calls.0, 2);
+    assert_eq!(terminated_at(&outcome), Some(130_000));
+}
+
+/// A single transient failure is retried as before when the episode has time left.
+#[test]
+fn a_transient_preparation_failure_is_still_retried_within_the_deadline_d87() {
+    let outcome = scenario(PoolMode::Open, |run| {
+        Box::pin(async move {
+            let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let prepare = prepare_script(move |_| {
+                let attempt = attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                async move {
+                    if attempt == 0 {
+                        Err(VendorError::DeviceSetup(ise("adb offline")))
+                    } else {
+                        Ok(())
+                    }
+                }
+            });
+            run.start(ScriptedDevice::with_preparation_time(
+                Stub::default(),
+                Some(prepare),
+                None,
+                Some(180_000),
+            ));
+            run.send(DeviceEvent::Initialize);
+            run.run_current().await;
+            run.advance_until_idle().await;
+        })
+    });
+    assert_eq!(outcome.calls.0, 2);
+    assert_eq!(outcome.describe(), ["IsReady"]);
+    assert!(!texts(&outcome).iter().any(|t| t.contains("not retrying")));
+}

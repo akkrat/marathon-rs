@@ -189,9 +189,20 @@ pub struct ScriptedDevice {
     time_counter: AtomicI64,
     pub prepares: AtomicUsize,
     pub executes: AtomicUsize,
+    /// D87: what `preparation_time_left_millis` answers.
+    preparation_time: Option<i64>,
 }
 impl ScriptedDevice {
     pub fn new(stub: Stub, prepare: Option<PrepareScript>, execute: Option<ExecuteScript>) -> Arc<Self> {
+        Self::with_preparation_time(stub, prepare, execute, None)
+    }
+    /// D87: a device whose preparation episode has `left` millis.
+    pub fn with_preparation_time(
+        stub: Stub,
+        prepare: Option<PrepareScript>,
+        execute: Option<ExecuteScript>,
+        left: Option<i64>,
+    ) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
             me: me.clone(),
             logger: LogSettings::default().component("StubDevice"),
@@ -202,6 +213,7 @@ impl ScriptedDevice {
             time_counter: AtomicI64::new(0),
             prepares: AtomicUsize::new(0),
             executes: AtomicUsize::new(0),
+            preparation_time: left,
         })
     }
     pub fn stub(stub: Stub) -> Arc<Self> {
@@ -344,6 +356,9 @@ impl Device for ScriptedDevice {
     }
     fn dispose(&self) -> VendorFuture<'_, ()> {
         Box::pin(async { Ok(()) })
+    }
+    fn preparation_time_left_millis(&self, _configuration: &Configuration) -> Option<i64> {
+        self.preparation_time
     }
 }
 
