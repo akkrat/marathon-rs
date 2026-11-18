@@ -122,13 +122,12 @@ impl AppleSimulatorDevice {
         }
         Ok(())
     }
-    /// D87: the most a command limited to `timeout` takes to end: its timeout, then over SSH D30's escalation (TERM, KILL
-    /// after 20 s, CLOSE), 30 s in all.
+    /// D87: the most a command limited to `timeout` takes to end, from asking for its channel to D30's escalation; the
+    /// one measure every check of a held attempt uses.
     fn command_cost(timeout: jcompat::jtime::Duration) -> i64 {
-        timeout
-            .to_millis()
-            .unwrap_or(i64::MAX)
-            .saturating_add(marathon_apple::cmd::remote::ssh::sshj::client::TIMEOUT_MILLIS)
+        marathon_apple::cmd::remote::ssh::sshj::client::command_worst_case_millis(
+            timeout.to_millis().unwrap_or(i64::MAX),
+        )
     }
     /// A state read: the descriptor read and, on a booting simulator, the readiness probe, each under `shell`.
     fn state_read_cost(&self) -> i64 {

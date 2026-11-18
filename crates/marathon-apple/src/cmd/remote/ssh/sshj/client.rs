@@ -33,6 +33,12 @@ pub type SshFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, SshFailure>> +
 
 /// sshj `Connection.getTimeoutMs()` / `Transport.getTimeoutMs()`.
 pub const TIMEOUT_MILLIS: i64 = 30_000;
+/// D87: the most a worker command limited to `timeout_millis` can take before it has ended: opening its SSH channel and
+/// the acknowledgment of its exec, each within [`TIMEOUT_MILLIS`]; its own timeout; then D30's escalation (TERM, KILL
+/// after 20 s, CLOSE), within [`TIMEOUT_MILLIS`] too. A local command ends sooner.
+pub fn command_worst_case_millis(timeout_millis: i64) -> i64 {
+    TIMEOUT_MILLIS.saturating_mul(3).saturating_add(timeout_millis)
+}
 pub const TIMEOUT_TEXT: &str = "30000 MILLISECONDS";
 /// sshj's default local window and maximum packet size (`ConnectionImpl`), also russh's.
 pub const WINDOW_SIZE: u32 = 2_097_152;
