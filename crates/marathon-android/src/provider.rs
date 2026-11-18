@@ -173,12 +173,14 @@ impl AdamDeviceProvider {
         let this = self.clone();
         let task = runtime.dependencies.io.spawn_cancellable(Box::new(move |signal| {
             Box::pin(async move {
-                let result = this
-                    .monitor(VendorContext {
-                        cancellation: signal,
-                        ..context
-                    })
-                    .await;
+                let stopped = signal.clone();
+                let result = std::panic::AssertUnwindSafe(this.monitor(VendorContext {
+                    cancellation: signal,
+                    ..context
+                }))
+                .catch_unwind()
+                .await
+                .unwrap_or_else(|payload| Err(VendorError::Other(marathon_core::executor::panic_failure(payload))));
                 if let Err(e) = &result
                     && !matches!(e, VendorError::Cancelled(_))
                 {
@@ -187,6 +189,14 @@ impl AdamDeviceProvider {
                         "Task stopped due to unrecoverable error",
                         Some(e.failure()),
                     );
+                }
+                // U211 (D88): the monitor is the only source of device events and the only one to release a batch held
+                // by an outage or a grace period (D22, D41). If it ends for any reason but the provider's termination,
+                // the device channel fails with the cause, which ends the run (D84) instead of leaving it waiting.
+                if let Err(e) = &result
+                    && stopped.reason().is_none()
+                {
+                    this.inner.channel.close(Some(e.failure().clone()));
                 }
                 result
             })
@@ -249,7 +259,14 @@ impl AdamDeviceProvider {
                             ..context
                         };
                         // Each server keeps its own state: a failure here never reaches another server's task (D18).
-                        if let Err(e) = this.track_server(client, &tx, context).await {
+                        // U211: a panic is such a failure too, rather than a server whose tracking ends unseen.
+                        let tracked = std::panic::AssertUnwindSafe(this.track_server(client, &tx, context))
+                            .catch_unwind()
+                            .await
+                            .unwrap_or_else(|payload| {
+                                Err(VendorError::Other(marathon_core::executor::panic_failure(payload)))
+                            });
+                        if let Err(e) = tracked {
                             let _ = tx.send(Err(e));
                         }
                         Ok(())
@@ -281,6 +298,10 @@ impl AdamDeviceProvider {
                             }
                             continue;
                         };
+                        // Never with an acknowledgement to drop (x86, item 6): a recovery's replacement is sent by its
+                        // server's tracking task, which then sends nothing until it has the answer, and a recovery whose
+                        // device a list showed as anything but `device` was cancelled there and sends none, so the
+                        // state read here is from a list that showed it as `device`.
                         if tracker.get_state(&serial) != Some(DeviceState::Device) {
                             continue;
                         }
@@ -405,12 +426,25 @@ impl AdamDeviceProvider {
                                 .hooks
                                 .instant("core.Track.trackProviderDevicePreparing")
                                 .map_err(|e| other(FailureKind::ReplayClock, e.message))?;
-                            self.inner
+                            // U211 (D51): analytics never stop device tracking; only the monitor's own cancellation
+                            // ends it here.
+                            if let Err(error) = self
+                                .inner
                                 .runtime
                                 .dependencies
                                 .tracker
                                 .device_provider_init(&device.serial_number(), start, finish)
-                                .await?;
+                                .await
+                            {
+                                if let Some(reason) = context.cancellation.reason() {
+                                    return Err(VendorError::Cancelled(reason));
+                                }
+                                self.log(
+                                    Level::WARN,
+                                    &format!("Tracking the setup of device {serial} failed; device tracking goes on"),
+                                    Some(error.failure()),
+                                );
+                            }
                         }
                         TrackingUpdate::Disconnected => {
                             // D24: dropped from the map, so borrow cannot hand it out once disposed (N27).

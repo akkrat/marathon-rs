@@ -1139,3 +1139,123 @@ fn loopback_start_server_retries_version_after_fake_binary() {
         })
     });
 }
+/// A tracker whose `device_provider_init` fails, or panics; its other calls succeed.
+struct FailingProviderInit {
+    panics: bool,
+}
+impl marathon_core::wiring::Tracker for FailingProviderInit {
+    fn device_connected<'a>(
+        &'a self,
+        _: &'a marathon_core::model::DevicePoolId,
+        _: &'a marathon_core::model::DeviceInfo,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+    fn device_disconnected<'a>(
+        &'a self,
+        _: &'a marathon_core::model::DevicePoolId,
+        _: &'a marathon_core::model::DeviceInfo,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+    fn device_provider_init<'a>(
+        &'a self,
+        _: &'a str,
+        _: jcompat::jtime::Instant,
+        _: jcompat::jtime::Instant,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        let panics = self.panics;
+        Box::pin(async move {
+            if panics {
+                panic!("U211 probe: the tracker panicked");
+            }
+            Err(VendorError::Other(marathon_core::executor::shared::failure(
+                FailureKind::IllegalState,
+                "U211 probe: the tracker failed",
+            )))
+        })
+    }
+    fn device_preparing<'a>(
+        &'a self,
+        _: &'a str,
+        _: jcompat::jtime::Instant,
+        _: jcompat::jtime::Instant,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+    fn test<'a>(
+        &'a self,
+        _: &'a marathon_core::model::DevicePoolId,
+        _: &'a marathon_core::model::DeviceInfo,
+        _: &'a marathon_core::model::TestResult,
+        _: bool,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+}
+fn with_tracker(
+    runtime: &std::sync::Arc<marathon_android::services::AndroidRuntime>,
+    port: u16,
+    panics: bool,
+) -> std::sync::Arc<marathon_android::services::AndroidRuntime> {
+    let mut runtime = change_runtime(runtime, &[port]);
+    std::sync::Arc::get_mut(&mut runtime).unwrap().dependencies.tracker =
+        std::sync::Arc::new(FailingProviderInit { panics });
+    runtime
+}
+/// U211 (D51): the analytics call made for each connected device used to end device tracking when it failed, so nothing
+/// read adb's list any more: a disconnect went unseen, and a batch held by an outage or a grace period waited for ever. It
+/// is now logged, and tracking goes on.
+#[test]
+fn a_failing_tracker_does_not_end_device_tracking_u211() {
+    let _ports = shared_ports();
+    run(configuration(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(base_script(27, vec![])).await;
+            let provider = AdamDeviceProvider::new(with_tracker(&runtime, server.port(), false))?;
+            provider.initialize(context).await?;
+            assert!(matches!(event(&provider).await, DeviceEvent::Connected(_)));
+            logcat_streams(&[(&server, 1)]).await;
+            checked(server.disconnect_device("emulator-5554"));
+            assert!(matches!(event(&provider).await, DeviceEvent::Disconnected(_)));
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// U211 (D88): device monitoring that ends for any reason but the provider's termination, here on a panic, used to
+/// leave the device channel open, and the run waited for events that could no longer come. The channel now fails with the
+/// cause, which ends the run (D84).
+#[test]
+fn device_monitoring_that_ends_fails_the_device_channel_u211() {
+    let _ports = shared_ports();
+    run(configuration(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(base_script(27, vec![])).await;
+            let provider = AdamDeviceProvider::new(with_tracker(&runtime, server.port(), true))?;
+            provider.initialize(context).await?;
+            let channel = provider.subscribe();
+            let failure = checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                    loop {
+                        match channel.receive().await {
+                            Ok(Some(_)) => continue,
+                            Ok(None) => panic!("the device channel closed without a cause"),
+                            Err(error) => return error,
+                        }
+                    }
+                })
+                .await,
+            );
+            assert_eq!(
+                failure.failure().message.as_deref(),
+                Some("U211 probe: the tracker panicked"),
+                "{failure:?}"
+            );
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
