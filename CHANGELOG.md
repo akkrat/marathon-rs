@@ -2,82 +2,13 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
-## 0.14.0-rc.2
+## 0.14.0
 
-Second release candidate of 0.14.0. It contains everything in 0.14.0-rc.1 (see its section in CHANGELOG.md), plus fixes for
-what that candidate's real-device runs found and Android code coverage for non-debuggable apps, with the approved
-differences D78–D81. Upgrading from 0.13.0 needs the checks in 0.14.0-rc.1's "Check before you upgrade", and also:
-
-- **JUnit `flakyFailure` (D78):** a passed test lists only its runs that did not pass. A step that counted these
-  elements as extra runs should read `test_result/raw.json`.
-- **iOS videos and durations (D80):** with video recording on a remote worker, tests after the first of a batch now keep
-  their videos and real durations, so reports can show more videos and longer times than before.
-- **Android coverage (D81):** with `isCodeCoverageEnabled: true`, each instrumentation writes its coverage file under the
-  app's external files directory instead of its private data, without `run-as`, so a non-debuggable app now produces
-  coverage. The `.ec` files land in `device-files/<pool>/coverage/` as before, one per instrumentation
-  (`coverage-<batch>.ec`, then `coverage-<batch>-2.ec` for a second instrumentation of the batch). A missing coverage
-  file is an ERROR but does not change the exit code. Each test's result file and Allure list the file as a `COVERAGE`
-  attachment with its absolute path on the machine that ran marathon; a tool reading a copied output folder joins the
-  part after `/device-files/` onto its copy (see D81 in the deviations guide).
-
-### Reports
-
-- **JUnit no longer lists a passed test's passing runs as `flakyFailure` (D78):** a test that passed every run, for
-  example all runs of `flakinessStrategy: {type: fixed, count: N}`, had an empty `flakyFailure` element per extra run,
-  so JUnit tools showed a stable test as flaky. A passed test now lists only its runs that did not pass, with their
-  stack traces; a failed test's `rerunFailure` elements are unchanged. A CI step that counted `flakyFailure` elements
-  as the number of extra runs should read `test_result/raw.json`, which lists every run.
-
-### iOS and macOS
-
-- iOS: a simulator that is shut down or crashes while marathon waits for it to boot, once it has been seen booting, is
-  booted again within a poll and the 10 s retry pause, not after `bootWait` (240 s by default). A simulator that stays booting is still waited for until `bootWait`,
-  and the readiness-probe times under the known limits are unchanged (D79).
-- **iOS videos and durations survive a slow worker link (D80):** with video recording on, a test's recorder stop,
-  transcode and pull no longer hold back the handling of the batch's next test. Before, a slow transfer could leave the
-  next test without a video and with a reported duration of 0 (JUnit `time`, result file, `raw.json`, HTML), and the
-  recorder stop alone shortened each following test's duration by a few seconds on a remote worker (U201). Videos are
-  still all pulled and attached before the batch is reported.
-
-### Logs
-
-- Clearer log lines, with no change to results or exit codes: a signal or the end of a run during device preparation
-  is one WARN line (`Device preparation has been cancelled`) instead of an ERROR that repeated its message; an Android
-  batch that fails in an `offline` the device does not return from says the device was disconnected, not that it is
-  kept, and names the device; and a file pull cut off by an offline or lost device says so instead of blaming the
-  device's sync support.
-
-### Android
-
-- **Code coverage works for a non-debuggable app (D81):** with `isCodeCoverageEnabled: true`, coverage used to be
-  written to the app's private data and copied out with `run-as`, which only a debuggable app allows; a non-debuggable
-  app's run passed with no coverage and no warning. Each instrumentation now writes
-  `<external storage>/Android/data/<app>/files/coverage/coverage-<batch>.ec` (`-2`, `-3` … for further instrumentations
-  of the batch), which marathon prepares and pulls without `run-as` into `device-files/<pool>/coverage/` as before. A
-  coverage file that is missing or cannot be pulled is an ERROR naming the batch, with the exit code unchanged, and each
-  test's result file and Allure list its instrumentation's file as a `COVERAGE` attachment.
-
-### Evidence
-
-- 0.14.0-rc.1 ran on real hosts before these changes: the static Linux build on two API 36 Android emulators (adb server
-  killed and an emulator lost mid-batch, brief `offline`, SIGTERM, and D71, D72 and D77 on the real runner), and the
-  macOS build on this project's Mac with iOS 18.6 and 26.4 simulators and macOS tests, locally and over SSH to a second
-  Mac as a real worker. Healthy runs gave the same per-test outcomes and report data as 0.13.0-rc.1, and the D69–D72,
-  D74, D76 and D77 cases that were exercised behaved as documented; D68 and D75 were not reachable there. On the remote
-  worker one test lost its video and got a JUnit time of 0 after a slow video transfer, as in 0.13.0 (fixed by D80).
-  Those runs found what D78–D80 and the log changes fix.
-- D78–D80 and the log changes were tested with fakes and test harnesses, each with a test that fails without its fix,
-  and reviewed by another model. D81 also ran on an API 36 emulator with a non-debuggable app: 0.14.0-rc.1 wrote no
-  coverage file and logged nothing; this candidate pulls one readable coverage file per batch.
-- Real-device runs of this candidate, and private CI farm runs, are pending and will be added before 0.14.0.
-
-## 0.14.0-rc.1
-
-The first release candidate of 0.14.0, a pre-release for trial runs. It fixes run-stability and Android, iOS and macOS
-device-handling bugs found after 0.13.0, with the approved differences D68–D72 and D74–D77 (D73 was reserved and not
-used). The inputs, CLI, exit-code policy, result-data and worker-command contracts are unchanged except as listed below:
-D72 adds a `flakinessStrategy` type, and the other differences change which runs happen and what reports show for
-them, as each entry says.
+This release fixes run-stability and Android, iOS and macOS device-handling bugs found after 0.13.0, with the approved
+differences D68–D72 and D74–D81 (D73 was reserved and not used). The inputs, CLI, exit-code policy, result-data and
+worker-command contracts are unchanged except as listed below: D72 adds a `flakinessStrategy` type, and the other
+differences change which runs happen and what reports show for them, as each entry says. It has the code of 0.14.0-rc.2;
+the release candidates' changes are all listed here.
 
 ### Check before you upgrade
 
@@ -103,6 +34,17 @@ them, as each entry says.
 - **Logs and worker checks:** an SSH session closed only after KILL now logs a warning with `debug: false` (U183). An iOS
   unit-test bundle built inside its app is pushed to the worker once, so a wrapper that counts transfers sees one fewer
   (D76). Disposing of an iOS simulator can take up to 70 s longer while it stops a stuck preparation (D74).
+- **JUnit `flakyFailure` (D78):** a passed test lists only its runs that did not pass. A step that counted these
+  elements as extra runs should read `test_result/raw.json`.
+- **iOS videos and durations (D80):** with video recording on a remote worker, tests after the first of a batch now keep
+  their videos and real durations, so reports can show more videos and longer times than before.
+- **Android coverage (D81):** with `isCodeCoverageEnabled: true`, each instrumentation writes its coverage file under the
+  app's external files directory instead of its private data, without `run-as`, so a non-debuggable app now produces
+  coverage. The `.ec` files land in `device-files/<pool>/coverage/` as before, one per instrumentation
+  (`coverage-<batch>.ec`, then `coverage-<batch>-2.ec` for a second instrumentation of the batch). A missing coverage
+  file is an ERROR but does not change the exit code. Each test's result file and Allure list the file as a `COVERAGE`
+  attachment with its absolute path on the machine that ran marathon; a tool reading a copied output folder joins the
+  part after `/device-files/` onto its copy (see D81 in the deviations guide).
 
 See [Changes that need action](docs/migration.md#changes-that-need-action) for the migration table and
 [the deviations guide](docs/deviations.md#d68--a-failed-queue-ends-the-run-a-failed-progress-line-does-not) for each
@@ -140,6 +82,13 @@ upgrading from an older version.
   and results are unchanged. No configuration change.
 - A JUnit3 test with an array-valued annotation, such as Kotlin's `@Throws`, in a test APK with several dex files
   is now listed and run once, not once per re-scan of the dex files that include it (D75).
+- **Code coverage works for a non-debuggable app (D81):** with `isCodeCoverageEnabled: true`, coverage used to be
+  written to the app's private data and copied out with `run-as`, which only a debuggable app allows; a non-debuggable
+  app's run passed with no coverage and no warning. Each instrumentation now writes
+  `<external storage>/Android/data/<app>/files/coverage/coverage-<batch>.ec` (`-2`, `-3` … for further instrumentations
+  of the batch), which marathon prepares and pulls without `run-as` into `device-files/<pool>/coverage/` as before. A
+  coverage file that is missing or cannot be pulled is an ERROR naming the batch, with the exit code unchanged, and each
+  test's result file and Allure list its instrumentation's file as a `COVERAGE` attachment.
 
 ### iOS and macOS
 
@@ -151,6 +100,14 @@ upgrading from an older version.
   or otherwise, or whose setup or disposal failed, are now closed, at the latest when the run ends (D74).
 - A session that only ended after marathon sent KILL now logs a warning, also with `debug: false`, naming the command and
   saying the process may still be running on the worker (U183).
+- iOS: a simulator that is shut down or crashes while marathon waits for it to boot, once it has been seen booting, is
+  booted again within a poll and the 10 s retry pause, not after `bootWait` (240 s by default). A simulator that stays booting is still waited for until `bootWait`,
+  and the readiness-probe times under the known limits are unchanged (D79).
+- **iOS videos and durations survive a slow worker link (D80):** with video recording on, a test's recorder stop,
+  transcode and pull no longer hold back the handling of the batch's next test. Before, a slow transfer could leave the
+  next test without a video and with a reported duration of 0 (JUnit `time`, result file, `raw.json`, HTML), and the
+  recorder stop alone shortened each following test's duration by a few seconds on a remote worker (U201). Videos are
+  still all pulled and attached before the batch is reported.
 
 ### Flakiness and results
 
@@ -171,28 +128,61 @@ upgrading from an older version.
   first failure under `ALL_SUCCESS`, otherwise the run that completes the test. Exit codes, retries, the `Raw:` line, `raw.json` and
   Allure are unchanged, and so is everything with `fast: true`.
 
+### Reports
+
+- **JUnit no longer lists a passed test's passing runs as `flakyFailure` (D78):** a test that passed every run, for
+  example all runs of `flakinessStrategy: {type: fixed, count: N}`, had an empty `flakyFailure` element per extra run,
+  so JUnit tools showed a stable test as flaky. A passed test now lists only its runs that did not pass, with their
+  stack traces; a failed test's `rerunFailure` elements are unchanged. A CI step that counted `flakyFailure` elements
+  as the number of extra runs should read `test_result/raw.json`, which lists every run.
+
+### Logs
+
+- Clearer log lines, with no change to results or exit codes: a signal or the end of a run during device preparation
+  is one WARN line (`Device preparation has been cancelled`) instead of an ERROR that repeated its message; an Android
+  batch that fails in an `offline` the device does not return from says the device was disconnected, not that it is
+  kept, and names the device; and a file pull cut off by an offline or lost device says so instead of blaming the
+  device's sync support.
+
 ### Evidence
 
 - Every fix has a witness test that failed with the fix temporarily reverted, as each change's findings document records
-  ([x61](docs/wp/x61-findings.md)–[x72](docs/wp/x72-findings.md)). Whole runs use the Stub vendor (D68, D77), the fake
-  adb with the virtual-clock reconnect harness (D70, U170, U197), and fakes of the Apple worker and its SSH sessions (D74,
-  U183). Device-level tests order events with gates and listener signals; no sleep decides an outcome.
+  ([x61](docs/wp/x61-findings.md)–[x72](docs/wp/x72-findings.md), [x75](docs/wp/x75-findings.md)–[x79](docs/wp/x79-findings.md)).
+  Whole runs use the Stub vendor (D68, D77), the fake adb with the virtual-clock reconnect harness (D70, U170, U197), and
+  fakes of the Apple worker and its SSH sessions (D74, D79, D80, U183). Device-level tests order events with gates and
+  listener signals; no sleep decides an outcome.
 - The JVM recordings are unedited. D69 sets aside exactly the three queue recordings of C45–C47, and a negative test pins
   the steps where they differ. Narrow allowances compare the rest: D77 moves only the final flag of tracked runs in
   `fast: false` rows (22 progress rows and 13 queue flags), D75 drops exactly the 8 recorded repeats of one fixture
-  APK, D76 removes exactly one recorded bundle push from two iOS rows, and two D74 tests assert the
-  JVM's recorded lease value beside the native one instead of equating them; negative tests show that none hides
-  anything else.
+  APK, D76 removes exactly one recorded bundle push from two iOS rows, D78 removes only the `flakyFailure` elements of
+  passing runs, and two D74 tests assert the JVM's recorded lease value beside the native one instead of equating them;
+  negative tests show that none hides anything else.
 - No registered native golden changed. One golden was added,
   `fixtures/contract/virtual-runs/android-lost-after-start.json`: the result files of an Android batch lost after it
   started (D70, U197), reviewed as a new file.
 - Each change had one or two review rounds by another model, recorded with their findings and fixes in its findings document.
-- CI runs the repository gate on macOS and Linux; it passes at f2a16d3e, the code of this release candidate. The first six changes of the batch
-  also passed it locally and on a Linux build box before merging. Two CI failures on `main` during the batch were races
-  that only tests could hit, fixed in a test (U198) and in the console's filter reload (U199); the released binary was
-  not affected by either.
-- 0.14.0-rc.1 has not yet run on real devices, simulators, Macs or the private CI farms; no fix of this batch was tested
-  on a real emulator, adb server outage, simulator or worker. Those runs are pending and will be recorded before 0.14.0.
+- CI runs the repository gate on macOS and Linux; it passes on the code of this release. The changes of x61–x66 and
+  x75–x79 also passed it locally and on a Linux build box before merging. Two CI failures on `main` during the first batch were races that only tests could hit, fixed
+  in a test (U198) and in the console's filter reload (U199). Two tests that fail rarely under CI load are recorded as open
+  (U202, U203); neither involves the released binary.
+- 0.14.0-rc.1 ran on real hosts: the static Linux build on two API 36 Android emulators (adb server killed and an emulator
+  lost mid-batch, brief `offline`, SIGTERM, and D71, D72 and D77 on the real runner), and the macOS build on this
+  project's Mac with iOS 18.6 and 26.4 simulators and macOS tests, locally and over SSH to a second Mac as a real worker.
+  Healthy runs gave the same per-test outcomes and report data as 0.13.0-rc.1, and the D69–D72, D74, D76 and D77 cases
+  that were exercised behaved as documented; D68 and D75 were not reachable there. Those runs found what D78–D80 and the
+  log changes fix.
+- 0.14.0-rc.2 repeated those runs where they had found something. On the emulators a healthy run gave the same per-test
+  results, JUnit and `raw.json` as rc.1, with one `COVERAGE` attachment per test and a readable coverage file per batch
+  (D81), also for a non-debuggable app, which rc.1 left without coverage. On iOS a simulator shut down during its boot
+  wait was ready after 26 s instead of 255 s (D79), the remote run that had lost a video kept every test's video and
+  duration (D80), and passed tests had no `flakyFailure` for passing runs (D78). The changed log lines appeared once, at
+  the documented levels.
+- Outside this repository, the maintainer ran 0.14.0-rc.2 on private CI farms against recent runs of the same jobs on the
+  JVM build: the macOS build on 80 iOS simulators and the static Linux build on Android emulators, in jobs of up to 1426
+  tests. Every job ended with the same per-test results as the JVM runs, with the same or fewer retried runs and similar
+  wall times. These runs are private and cannot be checked here. Two things they showed are listed under Known limits:
+  one emulator used up a test's incomplete-run retries within seconds (the job's own retry passed it on another device),
+  and probability copies of one test started together.
 
 ### Known limits
 
@@ -201,7 +191,7 @@ upgrading from an older version.
 - The macOS binary is ad-hoc signed and not notarised; see the note on quarantine in the
   [migration guide](docs/migration.md#install-the-native-entry-point).
 - The static Linux binary is checked at release time with `version` and `--help` in an Alpine container, and
-  0.13.0-rc.1 ran on real emulators and a CI farm. musl's resolver asks DNS directly,
+  both 0.14.0 release candidates ran on real emulators, rc.2 also on a CI farm. musl's resolver asks DNS directly,
   so an adb host given as a name that only the system's own name service knows, such as a `.local` name, is not found;
   use `localhost` or an address.
 - The `xctest` test parser needs a `libxctest-parser` library that you supply (D20). The differential suites run it with a
@@ -224,6 +214,12 @@ upgrading from an older version.
   so a pool waiting for it uses up the limit for nothing (D48).
 - A test whose end the listeners are still handling when its Android device is lost counts with its status but can lack
   the screen capture and profiling files attached as it ends (D70).
+- An Android device whose instrumentation keeps failing before a test starts can take that test back as soon as it is
+  returned to the queue, so one device can use up a test's `uncompletedTestRetryQuota` within seconds while other
+  devices are free.
+- With `flakinessStrategy: probability`, the copies of one test are queued together (D60), so with enough free devices
+  they all start before one of them passes and `fast` has none left to cancel. Results are the same; the copies cost more
+  device time than in the JVM build, which interleaved copies of different tests.
 - A Graphite backend that cannot be set up still fails the run, where an InfluxDB one falls back to no history (D71).
 - A JUnit3 `TestCase` method that also carries `@Test` is still listed twice, by both discovery rules, as in Kotlin (D75).
 - A remote parse cut after other text, before its first status atom, can't be told from output that is not the
@@ -231,6 +227,16 @@ upgrading from an older version.
   without them (D25).
 - Apple event/line scheduling can move a boundary line between per-test and batch logs (A20). The Phase 8 differential
   harness gates that interleaving; production retains it ([WP 8.12](docs/wp/8.12-test-changes.md#differential-only-eventline-gates)).
+
+## 0.14.0-rc.2
+
+The second release candidate of 0.14.0, published on 2026-11-18 as a pre-release for trial runs. It added D78–D81 and
+log wording to rc.1; its changes are all in 0.14.0 above.
+
+## 0.14.0-rc.1
+
+The first release candidate of 0.14.0, published on 2026-11-17 as a pre-release for trial runs. Its changes are all in
+0.14.0 above.
 
 ## 0.13.0
 

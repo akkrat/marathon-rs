@@ -5,13 +5,12 @@ for running Android, iOS and macOS tests with the existing Marathonfile,
 Marathondevices, CLI and report formats, apart from the approved differences in
 [the deviations guide](docs/deviations.md). A Marathonfile must set a finite `uncompletedTestRetryQuota`.
 
-**0.13.0 is the current release; 0.11.0 was the first public release.** 0.13.0 drops JVM artefacts under the Phase 8
-contract (D55–D65) and changes SIGQUIT and console completion handling (D66, D67). 0.14.0-rc.2 is a release candidate
-with run-stability and device-handling fixes (D68–D72, D74–D81); 0.14.0-rc.1 ran on real iOS, macOS and Android hosts,
-and rc.2 fixes what those runs found and adds Android coverage for non-debuggable apps. The Kotlin tests are ported or marked not applicable with a reason, differential suites compare whole
-runs with the JVM program, and 0.13.0's release candidates ran on real iOS, macOS and Android hosts, as the changelog
-records. Outside this repository the maintainer also ran it beside the
-JVM build on private CI farms, which cannot be checked here.
+**0.14.0 is the current release; 0.11.0 was the first public release.** 0.14.0 fixes run-stability and device-handling
+bugs (D68–D72, D74–D81) and adds Android coverage for non-debuggable apps; 0.13.0 dropped JVM artefacts under the
+Phase 8 contract (D55–D65) and changed SIGQUIT and console completion handling (D66, D67). The Kotlin tests are ported or
+marked not applicable with a reason, differential suites compare whole runs with the JVM program, and the release
+candidates ran on real iOS, macOS and Android hosts, as the changelog records. Outside this repository the maintainer
+also ran them beside the JVM build on private CI farms, which cannot be checked here.
 No isolated shadow or canary results are recorded in this repository. Trial it in a
 disposable environment and keep your JVM distribution for rollback. See the
 [changelog](CHANGELOG.md) for known limits and
