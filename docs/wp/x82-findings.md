@@ -151,6 +151,50 @@ has a parity-matrix row (they are review witnesses), so no row changes. The JVM 
 - Other vendors' device monitors (Android, macOS) were not changed; the reviewer's P3 was about iOS, whose monitor
   also sets up the first simulators.
 
+## Review round 2: the shutdown as one owned state machine
+
+Round 2 (Sol 6.2) found the round-1 shutdown still had windows: a pool failure cancelled sibling queues through the
+Scheduler job's ordinary propagation (R2-1), the 24 s deadline cut across vendor cleanup that D68 used to wait for
+(R2-2), a draining pool could still admit a device and dispatch (R2-3), a cleanup error could replace a stored cause
+(P1) and the unwind guard did not wait (P4). Instead of patching each window, the shutdown is now one state machine
+owned by the Scheduler (`Inner::begin_stop` and the stop routine), and the invariants below are enforced where the
+defect would occur, not by timing.
+
+**States.** `Running` → `Stopping` (the routine runs) → `Stopped` (the routine's job has completed). `begin_stop` is the
+only transition out of `Running`; it is synchronous and idempotent. It is entered by the first fatal cause (a queue, a
+pool or the subscription ending with an error), by `execute` unwinding (P4), or by a fatal cause after `execute` has
+returned (P1, a late pool). A D52 signal does not enter it; D52 keeps its own path and deadline.
+
+- **I1 First cause wins.** `fatal` is written once, by the first fatal cause, and is the run's error: `execute` returns
+  it, `run_async` returns it after `on_finish` whatever `on_finish` returned (a cleanup or termination error is then
+  logged, never returned), and a later fatal cause is logged at WARN and dropped.
+- **I2 Admission closes first.** The first thing `begin_stop` does is set the draining flag of the Scheduler, every
+  pool and every queue. Each is read by the handler that would act: a draining pool's handler forwards a device's
+  completed results to its queue and answers the drain barrier, and drops everything else (no `AddDevice`, no device
+  actor, no `ExecuteBatch`, no request, no return wait, no self-termination); a draining queue hands out no batch or
+  retry and sends nothing to its pool; the Scheduler creates no pool. A message buffered before the flag is still
+  handled under it, so no ordering race can admit work.
+- **I3 Delivered results are drained in every pool before any pool or queue receiver is cancelled.** The Scheduler's
+  job is a supervisor, so a failed pool or queue no longer cancels its siblings through ordinary propagation; only the
+  routine cancels. A draining queue never replies to its pool, so a failed pool cannot end its queue (R2-1). The routine
+  sends each live pool a barrier, then each live queue an `IsEmpty`, each answered after everything delivered before
+  it; only then does it cancel the Scheduler's job. What can still be lost is stated in D84: a queue or pool whose own
+  handler failed (a panic, a D68 error) loses what is left in its own mailbox, and a result still inside a failed pool's
+  mailbox never reaches its queue.
+- **I4 No live device work while the provider terminates, within the vendors' own bounds.** `begin_stop` cancels every
+  device actor (stopping their work as a D52 cancel does), and the routine joins each one within that device's own
+  bound for ending a cancelled call, `Device::cancellation_cleanup_millis`: iOS `cancelled_batch_millis` (70 s by
+  default, the bound a cancelled batch is joined within, which also covers its session's stop), macOS
+  `CANCELLED_BATCH_TIMEOUT` (70 s), plus 5 s for the core's own handling after it. Android and the Stub vendor declare
+  no overall bound (each ADB request of a cancelled batch's cleanup is bounded by its own configured timeout), and are
+  joined until they end, as D68 joined them. A device still running past its bound is logged at ERROR and left; that is
+  the only work that can still be live when the provider terminates. The bound exists only to break a call that waits
+  for the provider's termination (P5). The unwind guard and a late failure run the same routine; the run owner joins it
+  before `on_finish`, so the same rule holds on those paths (P4).
+- **I5 iOS monitoring.** A panic in the monitor, or an error when the provider has no device a run could use, fails
+  the provider's device channel with the cause. An ordinary error while devices are connected is logged at ERROR and
+  the run carries on with them, as before D84.
+
 ## Review round 1 (Sol 6.2, REQUEST_CHANGES): per-finding status
 
 | # | Finding | Status | Fix | Witness (fails without the fix) |
