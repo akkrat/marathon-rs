@@ -205,6 +205,28 @@ returned (P1, a late pool). A D52 signal does not enter it; D52 keeps its own pa
   the provider's device channel with the cause. An ordinary error while devices are connected is logged at ERROR and
   the run carries on with them, as before D84.
 
+## Review round 3 (Sol 6.2 xhigh, REQUEST_CHANGES): per-finding status
+
+Orchestrator decisions applied: the outcome and the report snapshot have a single authority (the first-cause cell,
+read after the stop and the listener have ended, and the stop joined before the reports); I4 extends to Apple
+preparations a cancel leaves running; iOS counts available simulators; Android keeps the unbounded join, stated in D84
+as a known limit.
+
+| Item | Status | Commit | Fix | Witness (fails on a5c09afd) |
+|---|---|---|---|---|
+| R3-1a: success stored before the listener read a channel failure | fixed | `e407d2d2` | `Scheduler::settle`, called in `on_finish` after the provider step and before the reports, cancels and joins the listener and reads what the provider's channel ended with (a failure there goes through `fail`); `run_under` decides the outcome after the run task and the stop from the first-cause cell, so a stored `Ok` cannot win | `run_supervision::a_channel_failure_the_listener_still_holds_at_the_end_fails_the_run_d84` (the listener is held in a late device's history prefetch; on a5c09afd the run never ends) |
+| R3-1b: reports written before a late failure's drain | fixed | `e407d2d2` | `settle` also stops and drains pools still running and joins the stop before the reports; after it nothing of the Scheduler runs, so no failure can follow the snapshot | `run_supervision::the_reports_wait_for_a_late_failures_drain_d84` (pool modelY's Track held 5 s with a second result buffered, pool modelZ panics during termination; on a5c09afd serial-5's result is missing) |
+| R3-2: Apple preparation outlives the joined actor; macOS lease released under it | fixed | `e407d2d2`, `b392bb6d` | `Device::join_cancelled_work`, awaited by the stop within the device's bound after its actor; iOS reuses D74's `stop_and_join` (stops and waits for preparations and a batch within `cancelled_batch_millis`); macOS records when its retained preparation ends and `join_preparation` waits for it within `cancelled_batch_timeout`; macOS termination and replacement call it before releasing a lease, logging WARN past the bound | `run_supervision::the_run_waits_for_a_preparation_left_running_before_terminating_the_provider_d84`; macOS `provider::termination_does_not_release_a_lease_under_a_running_preparation_d84` and `…stops_waiting_for_a_preparation_after_the_macs_bound_d84`; iOS `simulator_dispose::the_stop_waits_for_a_preparation_its_cancelled_caller_left_running_d84` (new API, so compile-only on a5c09afd) |
+| R3-3: iOS counted retained simulators as usable | fixed | `b392bb6d` | the monitor's no-device test uses `borrowable()` (connected, not retired, leaving, removed, exhausted, recovering or parked) | `simulator_panic::a_monitor_error_after_the_last_simulator_left_fails_the_device_channel_d84` |
+| Android unbounded join | kept | `this commit` | stated in D84 as a known limit | — |
+| D84 text | fixed | this commit | PLAN, deviations, migration, CHANGELOG: outcome decided after the listener and stop; reports wait for the settle; preparations and the Mac lease; available simulators; Android limit | — |
+
+Behaviour notes: `settle` cancels the device listener after the provider has terminated, so device events still
+buffered then are dropped (they would have started pools against a terminated provider); its read of the channel's end
+keeps a failure there. A late pool still running when the run settles is stopped and drained, where it used to run on,
+detached, beside the reports. Run after round 3: `cargo test --no-fail-fast` on core, test-support, apple, ios, macos,
+android and cli, all pass; clippy `-D warnings` and `cargo fmt --check` clean.
+
 ## Review round 2 (Sol 6.2, REQUEST_CHANGES): per-finding status
 
 | Item | Status | Commit | Witness (fails on 384f96de) |
