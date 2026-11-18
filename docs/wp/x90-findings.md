@@ -108,7 +108,26 @@ reap is the same `Bound::run` and is covered by inspection.
 Existing suites pass unchanged, including every D31, D43, D54, U158 and U181 test in `rsync_file_bridge.rs` (stalls,
 real rsync and ssh, `sshpass` 1.06/1.09/1.10 behaviour) and the x86 U210 witnesses.
 
-Stress: see the table at the end (counts per test, each run alone with `--exact`).
+Stress, per witness, each run alone (`--exact`); "loaded" is 20 more runs with 12 busy processes on the CPU:
+
+| Witness | Runs | Loaded |
+|---|---|---|
+| `a_stopped_send_whose_output_is_never_joined_ends_at_the_bound_and_its_destination_is_not_used_again_d91` | 50/50 | 20/20 |
+| `a_stopped_send_whose_caller_has_gone_is_reaped_and_its_output_closed_before_its_receipt_ends_d91` | 50/50 | 20/20 |
+| `disposal_waits_for_a_send_whose_caller_stopped_waiting_d91` | 50/50 | 20/20 |
+| `a_send_to_a_disposed_simulator_is_stopped_before_it_starts_d91` | 50/50 | 20/20 |
+
+The self-review then moved the survivor look's 5 s from the vendor clock to real time (`REAP_LIMIT`): D31's stall tests
+run on a clock 100 times fast, where 5 s of vendor time gave init 50 ms to reap a killed orphan. After that change the
+whole `rsync_file_bridge.rs` suite (64 tests, the D91 witnesses among them) passed three times in a row under the same
+load.
+
+Run on this Mac: `cargo fmt --check`; `cargo clippy -p marathon-apple -p marathon-ios -p marathon-macos --all-targets --
+-D warnings`; `cargo test --no-fail-fast` of `marathon-apple`, `marathon-ios`, `marathon-macos`, `marathon-cli` and
+`marathon-test-support` (1,173 passed, 33 ignored as on the base; the first run's four differential failures were the
+missing YAML helper, built and rerun); `scripts/check_plan_dag.py`; `tools/differential/test_evidence.py`;
+`tools/differential/run validate`; `tools/fake-worker/test_apple_evidence.py`. Not run, by the batch's rule:
+`scripts/check.sh`, `scripts/remote-check.sh`, `cargo test --workspace`.
 
 ## Not verified
 

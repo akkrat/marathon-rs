@@ -1009,8 +1009,8 @@ impl Descendants {
         order
     }
     /// After a stall or a stop, with the child reaped, or not if `unreaped`, which the caller has sent KILL: TERM to what
-    /// it started, 5 s for them to go, then KILL to any still there. D91: then which of those seen are still running, looked at for up to 5 s more, or `None` if no listing could
-    /// tell; all of it within `bound`.
+    /// it started, 5 s for them to go, then KILL to any still there. D91: then which of those seen are still running,
+    /// looked at for up to 5 s more (`REAP_LIMIT`), or `None` if no listing could tell; all of it within `bound`.
     async fn end(&self, unreaped: bool, bound: Bound<'_>) -> Option<Vec<i32>> {
         use nix::sys::signal::{Signal, kill};
         let clock = bound.clock;
@@ -1053,7 +1053,8 @@ impl Descendants {
                 }
             }
         };
-        bound.run(None, Some(STOP_STEP_MILLIS), gone).await;
+        // Real time, as the reap: when init gets to them is the kernel's, however fast the run's clock goes.
+        bound.run(Some(REAP_LIMIT), None, gone).await;
         let mut left = left.into_inner().unwrap_or_else(|e| e.into_inner());
         if let Some(left) = &mut left {
             left.sort_unstable();

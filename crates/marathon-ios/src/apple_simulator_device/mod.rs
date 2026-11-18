@@ -131,7 +131,7 @@ struct State {
     last_session: Option<Arc<marathon_apple::xcodebuild_session::XcodebuildSession>>,
 }
 impl State {
-    /// D91: the sends registered that have not ended, pruning those that have.
+    /// D91: the sends registered that have not ended. `send_stop` prunes the others as it registers one.
     fn unended_transfers(&self) -> Vec<Arc<marathon_apple::cmd::TransferReceipt>> {
         self.transfers.iter().filter(|t| t.ended().is_none()).cloned().collect()
     }
