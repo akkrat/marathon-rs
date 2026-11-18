@@ -273,7 +273,7 @@ impl BackendGuard {
             (self.log)(&self.logger, Level::WARN, &text, None);
         }
     }
-    async fn close_backend(&self) -> OperationResult<()> {
+    fn warn_losses(&self, logger: &Component) {
         let (failed, skipped) = {
             let state = self.state.lock();
             (state.failed, state.skipped)
@@ -282,8 +282,11 @@ impl BackendGuard {
             let text = format!(
                 "The analytics backend lost test metrics: {failed} results failed to send, and up to {skipped} were skipped"
             );
-            (self.log)(&self.logger, Level::WARN, &text, None);
+            (self.log)(logger, Level::WARN, &text, None);
         }
+    }
+    async fn close_backend(&self) -> OperationResult<()> {
+        self.warn_losses(&self.logger);
         self.inner.close().await
     }
     fn warn_close_timeout(&self, logger: &Component) {
@@ -463,6 +466,11 @@ impl RemoteTracker {
             tokio::select! {
                 biased;
                 _ = &mut changed => {}
+                // A slot ready at the deadline can still admit this event.
+                permit = &mut reserve => return self.with_admission(|_, _| {
+                    permit.map_err(|_| Rejected::WorkerStopped)?.send(event.clone());
+                    Ok(())
+                }),
                 _ = &mut deadline => {
                     // The first expiry opens the same circuit as a slow send and releases other waiters.
                     let result = self.with_admission(|_, state| {
@@ -474,10 +482,6 @@ impl RemoteTracker {
                     }
                     return result;
                 }
-                permit = &mut reserve => return self.with_admission(|_, _| {
-                    permit.map_err(|_| Rejected::WorkerStopped)?.send(event.clone());
-                    Ok(())
-                }),
             }
         }
     }
@@ -503,12 +507,14 @@ impl RemoteTracker {
             sleep_until(request.await.ok()?).await;
             Some(())
         };
+        let mut close_started = false;
         let delivery = async {
             while let Some(event) = receiver.recv().await {
                 // The guard handles ordinary send failures. A cancelled send belongs to this worker,
                 // and cancellation of the test run still leaves the worker responsible for closing.
                 let _ = guard.track(&event).await;
             }
+            close_started = true;
             guard.close_backend().await.map_err(vendor_error)
         };
         tokio::select! {
@@ -516,6 +522,9 @@ impl RemoteTracker {
             expired = deadline => {
                 // Loss of the owner without a close request also drops the in-flight future.
                 if expired.is_some() {
+                    if !close_started {
+                        guard.warn_losses(&logger);
+                    }
                     guard.warn_close_timeout(&logger);
                 }
                 Ok(())
@@ -856,6 +865,10 @@ pub enum BackendRequest {
 /// Influx inner errors cover only createDb; subscriber construction errors are outer errors.
 pub trait BackendFactory: Send + Sync {
     fn create(&self, request: BackendRequest) -> ServiceFuture<'_, Result<Option<Arc<dyn TrackerInternal>>, Failure>>;
+    /// D51 limits used by the tracker for this backend.
+    fn limits(&self) -> BackendLimits {
+        BackendLimits::default()
+    }
 }
 pub struct BackendRegistration {
     pub request: BackendRequest,
@@ -890,7 +903,7 @@ impl TrackerFactory {
                     match backend.factory.create(request).await.map_err(vendor_error)? {
                         Ok(Some(tracker)) => delegates.push(Arc::new(RemoteTracker::new(
                             self.io.as_ref(),
-                            BackendGuard::new(tracker, self.log.clone(), self.logger.clone(), BackendLimits::default()),
+                            BackendGuard::new(tracker, self.log.clone(), self.logger.clone(), backend.factory.limits()),
                             REMOTE_QUEUE_CAPACITY,
                         ))),
                         Ok(None) => {}
@@ -1126,6 +1139,29 @@ mod remote_delivery_tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn a_permit_ready_at_the_admission_deadline_wins_d86() {
+        let (mut tracker, backend, release, warnings) = full_queue(false).await;
+        let limit = Duration::from_secs(10);
+        tracker.limits.send = limit;
+        let event = test_event();
+        let started = Deadline::now();
+        {
+            let mut blocked = tracker.track(&event);
+            assert!(futures_util::poll!(blocked.as_mut()).is_pending());
+            // Leave the waiter unpolled until its timer has elapsed and the worker has freed a slot.
+            sleep_until(started + limit).await;
+            release.send_replace(true);
+            backend.entered.notified().await;
+            assert_eq!(started.elapsed(), limit);
+            blocked.await.unwrap();
+        }
+        tracker.close().await.unwrap();
+        assert_eq!(backend.sends.load(Ordering::Relaxed), 3);
+        drop(tracker);
+        assert!(warnings.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn closing_wakes_waiters_and_counts_submissions_even_after_close_returns_d86() {
         let (tracker, backend, release, warnings) = full_queue(false).await;
         let event = test_event();
@@ -1216,6 +1252,11 @@ mod remote_delivery_tests {
                     ..BackendLimits::default()
                 },
             );
+            {
+                let mut state = guard.state.lock();
+                state.failed = 2;
+                state.skipped = 3;
+            }
             let (sender, receiver) = mpsc::channel(1);
             let t = instant_of(0, 0).unwrap();
             sender
@@ -1242,10 +1283,17 @@ mod remote_delivery_tests {
             assert_eq!(Arc::strong_count(&backend), 1, "delivery released the backend");
             assert_eq!(
                 *warns.lock().unwrap(),
-                [(
-                    Level::WARN,
-                    "The analytics backend did not close in 10000 ms; test metrics it still held are lost".into()
-                )],
+                [
+                    (
+                        Level::WARN,
+                        "The analytics backend lost test metrics: 2 results failed to send, and up to 3 were skipped"
+                            .into(),
+                    ),
+                    (
+                        Level::WARN,
+                        "The analytics backend did not close in 10000 ms; test metrics it still held are lost".into(),
+                    ),
+                ],
             );
         }
     }

@@ -63,19 +63,25 @@ batching, including when a test falls back to a default. D86 adds no configurati
   frees one blocked admission. All 1,006 events reach the backend in order and all 1,006 results reach the
   local report. The implementation at `2c0187a6` advanced the producer before a permit was released.
 - The production scheduler also runs two 1,002-result batches and a final test with Carbon held. The full
-  metrics queue holds the first batch until the only attempted send reaches its D51 limit. Both later batches
-  proceed during cool-off, and all 2,005 results are recorded locally. The implementation at `2c0187a6` started
-  the second batch before the held send reached its deadline.
+  metrics queue holds the first batch until the only attempted send reaches its D51 limit. The test injects
+  a one-second limit through `BackendFactory`, which uses D51's default in production. Both later batches
+  proceed during cool-off, and all 2,005 results are recorded locally. With the same limit injected, the
+  implementation at `2c0187a6` still starts the second batch before the held send reaches its deadline.
 - Paused-time admission tests cover expiry starting cool-off and waking a caller with a later deadline,
   close waking a blocked caller and counting late submissions after it returns, and an actual vendor-task
   panic waking callers and counting later submissions. Each pins the first WARN and the single total with
   the expected cause counts. Reinstating the original try-only path with the paused-clock test seam
   failed all three witnesses. Suppressing just the late and panicked-worker rejection counts failed the
   two corresponding witnesses.
+- The paused-time tie witness makes a slot and the admission deadline ready on the same poll. The slot wins
+  and all three events are delivered. Restoring deadline priority lost the third event.
 - Paused-clock coverage checks expiry both during drain and during close after seven of ten seconds spent draining.
-  Extending the deadline by another allowance made the witness observe 20 s in place of 10 s. Loopback socket
-  tests also cover the U174 shutdown timeout and dropping the last client before shutdown starts. Removing the
-  drop cancellation made the latter witness reach its 60-second hang guard with the socket still open.
+  Both paths warn once with the guard's known failed and skipped totals. A deadline during drain logs the
+  totals directly and discards the pending work within the existing limit. Removing that log fails the drain
+  case. Extending the deadline by another allowance made the witness observe 20 s in place of 10 s.
+  Loopback socket tests also cover the U174 shutdown timeout and dropping the last client before shutdown
+  starts. Removing the drop cancellation made the latter witness reach its 60-second hang guard with the
+  socket still open.
 - The Graphite and both InfluxDB client comparisons run the fixture events through the queued pipeline and
   still compare ordered traffic against the immutable JVM recordings. Whole-vendor differential runs use disabled
   analytics. The analytics fixtures compare traffic within each backend, so a change in its order relative to
@@ -91,6 +97,9 @@ Round one passed formatting, changed-crate Clippy, the plan DAG and differential
 targeted tests covering the admission and delivery pipeline, backend clients and JVM wire fixtures, history
 factory and provider, backend failure runs, and CLI shutdown. The orchestrator owns the workspace-wide and
 remote gates. Real analytics services were outside this verification.
+
+Round two passed the same targeted checks with 166 tests. The remote delivery suite took 2.65 s in the
+focused run and 3.81 s in the targeted suite.
 
 ## Incidental bugs
 

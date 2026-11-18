@@ -77,11 +77,13 @@ struct Batches {
     results: i32,
     size: i32,
     starts_while_held: usize,
+    send_limit: Option<Duration>,
 }
 const SMALL_BATCHES: Batches = Batches {
     results: 2,
     size: 1,
     starts_while_held: 2,
+    send_limit: None,
 };
 
 fn run_batches<T: Send + 'static>(
@@ -141,7 +143,11 @@ fn run_batches<T: Send + 'static>(
             .await
             .map_err(|e| e.failure().clone())?;
             factory.configuration.configuration.analytics_configuration = configuration;
-            factory.backend = Some(Arc::new(FixedBackend(tracker)));
+            let mut limits = BackendLimits::default();
+            if let Some(send) = batches.send_limit {
+                limits.send = send;
+            }
+            factory.backend = Some(Arc::new(FixedBackend(tracker, limits)));
             let built = factory.build(&core).await?;
             let job = core.job(JobKind::Ordinary, None);
             let run = core.spawn(
@@ -264,6 +270,7 @@ fn a_full_remote_queue_waits_for_one_stalled_send_then_cools_off_d86() {
             results: 2005,
             size: 1002,
             starts_while_held: 1,
+            send_limit: Some(Duration::from_secs(1)),
         },
         move |context| {
             Box::pin(async move {

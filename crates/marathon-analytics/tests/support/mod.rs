@@ -45,10 +45,13 @@ impl Env {
         AnalyticsClients::new(self.context.clone(), self.io.clone())
     }
 }
-pub struct FixedBackend(pub Arc<dyn TrackerInternal>);
+pub struct FixedBackend(pub Arc<dyn TrackerInternal>, pub BackendLimits);
 impl BackendFactory for FixedBackend {
     fn create(&self, _: BackendRequest) -> ServiceFuture<'_, Result<Option<Arc<dyn TrackerInternal>>, Failure>> {
         Box::pin(async { Ok(Ok(Some(self.0.clone()))) })
+    }
+    fn limits(&self) -> BackendLimits {
+        self.1
     }
 }
 pub fn run(body: impl FnOnce(Env) -> ServiceFuture<'static, ()> + Send + 'static) -> Vec<LogRecord> {

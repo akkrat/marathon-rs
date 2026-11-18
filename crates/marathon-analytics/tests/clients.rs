@@ -67,7 +67,7 @@ async fn queue_fixture_events(
         reporters: vec![],
         backend: Some(BackendRegistration {
             request,
-            factory: Arc::new(FixedBackend(backend)),
+            factory: Arc::new(FixedBackend(backend, BackendLimits::default())),
         }),
         logger: marathon_logging::LogSettings::default().component("TrackerFactory"),
         log: Arc::new(|_, level, message, failure| panic!("{level}: {message} {failure:?}")),

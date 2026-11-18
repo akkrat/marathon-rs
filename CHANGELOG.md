@@ -28,8 +28,9 @@ The section for a version becomes the text of its GitHub release, which carries 
   list a batch's tests in another order and grouping, `fixed-size` batches can be fuller or emptier and more or fewer,
   and with code coverage on an Android test in another batch gets that batch's coverage file.
 - Graphite and InfluxDB writes use a bounded queue. Bursts with room proceed immediately, and sustained load waits
-  for capacity. Metrics can be lost if the wait expires, the backend is cooling off, admission closes, the sender
-  fails, or shutdown reaches its deadline. Gaps can affect the flakiness and duration history used by later runs (D86).
+  for capacity. Metrics can be lost if the wait expires, the backend is cooling off, admission closes,
+  the delivery task stops, or shutdown reaches its deadline. Gaps can affect the flakiness and duration history
+  used by later runs (D86).
 
 ## 0.14.0
 
