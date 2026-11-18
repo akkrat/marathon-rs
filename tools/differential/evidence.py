@@ -112,6 +112,9 @@ def snapshot(root, prefix):
         entries.append(row)
         if row['kind'] == 'directory':
             for child in sorted(path.iterdir()):
+                # D92: a killed Android run can leave its private pull workspace.
+                if prefix == 'reports' and path == root and child.name == '.marathon-staging':
+                    continue
                 visit(child, name + '/' + child.name)
     visit(root, prefix)
     return entries, payloads

@@ -11,6 +11,7 @@ pub mod device;
 pub mod installer;
 pub mod models;
 pub mod provider;
+mod pull_staging;
 pub mod remote_file_manager;
 pub mod requests;
 pub mod services;

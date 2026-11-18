@@ -69,14 +69,10 @@ fn runtime_with(
     executor: Arc<dyn AndroidBatchExecutor>,
 ) -> Arc<AndroidRuntime> {
     let changed = change_runtime(runtime, ports);
-    Arc::new(AndroidRuntime {
-        dependencies: changed.dependencies.clone(),
-        configuration: changed.configuration.clone(),
-        file_sync: changed.file_sync.clone(),
-        bundles: changed.bundles.clone(),
-        identifier: changed.identifier.clone(),
-        executor,
-        log: changed.log.clone(),
+    Arc::new({
+        let mut copy = changed.as_ref().clone();
+        copy.executor = executor;
+        copy
     })
 }
 fn batch(id: &str, tests: Vec<Test>) -> BatchRef {

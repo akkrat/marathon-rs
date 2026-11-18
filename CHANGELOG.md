@@ -8,7 +8,7 @@ The section for a version becomes the text of its GitHub release, which carries 
   the runner warns and the device can still join the run and take tests after successful setup and preparation.
 - **Android cleanup has a shared deadline (D92).** By default each device has up to 60 seconds to stop, including
   five seconds for forced ADB connection closure and producer joins. The Scheduler allows five more seconds. Other
-  devices on the same server keep working when one device is retired. Teardown discards its interrupted pulls, and an
+  devices on the same server keep working when one device is retired. Teardown discards interrupted staged pulls, and an
   internal failure still reports its original cause and results already committed to the queues.
 - **Faster `class-name` batching on large suites.** The runner indexes queued tests by class and preserves batch membership and order.
 - **A retry goes to another Android device (D82):** a test that comes back incomplete from an Android device (for

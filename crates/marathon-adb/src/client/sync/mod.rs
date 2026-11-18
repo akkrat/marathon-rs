@@ -568,6 +568,12 @@ impl CompatPullFileRequest {
             PullFileRequest::new(path, local, size)
         })
     }
+    /// A managed staging directory may have been removed by its owner during shutdown.
+    /// The receive must never recreate it.
+    pub fn require_existing_local_parent(mut self) -> Self {
+        self.0.writer.require_existing_parent();
+        self
+    }
     pub fn execute(
         self,
         client: &AndroidDebugBridgeClient,

@@ -2642,11 +2642,14 @@ instrumentation and optional artifact pulls can no longer start there. In-flight
 `timeoutConfiguration.shell`, `install`, `pullFile` or enabled `socketIdleTimeout`, with a five-second floor.
 The defaults give 60 seconds. The final five seconds are included in that allowance. If work is still in flight at
 that point, the device cancels pending connects, closes its request sockets, unregisters its listeners and joins
-its producers. Pulls interrupted by teardown discard their partial output. D85 marker removal, reverse-forward
+its producers. Staged pulls interrupted by teardown discard their partial output. D85 marker removal, reverse-forward
 removal and recorder stop attempts share the remaining time, with at most eight devices per ADB server issuing these
 cleanup commands at once. Provider termination reuses a cleanup already started. Active siblings retain their own
 connections. Healthy pulls and video chunks keep their normal timeouts, including D21's idle policy and the partial
-file left by an ordinary pull timeout.
+file left by an ordinary pull timeout. Pulls stage in the run's private `.marathon-staging` directory under
+`outputDir` and publish by rename. If staging is unavailable, pulls write directly to the destination and the
+runner warns once. Normal teardown removes the staging directory. A hard kill can leave it until the next run's
+output wipe. Reports and the output manifest exclude it.
 
 D84 adds five seconds to its wait for the device, so the default Scheduler device wait is at most 65 seconds from the
 stop. The original failure and results already committed to the queues still reach the reports. D52's signal deadline

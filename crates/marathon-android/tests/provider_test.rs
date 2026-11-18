@@ -845,10 +845,7 @@ fn a_kill_during_a_test_tells_the_listener_why_and_keeps_the_device_d25() {
 #[test]
 fn device_loss_counts_only_while_the_server_is_there_d22() {
     let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
-    use marathon_android::{
-        device::{AndroidBatchExecutor, AndroidDevice},
-        services::AndroidRuntime,
-    };
+    use marathon_android::device::{AndroidBatchExecutor, AndroidDevice};
     use marathon_core::{
         executor::shared::SharedDeferred,
         model::{BatchRef, DevicePoolId, TestBatch, TestBatchResults},
@@ -886,14 +883,10 @@ fn device_loss_counts_only_while_the_server_is_there_d22() {
             let mut server = server(stops_answering_after_setup(base_script(27, vec![]))).await;
             let lost = Arc::new(Lost::default());
             let changed = change_runtime(&runtime, &[server.port()]);
-            let changed = Arc::new(AndroidRuntime {
-                dependencies: changed.dependencies.clone(),
-                configuration: changed.configuration.clone(),
-                file_sync: changed.file_sync.clone(),
-                bundles: changed.bundles.clone(),
-                identifier: changed.identifier.clone(),
-                executor: lost.clone(),
-                log: changed.log.clone(),
+            let changed = Arc::new({
+                let mut copy = changed.as_ref().clone();
+                copy.executor = lost.clone();
+                copy
             });
             let provider = AdamDeviceProvider::new(changed)?;
             provider.initialize(context.clone()).await?;

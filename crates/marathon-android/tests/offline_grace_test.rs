@@ -346,14 +346,10 @@ impl AndroidBatchExecutor for Lost {
 }
 fn with_executor(runtime: &Arc<AndroidRuntime>, ports: &[u16], executor: Arc<Lost>) -> Arc<AndroidRuntime> {
     let changed = change_runtime(runtime, ports);
-    Arc::new(AndroidRuntime {
-        dependencies: changed.dependencies.clone(),
-        configuration: changed.configuration.clone(),
-        file_sync: changed.file_sync.clone(),
-        bundles: changed.bundles.clone(),
-        identifier: changed.identifier.clone(),
-        executor,
-        log: changed.log.clone(),
+    Arc::new({
+        let mut copy = changed.as_ref().clone();
+        copy.executor = executor;
+        copy
     })
 }
 
@@ -618,14 +614,10 @@ fn a_batch_failed_in_a_grace_that_ends_in_a_disconnect_says_so_x77() {
             let runtime = {
                 let changed = with_executor(&runtime, &[server.port()], lost.clone());
                 let log = captured.wrap(&changed);
-                Arc::new(AndroidRuntime {
-                    dependencies: changed.dependencies.clone(),
-                    configuration: changed.configuration.clone(),
-                    file_sync: changed.file_sync.clone(),
-                    bundles: changed.bundles.clone(),
-                    identifier: changed.identifier.clone(),
-                    executor: changed.executor.clone(),
-                    log,
+                Arc::new({
+                    let mut copy = changed.as_ref().clone();
+                    copy.log = log;
+                    copy
                 })
             };
             let provider = AdamDeviceProvider::new(runtime.clone())?;

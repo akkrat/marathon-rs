@@ -185,6 +185,10 @@ fn channel_failure_with_trickling_pull(socket_idle_disabled: bool) {
     let mut server = checked(adb.block_on(FakeAdbServer::start(script, ServerOptions::default())));
     let output = checked(tempfile::tempdir());
     let root = output.path().to_owned();
+    let staging = root.join(".marathon-staging");
+    checked(std::fs::create_dir(&staging));
+    let stale = staging.join("previous-run");
+    checked(std::fs::write(&stale, b"abandoned staging"));
     let path = root.join("abandoned.log");
     let options = Options {
         batch_size: Some(1),
@@ -263,6 +267,9 @@ fn channel_failure_with_trickling_pull(socket_idle_disabled: bool) {
                 }),
             );
             until(|| trickled(&server)).await;
+            assert!(!stale.exists(), "the run did not wipe stale staging");
+            assert!(staging.is_dir(), "the pull did not stage inside the run output");
+            assert_eq!(checked(std::fs::read_dir(&staging)).count(), 1);
             assert_eq!(probe.batches.load(Ordering::Acquire), 2);
             let device = checked_lock(&probe.device).take().unwrap();
             let start = core.vendor_clock().now_millis();
@@ -313,12 +320,18 @@ fn channel_failure_with_trickling_pull(socket_idle_disabled: bool) {
             assert!(probe.pull_ended.load(Ordering::Acquire));
             assert!(probe.line.get().unwrap().upgrade().is_none());
             assert!(device.client().socket_factory().is_closed());
+            assert!(!staging.exists(), "the provider left its staging directory behind");
             let files = files_under(&root);
             assert!(
                 files
                     .keys()
-                    .all(|name| !name.contains(".marathon-pull-") && name != "abandoned.log")
+                    .all(|name| !name.starts_with(".marathon-staging/") && name != "abandoned.log")
             );
+            assert!(files.values().all(|bytes| {
+                !bytes
+                    .windows(b".marathon-staging".len())
+                    .any(|w| w == b".marathon-staging")
+            }));
             let raw: Value = checked(serde_json::from_slice(&files["test_result/raw.json"]));
             let class = probe.committed_class.get().unwrap();
             assert!(

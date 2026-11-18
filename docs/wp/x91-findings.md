@@ -27,11 +27,16 @@ probes for disconnected devices and closes at provider termination. Other device
 
 Disabled socket idle timeouts contribute zero. Saturation leaves room for the scheduler's
 margin without producing the clock's infinite-delay sentinel. D21 still applies to healthy operations, including
-silent requests with their own timeout, file-sync directories and video chunks. Pulls stage bytes in the system
-temporary directory and publish after the sync writer drains. An ordinary timeout still publishes bytes received
-so far. A refused sync handshake leaves the destination parent absent because the writer never opened. A
-nonempty transfer whose writer opened retains the base behavior of creating a missing parent. An interrupted
-device discards its own staged output without deleting a completed sibling's file.
+silent requests with their own timeout, file-sync directories and video chunks. Pulls share one run-owned
+`.marathon-staging` directory under the output directory and publish by rename after the sync writer drains.
+The provider removes the directory on the blocking pool at termination. The core already wipes the output before
+execution, including staging left after SIGKILL. If a destination cannot use the staging directory, the runner
+warns once and writes directly. This also covers a destination on a separate filesystem under the output directory.
+An ordinary timeout still publishes bytes received so far. A refused sync handshake leaves the destination
+parent absent because the writer never opened. A nonempty transfer whose writer opened retains the base
+behavior of creating a missing parent. An interrupted
+device discards its own staged output without deleting a completed sibling's file. A direct-write fallback can
+leave a partial artifact on teardown.
 
 ## Remote state after forced closure
 
@@ -67,6 +72,20 @@ checkout. The limit case held eight markers on each of two servers and verified 
 devices. A slot freed at the deadline cannot admit a queued command. The force-point check now runs on both
 whole-run cases, and sealed ordinary and shell requests report cancellation. All eight D92 concurrency cases
 passed 50 repetitions and a further run with 18 CPU load workers.
+
+The staging follow-up compares the staging and published file's inode, checks the one-warning direct fallback,
+and checks that a real run wipes stale staging, removes its directory at finish and emits no staging paths.
+The differential manifest excludes the reserved entry at the report root, including when a killed run left it behind.
+Raw JSON, Allure, HTML and D81 coverage use final attachment paths. In a scratch checkout at `13f062af`, the
+staging location, warning and manifest assertions failed. The six focused D92 transfer and run cases passed
+50 repetitions and a further run with 18 CPU load workers on this revision.
+
+### Follow-up observations
+
+- B3. Publishing a staged inode retains its ownership and ACL. A previously linked publication had the same
+  property. Directly rewriting an existing destination could retain that destination's ownership and ACL.
+- B6. An instrumentation connection that reaches admission after a disconnect seals the scope receives cancellation.
+  D25 treats the ended producer as incomplete and the usual queue policy can retry its tests.
 
 ### Golden diffs and incidental bugs
 

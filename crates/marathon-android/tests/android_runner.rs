@@ -1668,14 +1668,10 @@ fn counted_runtime(
         active: active.clone(),
     });
     (
-        Arc::new(marathon_android::services::AndroidRuntime {
-            dependencies: deps,
-            configuration: runtime.configuration.clone(),
-            file_sync: runtime.file_sync.clone(),
-            bundles: runtime.bundles.clone(),
-            identifier: runtime.identifier.clone(),
-            executor: runtime.executor.clone(),
-            log: runtime.log.clone(),
+        Arc::new({
+            let mut copy = runtime.as_ref().clone();
+            copy.dependencies = deps;
+            copy
         }),
         active,
     )
@@ -1964,14 +1960,11 @@ fn logged_runtime(
     let mut dependencies = runtime.dependencies.clone();
     dependencies.log = log.clone();
     (
-        Arc::new(marathon_android::services::AndroidRuntime {
-            dependencies,
-            configuration: runtime.configuration.clone(),
-            file_sync: runtime.file_sync.clone(),
-            bundles: runtime.bundles.clone(),
-            identifier: runtime.identifier.clone(),
-            executor: runtime.executor.clone(),
-            log,
+        Arc::new({
+            let mut copy = runtime.as_ref().clone();
+            copy.dependencies = dependencies;
+            copy.log = log;
+            copy
         }),
         lines,
     )

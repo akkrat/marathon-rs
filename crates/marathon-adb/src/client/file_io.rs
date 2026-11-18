@@ -85,14 +85,19 @@ impl AsyncFileReader {
 
 pub struct AsyncFileWriter {
     path: PathBuf,
+    create_parent: bool,
     completion: FileCompletion,
 }
 impl AsyncFileWriter {
     pub fn new(path: PathBuf) -> Self {
         Self {
             path,
+            create_parent: true,
             completion: FileCompletion::default(),
         }
+    }
+    pub(crate) fn require_existing_parent(&mut self) {
+        self.create_parent = false;
     }
     pub fn completion(&self) -> FileCompletion {
         self.completion.clone()
@@ -101,8 +106,9 @@ impl AsyncFileWriter {
         let mut guard = self.completion.0.lock().await;
         if guard.file.is_none() && guard.opening.is_none() {
             let path = self.path.clone();
+            let create_parent = self.create_parent;
             guard.opening = Some(Box::pin(async move {
-                if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                if create_parent && let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
                     tokio::fs::create_dir_all(parent).await.map_err(io_error)?;
                 }
                 File::create(path).await.map_err(io_error)

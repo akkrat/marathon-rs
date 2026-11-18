@@ -117,11 +117,16 @@ pub fn run_with_driven_clock(
 }
 fn on_core(
     core: std::rc::Rc<CoreExecutor>,
-    c: Configuration,
+    mut c: Configuration,
     body: impl FnOnce(Arc<AndroidRuntime>, VendorContext) -> VendorFuture<'static, ()> + Send + 'static,
 ) -> marathon_core::runtime::LocalFuture<'static, marathon_core::error::OperationResult<()>> {
     {
         Box::pin(async move {
+            let _default_output = (c.output_dir == Path::new("/tmp/android-test-output")).then(|| {
+                let output = checked(tempfile::tempdir());
+                c.output_dir = output.path().to_owned();
+                output
+            });
             let hooks = RuntimeHooks::live();
             let logging = core.logging();
             let io = core.vendor();
@@ -372,15 +377,9 @@ pub fn change_runtime(runtime: &Arc<AndroidRuntime>, ports: &[u16]) -> Arc<Andro
             port: *p as i32,
         })
         .collect();
-    Arc::new(AndroidRuntime {
-        dependencies: runtime.dependencies.clone(),
-        configuration: config,
-        file_sync: runtime.file_sync.clone(),
-        bundles: runtime.bundles.clone(),
-        identifier: runtime.identifier.clone(),
-        executor: runtime.executor.clone(),
-        log: runtime.log.clone(),
-    })
+    let mut changed = runtime.as_ref().clone();
+    changed.configuration = config;
+    Arc::new(changed)
 }
 /// Waits until each fake server has seen at least `count` logcat streams, i.e. the devices it announced have finished
 /// the transport handshake that follows `Connected`.

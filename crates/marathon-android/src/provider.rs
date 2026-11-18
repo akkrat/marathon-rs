@@ -1085,6 +1085,14 @@ impl AdamDeviceProvider {
         };
         tokio::join!(devices_done, provider_done);
         self.inner.factory.close();
+        let runtime = &self.inner.runtime;
+        if let Err(error) = runtime.pull_staging.close(runtime).await {
+            self.log(
+                Level::WARN,
+                "Unable to remove Android pull staging",
+                Some(error.failure()),
+            );
+        }
         *closed = true;
         Ok(())
     }

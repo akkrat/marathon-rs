@@ -9,32 +9,21 @@ use support::*;
 
 #[test]
 fn a_healthy_pull_timeout_still_leaves_the_partial_file_d92() {
-    use std::{collections::HashSet, path::PathBuf, time::Duration};
+    use std::{os::unix::fs::MetadataExt, time::Duration};
 
     let mut config = configuration();
+    let output = checked(tempfile::tempdir());
+    config.output_dir = output.path().to_owned();
     android(&mut config).timeout_configuration.pull_file = jcompat::jtime::Duration::of_seconds(1);
-    run_with_driven_clock(config, |runtime, context, clock| {
+    run_with_driven_clock(config, move |runtime, context, clock| {
         Box::pin(async move {
             let mut script = base_script(27, vec![]);
             script["devices"][0]["files"] =
                 json!([{"path":"/partial","content":"Partial artifact","recv_cut":"trickle"}]);
             let mut server = server(script).await;
-            let destination_dir = checked(tempfile::tempdir());
-            let destination = destination_dir.path().join("artifact");
-            let temp = std::env::temp_dir();
-            let staged = |root: &std::path::Path| -> Vec<PathBuf> {
-                checked(std::fs::read_dir(root))
-                    .filter_map(Result::ok)
-                    .filter_map(|entry| {
-                        entry
-                            .file_name()
-                            .to_str()
-                            .filter(|name| name.trim_start_matches('.').starts_with("marathon-pull-"))
-                            .map(|_| entry.path().join("file"))
-                    })
-                    .collect()
-            };
-            let unrelated: HashSet<_> = staged(&temp).into_iter().collect();
+            let destination = output.path().join("artifact");
+            let staging = output.path().join(".marathon-staging");
+            assert!(!staging.exists());
             let pulling = device(&server, runtime.clone());
             let path = destination.clone();
             let pull = runtime.dependencies.io.spawn(Box::pin(async move {
@@ -42,27 +31,73 @@ fn a_healthy_pull_timeout_still_leaves_the_partial_file_d92() {
                     .safe_pull_file("/partial", &path.to_string_lossy(), context)
                     .await
             }));
-            checked(
+            let metadata = checked(
                 tokio::time::timeout(Duration::from_secs(60), async {
-                    loop {
-                        // The virtual deadline runs after the client has written DATA. The base
-                        // writes directly and x91 writes at the staging path until the pull ends.
-                        if std::iter::once(destination.clone())
-                            .chain(staged(destination_dir.path()))
-                            .chain(staged(&temp).into_iter().filter(|path| !unrelated.contains(path)))
-                            .any(|path| std::fs::read(path).is_ok_and(|bytes| bytes == b"P"))
-                        {
-                            break;
-                        }
+                    while !server
+                        .transcript()
+                        .iter()
+                        .any(|row| row["op"] == "trickle" && row["path"] == "/partial")
+                    {
                         tokio::time::sleep(Duration::from_millis(5)).await;
                     }
+                    // The server starts trickling only after the client has opened its writer and sent RECV.
+                    assert!(staging.is_dir(), "the pull did not stage inside the run output");
+                    let mut entries = checked(std::fs::read_dir(&staging));
+                    let staged = checked(entries.next().expect("one staged pull")).path();
+                    assert!(entries.next().is_none());
+                    while !std::fs::read(&staged).is_ok_and(|bytes| bytes == b"P") {
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                    checked(staged.metadata())
                 })
                 .await,
             );
+            assert_eq!(metadata.dev(), checked(output.path().metadata()).dev());
+            assert!(!destination.exists());
             clock.advance_to(1_000).await;
             pull.join().await?;
             assert_eq!(checked(std::fs::read(&destination)), b"P");
-            assert_eq!(checked(std::fs::read_dir(destination_dir.path())).count(), 1);
+            let published = checked(destination.metadata());
+            assert_eq!((published.dev(), published.ino()), (metadata.dev(), metadata.ino()));
+            assert_eq!(checked(std::fs::read_dir(&staging)).count(), 0);
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
+#[test]
+fn unavailable_pull_staging_writes_directly_and_warns_once_d92() {
+    use std::sync::{Arc, Mutex};
+    let mut config = configuration();
+    let output = checked(tempfile::tempdir());
+    config.output_dir = output.path().to_owned();
+    run(config, move |mut runtime, context| {
+        Box::pin(async move {
+            let staged = output.path().join(".marathon-staging");
+            checked(std::fs::write(&staged, b"obstruction"));
+            let warnings = Arc::new(Mutex::new(Vec::new()));
+            let log = warnings.clone();
+            Arc::get_mut(&mut runtime).unwrap().log = Arc::new(move |_, level, message, _| {
+                if level == marathon_logging::Level::WARN {
+                    log.lock().unwrap().push(message.to_owned());
+                }
+            });
+            let mut script = base_script(27, vec![]);
+            script["devices"][0]["files"] = json!([{"path":"/file","content":"artifact"}]);
+            let mut server = server(script).await;
+            let device = device(&server, runtime);
+            for name in ["first", "second"] {
+                let destination = output.path().join(name).join("out");
+                device
+                    .pull_file("/file", &destination.to_string_lossy(), context.clone())
+                    .await?;
+                assert_eq!(checked(std::fs::read(destination)), b"artifact");
+            }
+            let warnings = warnings.lock().unwrap().clone();
+            assert_eq!(warnings.len(), 1, "{warnings:?}");
+            assert!(warnings[0].contains("Writing directly to the destination"));
+            assert_eq!(checked(std::fs::read(staged)), b"obstruction");
             checked(server.shutdown().await);
             Ok(())
         })

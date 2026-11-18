@@ -12,6 +12,7 @@ use marathon_error::FailureKind;
 use marathon_logging::{Component, Level, LogSettings, Vendor};
 use std::sync::{Arc, Mutex};
 
+#[derive(Clone)]
 pub struct AndroidRuntime {
     pub dependencies: VendorDependencies,
     pub configuration: AndroidConfiguration,
@@ -20,6 +21,7 @@ pub struct AndroidRuntime {
     pub identifier: Arc<AndroidTestBundleIdentifier>,
     pub executor: Arc<dyn AndroidBatchExecutor>,
     pub log: ServiceLog,
+    pub(crate) pull_staging: Arc<crate::pull_staging::PullStaging>,
 }
 impl AndroidRuntime {
     pub async fn new(
@@ -42,6 +44,7 @@ impl AndroidRuntime {
         let file_sync = effective_file_sync(&configuration);
         Ok(Arc::new(Self {
             log: dependencies.log.clone(),
+            pull_staging: Arc::new(crate::pull_staging::PullStaging::new(dependencies.files.output_dir())),
             dependencies,
             configuration,
             file_sync,

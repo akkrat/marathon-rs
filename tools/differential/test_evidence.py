@@ -48,6 +48,19 @@ class EvidenceTests(unittest.TestCase):
         return e.write_record(self.root / name, self.contract, implementation, {'reports':self.tree},
                               self.artifacts, self.outcome, dict(synthetic_provenance(), terminal_observation=dict(self.outcome)), identities)
 
+    def test_android_pull_staging_is_private_to_the_report_root_d92(self):
+        before = e.snapshot(self.tree, 'reports')
+        staging = self.tree / '.marathon-staging'
+        staging.mkdir()
+        (staging / 'partial').write_bytes(b'unpublished pull')
+        self.assertEqual(e.snapshot(self.tree, 'reports'), before)
+        self.assertIn('worker/.marathon-staging/partial',
+                      {row['path'] for row in e.snapshot(self.tree, 'worker')[0]})
+        nested = self.tree / 'empty' / '.marathon-staging'
+        nested.mkdir()
+        self.assertIn('reports/empty/.marathon-staging',
+                      {row['path'] for row in e.snapshot(self.tree, 'reports')[0]})
+
     def reject_changed_tree(self, mutation):
         mutation()
         try:
