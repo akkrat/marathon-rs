@@ -6,7 +6,7 @@ use crate::{
     executor::{
         CoreExecutor, RuntimeActor, SharedDeferred,
         bridge::call_vendor,
-        retry::with_retry,
+        retry::with_retry_until,
         shared::{failure, race},
     },
     logging::LogQueue,
@@ -497,9 +497,32 @@ impl Shared {
         let job = self.launch(move |context| async move {
             let attempts = shared.clone();
             let attempt_context = context.clone();
-            let result = with_retry(30, 10_000, &*context.clock, context.job.clone(), move || {
-                attempts.clone().prepare_attempt(attempt_context.clone())
-            })
+            // D87: one deadline for the whole preparation, so that retries inside an attempt cannot multiply with these.
+            let left = shared
+                .device
+                .0
+                .preparation_time_left_millis(&shared.configuration)
+                .map(|left| left.max(0));
+            let deadline = left.map(|left| context.clock.now_millis().saturating_add(left));
+            let result = with_retry_until(
+                30,
+                10_000,
+                deadline,
+                &*context.clock,
+                context.job.clone(),
+                move || attempts.clone().prepare_attempt(attempt_context.clone()),
+                |made| {
+                    shared.log(
+                        Level::WARN,
+                        format!(
+                            "Device {} is not prepared within its preparation time of {} ms, not retrying after {made} attempts",
+                            shared.serial,
+                            left.unwrap_or_default()
+                        ),
+                        None,
+                    )
+                },
+            )
             .await;
             match result {
                 Ok(()) => shared.transition(DeviceEvent::Complete),

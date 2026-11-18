@@ -7,7 +7,26 @@ pub async fn with_retry<T, F, Fut>(
     delay_millis: i64,
     clock: &dyn SchedulerClock,
     job: JobRef,
+    body: F,
+) -> OperationResult<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = OperationResult<T>>,
+{
+    with_retry_until(attempts, delay_millis, None, clock, job, body, |_| {}).await
+}
+
+/// D87: [`with_retry`] that makes no attempt at or after `deadline`, a time on `clock`: a retry whose delay would end
+/// there is not made, and the failure of the attempt before it is returned after `cut` is told how many attempts were
+/// made. An attempt already running is never stopped by the deadline. `None` is [`with_retry`].
+pub async fn with_retry_until<T, F, Fut>(
+    attempts: i32,
+    delay_millis: i64,
+    deadline: Option<i64>,
+    clock: &dyn SchedulerClock,
+    job: JobRef,
     mut body: F,
+    cut: impl FnOnce(i32),
 ) -> OperationResult<T>
 where
     F: FnMut() -> Fut,
@@ -21,6 +40,12 @@ where
             Ok(value) => return Ok(value),
             Err(OperationError::Cancelled(reason)) => return Err(reason.into()),
             Err(error) if attempt == attempts => return Err(error),
+            Err(error)
+                if deadline.is_some_and(|deadline| clock.now_millis().saturating_add(delay_millis) >= deadline) =>
+            {
+                cut(attempt);
+                return Err(error);
+            }
             Err(_) => clock.delay(delay_millis, job.clone()).await?,
         }
     }

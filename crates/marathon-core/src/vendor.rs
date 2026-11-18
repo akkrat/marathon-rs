@@ -89,6 +89,24 @@ pub trait Device: Send + Sync {
         let _ = batch;
         false
     }
+    /// D87: opens this device's preparation episode, or continues the one its predecessor began when a failed
+    /// preparation took it out of the pool, and says how many millis of it are left. The device actor makes no further
+    /// preparation attempt once they have passed. A vendor derives the episode's length with
+    /// [`preparation_budget_millis`]. Called once per device actor, on the core thread: no I/O, no blocking. `None`, the
+    /// default, sets no limit.
+    fn preparation_time_left_millis(&self, configuration: &Configuration) -> Option<i64> {
+        let _ = configuration;
+        None
+    }
+}
+
+/// D87: the length of a preparation episode: the greater of `deviceInitializationTimeoutMillis` and `envelope_millis`,
+/// what one preparation of the device can take with every retry inside it running to its limits.
+pub fn preparation_budget_millis(configuration: &Configuration, envelope_millis: i64) -> i64 {
+    configuration
+        .device_initialization_timeout_millis
+        .max(envelope_millis)
+        .max(0)
 }
 #[derive(Clone)]
 pub enum DeviceEvent {
