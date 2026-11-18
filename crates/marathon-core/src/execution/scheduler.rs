@@ -396,7 +396,10 @@ impl Inner {
                 })
             }),
         );
-        // D84: a failed subscription fails the run's context, but not the detached pools.
+        // D84 (x82b): the subscription's failure reaches the run only through `fail`, never by failing the run's task:
+        // so a cancellation of the run's task is always a request (the owner's, or a signal's), and `fail` can tell a
+        // failure after it by the cancellation alone.
+        subscription.scoped.set(true);
         inner.fail_with(&subscription);
         *inner.subscription.borrow_mut() = Some(subscription.clone());
         subscription
@@ -471,13 +474,11 @@ impl Inner {
             return;
         }
         // D84 (U215): the run was cancelled (a signal, D52, or its owner) before this failure reached the Scheduler. The
-        // cancellation explains what fails after it, so the failure is not the run's cause; the run still stops. A
-        // cancellation of the run that this very failure caused (the subscription's, which fails the run's task) is not
-        // such a request. Without this the outcome depended on whether a failure that ended in the same moment as the
-        // cancel was handled before or after the run's wait saw the cancel.
-        if let Some(reason) = self.parts.context.job.cancellation_signal().reason()
-            && *reason.failure() != cause
-        {
+        // cancellation explains what fails after it, so the failure is not the run's cause; the run still stops. Nothing
+        // of the Scheduler's own cancels the run's task (the subscription is scoped), so any cancellation of it is such a
+        // request. Without this the outcome depended on whether a failure that ended in the same moment as the cancel
+        // was handled before or after the run's wait saw the cancel.
+        if let Some(reason) = self.parts.context.job.cancellation_signal().reason() {
             self.log(
                 Level::WARN,
                 "A failure after the run was cancelled; the cancellation stands".into(),

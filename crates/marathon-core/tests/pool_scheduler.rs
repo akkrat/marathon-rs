@@ -1921,6 +1921,9 @@ enum CancelOrder {
     Never,
     /// The cancel (D52, or the run's owner) is handled before the Track can fail.
     BeforeTheFailure,
+    /// As `BeforeTheFailure`, the owner cancelling with a failure equal to the one the Track then fails with: who
+    /// cancelled is known from the cancel itself, not from comparing values.
+    BeforeAnEqualFailure,
     /// The Track's failure is recorded as the run's cause before the cancel.
     AfterTheFailure,
 }
@@ -1938,6 +1941,7 @@ fn a_queue_that_fails_while_its_pool_shuts_down_still_ends_the_run_d68() {
     for order in [
         CancelOrder::Never,
         CancelOrder::BeforeTheFailure,
+        CancelOrder::BeforeAnEqualFailure,
         CancelOrder::AfterTheFailure,
     ] {
         scheduling_test(move |h| {
@@ -1972,6 +1976,13 @@ fn a_queue_that_fails_while_its_pool_shuts_down_still_ends_the_run_d68() {
                         h.run_current().await;
                         gate.open();
                     }
+                    CancelOrder::BeforeAnEqualFailure => {
+                        let same = Cancellation::Requested(ise("track failed"));
+                        run.scheduler.job().cancel(same.clone());
+                        run.parent.cancel(same);
+                        h.run_current().await;
+                        gate.open();
+                    }
                     CancelOrder::AfterTheFailure => {
                         gate.open();
                         let mut turns = 0;
@@ -1991,7 +2002,10 @@ fn a_queue_that_fails_while_its_pool_shuts_down_still_ends_the_run_d68() {
                 );
                 assert_eq!(ended_at(&run), Some(1500), "{}", run.scheduler.state_dump());
                 match (order, run.result.borrow().as_ref()) {
-                    (CancelOrder::BeforeTheFailure, Some((_, Err(VendorError::Cancelled(_))))) => {
+                    (
+                        CancelOrder::BeforeTheFailure | CancelOrder::BeforeAnEqualFailure,
+                        Some((_, Err(VendorError::Cancelled(_)))),
+                    ) => {
                         assert!(
                             run.scheduler.failure().is_none(),
                             "the cancel explains the failure after it"

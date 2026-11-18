@@ -983,3 +983,82 @@ fn a_parse_deadline_ends_with_the_providers_published_failure_d84() {
     );
     assert!(!logged(&outcome, Level::WARN, "No devices found"));
 }
+
+/// D84 (x82b review): all tests have passed and the provider is terminating when the run's owner cancels it; the
+/// termination then ends and the provider's device channel fails. The cancel explains the failure after it (U215), and
+/// a run its owner cancelled never ends as a success: the run ends cancelled, which without `ignoreFailures` maps to a
+/// failed run, as it did when the late failure was recorded instead.
+#[test]
+fn an_owner_cancel_during_the_finish_never_ends_the_run_green_d84() {
+    use marathon_core::{
+        executor::CoreExecutor,
+        runtime::{JobKind, TaskContext},
+        time::ReplayDriver,
+    };
+    let (mut factory, script) = script();
+    factory.configuration.configuration.ignore_failures = false;
+    let first = script.devices["serial-1"].clone();
+    let result = CoreExecutor::run_virtual(move |core, replay| {
+        Box::pin(async move {
+            let built = factory
+                .build(&core)
+                .await
+                .map_err(marathon_core::error::OperationError::Failed)?;
+            let terminating = SharedDeferred::new();
+            let released = SharedDeferred::new();
+            let channel = built.provider.channel();
+            let (entered, release) = (terminating.clone(), released.clone());
+            *built.provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
+                let (entered, release, channel) = (entered.clone(), release.clone(), channel.clone());
+                Box::pin(async move {
+                    entered.complete(Ok(()));
+                    let _ = release.wait().await;
+                    channel.close(Some(failure(
+                        FailureKind::IllegalState,
+                        &format!("{PROBE}: the device events failed"),
+                    )));
+                    Ok(())
+                })
+            }));
+            assert!(built.provider.send(DeviceEvent::Connected(first.reference())));
+            let owner = core.job(JobKind::Ordinary, None);
+            let value: std::rc::Rc<std::cell::RefCell<Option<marathon_core::error::OperationResult<bool>>>> =
+                Default::default();
+            let (output, marathon, run_owner) = (value.clone(), built.marathon.clone(), owner.clone());
+            core.spawn(
+                core.job(JobKind::Ordinary, None),
+                Box::new(move |_: TaskContext| {
+                    Box::pin(async move {
+                        let result = marathon
+                            .run_under(marathon_core::model::ExecutionCommand::Run, Some(run_owner))
+                            .await;
+                        *output.borrow_mut() = Some(result);
+                        Ok(())
+                    })
+                }),
+            );
+            let canceller = owner.clone();
+            core.spawn(
+                core.job(JobKind::Ordinary, None),
+                Box::new(move |_: TaskContext| {
+                    Box::pin(async move {
+                        let _ = terminating.wait().await;
+                        canceller.cancel(requested("the run's owner cancelled it"));
+                        released.complete(Ok(()));
+                        Ok(())
+                    })
+                }),
+            );
+            replay
+                .advance_to(120_000)
+                .await
+                .map_err(|e| failure(FailureKind::ReplayClock, &e.message.to_owned()))?;
+            let value = value.borrow_mut().take();
+            Ok(value)
+        })
+    });
+    match result {
+        Ok(Some(Ok(passed))) => assert!(!passed, "a run its owner cancelled ended as a success"),
+        other => panic!("the run did not end as expected: {other:?}"),
+    }
+}

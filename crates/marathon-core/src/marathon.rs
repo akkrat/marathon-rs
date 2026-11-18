@@ -1152,7 +1152,15 @@ impl Marathon {
                 }
                 Err(VendorError::Other(cause))
             }
-            None => outcome,
+            // D84 (x82b): a run its owner or a signal cancelled never ends as a success, whatever it had stored; a cause
+            // recorded before the cancel wins above.
+            None => match (outcome, root.cancellation_signal().reason()) {
+                (Ok(_), Some(reason)) => Err(VendorError::Cancelled(reason)),
+                (Ok(_), None) if self.signalled.get() => {
+                    Err(VendorError::Cancelled(requested("Cancelled by a signal")))
+                }
+                (outcome, _) => outcome,
+            },
         };
         supervisor.complete();
         let mapped = match outcome {
