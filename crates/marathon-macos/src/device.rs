@@ -111,6 +111,8 @@ pub struct MacosDevice {
     listeners: Arc<LineListeners>,
     sessions: Mutex<Vec<Arc<XcodebuildSession>>>,
     tasks: RetainedTasks,
+    /// D87: when this Mac's preparation must end, on the run's vendor clock; `i64::MAX` for none.
+    preparation_deadline: std::sync::atomic::AtomicI64,
     pub options: MacosDeviceOptions,
 }
 impl MacosDevice {
@@ -161,10 +163,16 @@ impl MacosDevice {
             listeners: Arc::default(),
             sessions: Mutex::default(),
             tasks: RetainedTasks::default(),
+            preparation_deadline: std::sync::atomic::AtomicI64::new(i64::MAX),
             options,
         });
         device.options.installer.register(&device);
         device
+    }
+    /// D87: whether a retry of this Mac's preparation may start now, before its deadline.
+    fn may_start_attempt(&self) -> bool {
+        self.options.dependencies.clock.now_millis()
+            < self.preparation_deadline.load(std::sync::atomic::Ordering::Acquire)
     }
     fn retained(&self) -> VendorResult<Arc<Self>> {
         self.identity
@@ -198,6 +206,7 @@ impl MacosDevice {
         )
         .with_code_coverage(self.options.dependencies.configuration.is_code_coverage_enabled)
         .with_after_install(&*self.options.installer)
+        .with_retry_gate(&|| self.may_start_attempt())
         .prepare_installation(self, false, context)
         .await
         .map_err(|e| e.into_vendor())?;
@@ -643,10 +652,11 @@ impl Device for MacosDevice {
     fn component(&self) -> &Component {
         &self.logger
     }
-    /// D87: a Mac is never replaced by a recovery during its preparation, so its episode is the device actor's attempts.
-    /// The envelope is what one preparation's commands with known limits can take: three directory commands, two in each
-    /// of the installer's three attempts and the test type's probe, ten under `shell`, and the installer's two 1 s
-    /// pauses. A transfer has no limit while it progresses (D54) and is not counted.
+    /// D87: a Mac is never replaced by a recovery during its preparation, so its episode is the device actor's attempts,
+    /// and the installer sends a failed transfer again only before the deadline. The envelope is what one preparation's
+    /// commands with known limits can take: three directory commands, two in each of the installer's three attempts, the
+    /// test type's probe and the test root's directory, eleven under `shell`, and the installer's two 1 s pauses. A
+    /// transfer has no limit while it progresses (D54) and is not counted.
     fn preparation_time_left_millis(&self, configuration: &Configuration) -> Option<i64> {
         let shell = self
             .options
@@ -655,11 +665,14 @@ impl Device for MacosDevice {
             .shell
             .to_millis()
             .unwrap_or(i64::MAX);
-        let envelope = shell.saturating_mul(10).saturating_add(2_000);
-        Some(marathon_core::vendor::preparation_budget_millis(
-            configuration,
-            envelope,
-        ))
+        let envelope = shell.saturating_mul(11).saturating_add(2_000);
+        let budget = marathon_core::vendor::preparation_budget_millis(configuration, envelope);
+        let now = self.options.dependencies.clock.now_millis();
+        self.preparation_deadline.store(
+            now.saturating_add(budget).min(i64::MAX - 1),
+            std::sync::atomic::Ordering::Release,
+        );
+        Some(budget)
     }
     fn prepare<'a>(&'a self, _: Arc<Configuration>, context: VendorContext) -> VendorFuture<'a, ()> {
         Box::pin(async move {

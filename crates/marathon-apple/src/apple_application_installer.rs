@@ -10,7 +10,7 @@ use crate::{
 use marathon_config::{CONFIGURATION_EXCEPTION_CLASS, VendorConfiguration, vendor::TestType};
 use marathon_core::{
     error::{Cancellation, OperationError, VendorError},
-    executor::retry::with_retry_send,
+    executor::retry::with_retry_send_gated,
     runtime::VendorRuntime,
     vendor::VendorContext,
 };
@@ -54,6 +54,11 @@ pub struct AppleApplicationInstaller<'a> {
     hook: &'a dyn AfterInstall,
     owned_hook: Option<Arc<dyn AfterInstall>>,
     code_coverage: bool,
+    /// D87: whether a retry of the transfer may start; by default always.
+    may_retry: &'a (dyn Fn() -> bool + Send + Sync),
+}
+fn always() -> bool {
+    true
 }
 fn illegal(message: &str) -> FactoryError {
     VendorError::Other(failure(FailureKind::IllegalArgument, message)).into()
@@ -74,6 +79,7 @@ impl<'a> AppleApplicationInstaller<'a> {
             hook: &NoopAfterInstall,
             owned_hook: None,
             code_coverage: false,
+            may_retry: &always,
         }
     }
     pub fn with_after_install(mut self, hook: &'a dyn AfterInstall) -> Self {
@@ -96,6 +102,7 @@ impl<'a> AppleApplicationInstaller<'a> {
             hook: &NoopAfterInstall,
             owned_hook: None,
             code_coverage: false,
+            may_retry: &always,
         }
     }
     pub fn with_owned_after_install(mut self, hook: Arc<dyn AfterInstall>) -> Self {
@@ -104,6 +111,12 @@ impl<'a> AppleApplicationInstaller<'a> {
     }
     pub fn with_code_coverage(mut self, enabled: bool) -> Self {
         self.code_coverage = enabled;
+        self
+    }
+    /// D87: a failed transfer is sent again only while `may_retry` says a retry may start, asked before the pause
+    /// and after it. A transfer in progress is never stopped by it.
+    pub fn with_retry_gate(mut self, may_retry: &'a (dyn Fn() -> bool + Send + Sync)) -> Self {
+        self.may_retry = may_retry;
         self
     }
     fn log(&self, level: Level, message: String) {
@@ -171,31 +184,38 @@ impl<'a> AppleApplicationInstaller<'a> {
             message.push_str(&device.info().serial_number);
             // Keep the last vendor variant intact across the core retry helper's Failure seam.
             let last = std::sync::Mutex::new(None);
-            let result = with_retry_send(3, 1000, &*context.clock, context.cancellation.clone(), || async {
-                let result = async {
-                    fm.create_remote_directory(None, context).await?;
-                    fm.create_remote_shared_directory(context).await?;
-                    if !device.push_shared(src, &destination, context).await? {
-                        return Err(setup(message.to_owned()));
+            let result = with_retry_send_gated(
+                3,
+                1000,
+                &*context.clock,
+                context.cancellation.clone(),
+                self.may_retry,
+                || async {
+                    let result = async {
+                        fm.create_remote_directory(None, context).await?;
+                        fm.create_remote_shared_directory(context).await?;
+                        if !device.push_shared(src, &destination, context).await? {
+                            return Err(setup(message.to_owned()));
+                        }
+                        Ok(())
                     }
-                    Ok(())
-                }
-                .await;
-                result.map_err(|error| match error {
-                    VendorError::Cancelled(reason) => OperationError::Cancelled(reason),
-                    // U163: never retried, here as in the device's own retry. Cancelled is what stops this helper.
-                    leave @ VendorError::LeavePool { .. } => {
-                        let reason = Cancellation::Requested(leave.failure().clone());
-                        *last.lock().unwrap_or_else(|e| e.into_inner()) = Some(leave);
-                        OperationError::Cancelled(reason)
-                    }
-                    other => {
-                        let detail = other.failure().clone();
-                        *last.lock().unwrap_or_else(|e| e.into_inner()) = Some(other);
-                        OperationError::Failed(detail)
-                    }
-                })
-            })
+                    .await;
+                    result.map_err(|error| match error {
+                        VendorError::Cancelled(reason) => OperationError::Cancelled(reason),
+                        // U163: never retried, here as in the device's own retry. Cancelled is what stops this helper.
+                        leave @ VendorError::LeavePool { .. } => {
+                            let reason = Cancellation::Requested(leave.failure().clone());
+                            *last.lock().unwrap_or_else(|e| e.into_inner()) = Some(leave);
+                            OperationError::Cancelled(reason)
+                        }
+                        other => {
+                            let detail = other.failure().clone();
+                            *last.lock().unwrap_or_else(|e| e.into_inner()) = Some(other);
+                            OperationError::Failed(detail)
+                        }
+                    })
+                },
+            )
             .await;
             match result {
                 Ok(()) => (),

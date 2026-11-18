@@ -698,15 +698,15 @@ async fn a_batch_that_panics_ends_with_the_panic_and_does_not_hold_disposal_d84(
 }
 
 /// D87: a Mac's preparation deadline is the greater of `deviceInitializationTimeoutMillis` and what one preparation's
-/// commands with known limits can take, ten under `shell` and two 1 s pauses: 302 s with the defaults, which keeps the
-/// device actor's 30 attempts of a preparation that fails at once (290 s).
+/// commands with known limits can take, eleven under `shell` (with the test root's directory) and two 1 s pauses: 332 s
+/// with the defaults, which keeps the device actor's 30 attempts of a preparation that fails at once (290 s).
 #[test]
 fn a_macs_preparation_deadline_is_the_greater_of_the_wait_and_its_commands_d87() -> R {
     let h = Harness::new("")?;
     let device = h.device();
     let mut configuration = (*h.options.dependencies.configuration).clone();
     configuration.device_initialization_timeout_millis = 180_000;
-    assert_eq!(device.preparation_time_left_millis(&configuration), Some(302_000));
+    assert_eq!(device.preparation_time_left_millis(&configuration), Some(332_000));
     configuration.device_initialization_timeout_millis = 600_000;
     assert_eq!(device.preparation_time_left_millis(&configuration), Some(600_000));
     Ok(())

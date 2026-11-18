@@ -20,9 +20,12 @@ impl<'a> AppleSimulatorApplicationInstaller<'a> {
     pub async fn prepare_installation(&self, context: &VendorContext) -> VendorResult<()> {
         let services = self.device.services();
         let config = VendorConfiguration::Ios((*services.vendor).clone());
+        // D87: a failed transfer is sent again only before the preparation's deadline.
+        let may_retry = || self.device.may_start_attempt(0);
         AppleApplicationInstaller::new(&config, services.runtime.clone(), services.logging.clone())
             .with_code_coverage(services.configuration.is_code_coverage_enabled)
             .with_after_install(self)
+            .with_retry_gate(&may_retry)
             .prepare_installation(self.device, false, context)
             .await
             .map_err(|e| e.into_vendor())
