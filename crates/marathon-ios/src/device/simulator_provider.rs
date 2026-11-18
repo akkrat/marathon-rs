@@ -15,15 +15,19 @@ use super::{
     timing::{ProvisioningTiming, profile_text},
     worker_provisioning_context::WorkerProvisioningContext,
 };
-use crate::apple_simulator_device::AppleSimulatorDevice;
+use crate::apple_simulator_device::{AppleSimulatorDevice, SimulatorTimeouts};
 use futures_util::future::join_all;
 use indexmap::{IndexMap, IndexSet};
 use marathon_apple::{
     apple_device::AppleDevice,
     apple_device_registry::AppleDeviceRegistry,
-    artifact_processor::ArtifactProcessor,
+    artifact_processor::{ArtifactProcessor, CANCEL_TIMEOUT_MILLIS, DRAIN_TIMEOUT_MILLIS},
     bin::xcrun::xcresulttool::describe_timeout,
-    cmd::{failure, remote::ssh::sshj::config::SshLogging, retained_tasks::RetainedTasks},
+    cmd::{
+        failure,
+        remote::{rsync::rsync_file_bridge::STOP_CLEANUP_MILLIS, ssh::sshj::config::SshLogging},
+        retained_tasks::RetainedTasks,
+    },
 };
 use marathon_config::{
     binding::BindingContext,
@@ -1239,7 +1243,7 @@ impl AppleSimulatorProvider {
             }
         }
     }
-    async fn terminate_inner(&self) -> VendorResult<()> {
+    async fn terminate_inner(&self, drain_millis: i64, cancel_millis: i64) -> VendorResult<()> {
         let _lifecycle = self.lifecycle.lock().await;
         self.log(Level::DEBUG, || "Terminating AppleSimulatorProvider".into(), None);
         self.monitor_cancel.cancel(requested("Provider terminated"));
@@ -1268,7 +1272,7 @@ impl AppleSimulatorProvider {
         };
         self.services
             .artifacts
-            .close_and_join(300_000, 60_000, &context)
+            .close_and_join(drain_millis, cancel_millis, &context)
             .await?;
         let handed_back = std::mem::take(&mut self.state().handed_back);
         let ours = |handle: &Simulator| !handed_back.iter().any(|h| Arc::ptr_eq(h, handle));
@@ -1354,6 +1358,18 @@ impl DeviceProvider for AppleSimulatorProvider {
         self.channel.clone()
     }
     fn terminate(&self) -> VendorFuture<'_, ()> {
+        self.terminate_with_artifact_budget(DRAIN_TIMEOUT_MILLIS, CANCEL_TIMEOUT_MILLIS)
+    }
+    fn terminate_after_stop(&self) -> VendorFuture<'_, ()> {
+        // The processor drains results from completed batches, whose devices may have used all of their own time.
+        // Allow a separate D93-size window, reserving time for cancellation using D91's transfer cleanup allowance.
+        let window = SimulatorTimeouts::default().cancelled_batch_millis;
+        self.terminate_with_artifact_budget(window.saturating_sub(STOP_CLEANUP_MILLIS), STOP_CLEANUP_MILLIS)
+    }
+}
+
+impl AppleSimulatorProvider {
+    fn terminate_with_artifact_budget(&self, drain_millis: i64, cancel_millis: i64) -> VendorFuture<'_, ()> {
         Box::pin(async move {
             let (done, start) = {
                 let mut state = self.state();
@@ -1372,7 +1388,7 @@ impl DeviceProvider for AppleSimulatorProvider {
                 // D84: published even if termination panics, since every caller waits on this.
                 self.operations
                     .spawn_published(self.services.runtime.as_ref(), result, async move {
-                        this.terminate_inner().await
+                        this.terminate_inner(drain_millis, cancel_millis).await
                     });
             }
             done.wait().await.map(|_| ())

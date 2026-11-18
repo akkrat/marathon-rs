@@ -67,7 +67,7 @@ pub struct DevicePool {
     /// The `SupervisorJob` of the queue and the device actors.
     pub supervisor: JobRef,
     diagnostics: Rc<RefCell<Vec<DeviceActorRef>>>,
-    draining: Rc<std::cell::Cell<bool>>,
+    draining: Arc<SharedDeferred<()>>,
 }
 impl DevicePool {
     pub(crate) fn diagnostic(&self, out: &mut String, budget: &mut usize) {
@@ -102,7 +102,7 @@ impl DevicePool {
     /// Scheduler's drain barrier, and drops every other message, so it admits no device, starts no batch or retry,
     /// waits for no device and does not end itself. The Scheduler stops it.
     pub fn drain(&self) {
-        self.draining.set(true);
+        self.draining.complete(Ok(()));
         self.queue.drain();
     }
     /// D84: the pool's device actors, each with its device.
@@ -171,7 +171,7 @@ pub struct DevicePoolActor {
     /// without finishing anything can't hold the run open for ever.
     away_since: Option<i64>,
     /// D84: see `DevicePool::drain`.
-    draining: Rc<std::cell::Cell<bool>>,
+    draining: Arc<SharedDeferred<()>>,
     /// D48: the latest time a live device went away, what its vendor had waited for it included, since a test last ended.
     /// The pool lacks a device from the latest of these, whatever order the devices are removed in.
     departed: Option<i64>,
@@ -269,7 +269,7 @@ impl DevicePoolActor {
         let clock: Rc<dyn SchedulerClock> = parts.core.clock();
         let built = Rc::new(RefCell::new(None));
         let diagnostics = Rc::new(RefCell::new(Vec::new()));
-        let draining = Rc::new(std::cell::Cell::new(false));
+        let draining = SharedDeferred::new();
         let handler = DevicePoolActor {
             draining: draining.clone(),
             core: parts.core.clone(),
@@ -341,7 +341,7 @@ impl DevicePoolActor {
     }
 
     async fn handle(&mut self, message: DevicePoolMessage, task: &TaskContext) -> OperationResult<()> {
-        if self.draining.get() {
+        if self.draining.completed().is_some() {
             self.handle_draining(message);
             return Ok(());
         }
@@ -519,7 +519,11 @@ impl DevicePoolActor {
             return Ok(());
         }
         // Also lets the queue take the last outcomes before the pool goes, as `terminate` does.
-        if self.queue_has_work(task).await? && left > 0 {
+        let queue_has_work = self.queue_has_work(task).await?;
+        if self.draining.completed().is_some() {
+            return Ok(());
+        }
+        if queue_has_work && left > 0 {
             if self.return_wait.is_none() {
                 self.start_return_wait(left);
             }
@@ -569,7 +573,7 @@ impl DevicePoolActor {
 
     fn start_return_wait(&mut self, left: i64) {
         // D84 (I2): a stopping run waits for no device.
-        if self.draining.get() {
+        if self.draining.completed().is_some() {
             return;
         }
         let (Some(pool), Some(supervisor)) = (self.myself.clone(), self.supervisor.clone()) else {
@@ -845,7 +849,7 @@ impl DevicePoolActor {
     fn terminate_now(&mut self) {
         // D84 (I2): a handler that was already running when the run began to stop must not end the pool, and with it
         // its queue, before the Scheduler has drained them.
-        if self.draining.get() {
+        if self.draining.completed().is_some() {
             return;
         }
         if let Some(supervisor) = &self.supervisor {
@@ -871,10 +875,12 @@ impl DevicePoolActor {
         }
         let job = queue.job();
         let signal = task.job.cancellation_signal();
-        match race(signal.cancelled(), race(answer, job.join())).await {
-            Either::Left(reason) => Err(reason.into()),
+        // The Scheduler will ask the queue after it drains the pool. Otherwise one stalled queue could hold both
+        // barriers, keeping the pool from forwarding results that its queue could still take.
+        match race(race(signal.cancelled(), self.draining.wait()), race(answer, job.join())).await {
+            Either::Left(Either::Left(reason)) => Err(reason.into()),
             Either::Right(Either::Left(Ok(empty))) => Ok(!empty),
-            Either::Right(_) => Ok(false),
+            _ => Ok(false),
         }
     }
 

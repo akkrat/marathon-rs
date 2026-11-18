@@ -91,9 +91,34 @@ pub(crate) async fn on_io<T: Send + 'static>(
     io: &dyn VendorRuntime,
     body: VendorFuture<'static, T>,
 ) -> VendorResult<T> {
-    let (tx, rx) = tokio::sync::oneshot::channel();
+    dispatch_on_io(io, body, false).await
+}
+
+/// The caller owns this callback, so dropping the wait also drops the callback on the I/O runtime.
+pub(crate) async fn on_io_scoped<T: Send + 'static>(
+    io: &dyn VendorRuntime,
+    body: VendorFuture<'static, T>,
+) -> VendorResult<T> {
+    dispatch_on_io(io, body, true).await
+}
+
+async fn dispatch_on_io<T: Send + 'static>(
+    io: &dyn VendorRuntime,
+    body: VendorFuture<'static, T>,
+    scoped: bool,
+) -> VendorResult<T> {
+    let (mut tx, rx) = tokio::sync::oneshot::channel();
     let task = io.spawn(Box::pin(async move {
-        let _ = tx.send(body.await);
+        let result = if scoped {
+            tokio::select! {
+                biased;
+                _ = tx.closed() => return Ok(()),
+                result = body => result,
+            }
+        } else {
+            body.await
+        };
+        let _ = tx.send(result);
         Ok(())
     }));
     task.join().await?;

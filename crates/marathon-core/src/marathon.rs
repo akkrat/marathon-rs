@@ -633,7 +633,7 @@ impl Marathon {
         };
 
         // D84 (I1): the run's outcome is not decided here; `run` decides it once the finish is over.
-        self.on_finish(task.job.cancellation_signal()).await?;
+        self.on_finish(task.job.cancellation_signal(), false).await?;
         Ok(result)
     }
 
@@ -867,7 +867,7 @@ impl Marathon {
     /// `onFinish`: the guard is set first, so a later finish attempt is a no-op even if this one
     /// failed (C25). Unlike Kotlin, a failing step doesn't skip the later ones (D51). D1 keeps the
     /// usage slot as a no-op. A signal finishes in its own order instead: see `finish_cancelled`.
-    async fn on_finish(&self, cancellation: Arc<dyn CancellationSignal>) -> VendorResult<()> {
+    async fn on_finish(&self, cancellation: Arc<dyn CancellationSignal>, interrupted: bool) -> VendorResult<()> {
         // D52, D84 (round 5): a signal's finish owns the order from the moment it begins (the reports first, then the
         // rest), so this finish hands over to it before every step it would start, including after a step that was
         // waiting when the signal came: it never starts analytics' close or the provider's termination beside the
@@ -895,7 +895,7 @@ impl Marathon {
             if handed_over() {
                 return Ok(());
             }
-            let result = self.run_step(step, cancellation.clone()).await;
+            let result = self.run_step(step, cancellation.clone(), interrupted).await;
             self.finish_step(&mut first, step.label(), result, &cancellation)?;
         }
         if handed_over() {
@@ -916,7 +916,7 @@ impl Marathon {
             if handed_over() {
                 return Ok(());
             }
-            let result = self.run_step(step, cancellation.clone()).await;
+            let result = self.run_step(step, cancellation.clone(), false).await;
             self.finish_step(&mut first, step.label(), result, &cancellation)?;
         }
         let flushed = self.flush(cancellation.clone()).await;
@@ -926,7 +926,12 @@ impl Marathon {
     }
 
     /// One step, or if it has started already, the wait for it. The caller that ran it gets its result and reports it.
-    async fn run_step(&self, step: FinishStep, cancellation: Arc<dyn CancellationSignal>) -> VendorResult<()> {
+    async fn run_step(
+        &self,
+        step: FinishStep,
+        cancellation: Arc<dyn CancellationSignal>,
+        interrupted: bool,
+    ) -> VendorResult<()> {
         let steps = &self.steps;
         let state = match step {
             FinishStep::Analytics => &steps.analytics,
@@ -953,8 +958,23 @@ impl Marathon {
             }
             FinishStep::Provider => {
                 let provider = self.deps.provider.clone();
+                let interrupted = !self.signalled.get()
+                    && (interrupted
+                        || self.cancellation.reason().is_some()
+                        || self
+                            .diagnostic_scheduler
+                            .borrow()
+                            .as_ref()
+                            .and_then(Scheduler::failure)
+                            .is_some());
                 call_vendor(vendor.as_ref(), cancellation, move |_| {
-                    Box::pin(async move { provider.terminate().await })
+                    Box::pin(async move {
+                        if interrupted {
+                            provider.terminate_after_stop().await
+                        } else {
+                            provider.terminate().await
+                        }
+                    })
                 })
                 .await
             }
@@ -982,7 +1002,7 @@ impl Marathon {
         let marathon = self.clone();
         self.services.core.spawn_cleanup(Box::new(move |_| {
             Box::pin(async move {
-                let result = marathon.run_step(step, Signal::new()).await;
+                let result = marathon.run_step(step, Signal::new(), false).await;
                 // A cancelled step is not logged here, as before D84.
                 if !matches!(result, Err(VendorError::Cancelled(_))) {
                     let signal: Arc<dyn CancellationSignal> = Signal::new();
@@ -1140,9 +1160,10 @@ impl Marathon {
             // A failing finish there is reported by the completion handler, not rethrown:
             // the original throwable still reaches the catch.
             let marathon = self.clone();
+            let interrupted = outcome.is_err();
             let cleanup = core.spawn_cleanup(Box::new(move |_| {
                 Box::pin(async move {
-                    let _ = marathon.on_finish(Signal::new()).await;
+                    let _ = marathon.on_finish(Signal::new(), interrupted).await;
                     Ok(())
                 })
             }));

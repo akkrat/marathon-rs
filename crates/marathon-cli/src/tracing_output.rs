@@ -41,7 +41,7 @@ pub fn exit_once(status: i32) -> ! {
 pub use marathon_logging::{Vendor as Configurator, filter};
 
 pub(crate) const EXIT_FLUSH: std::time::Duration = std::time::Duration::from_secs(1);
-const ORDINARY_COMPLETION: Duration = Duration::from_secs(60);
+const ORDINARY_COMPLETION: Duration = Duration::from_millis(marathon_core::output::CONSOLE_COMPLETION_MILLIS as u64);
 
 struct CompletionDeadline {
     deadline: OnceLock<Instant>,

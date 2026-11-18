@@ -445,6 +445,11 @@ impl ArtifactProcessor {
             waiter.decided.complete(Ok(None));
         }
         let started = self.now("apple.ArtifactProcessor.closeAndJoin")?;
+        let clock = &context.clock;
+        let deadline = clock
+            .now_millis()
+            .saturating_add(timeout.max(0))
+            .saturating_add(cancel_timeout.max(0));
         if context
             .clock
             .with_timeout_or_null(
@@ -469,6 +474,9 @@ impl ArtifactProcessor {
                 None,
             );
         }
+        // The worker joins and the final receipt share the cancellation phase, including after a slow drain.
+        let cancel_by = deadline.min(clock.now_millis().saturating_add(cancel_timeout.max(0)));
+        let remaining = || cancel_by.saturating_sub(clock.now_millis()).max(0);
         self.supervisor.cancel(Cancellation::Requested(failure(
             FailureKind::JobCancelled,
             "Job was cancelled",
@@ -480,7 +488,7 @@ impl ArtifactProcessor {
                 "Job was cancelled",
             )));
         }
-        context.clock.with_timeout_or_null(context.cancellation.clone(), cancel_timeout, Box::new(move |signal| Box::pin(async move {
+        context.clock.with_timeout_or_null(context.cancellation.clone(), remaining(), Box::new(move |signal| Box::pin(async move {
             for task in tasks { tokio::select! { biased; reason = signal.cancelled() => return Err(VendorError::Cancelled(reason)), _ = task.join() => {} } }
             Ok(())
         }))).await?;
@@ -514,7 +522,7 @@ impl ArtifactProcessor {
             .clock
             .with_timeout_or_null(
                 context.cancellation.clone(),
-                cancel_timeout,
+                remaining(),
                 Box::new(|signal| Box::pin(async { finished.wait_in(signal).await.map(|_| ()) })),
             )
             .await?;

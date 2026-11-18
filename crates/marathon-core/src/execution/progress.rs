@@ -5,7 +5,7 @@ use marathon_logging::Level;
 use crate::{
     ci::Ci,
     error::{VendorError, VendorResult},
-    executor::{bridge::call_vendor, shared::failure},
+    executor::shared::failure,
     logging::LogQueue,
     model::{DeviceInfo, DevicePoolId, Test, TestAction, TestResult, TestShard, TestStatus},
     output::OutputDriver,
@@ -417,9 +417,10 @@ impl PoolProgressAccumulator {
             let pool = self.pool.clone();
             let device = device.clone();
             let tracker = self.tracker.clone();
-            call_vendor(self.output.vendor.as_ref(), cancellation, move |_| {
-                Box::pin(async move { tracker.test(&pool, &device, &result, final_tracked).await })
-            })
+            crate::artifact_io::on_io_scoped(
+                self.output.vendor.as_ref(),
+                Box::pin(async move { tracker.test(&pool, &device, &result, final_tracked).await }),
+            )
             .await?;
         }
         Ok(action)

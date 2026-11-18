@@ -7,6 +7,7 @@ use std::{
     cell::{Cell, RefCell},
     collections::VecDeque,
     rc::Rc,
+    sync::Arc,
 };
 use tokio::sync::Notify;
 
@@ -14,6 +15,7 @@ pub struct RuntimeActor<M> {
     identity: std::rc::Weak<Self>,
     job: JobRef,
     receiver: JobRef,
+    interrupt: Arc<Signal>,
     closed: Cell<bool>,
     queue: RefCell<VecDeque<M>>,
     changed: Notify,
@@ -61,6 +63,7 @@ impl<M: 'static> RuntimeActor<M> {
             identity: identity.clone(),
             job: job.clone(),
             receiver: receiver.clone(),
+            interrupt: Signal::new(),
             closed: Cell::new(false),
             queue: RefCell::new(VecDeque::new()),
             changed: Notify::new(),
@@ -108,10 +111,20 @@ impl<M: 'static> RuntimeActor<M> {
                         Some(h) => h,
                         None => return Ok(()),
                     };
-                    let result = match std::panic::AssertUnwindSafe(active.receive_loop(&mut *handler, task, clock))
-                        .catch_unwind()
+                    let result = std::panic::AssertUnwindSafe(async {
+                        match race(
+                            active.interrupt.cancelled(),
+                            active.receive_loop(&mut *handler, task, clock),
+                        )
                         .await
-                    {
+                        {
+                            futures_util::future::Either::Left(reason) => Err(reason.into()),
+                            futures_util::future::Either::Right(result) => result,
+                        }
+                    })
+                    .catch_unwind()
+                    .await;
+                    let result = match result {
                         Ok(result) => result,
                         Err(payload) => Err(super::panic_failure(payload).into()),
                     };
@@ -136,6 +149,13 @@ impl<M: 'static> RuntimeActor<M> {
         );
         actor
     }
+
+    /// D94: close the mailbox and drop a receive that did not yield to ordinary cancellation.
+    pub(crate) fn interrupt(&self, reason: Cancellation) {
+        self.job.cancel(reason.clone());
+        self.interrupt.cancel(reason);
+    }
+
     async fn receive_loop(
         &self,
         handler: &mut dyn ActorHandler<M>,

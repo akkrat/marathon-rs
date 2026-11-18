@@ -9,6 +9,9 @@ use std::path::PathBuf;
 
 pub use jcompat::file_manager::{FileType, FolderType};
 
+/// D67: the CLI's final flush and console drain share this allowance.
+pub const CONSOLE_COMPLETION_MILLIS: i64 = 60_000;
+
 pub struct FileTarget {
     pub kind: FileType,
     pub pool: DevicePoolId,

@@ -7,6 +7,7 @@ use marathon_apple::apple_device::AppleDevice;
 use marathon_config::devices::{AppleTarget, Transport};
 use marathon_core::{
     executor::shared::SharedDeferred,
+    runtime::VendorClock,
     vendor::{Device, DeviceProvider},
 };
 use marathon_ios::device::simulator_provisioner::SimulatorProvisioner;
@@ -357,6 +358,61 @@ async fn a_pull_asked_for_after_the_disposals_look_at_the_pulls_is_refused_d93()
     );
     Ok(())
 }
+#[tokio::test(start_paused = true)]
+async fn a_stopped_run_disposes_simulators_within_one_artifact_window_d94() -> TestResult {
+    let p = ProviderHarness::new(|_| {})?;
+    p.h.services
+        .logging
+        .registry
+        .lock()
+        .unwrap()
+        .component_with_level("marathon_apple::artifact_processor", marathon_logging::Level::WARN);
+    p.update(&["a"]).await.map_err(test_error)?;
+    let device = p.connected(1).await.remove(0);
+    let started = SharedDeferred::new();
+    let cancel_at = SharedDeferred::new();
+    let release = SharedDeferred::new();
+    let returned = SharedDeferred::new();
+    let (entered, cancelled, gate, done) = (started.clone(), cancel_at.clone(), release.clone(), returned.clone());
+    p.h.services
+        .artifacts
+        .submit(
+            "a@local".into(),
+            "stalled bundle".into(),
+            "local".into(),
+            None,
+            Arc::new(move |context| {
+                let (entered, cancelled, gate, done) = (entered.clone(), cancelled.clone(), gate.clone(), done.clone());
+                Box::pin(async move {
+                    entered.complete(Ok(()));
+                    let _ = context.cancellation.cancelled().await;
+                    cancelled.complete(Ok(context.clock.now_millis()));
+                    gate.wait().await?;
+                    done.complete(Ok(()));
+                    Ok(())
+                })
+            }),
+            p.h.services.context.clone(),
+        )
+        .await
+        .map_err(test_error)?;
+    started.wait().await.map_err(test_error)?;
+    let start = p.h.clock.now_millis();
+    p.provider.terminate_after_stop().await.map_err(test_error)?;
+    assert_eq!(*cancel_at.wait().await.map_err(test_error)? - start, 30_000);
+    assert_eq!(p.h.clock.now_millis() - start, 70_000);
+    assert!(device.disposed());
+    assert!(p.h.logs.lock().unwrap().iter().any(|(_, _, line, _)| {
+        line.contains("Artifact work did not stop within 40000 ms of cancellation") && line.contains("stalled bundle")
+    }));
+    assert!(p.h.logs.lock().unwrap().iter().any(|(_, _, line, _)| {
+        line.contains("their remote sources are kept on the workers") && line.contains("stalled bundle")
+    }));
+    release.complete(Ok(()));
+    returned.wait().await.map_err(test_error)?;
+    p.finish().await
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_worker_planning_failure_releases_its_connection_and_does_not_cancel_healthy_workers() -> TestResult {
     let p = ProviderHarness::new(|_| {})?;

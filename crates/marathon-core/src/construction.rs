@@ -96,6 +96,8 @@ pub fn standard_reporters(ctx: &ReporterContext) -> VendorResult<Vec<ReporterReg
 
 /// Everything the reporters need.
 pub struct ReporterContext {
+    #[cfg(feature = "test-support")]
+    pub track: Arc<Track>,
     pub io: Arc<dyn VendorRuntime>,
     pub configuration: Arc<Configuration>,
     pub files: Arc<FileManagerOutput>,
@@ -399,6 +401,8 @@ async fn build(
         StdoutReporter::new(io.clone(), timer.clone(), inputs.console.clone()),
     );
     let reporter_context = ReporterContext {
+        #[cfg(feature = "test-support")]
+        track: track.clone(),
         io: io.clone(),
         configuration: configuration.clone(),
         files,

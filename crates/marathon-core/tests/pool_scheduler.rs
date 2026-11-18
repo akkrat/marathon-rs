@@ -2061,6 +2061,45 @@ impl marathon_core::wiring::Tracker for HeldTrack {
     }
 }
 
+#[test]
+fn a_pool_waiting_for_its_stalled_queue_does_not_spend_a_second_drain_window_d94() {
+    scheduling_test(|h| {
+        Box::pin(async move {
+            let gate = Gate::default();
+            let run = Run::new_with_tracker(
+                &h,
+                waiting(),
+                Arc::new(HeldTrack(h.tracker.clone(), gate.clone(), Default::default())),
+            );
+            h.run_current().await;
+            let device = device("serial-A", "test", 100, false);
+            run.connect(&device);
+            advance(&h, 300).await;
+            let (_, pool) = run.scheduler.pools().remove(0);
+            let queued = pool.queue.actor().state().queued;
+            run.disconnect(&device);
+            h.run_current().await;
+            assert!(
+                pool.queue.actor().state().queued > queued,
+                "the pool has not queried its queue"
+            );
+            assert!(h.tracker.events().is_empty(), "the queue is still tracking the result");
+
+            let cause = ise("device events failed");
+            run.provider.channel.close(Some(cause.clone()));
+            advance(&h, 65_300).await;
+            assert!(matches!(
+                run.result.borrow().as_ref(),
+                Some((65_300, Err(VendorError::Other(actual)))) if *actual == cause
+            ));
+            assert_eq!(logged(&h, "Drain timed out for queue"), 1);
+            assert_eq!(logged(&h, "Drain timed out for pool"), 0);
+            assert!(pool.terminated());
+            run.finish(&h).await;
+        })
+    });
+}
+
 /// D84, review round 1: a result delivered to a queue before a failure still reaches the Track. A's test1 ends first
 /// and its Track is held; B's test2 then ends and its result waits in the queue's mailbox. The device subscription
 /// fails while both are there. Cancelling the queue at once would discard B's result with the mailbox; the queue now

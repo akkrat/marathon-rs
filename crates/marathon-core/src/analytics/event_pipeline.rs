@@ -805,7 +805,7 @@ impl Tracker for Track {
         let this = self.clone();
         let (pool, device) = (pool.clone(), device.clone());
         Box::pin(async move {
-            on_io(
+            on_io_scoped(
                 self.io.as_ref(),
                 Box::pin(async move {
                     let delegates = this.delegates.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -879,7 +879,7 @@ impl Tracker for Track {
         let this = self.clone();
         let (pool, device, result) = (pool.clone(), device.clone(), result.clone());
         Box::pin(async move {
-            on_io(
+            on_io_scoped(
                 self.io.as_ref(),
                 Box::pin(async move {
                     let delegates = this.delegates.lock().unwrap_or_else(|e| e.into_inner()).clone();

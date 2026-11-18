@@ -13,9 +13,9 @@ use crate::{
         progress::{PoolProgressAccumulator, ProgressServices},
         queue::{QueueActor, QueueMessage, SharedProgress},
     },
-    executor::{CoreExecutor, shared::*},
+    executor::{CoreExecutor, RuntimeActor, shared::*},
     model::{DevicePoolId, TestShard},
-    output::OutputDriver,
+    output::{CONSOLE_COMPLETION_MILLIS, OutputDriver},
     runtime::*,
     strategy::pooling::PoolingStrategy,
     time::{ReplayBarriers, ReplayHooks, SchedulerClock, Timer},
@@ -27,13 +27,16 @@ use indexmap::IndexMap;
 use marathon_config::Configuration;
 use marathon_error::FailureKind;
 use marathon_logging::Level;
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use std::{cell::RefCell, future::Future, rc::Rc, sync::Arc};
 
 const LOGGER: &str = "marathon_core::execution::scheduler";
 
 /// D84: added to a device's own bound for ending a cancelled call (`Device::cancellation_cleanup_millis`), for the
 /// core's handling after it. Past both, a stopping run finishes without that device.
 pub const STOP_MARGIN_MILLIS: i64 = 5_000;
+
+/// D94: allow the larger of D51's backend send and D67's console allowance, plus the core's stop margin.
+const DRAIN_LIMIT_MILLIS: i64 = CONSOLE_COMPLETION_MILLIS + STOP_MARGIN_MILLIS;
 
 /// D84 (x82b): whether the run was asked to stop, by its owner or by a signal (D52). The Scheduler's `fail` and the
 /// run's decision point read only this. It reads the owner's own job, which the owner's cancel reaches at once whatever
@@ -428,9 +431,13 @@ impl Inner {
             parent,
             Box::new(move |task: TaskContext| {
                 Box::pin(async move {
+                    let signal = task.job.cancellation_signal();
                     let received = async {
                         loop {
-                            let event = receive_device_event(channel.as_ref(), task.job.cancellation_signal())
+                            if self.draining.get() && let Some(reason) = signal.reason() {
+                                return Err(reason.into());
+                            }
+                            let event = receive_device_event(channel.as_ref(), signal.clone())
                                 .await
                                 .map_err(vendor_to_operation)?;
                             match event {
@@ -439,12 +446,29 @@ impl Inner {
                                 None => return Ok(()),
                             }
                         }
-                    }
-                    .await;
+                    };
+                    // A protected run finish joins this child even if it failed before reaching `settle`.
+                    let limit = async {
+                        let reason = signal.cancelled().await;
+                        let timer = task.core.job(JobKind::Ordinary, None);
+                        let _ = task.clock.delay(DRAIN_LIMIT_MILLIS, timer).await;
+                        reason
+                    };
+                    let received = match race(received, limit).await {
+                        Either::Left(received) => received,
+                        Either::Right(reason) => {
+                            self.log(
+                                Level::WARN,
+                                format!("The device subscription did not stop within {DRAIN_LIMIT_MILLIS} ms; cancelling its handler"),
+                                None,
+                            );
+                            Err(reason.into())
+                        }
+                    };
                     // D84: a cancellation the subscription was not given (a cancelled device channel, or a call of its
                     // own) would end it silently, and the run would hear of no device again. It fails instead.
                     match received {
-                        Err(OperationError::Cancelled(reason)) if task.job.cancellation_signal().reason().is_none() => {
+                        Err(OperationError::Cancelled(reason)) if signal.reason().is_none() => {
                             let mut stopped = failure(
                                 FailureKind::IllegalState,
                                 "The device subscription stopped: it was cancelled, but the run was not",
@@ -497,7 +521,12 @@ impl Inner {
         let channel = self.channel.borrow().clone();
         let Some(channel) = channel else { return };
         use futures_util::FutureExt;
-        while let Some(received) = channel.receive().now_or_never() {
+        // An open provider can keep publishing while it is being settled. Inspect only the current backlog and
+        // one terminal read. After termination we check again, when the provider has closed the channel.
+        for _ in 0..=channel.state().queued {
+            let Some(received) = channel.receive().now_or_never() else {
+                return;
+            };
             match received {
                 Ok(Some(_)) => continue,
                 Ok(None) => {
@@ -569,14 +598,14 @@ impl Inner {
         self.draining.set(true);
         // The pools are only borrowed for moments that run no job transition, so this always succeeds; if it ever did
         // not, stopping everything at once is still a stop.
-        let pools: Vec<DevicePool> = match self.pools.try_borrow() {
-            Ok(pools) => pools.values().cloned().collect(),
+        let pools: Vec<_> = match self.pools.try_borrow() {
+            Ok(pools) => pools.iter().map(|(id, pool)| (id.clone(), pool.clone())).collect(),
             Err(_) => {
                 self.job.cancel(reason.clone());
                 Vec::new()
             }
         };
-        for pool in &pools {
+        for (_, pool) in &pools {
             pool.drain();
         }
         let subscription = self.subscription.borrow().clone();
@@ -585,7 +614,7 @@ impl Inner {
         }
         let mut children = Vec::new();
         let mut devices = Vec::new();
-        for pool in &pools {
+        for (_, pool) in &pools {
             let queue = pool.queue.job();
             let actors = pool.devices();
             for child in pool.supervisor.children_snapshot() {
@@ -634,11 +663,10 @@ impl Inner {
     }
 
     /// D84: (I4) waits for every cancelled device to end, each within its vendor's own bound for a cancelled call (none
-    /// for a vendor without one); (I3) has each pool and then its queue take what was delivered to them, through
-    /// barriers each answers after the messages before it; then cancels the pools and queues and waits for them.
+    /// for a vendor without one). D94 bounds each barrier. The pool takes its results before its queue takes them.
     async fn stop_routine(
         &self,
-        pools: Vec<DevicePool>,
+        pools: Vec<(DevicePoolId, DevicePool)>,
         devices: Vec<StoppingDevice>,
         reason: Cancellation,
         started: i64,
@@ -686,23 +714,52 @@ impl Inner {
         });
         futures_util::future::join_all(joins).await;
         timer.cancel(requested("The devices have stopped"));
-        for pool in &pools {
+        for (id, pool) in &pools {
             let barrier = crate::execution::pool_message::DrainBarrier(SharedDeferred::new());
             let drain = DevicePoolMessage::FromScheduler(FromScheduler::Drain(barrier.clone()));
             if pool.actor.try_send(drain).is_ok() {
-                let job = pool.actor.job();
-                let _ = race(barrier.0.wait(), job.join()).await;
+                self.drain_actor(&pool.actor, barrier.0.wait(), "pool", id, &reason)
+                    .await;
             }
             let (taken, answer) = tokio::sync::oneshot::channel();
             if pool.queue.try_send(QueueMessage::IsEmpty(taken)) {
-                let queue = pool.queue.job();
-                let _ = race(answer, queue.join()).await;
+                self.drain_actor(&pool.queue.actor(), answer, "queue for pool", id, &reason)
+                    .await;
             }
         }
-        self.job.cancel(reason);
-        for pool in &pools {
+        self.job.cancel(reason.clone());
+        // An over-budget device may have sent a message behind a barrier. The acknowledged prefix is all we wait for.
+        for (_, pool) in &pools {
+            pool.actor.interrupt(reason.clone());
+            pool.queue.actor().interrupt(reason.clone());
+        }
+        for (_, pool) in &pools {
             let _ = pool.actor.job().join().await;
             let _ = pool.queue.job().join().await;
+        }
+    }
+
+    async fn drain_actor<M: 'static>(
+        &self,
+        actor: &RuntimeActor<M>,
+        answer: impl Future,
+        name: &str,
+        id: &DevicePoolId,
+        reason: &Cancellation,
+    ) {
+        let job = actor.job();
+        let timer = self.parts.core.job(JobKind::Ordinary, None);
+        let clock = self.parts.core.clock();
+        if let Either::Right(_) = race(race(answer, job.join()), clock.delay(DRAIN_LIMIT_MILLIS, timer)).await {
+            self.log(
+                Level::WARN,
+                format!(
+                    "Drain timed out for {name} {} after {DRAIN_LIMIT_MILLIS} ms; cancelling it",
+                    id.name
+                ),
+                None,
+            );
+            actor.interrupt(reason.clone());
         }
     }
 

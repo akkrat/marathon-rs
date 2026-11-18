@@ -805,6 +805,168 @@ fn now(clock: &SharedClock) -> i64 {
     clock.get().map_or(-1, |clock| clock.now_millis())
 }
 
+#[derive(Copy, Clone)]
+enum Drain {
+    Healthy,
+    Slow,
+    Stalled,
+}
+
+struct DrainProbe {
+    drain: Drain,
+    clock: SharedClock,
+    events: std::sync::OnceLock<Arc<SharedChannel<DeviceEvent>>>,
+    dropped: AtomicBool,
+}
+
+impl marathon_core::analytics::TrackerInternalAdapter for DrainProbe {
+    fn test<'a>(&'a self, event: &'a marathon_core::report::TestEvent) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            if event.test_result.test.method != "test2" || matches!(self.drain, Drain::Healthy) {
+                return Ok(());
+            }
+            struct SetOnDrop<'a>(&'a AtomicBool);
+            impl Drop for SetOnDrop<'_> {
+                fn drop(&mut self) {
+                    self.0.store(true, Ordering::SeqCst);
+                }
+            }
+            let _dropped = SetOnDrop(&self.dropped);
+            self.events.get().unwrap().close(Some(failure(
+                FailureKind::IllegalState,
+                "The device channel failed while tracking test2",
+            )));
+            match self.drain {
+                Drain::Stalled => std::future::pending().await,
+                Drain::Slow => self.clock.get().unwrap().delay(64_000, Signal::new()).await,
+                Drain::Healthy => unreachable!(),
+            }
+        })
+    }
+}
+
+fn drain_witness(drain: Drain) -> (Outcome, Arc<DrainProbe>) {
+    let (mut factory, script) = script();
+    let probe = Arc::new(DrainProbe {
+        drain,
+        clock: Arc::default(),
+        events: Default::default(),
+        dropped: AtomicBool::new(false),
+    });
+    factory.tracker_probe = Some(probe.clone());
+    let clock = probe.clock.clone();
+    let entered = probe.clone();
+    let outcome = scenario::drive(
+        factory,
+        script,
+        Some(Box::new(move |core, _| {
+            assert!(clock.set(core.clock().vendor()).is_ok());
+        })),
+        Some(Box::new(move |built| {
+            assert!(entered.events.set(built.provider.channel()).is_ok());
+        })),
+    );
+    (outcome, probe)
+}
+
+fn assert_drain_results(outcome: &Outcome, expected: &[&str]) {
+    let raw: Value = serde_json::from_str(&outcome.read("test_result/raw.json")).unwrap();
+    let results = raw
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            assert_eq!(row["status"], "PASSED");
+            row["method"].as_str().unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(results, expected);
+}
+
+fn drain_warnings(outcome: &Outcome) -> Vec<&str> {
+    outcome
+        .lines
+        .iter()
+        .filter_map(|line| match line {
+            Line::Log {
+                level: Level::WARN,
+                message,
+                ..
+            } if message.starts_with("Drain timed out") => Some(message.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_stalled_queue_is_interrupted_at_the_drain_deadline_d94() {
+    let (outcome, probe) = drain_witness(Drain::Stalled);
+    assert_failed_run(&outcome, SECOND_TEST_ENDS + 65_001);
+    assert_eq!(outcome.completed_at, Some(SECOND_TEST_ENDS + 65_000));
+    assert_eq!(
+        run_failure(&outcome),
+        ["The device channel failed while tracking test2"]
+    );
+    assert_eq!(
+        drain_warnings(&outcome),
+        ["Drain timed out for queue for pool modelA after 65000 ms; cancelling it"]
+    );
+    assert!(probe.dropped.load(Ordering::SeqCst), "the callback is still running");
+    assert_drain_results(&outcome, &["test1"]);
+}
+
+#[test]
+fn a_slow_queue_commits_its_result_inside_the_drain_deadline_d94() {
+    let (outcome, probe) = drain_witness(Drain::Slow);
+    assert_failed_run(&outcome, SECOND_TEST_ENDS + 65_000);
+    assert_eq!(outcome.completed_at, Some(SECOND_TEST_ENDS + 64_000));
+    assert_eq!(
+        run_failure(&outcome),
+        ["The device channel failed while tracking test2"]
+    );
+    assert!(drain_warnings(&outcome).is_empty());
+    assert!(probe.dropped.load(Ordering::SeqCst));
+    assert_drain_results(&outcome, &["test1", "test2"]);
+}
+
+#[test]
+fn a_healthy_run_completes_in_its_usual_order_d94() {
+    let (outcome, _) = drain_witness(Drain::Healthy);
+    assert!(matches!(outcome.value, Some(Ok(true))));
+    assert_eq!(outcome.completed_at, Some(SECOND_TEST_ENDS));
+    assert!(drain_warnings(&outcome).is_empty());
+    assert_drain_results(&outcome, &["test1", "test2"]);
+}
+
+struct StalledSubscription;
+impl marathon_core::analytics::TrackerInternalAdapter for StalledSubscription {
+    fn device_connected<'a>(&'a self, _: &'a marathon_core::report::DeviceConnectedEvent) -> VendorFuture<'a, ()> {
+        Box::pin(std::future::pending())
+    }
+}
+
+#[test]
+fn the_finish_interrupts_a_stalled_subscription_d94() {
+    let (mut factory, script) = script();
+    factory.tracker_probe = Some(Arc::new(StalledSubscription));
+    let outcome = scenario::drive(factory, script, None, None);
+    assert!(matches!(outcome.value, Some(Ok(true))));
+    assert_eq!(outcome.completed_at, Some(SECOND_TEST_ENDS + 65_000));
+    assert_eq!(
+        outcome
+            .lines
+            .iter()
+            .filter(|line| matches!(line, Line::Log {
+        level: Level::WARN,
+        message,
+        ..
+    } if message.contains("The device subscription did not stop within 65000 ms")))
+            .count(),
+        1
+    );
+    assert_drain_results(&outcome, &["test1", "test2"]);
+}
+
 /// A reporter that takes 6.5 s, reports when it starts and records when it starts and ends.
 struct SlowReports(
     SharedClock,

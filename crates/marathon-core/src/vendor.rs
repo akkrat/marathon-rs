@@ -141,6 +141,10 @@ pub trait DeviceProvider: Send + Sync {
         })
     }
     fn terminate(&self) -> VendorFuture<'_, ()>;
+    /// D94: an interrupted run may shorten its remaining optional work before disposing devices.
+    fn terminate_after_stop(&self) -> VendorFuture<'_, ()> {
+        self.terminate()
+    }
     /// D84: the failure this provider has published on its device channel (its device source failed), if any. A remote
     /// parse that ends without a device reads it: it is then the run's cause, not a no-device timeout. No I/O.
     fn published_failure(&self) -> Option<crate::error::Failure> {

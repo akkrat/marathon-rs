@@ -201,6 +201,8 @@ pub struct MarathonFactory {
     pub signal_trigger: Option<Arc<marathon_core::executor::SharedDeferred<i32>>>,
     /// Appended through the 3.9c reporter seam.
     pub reporters: Vec<marathon_core::analytics::ReporterRegistration>,
+    /// Optional inline tracker callback, before the standard event pipeline commits the event.
+    pub tracker_probe: Option<Arc<dyn marathon_core::analytics::TrackerInternal>>,
     pub logging: Arc<Mutex<LogSettings>>,
     /// Prompt console output, as the CLI's live run has it; the oracle runs leave it off.
     pub live_output: bool,
@@ -235,6 +237,7 @@ impl MarathonFactory {
             exit: None,
             signal_trigger: None,
             reporters: vec![],
+            tracker_probe: None,
             logging: Arc::new(Mutex::new(LogSettings::default())),
             live_output: false,
             console_sink: None,
@@ -285,7 +288,14 @@ impl MarathonFactory {
             analytics: self.analytics.take(),
             extra_reporters: {
                 let reporters = std::mem::take(&mut self.reporters);
+                let probe = self.tracker_probe.take();
                 Box::new(move |ctx| {
+                    if let Some(probe) = probe {
+                        ctx.track.add(Arc::new(marathon_core::analytics::MappingTracker::new(
+                            ctx.hooks.clone(),
+                            probe,
+                        )));
+                    }
                     let mut all = marathon_core::construction::standard_reporters(ctx)?;
                     all.extend(reporters);
                     Ok(all)
