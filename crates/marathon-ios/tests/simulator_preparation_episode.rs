@@ -795,3 +795,58 @@ async fn a_held_attempts_shutdown_ends_by_the_deadline_at_its_worst_d87() -> Tes
     h.finish(&[d]).await;
     Ok(())
 }
+
+// ---- Closing check -------------------------------------------------------------------------------------------------
+
+/// A replacement with 300 s left whose whole first boot fails after its 10 s `bootWait`, with no room for a held second
+/// attempt (the shutdown's worst case is kept back, 240 s): the boot half runs out of time at about 10 s and the
+/// preparation waits for the installation. `slow_shared_mkdir` holds the installation's own shared-directory command.
+async fn boot_out_of_time_beside(bridge: Arc<SlowFailingSends>, slow_shared_mkdir: u64) -> TestResult<VendorError> {
+    let h = harness(10, 30)?;
+    let d = replacement(&h, Some(bridge), 300 * SECOND).await?;
+    h.boot.finish_after.store(usize::MAX, Ordering::SeqCst);
+    let shared = Arc::new(AtomicUsize::new(0));
+    on_commands(&h, move |boot, cmd, _| {
+        let mkdir_shared = cmd.first().is_some_and(|s| s == "mkdir") && cmd.iter().any(|s| s.contains("shared"));
+        // The preparation's own cleanup creates it first; the installation's attempt does so next.
+        (mkdir_shared && shared.fetch_add(1, Ordering::SeqCst) == 1 && slow_shared_mkdir > 0).then(|| {
+            let reply = boot.answer(cmd);
+            Box::pin(async move {
+                tokio::time::sleep(Duration::from_secs(slow_shared_mkdir)).await;
+                Ok(reply)
+            }) as VendorFuture<'static, Option<CommandResult>>
+        })
+    });
+    let error = h.prepare(&d).await.unwrap_err();
+    h.finish(&[d]).await;
+    Ok(error)
+}
+
+/// D87 (closing check, a): once the boot has run out of time, a send that fails is not sent again, although the
+/// episode's clock still has time: the send fails at 20 s, and the resend that used to start at 21 s (and could run
+/// on, uncapped) does not.
+#[tokio::test(start_paused = true)]
+async fn a_send_failing_after_the_boot_ran_out_of_time_is_not_sent_again_d87() -> TestResult {
+    let bridge = Arc::new(SlowFailingSends {
+        after: Duration::from_secs(20),
+        sends: AtomicUsize::new(0),
+    });
+    let error = boot_out_of_time_beside(bridge.clone(), 0).await?;
+    assert!(not_booted(&error), "{error:?}");
+    assert_eq!(bridge.sends.load(Ordering::SeqCst), 1, "no resend");
+    Ok(())
+}
+
+/// D87 (closing check, b): the boot runs out of time at about 10 s while the installation waits 20 s for its directory;
+/// the upload that would follow does not start.
+#[tokio::test(start_paused = true)]
+async fn no_upload_starts_after_the_boot_ran_out_of_time_d87() -> TestResult {
+    let bridge = Arc::new(SlowFailingSends {
+        after: Duration::from_secs(20),
+        sends: AtomicUsize::new(0),
+    });
+    let error = boot_out_of_time_beside(bridge.clone(), 20).await?;
+    assert!(not_booted(&error), "{error:?}");
+    assert_eq!(bridge.sends.load(Ordering::SeqCst), 0, "no upload");
+    Ok(())
+}
