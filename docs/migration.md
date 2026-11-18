@@ -127,7 +127,7 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 | cancel runs with SIGINT or SIGTERM, or take a run's reports as a sign that it finished ([D52](deviations.md#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit)) | A cancelled run writes its reports and terminates its devices whatever `debug` says, and exits with 130 or 143 within 25 s. A second signal exits at once. | Allow 25 s before killing it, and read the exit code to tell whether a run finished. [See below](#cancelling-a-run). |
 
 These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D22, D23, D26, D28–D30, D34, D36, D37, D40, D42, D45, D49,
-D51, D53, D54, D64–D66, D68–D70, D74–D77, D80, D81 and D83. D65 can include a previously missed late pool, lengthen a run and correct its reports and
+D51, D53, D54, D64–D66, D68–D70, D74–D77 and D80–D83. D65 can include a previously missed late pool, lengthen a run and correct its reports and
 existing exit status; it needs no configuration change. D66 turns a SIGQUIT, which used to end the run at once, into a
 logged state dump; a wrapper that sends SIGQUIT and then SIGTERM now gets the dump, then D52's reports and exit status. D2, D3, D6, D8–D12, D14, D20, D24, D25, D67, D71, D72 and D78 have an action of their own, described in their entries and in the
 sections below.
@@ -423,6 +423,19 @@ These fix bugs that Kotlin has, and need no configuration change.
   `<external storage>/Android/data/<app>/files/coverage/`, so a non-debuggable app gets coverage too. The `.ec` files
   land in `device-files/<pool>/coverage/` as before; a missing one is an ERROR, and each test's result file lists its
   file as a `COVERAGE` attachment.
+- **A retry goes to another device**
+  ([D82](deviations.md#d82--a-retry-is-kept-off-the-device-it-came-from-also-without-a-worker)). A test that comes
+  back incomplete or is retried after a failure is left to the pool's other devices while other tests are queued, so one
+  emulator whose instrumentation keeps failing no longer takes the same test back until its `uncompletedTestRetryQuota`
+  is used up. The device that gave it back runs its other queued tests first and takes the retry itself only when
+  nothing else is queued for it, so in a pool of one device a retry runs at the end of the queued work. Another device
+  takes it when it asks, by the queue's priority and batching. The quotas and exit-code rules are the same, but a test
+  can need fewer attempts and get another verdict (a retry that passes on another device ends it), so with
+  `ignoreFailures: false` a run can exit 0 where it exited 1, or the reverse. Reports name other devices: `raw.json`
+  device serials and row order change, and so can the device of a test's final result. Unless a fresh copy of the same
+  test is queued too (then `class-name` batching can still send both copies with fresh tests), a device's own retry no
+  longer shares a batch with fresh tests, so `fixed-size` batching can start one more instrumentation, which adds its start-up time, and the
+  `am instrument` commands change in number, order and `-e class` grouping.
 - **Each instrumentation runs only its own tests**
   ([D28](deviations.md#d28--each-instrumentation-runs-only-its-own-tests)). This only matters for batches
   that mix test APKs, which takes `class-name` batching and the same class name in both.

@@ -4,6 +4,18 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## Unreleased
 
+- **A retry goes to another Android device (D82):** a test that comes back incomplete from an Android device (for
+  example when its instrumentation ends before the test starts), or that fails and is retried, is now left to the
+  pool's other devices while other tests are queued. One emulator that keeps failing no longer takes the same test back
+  at once until `uncompletedTestRetryQuota` is used up; it runs the other queued tests first and takes the retry itself
+  only when nothing else is queued for it, so in a pool of one device a retry now runs at the end of the queued work.
+  Another device takes the retry when it asks, by queue priority and batching. The quotas and exit-code rules are
+  unchanged, but a test can need fewer attempts and get a different verdict (a retry that passes on another device ends
+  it), so with `ignoreFailures: false` a run can exit 0 where it exited 1, or the reverse. `raw.json` names other devices
+  in another row order, and a test's final result can name another device. Unless a fresh copy of the same test is
+  queued too, a device's own retry no longer shares a batch with fresh tests, so `fixed-size` batching can start one more instrumentation, which adds wall time, and the `am instrument`
+  commands change in number, order and `-e class` grouping. iOS and macOS already sent retries to another worker and are
+  unchanged.
 - **Flakiness copies take turns (D83):** with `flakinessStrategy: probability` or `fixed`, or `shardingStrategy:
   count`, the extra runs of different tests now alternate in the queue instead of each test's runs waiting together; so
   does a test discovered twice, for example in two test APKs. Free devices spread over the tests, so with

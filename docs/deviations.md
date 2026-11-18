@@ -1,7 +1,7 @@
 # Approved differences from Kotlin marathon
 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) is
-canonical. This guide covers D1–D81 (D73 was reserved and not used); implementation availability
+canonical. This guide covers D1–D83 (D73 was reserved and not used); implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
 shipped differences. D55–D67 ship in 0.13.0. D55–D65 remove JVM artefacts under
@@ -12,7 +12,8 @@ PLAN §3.11 records no per-row approval dates for D55–D65. Its heading date,
 2026-10-12, is the section's original approval date. D68–D81 ship in 0.14.0 (D68–D72 and D74–D77
 first in 0.14.0-rc.1, D78–D81 in 0.14.0-rc.2); they fix run-stability and device-handling bugs, add a native-only
 flakiness strategy (D72), and change JUnit retry elements, the iOS boot wait and video transfers, and Android coverage
-without `run-as`. See the
+without `run-as`. D82 (Android retries go to another device) and D83 (copies of different tests take turns in the
+queue) come after 0.14.0 and are not yet in a release. See the
 [changelog](../CHANGELOG.md).
 
 ## D1 — Crash and usage telemetry
@@ -2095,6 +2096,80 @@ the per-test result files or Allure should accept `COVERAGE`. Its path, like eve
 that ran marathon; a tool reading a copy of the output folder elsewhere joins the part after the last `/device-files/`
 onto its copy. A job that made its app debuggable only to get coverage
 can stop doing so.
+
+## D82 — A retry is kept off the device it came from, also without a worker
+
+The Kotlin marathon queues a test again when a failed run is granted a retry, or when a run comes back incomplete within
+`uncompletedTestRetryQuota`. For each such retry it records the worker of the device it came from, and a device of that
+worker gets the retry only if nothing else is queued, so another worker's device takes it. Only Apple devices have a
+worker (the Mac they run on). An Android device has none, so its retries are queued with nothing recorded. With a
+sorting strategy that puts the test first again (`execution-time`, `success-rate`), the device that has just given it
+back asks next and takes it at once. An emulator whose instrumentation keeps ending before a test starts can then use up
+that test's `uncompletedTestRetryQuota` within seconds while the pool's other devices are busy with their own batches
+(C90). On a CI farm of about 120 emulators, one emulator took the same test four times in about 2 s and the test failed
+(U204); a later run passed it on another emulator. A device that is idle when the retry is queued already took it before
+this change, because the pool asks its idle devices first.
+
+The native queue treats a device without a worker as its own place:
+
+- A retry from such a device is left to the pool's other devices while anything else is queued. The device that gave
+  it back takes the next other test instead.
+- When nothing else is queued, the device takes its own retry back at once, as before. The queue never holds a retry
+  for a device that may not come, so a pool of one device, or one whose other devices are busy or gone, still retries
+  on the same device and ends; the retry can run later than before (below).
+- When several devices ask together, one that could only get its own retries is served last, as a worker's device is.
+- A retry that another device took and gave back before starting it keeps the place it came from.
+- Worker devices (Apple) behave as before, and the pool's notification of which workers' parked devices ask later is
+  unchanged.
+
+This applies to retries of failed tests (`retryStrategy`) as it does to incomplete ones. The quotas
+(`uncompletedTestRetryQuota`, `retryStrategy`) are counted as before, with the same D69/D70 refunds, and the exit-code
+rules are unchanged. What a run does with them can change:
+
+- **Which device runs a retry.** Another device of the pool, when one asks while other tests are queued. The device that
+  gave the retry back gets it again only when nothing else is queued for it.
+- **Attempts and verdicts.** A retry that passes on another device ends the test sooner, so a test can need fewer
+  attempts and get a different verdict under the same rules. In the witness below the slow test went from four attempts
+  on the failing device, ending in failure (exit 1), to two: one there and one passing on the other device (exit 0). The exit-code rules are
+  the same, but a run whose verdict changes exits with the other status: with `ignoreFailures: false`, 0 where it exited
+  1, or the reverse. A
+  flaky test retried on a different device can, in principle, also fail where it passed before.
+- **When a retry runs.** A device's own retry runs after the other queued tests it can take. In a pool of one device
+  that means at the end of the queued work; before, with `execution-time` or `success-rate` sorting, it ran again at
+  once. Another device takes it when it asks, by the queue's priority and batching, not necessarily at its next request.
+  A device is never left without work while tests are queued for it.
+- **Batches and launches.** A test is held back from a device only while every queued copy of it is that device's own
+  retry; a test that also has a fresh copy queued (a flakiness copy, for example) can still go to that device, and with
+  `class-name` batching both copies can go in one batch with other fresh tests. Otherwise a device's own retry no longer
+  shares a batch with fresh tests. With `fixed-size` batching
+  of size 2, a device that used to get its own retry and one fresh test in one batch now gets the fresh test alone, and
+  then the retry alone if no other device took it meanwhile: one more instrumentation launch, which adds its start-up
+  time to the run. On Android the `am instrument` commands sent to a device change accordingly: their number, their
+  order and which tests each one's `-e class` list names.
+- **Reports.** `raw.json` names the device that ran each attempt and lists the attempts in the order their results
+  came, so its device serials and row order change. The per-test result files, JUnit and HTML show a test's final
+  result, whose device can change too. File formats do not.
+
+There is no configuration, CLI or result-format change.
+
+Evidence: `retry_placement_run::an_incomplete_test_is_left_to_a_busy_device_while_other_tests_are_queued_d82` (a whole
+run with the Stub vendor: one device gives the slow test back incomplete and passes the others while the other device
+is inside a batch; before D82 the slow test ran four times on the first device and failed, and the run failed; now it
+passes on the other device once that batch ends, and the run passes),
+`a_device_that_fails_every_test_tries_each_once_before_its_own_retries_d82`,
+`an_incomplete_test_goes_back_to_its_device_when_nothing_else_is_queued_d82`, `an_idle_device_takes_an_incomplete_test`,
+and the queue tests `queue_behaviour::a_retry_from_a_device_without_a_worker_is_left_to_another_device_d82`,
+`a_device_without_a_worker_gets_its_own_retry_when_nothing_else_is_queued_d82`,
+`a_device_without_a_worker_runs_its_own_retry_in_a_batch_of_its_own_d82`,
+`devices_without_workers_that_ask_together_leave_a_retry_to_the_other_device_d82` and `a_rejected_retry_keeps_its_device_d82`.
+The JVM queue recordings (`fixtures/oracle/queue/queue.jsonl`) and the Kotlin retry-placement tests still match
+unchanged: none of them has a device without a worker take its own retry back while another test is queued.
+
+Approved 2026-11-18 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
+[x80 findings](wp/x80-findings.md).
+
+**Migration action:** none.
 
 ## D83 — Copies of different tests take turns in the queue
 
