@@ -74,6 +74,12 @@ pub trait Device: Send + Sync {
     fn cancellation_cleanup_millis(&self) -> Option<i64> {
         None
     }
+    /// D84: ends, or waits for, the work this device keeps running after a cancelled call returned to its caller (an
+    /// Apple preparation runs on in a retained task), so that a stopping run can wait for it before the provider
+    /// terminates. Bounded by the run with `cancellation_cleanup_millis`, which must cover it.
+    fn join_cancelled_work(&self) -> VendorFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
     /// D70: this device is leaving the pool while it holds `batch`, whose result is not in. True if the vendor has
     /// started none of it and from now on will not start any: the batch then goes back to the queue with no attempt
     /// charged, as a batch that never reached the device does. A vendor that has started part of it may instead complete

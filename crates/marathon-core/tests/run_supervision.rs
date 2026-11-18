@@ -137,6 +137,10 @@ struct Hooked {
     after_cancel: AfterCancel,
     /// What the device says of how long its cancelled calls can take (`Device::cancellation_cleanup_millis`).
     cleanup_bound: Option<i64>,
+    /// Work a cancelled preparation leaves running for this long, as an Apple installation does, and the flag it sets
+    /// when it ends; `join_cancelled_work` waits for it.
+    retained_preparation: Option<(i64, Arc<AtomicBool>)>,
+    clock: std::sync::OnceLock<Arc<dyn marathon_core::runtime::VendorClock>>,
 }
 #[derive(Default)]
 enum AfterCancel {
@@ -156,6 +160,8 @@ fn hooked(inner: Arc<StubDevice>) -> Hooked {
         cancel_events: false,
         after_cancel: AfterCancel::Nothing,
         cleanup_bound: None,
+        retained_preparation: None,
+        clock: std::sync::OnceLock::new(),
     }
 }
 impl Device for Hooked {
@@ -179,6 +185,7 @@ impl Device for Hooked {
     }
     fn prepare<'a>(&'a self, configuration: Arc<Configuration>, context: VendorContext) -> VendorFuture<'a, ()> {
         Box::pin(async move {
+            let _ = self.clock.set(context.clock.clone());
             if let Some((channel, after)) = &self.fail_events {
                 context.clock.delay(*after, context.cancellation.clone()).await?;
                 if self.cancel_events {
@@ -223,6 +230,17 @@ impl Device for Hooked {
     }
     fn cancellation_cleanup_millis(&self) -> Option<i64> {
         self.cleanup_bound
+    }
+    fn join_cancelled_work(&self) -> VendorFuture<'_, ()> {
+        Box::pin(async move {
+            if let (Some((millis, done)), Some(clock)) = (&self.retained_preparation, self.clock.get())
+                && !done.load(Ordering::SeqCst)
+            {
+                let _ = clock.delay(*millis, Signal::new()).await;
+                done.store(true, Ordering::SeqCst);
+            }
+            Ok(())
+        })
     }
     fn dispose(&self) -> VendorFuture<'_, ()> {
         self.inner.dispose()
@@ -540,4 +558,196 @@ fn a_cleanup_error_after_the_first_failure_does_not_replace_it_d84() {
         Level::ERROR,
         "Finishing the run failed after its first failure"
     ));
+}
+
+/// D84, review round 3 (R3-1a): while the run terminates the provider, a late device connects and the device channel
+/// then fails. The listener is still inside that device's connection (its pool's history prefetch never answers), so it
+/// has not read the failure when the run would store its success. The run settles its Scheduler before the reports:
+/// the listener ends, the channel's failure is read and is the run's error.
+#[test]
+fn a_channel_failure_the_listener_still_holds_at_the_end_fails_the_run_d84() {
+    use marathon_core::analytics::{Analytics, NoOpMetricsProvider};
+    let (mut factory, script) = script();
+    let prefetches = Arc::new(AtomicU32::new(0));
+    factory.analytics = Some(Box::new(move |context| {
+        let prefetch: Arc<dyn Fn() -> marathon_core::runtime::ServiceFuture<'static, ()> + Send + Sync> =
+            Arc::new(move || {
+                if prefetches.fetch_add(1, Ordering::SeqCst) == 0 {
+                    Box::pin(async { Ok(()) })
+                } else {
+                    Box::pin(std::future::pending())
+                }
+            });
+        Ok(Analytics::from_gated_lookup(
+            Arc::new(NoOpMetricsProvider::new(false, context)?),
+            prefetch,
+        ))
+    }));
+    let ready: Option<Ready> = Some(Box::new(|built| {
+        let channel = built.provider.channel();
+        let late = Arc::new(hooked(stub("serial-2", "modelZ", 1_000)));
+        *built.provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
+            let _ = channel.try_send(DeviceEvent::Connected(DeviceRef(late.clone())));
+            channel.close(Some(failure(
+                FailureKind::IllegalState,
+                &format!("{PROBE}: the device events failed"),
+            )));
+            Box::pin(async { Ok(()) })
+        }));
+    }));
+    let outcome = scenario::drive(factory, script, None, ready);
+    assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
+    assert!(matches!(outcome.value, Some(Ok(false))), "{:?}", outcome.value);
+    assert_eq!(run_failure(&outcome), [format!("{PROBE}: the device events failed")]);
+}
+
+/// A Graphite backend that holds the first Track of a pool's result for 5 s, as a slow backend would.
+struct SlowBackend(
+    Arc<std::sync::OnceLock<Arc<dyn marathon_core::runtime::VendorClock>>>,
+    &'static str,
+    AtomicBool,
+);
+impl marathon_core::analytics::TrackerInternalAdapter for SlowBackend {
+    fn test<'a>(&'a self, event: &'a marathon_core::report::TestEvent) -> VendorFuture<'a, ()> {
+        let hold = event.pool_id.name == self.1 && !self.2.swap(true, Ordering::SeqCst);
+        Box::pin(async move {
+            if hold && let Some(clock) = self.0.get() {
+                clock.delay(5_000, Signal::new()).await?;
+            }
+            Ok(())
+        })
+    }
+}
+struct SlowBackends(Arc<std::sync::OnceLock<Arc<dyn marathon_core::runtime::VendorClock>>>);
+impl marathon_core::analytics::BackendFactory for SlowBackends {
+    fn create(
+        &self,
+        _: marathon_core::analytics::BackendRequest,
+    ) -> marathon_core::runtime::ServiceFuture<
+        '_,
+        Result<Option<Arc<dyn marathon_core::analytics::TrackerInternal>>, Failure>,
+    > {
+        let backend = SlowBackend(self.0.clone(), "modelY", AtomicBool::new(false));
+        Box::pin(async move {
+            Ok(Ok(Some(
+                Arc::new(backend) as Arc<dyn marathon_core::analytics::TrackerInternal>
+            )))
+        })
+    }
+}
+
+/// D84, review round 3 (R3-1b): while the run terminates the provider, late devices start two pools. In pool modelY
+/// both tests end at once: the first result's Track is held for 5 s and the second waits in the queue. Then pool
+/// modelZ's handler panics. The reports are written only after the stop has drained pool modelY's queue, so both of
+/// its results are in them, and the run ends with the panic.
+#[test]
+fn the_reports_wait_for_a_late_failures_drain_d84() {
+    use marathon_core::analytics::{Analytics, NoOpMetricsProvider};
+    let (mut factory, script) = script();
+    factory.analytics = Some(Box::new(|context| {
+        Ok(Analytics::noop(NoOpMetricsProvider::new(false, context)?))
+    }));
+    factory.configuration.configuration.analytics_configuration =
+        marathon_config::AnalyticsConfiguration::Graphite(marathon_config::GraphiteConfiguration {
+            host: "carbon.invalid".into(),
+            port: None,
+            prefix: None,
+            defaults: marathon_config::Defaults {
+                success_rate: 0.0,
+                duration: jcompat::jtime::duration_of(0, 0).unwrap(),
+                observed_duration_min_tests: None,
+            },
+            read_only: false,
+        });
+    let clock = Arc::new(std::sync::OnceLock::new());
+    factory.backend = Some(Arc::new(SlowBackends(clock.clone())));
+    let prepare: scenario::Prepare = Box::new(move |core, _| {
+        let _ = clock.set(core.vendor_clock());
+    });
+    let ready: Option<Ready> = Some(Box::new(|built| {
+        let channel = built.provider.channel();
+        let panicking = SharedDeferred::new();
+        let late = |serial: &str, model: &str, prepare: i64| {
+            let device = StubDevice::new(StubDeviceOptions {
+                serial_number: serial.into(),
+                model: model.into(),
+                prepare_time_millis: prepare,
+                test_time_millis: 1_000,
+                ..StubDeviceOptions::default()
+            });
+            device.set_execution_results(HashMap::from(
+                ["test1", "test2"]
+                    .map(|method| (scenario::test("test", "SimpleTest", method), vec![TestStatus::Passed])),
+            ));
+            device
+        };
+        let devices: Vec<Arc<dyn Device>> = vec![
+            Arc::new(hooked(late("serial-3", "modelY", 100))),
+            Arc::new(hooked(late("serial-5", "modelY", 100))),
+            Arc::new(Hooked {
+                worker_panics: true,
+                panicking: Some(panicking.clone()),
+                ..hooked(late("serial-4", "modelZ", 3_000))
+            }),
+        ];
+        *built.provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
+            for device in &devices {
+                let _ = channel.try_send(DeviceEvent::Connected(DeviceRef(device.clone())));
+            }
+            let panicking = panicking.clone();
+            Box::pin(async move {
+                let _ = panicking.wait().await;
+                Ok(())
+            })
+        }));
+    }));
+    let outcome = scenario::drive(factory, script, Some(prepare), ready);
+    assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
+    assert_eq!(run_failure(&outcome), [format!("{PROBE}: the pool's handler panicked")]);
+    let raw: Value = serde_json::from_str(&outcome.read("test_result/raw.json")).unwrap();
+    for serial in ["serial-1", "serial-3", "serial-5"] {
+        assert!(
+            raw.as_array().unwrap().iter().any(|row| row["deviceSerial"] == serial),
+            "no result of {serial} in the reports: {raw}"
+        );
+    }
+}
+
+/// D84, review round 3 (R3-2): the run stops while `serial-3` is still preparing. Its cancelled preparation returns at
+/// once, but leaves 3 s of work running, as an Apple installation does. The stop waits for that work, within the
+/// device's own bound, before the provider is terminated.
+#[test]
+fn the_run_waits_for_a_preparation_left_running_before_terminating_the_provider_d84() {
+    let (factory, script) = script();
+    let finished = Arc::new(AtomicBool::new(false));
+    let finished_before_terminate = Arc::new(AtomicBool::new(false));
+    let (done, seen) = (finished.clone(), finished_before_terminate.clone());
+    let ready: Option<Ready> = Some(Box::new(move |built| {
+        let channel = built.provider.channel();
+        for device in [
+            Hooked {
+                fail_events: Some((channel, 3_000)),
+                ..hooked(stub("serial-2", "modelZ", 600_000))
+            },
+            Hooked {
+                cleanup_bound: Some(60_000),
+                retained_preparation: Some((3_000, finished.clone())),
+                ..hooked(stub("serial-3", "modelY", 600_000))
+            },
+        ] {
+            assert!(built.provider.send(DeviceEvent::Connected(DeviceRef(Arc::new(device)))));
+        }
+        *built.provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
+            seen.store(done.load(Ordering::SeqCst), Ordering::SeqCst);
+            Box::pin(async { Ok(()) })
+        }));
+    }));
+    let outcome = scenario::drive(factory, script, None, ready);
+    assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
+    assert!(
+        finished_before_terminate.load(Ordering::SeqCst),
+        "the provider was terminated under a preparation still running"
+    );
+    assert_eq!(outcome.completed_at, Some(3_000 + 3_000));
+    assert_eq!(run_failure(&outcome), [format!("{PROBE}: the device events failed")]);
 }

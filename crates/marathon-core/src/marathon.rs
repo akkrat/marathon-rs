@@ -870,6 +870,13 @@ impl Marathon {
             let result = self.run_step(step, cancellation.clone()).await;
             self.finish_step(&mut first, step.label(), result)?;
         }
+        // D84 (R3-1): with the provider terminated, the Scheduler settles before the reports take their snapshot: the
+        // device listener ends and a failure it held is recorded, pools still running stop after taking what was
+        // delivered to them, and a stop under way is waited for.
+        let scheduler = self.diagnostic_scheduler.borrow().clone();
+        if let Some(scheduler) = scheduler {
+            scheduler.settle().await;
+        }
         // Termination logs are enqueued by vendor tasks. Kotlin prints them
         // synchronously before Allure and the stdout summary close.
         let flushed = self.flush(cancellation.clone()).await;
@@ -1073,14 +1080,16 @@ impl Marathon {
         };
         // D84 (I4): a stop the Scheduler began (an internal failure, or its unwind when the run task panicked) is waited
         // for before anything closes; it is bounded by the vendors' own bounds for ending a cancelled call.
-        let stop = self
-            .diagnostic_scheduler
-            .borrow()
-            .as_ref()
-            .and_then(Scheduler::stopping);
-        if let Some(stop) = stop {
+        let scheduler = self.diagnostic_scheduler.borrow().clone();
+        if let Some(stop) = scheduler.as_ref().and_then(Scheduler::stopping) {
             let _ = stop.join().await;
         }
+        // D84 (R3-1, I1): the decision is taken here, after the run task and its listener have ended: a cause recorded
+        // before then is the run's error, whatever the run task stored.
+        let outcome = match (outcome, scheduler.as_ref().and_then(Scheduler::failure)) {
+            (Ok(_), Some(cause)) => Err(VendorError::Other(cause)),
+            (outcome, _) => outcome,
+        };
         if outcome.is_err() {
             // invokeOnCompletion { runBlocking { withContext(NonCancellable) { onFinish() } } }.
             // A failing finish there is reported by the completion handler, not rethrown:

@@ -81,6 +81,8 @@ struct Inner {
     stop: RefCell<Option<JobRef>>,
     /// D84 (I2): set first by `begin_stop`. No pool is created once it is set.
     draining: std::cell::Cell<bool>,
+    /// The provider's device channel the subscription reads, for `settle` to read what it ended with.
+    channel: RefCell<Option<Arc<dyn EventChannel<DeviceEvent>>>>,
 }
 
 fn operation_to_vendor(error: OperationError) -> VendorError {
@@ -116,6 +118,7 @@ impl Scheduler {
                 waiter: RefCell::new(None),
                 stop: RefCell::new(None),
                 draining: std::cell::Cell::new(false),
+                channel: RefCell::new(None),
                 subscription: RefCell::new(None),
             }),
         }
@@ -165,6 +168,42 @@ impl Scheduler {
     /// late device started while the run finishes). It is the run's error.
     pub fn failure(&self) -> Option<Failure> {
         self.inner.fatal.borrow().clone()
+    }
+    /// D84 (R3-1): called by the run once the provider has terminated, before the reports are written. The device
+    /// listener is stopped and joined, and what its channel ended with is read, so that a failure it was still holding
+    /// is recorded now; a pool still running (one a late device started) is stopped and drained; and a stop under way
+    /// is waited for. After this nothing of the Scheduler runs, so the reports' snapshot is final and so is the
+    /// first cause.
+    pub async fn settle(&self) {
+        let inner = &self.inner;
+        let subscription = inner.subscription.borrow().clone();
+        if let Some(subscription) = subscription {
+            subscription.cancel(requested("The provider has terminated"));
+            let _ = subscription.join().await;
+            let read_its_end = !matches!(subscription.state(), JobState::Completed(Completion::Failed(_)));
+            let channel = inner.channel.borrow().clone();
+            if let (true, Some(channel)) = (read_its_end, channel) {
+                use futures_util::FutureExt;
+                // Events left after the provider's termination are of no use; its failure is the run's.
+                while let Some(received) = channel.receive().now_or_never() {
+                    match received {
+                        Ok(Some(_)) => continue,
+                        Ok(None) | Err(VendorError::Cancelled(_)) => break,
+                        Err(error) => {
+                            inner.fail(error.failure().clone());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        let running = inner.pools.borrow().values().any(|pool| !pool.terminated());
+        if running {
+            inner.begin_stop(requested("The run is finishing"));
+        }
+        if let Some(stop) = self.stopping() {
+            let _ = stop.join().await;
+        }
     }
     /// D84: the stop routine's job once the run has begun to stop, completed once it has stopped. The run joins it
     /// before it finishes, so that no device work it waits for is still running when the provider terminates.
@@ -321,12 +360,13 @@ impl Inner {
         let parent = self.parts.context.job.clone();
         let core = self.parts.core.clone();
         let inner = self.clone();
+        let channel = self.parts.provider.subscribe();
+        *self.channel.borrow_mut() = Some(channel.clone());
         let subscription = core.spawn(
             parent,
             Box::new(move |task: TaskContext| {
                 Box::pin(async move {
                     let received = async {
-                        let channel = self.parts.provider.subscribe();
                         loop {
                             let event = receive_device_event(channel.as_ref(), task.job.cancellation_signal())
                                 .await
@@ -452,14 +492,23 @@ impl Inner {
         let started = clock.now_millis();
         let timer = self.parts.core.job(JobKind::Ordinary, None);
         for (job, device) in devices {
+            // The device's cancelled call, then what the vendor keeps running after it (R3-2: an Apple preparation),
+            // both within the device's one bound.
+            let vendor = self.parts.core.vendor();
+            let held = device.0.clone();
+            let ended = async move {
+                let _ = job.join().await;
+                let _ = crate::executor::bridge::call_vendor(vendor.as_ref(), Signal::new(), move |_| {
+                    Box::pin(async move { held.join_cancelled_work().await })
+                })
+                .await;
+            };
             match device.0.cancellation_cleanup_millis() {
-                None => {
-                    let _ = job.join().await;
-                }
+                None => ended.await,
                 Some(bound) => {
                     let limit = bound.saturating_add(STOP_MARGIN_MILLIS);
                     let left = started.saturating_add(limit).saturating_sub(clock.now_millis()).max(0);
-                    if let Either::Right(_) = race(job.join(), clock.delay(left, timer.clone())).await {
+                    if let Either::Right(_) = race(ended, clock.delay(left, timer.clone())).await {
                         self.log(
                             Level::ERROR,
                             format!(
