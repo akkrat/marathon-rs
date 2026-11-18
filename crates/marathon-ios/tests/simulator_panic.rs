@@ -289,3 +289,50 @@ async fn a_monitor_error_with_no_device_fails_the_device_channel_d84() -> TestRe
         .map_err(provider_support::test_error)?;
     Ok(())
 }
+
+/// D84, review round 3 (R3-3): the provider keeps the handle of a simulator that left. With its last simulator gone, a
+/// monitoring error leaves the run no device to use, so it fails the device channel with its cause, instead of the run
+/// waiting out D48 and ending without it.
+#[tokio::test(start_paused = true)]
+async fn a_monitor_error_after_the_last_simulator_left_fails_the_device_channel_d84() -> TestResult {
+    let p = provider_support::ProviderHarness::new(|_| {})?;
+    std::fs::write(
+        p.h.dir.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: simulator, udid: a}]\n",
+    )?;
+    use marathon_core::vendor::{DeviceEvent, DeviceProvider};
+    guarded(
+        "the initialization",
+        p.provider.initialize(p.h.services.context.clone()),
+    )
+    .await
+    .map_err(provider_support::test_error)?;
+    let first = guarded("the device channel", p.provider.subscribe().receive()).await;
+    assert!(
+        matches!(first, Ok(Some(DeviceEvent::Connected(_)))),
+        "the simulator was not connected"
+    );
+    guarded("the update", p.update(&[])).await?;
+    let left = guarded("the device channel", p.provider.subscribe().receive()).await;
+    assert!(
+        matches!(left, Ok(Some(DeviceEvent::Disconnected(_)))),
+        "the simulator did not leave"
+    );
+    assert!(
+        !p.provider.devices().is_empty(),
+        "the provider keeps the handle of the simulator that left"
+    );
+    *p.recovery.reconnect_error.lock().unwrap() = Some(monitor_error());
+    let received = guarded("the device channel", p.provider.subscribe().receive()).await;
+    match &received {
+        Err(error) => assert_eq!(
+            error.failure().message.as_deref(),
+            Some("D84 probe: the monitor failed")
+        ),
+        Ok(_) => panic!("the device channel did not fail"),
+    }
+    guarded("the termination", p.provider.terminate())
+        .await
+        .map_err(provider_support::test_error)?;
+    Ok(())
+}

@@ -273,6 +273,8 @@ impl AppleMacosProvider {
             );
             // A89 (D74): the replaced Mac's lease is released after its disposal, whether or not that failed.
             disposed = previous.dispose().await;
+            // D84 (R3-2): not under a preparation the replaced Mac still runs, within its bound.
+            let _ = previous.join_preparation().await;
             self.release_logged(previous.executor()).await;
             // A107: a failed disposal no longer stops the replacement. The old Mac leaves the registry and the new one
             // is registered and announced; the (fatal) error is returned afterwards, so it still ends the run.
@@ -425,6 +427,8 @@ impl DeviceProvider for AppleMacosProvider {
             let results = futures_util::future::join_all(devices.into_values().map(|device| async move {
                 // A82 for macOS (D74): the release follows the disposal whatever its outcome; the disposal's error wins.
                 let disposed = device.dispose().await;
+                // D84 (R3-2): not under a preparation the run left running, within the Mac's bound.
+                let _ = device.join_preparation().await;
                 let released = self.connections.release(device.executor()).await;
                 let outcome = disposed.and(released);
                 // M-x69-2: the Mac has left the map and its lease is released, so it leaves the registry too, even on a

@@ -359,3 +359,39 @@ async fn a_device_that_is_being_disposed_of_starts_no_preparation_u179() -> Test
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }
+/// D84, review round 3 (R3-2): a run stopping after an internal failure cancels a preparation's caller, which returns at
+/// once while the preparation runs on. `join_cancelled_work`, which the stopping run waits for before the provider
+/// terminates, stops that preparation and waits for it within the simulator's bound, as disposal does (U179).
+#[tokio::test(start_paused = true)]
+async fn the_stop_waits_for_a_preparation_its_cancelled_caller_left_running_d84() -> TestResult {
+    let h = long_bound()?;
+    let d = h.device().await?;
+    let gate = PreparationGate::attach(&h);
+    let signal = Signal::new();
+    let preparation = spawn_prepare(
+        &h,
+        &d,
+        VendorContext {
+            cancellation: signal.clone(),
+            ..h.services.context.clone()
+        },
+    );
+    gate.entered.wait().await.unwrap();
+    signal.cancel(cancelled("the run is stopping"));
+    assert!(matches!(preparation.await?, Err(VendorError::Cancelled(_))));
+    let joined = d.join_cancelled_work();
+    tokio::pin!(joined);
+    assert!(futures_util::poll!(joined.as_mut()).is_pending());
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    assert!(
+        futures_util::poll!(joined.as_mut()).is_pending(),
+        "the stop did not wait for the preparation"
+    );
+    let before = sent(&h);
+    gate.release.complete(Ok(()));
+    joined.await.unwrap();
+    // The preparation was stopped: nothing it would have sent after its held command reached the worker.
+    assert_eq!(sent(&h), before);
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}

@@ -307,7 +307,7 @@ impl AppleSimulatorDevice {
     }
     /// Cancels the batch and the preparations given and waits for all of them within one bound, the cancelled batch's.
     /// U179: it waits on their completion cells, not on the retained tasks, which also hold disposal itself.
-    async fn stop_and_join(
+    pub(super) async fn stop_and_join(
         &self,
         batch: Option<Arc<BatchJob>>,
         preparations: Vec<Arc<prepare::PreparationJob>>,

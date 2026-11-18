@@ -813,3 +813,107 @@ async fn a_mac_set_up_after_termination_is_released_not_connected_u200() -> R {
     v(p.join_pending().await)?;
     Ok(())
 }
+
+/// Holds the Mac's first `rm` (part of preparing it) until `release`, as a slow installation would. Returns once the
+/// preparation is held there.
+async fn hold_preparation(h: &Harness, release: Arc<tokio::sync::Notify>) -> Arc<tokio::sync::Notify> {
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let first = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (en, original) = (entered.clone(), h.worker.fake.before.lock().unwrap().clone());
+    *h.worker.fake.before.lock().unwrap() = Arc::new(move |cmd| {
+        let (en, re, original, first) = (en.clone(), release.clone(), original.clone(), first.clone());
+        Box::pin(async move {
+            if cmd.first().is_some_and(|s| s == "rm") && first.swap(false, Ordering::SeqCst) {
+                en.notify_one();
+                re.notified().await;
+            }
+            original(cmd).await
+        })
+    });
+    entered
+}
+
+/// D84, review round 3 (R3-2): the run stops after another pool's failure while this Mac is preparing (installing).
+/// The cancelled `prepare` returns to its caller at once and the installation goes on in a retained task. Termination
+/// now waits for it before it releases the Mac's lease.
+#[tokio::test]
+async fn termination_does_not_release_a_lease_under_a_running_preparation_d84() -> R {
+    let mut h = Harness::new("")?;
+    Arc::make_mut(&mut h.options.vendor).devices_file = None;
+    std::fs::write(
+        h.root.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: host}]\n",
+    )?;
+    let (p, c) = h.provider();
+    v(p.initialize(h.context.clone()).await)?;
+    v(p.join_pending().await)?;
+    let device = p.snapshot().remove(0);
+    let release = Arc::new(tokio::sync::Notify::new());
+    let entered = hold_preparation(&h, release.clone()).await;
+    let signal = marathon_core::executor::shared::Signal::new();
+    let mut context = h.context.clone();
+    context.cancellation = signal.clone();
+    let (preparing, configuration) = (device.clone(), h.options.dependencies.configuration.clone());
+    let prepare =
+        tokio::spawn(async move { marathon_core::vendor::Device::prepare(&*preparing, configuration, context).await });
+    tokio::time::timeout(std::time::Duration::from_secs(60), entered.notified()).await?;
+    signal.cancel(marathon_apple::cmd::cancelled("the run is stopping"));
+    assert!(matches!(prepare.await?, Err(VendorError::Cancelled(_))));
+    let terminating = tokio::spawn({
+        let p = p.clone();
+        async move { p.terminate().await }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert_eq!(
+        c.releases.load(Ordering::SeqCst),
+        0,
+        "the lease was released under a running preparation"
+    );
+    assert!(!terminating.is_finished());
+    release.notify_one();
+    v(tokio::time::timeout(std::time::Duration::from_secs(60), terminating).await??)?;
+    assert_eq!(c.releases.load(Ordering::SeqCst), 1);
+    v(device.join_pending().await)?;
+    Ok(())
+}
+
+/// D84, review round 3 (R3-2): the wait is bounded by the Mac's own bound for a cancelled call
+/// (`cancelled_batch_timeout`); past it, termination logs that it stopped waiting and releases the lease.
+#[tokio::test]
+async fn termination_stops_waiting_for_a_preparation_after_the_macs_bound_d84() -> R {
+    let mut h = Harness::new("")?;
+    Arc::make_mut(&mut h.options.vendor).devices_file = None;
+    h.options.cancelled_batch_timeout = jcompat::jtime::duration_of(0, 300_000_000).unwrap();
+    std::fs::write(
+        h.root.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: host}]\n",
+    )?;
+    let (p, c) = h.provider();
+    v(p.initialize(h.context.clone()).await)?;
+    v(p.join_pending().await)?;
+    let device = p.snapshot().remove(0);
+    let release = Arc::new(tokio::sync::Notify::new());
+    let entered = hold_preparation(&h, release.clone()).await;
+    let signal = marathon_core::executor::shared::Signal::new();
+    let mut context = h.context.clone();
+    context.cancellation = signal.clone();
+    let (preparing, configuration) = (device.clone(), h.options.dependencies.configuration.clone());
+    let prepare =
+        tokio::spawn(async move { marathon_core::vendor::Device::prepare(&*preparing, configuration, context).await });
+    tokio::time::timeout(std::time::Duration::from_secs(60), entered.notified()).await?;
+    signal.cancel(marathon_apple::cmd::cancelled("the run is stopping"));
+    assert!(matches!(prepare.await?, Err(VendorError::Cancelled(_))));
+    v(tokio::time::timeout(std::time::Duration::from_secs(60), p.terminate()).await?)?;
+    assert_eq!(c.releases.load(Ordering::SeqCst), 1);
+    assert!(
+        h.logs
+            .take()
+            .iter()
+            .any(|record| record.message.contains("has not finished within")
+                && record.message.contains("Preparation of")),
+        "the expired wait was not logged"
+    );
+    release.notify_one();
+    v(tokio::time::timeout(std::time::Duration::from_secs(60), device.join_pending()).await?)?;
+    Ok(())
+}

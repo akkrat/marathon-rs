@@ -338,6 +338,24 @@ impl Device for AppleSimulatorDevice {
     fn cancellation_cleanup_millis(&self) -> Option<i64> {
         Some(self.services.timeouts.cancelled_batch_millis)
     }
+    /// D84 (R3-2): a cancelled preparation goes on in a retained task until it is stopped. D74's join stops it and
+    /// waits for it (and for a batch still running) within the same bound, as disposal does.
+    fn join_cancelled_work(&self) -> VendorFuture<'_, ()> {
+        Box::pin(async move {
+            let (running, preparations) = {
+                let state = self.state();
+                (state.running.clone(), state.preparations.clone())
+            };
+            if running.is_none() && preparations.is_empty() {
+                return Ok(());
+            }
+            let context = VendorContext {
+                cancellation: marathon_core::executor::shared::Signal::new(),
+                ..self.services.context.clone()
+            };
+            self.stop_and_join(running, preparations, &context).await
+        })
+    }
     fn info(&self) -> DeviceInfo {
         self.state().info.clone()
     }

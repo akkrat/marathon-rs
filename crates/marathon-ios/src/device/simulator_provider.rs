@@ -1154,13 +1154,14 @@ impl AppleSimulatorProvider {
                 ),
             };
             // D84 (I5): the monitor is the only source of devices, and its join at termination discards its result. A
-            // panic, or an error that leaves the run no device, fails the device channel with the cause, which ends the
+            // panic, or an error when no simulator is available to the run, fails the device channel with the cause, which ends the
             // run instead of leaving it to wait for devices that never come. An ordinary error while devices are
             // connected is logged, and the run carries on with them, as before.
             if let Err(error) = &result
                 && !matches!(error, VendorError::Cancelled(_))
             {
-                if panicked || this.devices().is_empty() {
+                // R3-3: what can take work now, not the handles the provider keeps of simulators that left or were lost.
+                if panicked || this.borrowable().is_empty() {
                     this.log(
                         Level::ERROR,
                         || "Device monitoring failed".into(),

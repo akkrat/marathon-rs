@@ -79,6 +79,9 @@ struct Facts {
 struct Execution {
     running: Option<Arc<BatchJob>>,
     disposal: Option<Arc<SharedDeferred<()>>>,
+    /// D84 (R3-2): completed when the latest preparation's retained work has ended, whatever its outcome. A cancelled
+    /// `prepare` returns to its caller at once and leaves this work running.
+    preparation: Option<Arc<SharedDeferred<()>>>,
 }
 struct BatchJob {
     result: Arc<SharedDeferred<()>>,
@@ -338,6 +341,53 @@ impl MacosDevice {
         ];
         Ok((CompositeTestRunListener { listeners }, vec![diagnostic, session, debug]))
     }
+    /// D84 (R3-2): waits for the latest preparation's retained work (an installation that its cancelled caller left
+    /// running) within `cancelled_batch_timeout`, the bound this device gives a cancelled call. The provider waits for
+    /// this before it releases the Mac's lease, so the lease is not released under a running installation within it.
+    pub async fn join_preparation(&self) -> VendorResult<()> {
+        let preparation = self
+            .execution
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .preparation
+            .clone();
+        let Some(done) = preparation else { return Ok(()) };
+        if done.completed().is_some() {
+            return Ok(());
+        }
+        let context = self.context();
+        let finished = context
+            .clock
+            .with_timeout_or_null(
+                Signal::new(),
+                self.options
+                    .cancelled_batch_timeout
+                    .to_millis()
+                    .ok_or_else(|| VendorError::Other(failure(FailureKind::Arithmetic, "long overflow")))?,
+                Box::new(|signal| {
+                    Box::pin(async move {
+                        tokio::select! { biased;
+                            reason = signal.cancelled() => Err(VendorError::Cancelled(reason)),
+                            _ = done.wait() => Ok(()),
+                        }
+                    })
+                }),
+            )
+            .await?
+            .is_some();
+        if !finished {
+            self.log(
+                Level::WARN,
+                format!(
+                    "Preparation of {} has not finished within {}, not waiting for it any longer",
+                    self.serial.to_owned(),
+                    marathon_core::error::duration_for_log(self.options.cancelled_batch_timeout)
+                ),
+                None,
+            );
+        }
+        Ok(())
+    }
     async fn join_cancelled(&self, batch: &BatchJob) -> VendorResult<()> {
         batch
             .cancellation
@@ -577,6 +627,10 @@ impl Device for MacosDevice {
     fn cancellation_cleanup_millis(&self) -> Option<i64> {
         self.options.cancelled_batch_timeout.to_millis()
     }
+    /// D84 (R3-2): a cancelled preparation's installation goes on in a retained task.
+    fn join_cancelled_work(&self) -> VendorFuture<'_, ()> {
+        Box::pin(self.join_preparation())
+    }
     fn info(&self) -> DeviceInfo {
         self.facts.lock().unwrap_or_else(|e| e.into_inner()).info.clone()
     }
@@ -593,22 +647,29 @@ impl Device for MacosDevice {
         Box::pin(async move {
             let device = self.retained()?;
             let own_context = self.context();
+            let done = SharedDeferred::new();
+            self.execution.lock().unwrap_or_else(|e| e.into_inner()).preparation = Some(done.clone());
             let task = self.tasks.spawn(&*self.options.dependencies.io, async move {
-                let started = own_context
-                    .hooks
-                    .instant("core.Track.trackDevicePreparing")
-                    .map_err(crate::clock_error)?;
-                device.prepare_inner(&own_context).await?;
-                let finish = own_context
-                    .hooks
-                    .instant("core.Track.trackDevicePreparing")
-                    .map_err(crate::clock_error)?;
-                device
-                    .options
-                    .dependencies
-                    .tracker
-                    .device_preparing(&device.serial, started, finish)
-                    .await
+                let outcome = panic_as_error(async {
+                    let started = own_context
+                        .hooks
+                        .instant("core.Track.trackDevicePreparing")
+                        .map_err(crate::clock_error)?;
+                    device.prepare_inner(&own_context).await?;
+                    let finish = own_context
+                        .hooks
+                        .instant("core.Track.trackDevicePreparing")
+                        .map_err(crate::clock_error)?;
+                    device
+                        .options
+                        .dependencies
+                        .tracker
+                        .device_preparing(&device.serial, started, finish)
+                        .await
+                })
+                .await;
+                done.complete(Ok(()));
+                outcome
             });
             tokio::select! { biased;
                 reason = context.cancellation.cancelled() => Err(VendorError::Cancelled(reason)),
