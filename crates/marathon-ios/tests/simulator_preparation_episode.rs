@@ -207,57 +207,131 @@ async fn a_boot_that_runs_out_of_time_leaves_the_transfer_beside_it_to_finish_d8
     Ok(())
 }
 
-/// D87 (review item 4): a replacement's second, held attempt cuts its final probe where the shutdown and the end of a
-/// cut command still fit. With 200 s left at the start, `shutdown` + `shell` = 60 s and D30's 30 s, the held attempt
-/// must end its wait 110 s in; its probes never answer, and the shutdown starts there rather than when they time out.
+/// Counts the commands that were dropped (cancelled) before they finished.
+struct Dropped(Arc<AtomicUsize>, bool);
+impl Drop for Dropped {
+    fn drop(&mut self) {
+        if !self.1 {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+}
+
+/// D87 (review round 2, item 1): the deadline never cuts a command of a replacement's held attempt; it only keeps one
+/// from starting that, run to its own limit, could end after the held bound, the deadline less `shutdown` + `shell`
+/// (60 s). A state read can take two commands under `shell` (30 s) and D30's 30 s each, 120 s. With 500 s left and a
+/// 200 s `bootWait`, the whole first attempt fails at 200 s; the held attempt's probes each take 25 s, the reads start at
+/// about 200, 226, 252, 278 and 304 s, and the next, at 330 s, could end after 440 s, so it does not start and the shutdown
+/// follows. No command is dropped, where the held attempt used to cut the probe running at its bound.
 #[tokio::test(start_paused = true)]
-async fn a_held_boot_cuts_its_final_probe_so_that_the_shutdown_keeps_its_reserve_d87() -> TestResult {
-    let h = harness(60, 30)?;
+async fn a_held_boot_never_cuts_a_command_and_starts_none_that_could_outlast_its_bound_d87() -> TestResult {
+    let h = harness(200, 30)?;
     h.worker.cancellable_before.store(true, Ordering::SeqCst);
-    let d = replacement(&h, None, 200 * SECOND).await?;
+    let d = replacement(&h, None, 500 * SECOND).await?;
     h.boot.finish_after.store(usize::MAX, Ordering::SeqCst);
     let start = h.clock.now();
-    let seen = on_commands(&h, |boot, cmd, _| {
-        // The second attempt's probes hang, as a probe that needs D30's escalation does.
+    let dropped = Arc::new(AtomicUsize::new(0));
+    let count = dropped.clone();
+    let seen = on_commands(&h, move |boot, cmd, _| {
         let probe = cmd.get(4).is_some_and(|s| s == "launchctl");
-        (probe && boot.shutdowns.load(Ordering::SeqCst) >= 1)
-            .then(|| Box::pin(std::future::pending()) as VendorFuture<'static, Option<CommandResult>>)
+        (probe && boot.shutdowns.load(Ordering::SeqCst) >= 1).then(|| {
+            let reply = boot.answer(cmd);
+            let flag = Dropped(count.clone(), false);
+            Box::pin(async move {
+                let mut flag = flag;
+                tokio::time::sleep(Duration::from_secs(25)).await;
+                flag.1 = true;
+                Ok(reply)
+            }) as VendorFuture<'static, Option<CommandResult>>
+        })
     });
-    // A hang guard: without the cut, the hanging probes would hold the attempt for ever.
-    let error = support::bounded(600, h.prepare(&d)).await.unwrap_err();
+    let error = support::bounded(1_000, h.prepare(&d)).await.unwrap_err();
     assert!(not_booted(&error), "{error:?}");
+    assert_eq!(dropped.load(Ordering::SeqCst), 0, "a command was cut");
     let shutdowns: Vec<_> = at(&seen, "shutdown").into_iter().map(|t| t - start).collect();
     assert_eq!(shutdowns.len(), 2, "{shutdowns:?}");
-    assert!(shutdowns[0] >= 60 * SECOND, "the first attempt is whole: {shutdowns:?}");
     assert!(
-        (110 * SECOND..=111 * SECOND).contains(&shutdowns[1]),
-        "the held attempt's shutdown starts at its bound: {shutdowns:?}"
+        shutdowns[0] >= 200 * SECOND,
+        "the first attempt is whole: {shutdowns:?}"
+    );
+    assert!(
+        (329 * SECOND..=331 * SECOND).contains(&shutdowns[1]),
+        "the held attempt ends when no further read could end by 440 s: {shutdowns:?}"
     );
     h.finish(&[d]).await;
     Ok(())
 }
 
-/// D87 (review item 4): a held attempt whose first state read ends after its bound boots nothing. With `shell` 60 s the
-/// reserve is 90 + 30 s; with 230 s left the held attempt must end 110 s in, and its read takes from about 60 s to 115 s.
+/// D87 (review round 2, item 1): a held attempt whose first state read, run to its limit, could end after its bound
+/// starts nothing, and boots nothing. With `shell` 60 s a read can take 2 × (60 + 30) s, the reserve is 90 s, and with
+/// 230 s left the held attempt starts at about 60 s with 80 s to its bound. The held attempt used to read the state and
+/// boot the simulator, cutting whatever ran at its bound.
 #[tokio::test(start_paused = true)]
-async fn a_held_boot_whose_state_read_outlasts_its_bound_does_not_boot_d87() -> TestResult {
+async fn a_held_boot_starts_no_command_that_could_outlast_its_bound_d87() -> TestResult {
     let h = harness(60, 60)?;
     let d = replacement(&h, None, 230 * SECOND).await?;
     h.boot.finish_after.store(usize::MAX, Ordering::SeqCst);
-    let slow = Arc::new(AtomicBool::new(true));
-    let seen = on_commands(&h, move |boot, cmd, _| {
-        let read = cmd.first().is_some_and(|s| s == "cat");
-        (read && boot.shutdowns.load(Ordering::SeqCst) >= 1 && slow.swap(false, Ordering::SeqCst)).then(|| {
-            let reply = boot.answer(cmd);
-            Box::pin(async move {
-                tokio::time::sleep(Duration::from_secs(55)).await;
-                Ok(reply)
-            }) as VendorFuture<'static, Option<CommandResult>>
-        })
-    });
+    let seen = on_commands(&h, |_, _, _| None);
     let error = h.prepare(&d).await.unwrap_err();
     assert!(not_booted(&error), "{error:?}");
     assert_eq!(at(&seen, "boot").len(), 1, "only the whole attempt booted");
+    h.finish(&[d]).await;
+    Ok(())
+}
+
+/// Sends that run until they are let go and then report a stall (D54, U163).
+struct StallingSend {
+    release: tokio::sync::Semaphore,
+}
+impl FileBridge for StallingSend {
+    fn send<'a>(&'a self, _: &'a Path, _: &'a str) -> VendorFuture<'a, bool> {
+        Box::pin(async move {
+            let _ = self.release.acquire().await;
+            Err(VendorError::LeavePool {
+                reason: LeavePoolReason::TransferStalled,
+                detail: marathon_apple::cmd::failure(
+                    marathon_error::FailureKind::Injected(marathon_error::InjectedKind::TransferStalled),
+                    "no progress",
+                ),
+            })
+        })
+    }
+    fn receive<'a>(&'a self, _: &'a str, _: &'a Path) -> VendorFuture<'a, bool> {
+        Box::pin(async { Ok(true) })
+    }
+}
+
+/// D87 (review round 2, item 4): a transfer that stalls is what the preparation reports, whatever the boot beside it did.
+/// The replacement's whole boot fails with no time left for a second; the send then reports a stall. The simulator leaves
+/// as a stalled transfer, retired so that no recovery sets it up again (U163), not as not booted.
+#[tokio::test(start_paused = true)]
+async fn a_stalled_transfer_wins_over_a_boot_out_of_time_beside_it_d87() -> TestResult {
+    let h = harness(60, 30)?;
+    let bridge = Arc::new(StallingSend {
+        release: tokio::sync::Semaphore::new(0),
+    });
+    let d = replacement(&h, Some(bridge.clone()), 10 * SECOND).await?;
+    h.boot.finish_after.store(usize::MAX, Ordering::SeqCst);
+    let preparing = {
+        let (d, configuration, context) = (d.clone(), h.services.configuration.clone(), h.services.context.clone());
+        tokio::spawn(async move { d.prepare(configuration, context).await })
+    };
+    tokio::time::sleep(Duration::from_secs(300)).await;
+    assert!(!preparing.is_finished(), "it waits for the transfer");
+    bridge.release.add_permits(tokio::sync::Semaphore::MAX_PERMITS / 2);
+    let error = preparing.await?.unwrap_err();
+    assert!(
+        matches!(
+            error,
+            VendorError::LeavePool {
+                reason: LeavePoolReason::TransferStalled,
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    assert!(d.retired());
+    assert!(!d.lost());
     h.finish(&[d]).await;
     Ok(())
 }
@@ -392,11 +466,12 @@ async fn a_setup_retry_after_a_failed_boot_continues_the_preparations_deadline_d
     p.balanced().await
 }
 
-/// D87 (review items 1 and 5): with 1 s commands the deadline is about 7 s, and D33's retry 30 s after the recovery's
-/// failed setup starts past it: its registration is dropped and the simulator stays out of the run, as after its last
-/// recovery. Before, it registered with a fresh preparation of its own.
+/// D87 (review items 1 and 5; round 2, item 2): with 1 s commands the deadline is about 7 s, and D33's retry 30 s after
+/// the recovery's failed setup would start past it. The retry asks where the setup starts, its provisioning permit held,
+/// and no setup starts: no `getenv HOME` reaches the worker after the recovery's, and the simulator stays out of the run,
+/// as after its last recovery. It used to run the setup and drop it only at registration.
 #[tokio::test(start_paused = true)]
-async fn a_setup_retry_that_registers_past_the_deadline_is_dropped_d87() -> TestResult {
+async fn a_setup_retry_that_would_start_past_the_deadline_sets_nothing_up_d87() -> TestResult {
     let p = recovery(1_000, |_| {})?;
     p.start(&["a", "b"]).await?;
     p.connected(2).await;
@@ -404,13 +479,48 @@ async fn a_setup_retry_that_registers_past_the_deadline_is_dropped_d87() -> Test
     open(&p, &a)?;
     fail_next_setup(&p, None);
     p.lose(&a).await;
-    eventually(|| p.log("its new setup is dropped")).await;
+    eventually(|| p.log("not setting it up again")).await;
     advance(100_000).await;
-    assert_eq!(home(&p.h().worker, "a"), 3);
+    assert_eq!(
+        home(&p.h().worker, "a"),
+        2,
+        "the first setup and the recovery's, none after the deadline"
+    );
     assert!(Arc::ptr_eq(&p.current("a"), &a), "no replacement registered");
     p.update(&["a", "b"]).await?;
     advance(100_000).await;
-    assert_eq!(home(&p.h().worker, "a"), 3, "it stays out, as after its last recovery");
+    assert_eq!(home(&p.h().worker, "a"), 2, "it stays out, as after its last recovery");
+    p.balanced().await
+}
+
+/// D87 (review round 2, item 3): a simulator that failed to boot and whose worker dropped before the next scan is still a
+/// loss of a failed preparation: its recovery counts it and hands its preparation on, so that the worker coming back does
+/// not start the time afresh. The replacement, set up once the worker answers again, continues the same deadline. The
+/// scan used to take it for a worker's loss, which counts nothing and hands nothing on.
+#[tokio::test(start_paused = true)]
+async fn a_worker_dropping_after_a_failed_boot_does_not_renew_the_preparations_deadline_d87() -> TestResult {
+    let p = recovery(30_000, |_| {})?;
+    p.start(&["a", "b"]).await?;
+    p.connected(2).await;
+    let a = p.current("a");
+    let episode = open(&p, &a)?;
+    p.lose(&a).await;
+    // Before any scan: the worker is gone when the scan looks at the simulator.
+    p.h().worker.connected.store(false, Ordering::SeqCst);
+    advance(5_000).await;
+    p.h().worker.connected.store(true, Ordering::SeqCst);
+    // `b` shares the worker and comes back too.
+    let replacement = loop {
+        let device = p.connected(1).await.remove(0);
+        if device.udid() == "a" {
+            break device;
+        }
+    };
+    assert_eq!(
+        replacement.preparation_episode().map(|e| e.deadline()),
+        Some(episode.deadline()),
+        "the replacement continues the preparation"
+    );
     p.balanced().await
 }
 
