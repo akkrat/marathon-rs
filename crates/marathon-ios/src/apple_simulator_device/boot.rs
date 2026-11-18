@@ -105,71 +105,50 @@ impl AppleSimulatorDevice {
                     None => PrepareError::Boot(reason),
                 });
             }
-            // D87: no held attempt that could not start after the pause.
+            // D87: no held attempt whose first state read could not start after the pause.
             let out_of_time = || {
                 PrepareError::OutOfTime(format!(
                     "it failed to boot: {reason}, and its preparation time has run out"
                 ))
             };
-            if self
-                .held_boot_end()
-                .is_some_and(|end| self.vendor_now().saturating_add(pause) >= end)
-            {
+            let bound = self.held_boot_end();
+            if !self.may_start_command(bound, pause, self.state_read_cost()) {
                 return Err(out_of_time());
             }
             context.clock.delay(pause, context.cancellation.clone()).await?;
-            if self.held_boot_end().is_some_and(|end| self.vendor_now() >= end) {
+            if !self.may_start_command(bound, 0, self.state_read_cost()) {
                 return Err(out_of_time());
             }
         }
         Ok(())
     }
-    /// D87: `work`, cut when the vendor clock reaches `bound`; `None` if it was cut or the bound has passed. Without a
-    /// bound, `work` as it is.
-    async fn within<'a, T: Send + 'a>(
-        &'a self,
-        bound: Option<i64>,
-        context: &'a VendorContext,
-        work: impl FnOnce(VendorContext) -> VendorFuture<'a, T> + Send + 'a,
-    ) -> VendorResult<Option<T>> {
-        let Some(bound) = bound else {
-            return work(context.clone()).await.map(Some);
-        };
-        let left = bound.saturating_sub(self.vendor_now());
-        if left <= 0 {
+    /// D87: the most a command limited to `timeout` takes to end: its timeout, then over SSH D30's escalation (TERM, KILL
+    /// after 20 s, CLOSE), 30 s in all.
+    fn command_cost(timeout: jcompat::jtime::Duration) -> i64 {
+        timeout
+            .to_millis()
+            .unwrap_or(i64::MAX)
+            .saturating_add(marathon_apple::cmd::remote::ssh::sshj::client::TIMEOUT_MILLIS)
+    }
+    /// A state read: the descriptor read and, on a booting simulator, the readiness probe, each under `shell`.
+    fn state_read_cost(&self) -> i64 {
+        Self::command_cost(self.services.vendor.timeout_configuration.shell).saturating_mul(2)
+    }
+    /// D87's test for a command of a held attempt: it may start `after` ms from now only if, run to its own limit, it
+    /// ends by `bound`. The deadline never cuts a command; it only keeps one from starting. Without a bound, always.
+    fn may_start_command(&self, bound: Option<i64>, after: i64, cost: i64) -> bool {
+        bound.is_none_or(|bound| self.vendor_now().saturating_add(after).saturating_add(cost) <= bound)
+    }
+    /// The simulator's state, if a read may start within `bound`.
+    async fn state_if_fits(&self, bound: Option<i64>, context: &VendorContext) -> VendorResult<Option<SimulatorState>> {
+        if !self.may_start_command(bound, 0, self.state_read_cost()) {
             return Ok(None);
         }
-        let slot = std::sync::Mutex::new(None);
-        let result = &slot;
-        let done = context
-            .clock
-            .with_timeout_or_null(
-                context.cancellation.clone(),
-                left,
-                Box::new(move |signal| {
-                    Box::pin(async move {
-                        let ctx = VendorContext {
-                            cancellation: signal,
-                            ..context.clone()
-                        };
-                        let value = work(ctx).await?;
-                        *result.lock().unwrap_or_else(|e| e.into_inner()) = Some(value);
-                        Ok(())
-                    })
-                }),
-            )
-            .await?;
-        Ok(done.and_then(|()| slot.into_inner().unwrap_or_else(|e| e.into_inner())))
+        self.simulator_state(context).await.map(Some)
     }
-    /// The simulator's state, read within `bound`.
-    async fn state_within(&self, bound: Option<i64>, context: &VendorContext) -> VendorResult<Option<SimulatorState>> {
-        self.within(bound, context, |ctx| {
-            Box::pin(async move { self.simulator_state(&ctx).await })
-        })
-        .await
-    }
-    /// `bound`: D87's end of a held attempt's wait, on the vendor clock. Every read, probe and `simctl boot` of the
-    /// attempt is cut there, so that the shutdown after it starts with its reserve intact.
+    /// `bound`: D87's end of a held attempt, on the vendor clock. A read, probe or `simctl boot` of the attempt starts only
+    /// if it ends by then, even run to its limit, so that the shutdown after it starts with its reserve intact and sees
+    /// the simulator's real state: nothing of the attempt is still running.
     async fn boot_failure(&self, context: &VendorContext, bound: Option<i64>) -> VendorResult<Option<String>> {
         let wait = self.services.vendor.timeout_configuration.boot_wait;
         let started = self.nanos("ios.AppleSimulatorDevice.nanoTime")?;
@@ -190,7 +169,7 @@ impl AppleSimulatorDevice {
         // `bootWait`. Shutdown before the first Booting read (e.g. a device.plist not yet rewritten after
         // `simctl boot`, or a Creating simulator) keeps the Kotlin wait.
         let mut seen_booting = false;
-        let Some(first) = self.state_within(bound, context).await? else {
+        let Some(first) = self.state_if_fits(bound, context).await? else {
             return Ok(out_of_time(None));
         };
         match first {
@@ -198,19 +177,17 @@ impl AppleSimulatorDevice {
             SimulatorState::Creating => {}
             SimulatorState::Booting => seen_booting = true,
             SimulatorState::Shutdown => {
-                let booted = self
-                    .within(bound, context, |ctx| {
-                        Box::pin(async move { self.bin.xcrun.simctl.simulator.boot(&self.udid, &[], &ctx).await })
-                    })
-                    .await;
-                match booted {
-                    Ok(Some(_)) => {}
-                    Ok(None) => return Ok(out_of_time(Some(first))),
+                let boot = Self::command_cost(self.services.vendor.timeout_configuration.boot);
+                if !self.may_start_command(bound, 0, boot) {
+                    return Ok(out_of_time(Some(first)));
+                }
+                match self.bin.xcrun.simctl.simulator.boot(&self.udid, &[], context).await {
+                    Ok(_) => {}
                     Err(error) => {
                         if error.failure().kind != FailureKind::Apple(AppleKind::Command) {
                             return Err(error);
                         }
-                        let Some(now) = self.state_within(bound, context).await? else {
+                        let Some(now) = self.state_if_fits(bound, context).await? else {
                             return Ok(out_of_time(None));
                         };
                         seen_booting = now == SimulatorState::Booting;
@@ -232,7 +209,7 @@ impl AppleSimulatorDevice {
             SimulatorState::Unknown => return Ok(Some("its state is UNKNOWN".into())),
         }
         loop {
-            let Some(state) = self.state_within(bound, context).await? else {
+            let Some(state) = self.state_if_fits(bound, context).await? else {
                 return Ok(out_of_time(None));
             };
             if state == SimulatorState::Booted {

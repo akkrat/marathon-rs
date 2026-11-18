@@ -2,9 +2,9 @@
 //!
 //! D87: one deadline for a simulator's preparation, from its device actor's first attempt through the boot attempts of
 //! every preparation and the recoveries (and their setup retries) that set it up again after a failed boot, so that
-//! these retries cannot multiply. The deadline only refuses to start work: nothing in progress is stopped by it, a
-//! transfer least of all (D54). The one shortened wait is a replacement's second boot attempt, which ends where its
-//! shutdown still fits.
+//! these retries cannot multiply. The deadline only refuses to start work: nothing in progress is stopped or cut by it, a
+//! transfer least of all (D54). A replacement's second boot attempt starts each of its commands only if, run to its own
+//! limit, it ends where the shutdown after it still fits.
 
 use super::*;
 use jcompat::jtime::Duration;
@@ -54,12 +54,6 @@ impl AppleSimulatorDevice {
         let t = &self.services.vendor.timeout_configuration;
         millis(t.shutdown).saturating_add(millis(t.shell))
     }
-    /// What a held boot attempt keeps before the deadline: the shutdown's limit, and the most a command cut at the end of
-    /// its wait takes to end over SSH (D30: TERM, KILL after 20 s, then CLOSE, 30 s in all).
-    fn held_boot_reserve_millis(&self) -> i64 {
-        self.boot_reserve_millis()
-            .saturating_add(marathon_apple::cmd::remote::ssh::sshj::client::TIMEOUT_MILLIS)
-    }
     /// The device actor's start: continues the episode this simulator took over, or opens one.
     pub(super) fn open_preparation(&self, configuration: &Configuration) -> i64 {
         let now = self.vendor_now();
@@ -92,10 +86,10 @@ impl AppleSimulatorDevice {
         let episode = self.state().episode;
         episode.is_none_or(|e| e.may_start(self.vendor_now().saturating_add(after)))
     }
-    /// Where a replacement's held boot attempt must end its wait, on the vendor clock; `None` for a simulator that is not
-    /// a replacement, whose boots are whole.
+    /// Where a replacement's held boot attempt must have ended, its commands run to their limits, so that the shutdown
+    /// after it still fits before the deadline; `None` for a simulator that is not a replacement, whose boots are whole.
     pub(super) fn held_boot_end(&self) -> Option<i64> {
         let episode = self.state().episode.filter(|e| e.replacement)?;
-        Some(episode.deadline.saturating_sub(self.held_boot_reserve_millis()))
+        Some(episode.deadline.saturating_sub(self.boot_reserve_millis()))
     }
 }
