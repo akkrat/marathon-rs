@@ -143,6 +143,8 @@ struct Hooked {
     clock: std::sync::OnceLock<Arc<dyn marathon_core::runtime::VendorClock>>,
     /// Set when the device is asked to prepare.
     prepared: Option<Arc<AtomicBool>>,
+    /// Completed when a batch starts.
+    started: Option<Arc<SharedDeferred<()>>>,
 }
 #[derive(Default)]
 enum AfterCancel {
@@ -152,6 +154,12 @@ enum AfterCancel {
     CleansUp(i64, Arc<AtomicBool>),
     /// Waits until this is completed, as a call waiting for a connection that only the provider's termination closes.
     WaitsFor(Arc<SharedDeferred<()>>),
+    /// Raises SIGTERM, then cleans up until the signal's reports have started and this long after.
+    SignalsThenCleansUp {
+        signal: Arc<SharedDeferred<i32>>,
+        reports_started: Arc<SharedDeferred<()>>,
+        millis: i64,
+    },
 }
 fn hooked(inner: Arc<StubDevice>) -> Hooked {
     Hooked {
@@ -165,6 +173,7 @@ fn hooked(inner: Arc<StubDevice>) -> Hooked {
         retained_preparation: None,
         clock: std::sync::OnceLock::new(),
         prepared: None,
+        started: None,
     }
 }
 impl Device for Hooked {
@@ -215,6 +224,9 @@ impl Device for Hooked {
         context: VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
+            if let Some(started) = &self.started {
+                started.complete(Ok(()));
+            }
             let outcome = self
                 .inner
                 .execute(configuration, pool, batch, result, context.clone())
@@ -228,6 +240,15 @@ impl Device for Hooked {
                     }
                     AfterCancel::WaitsFor(released) => {
                         let _ = released.wait().await;
+                    }
+                    AfterCancel::SignalsThenCleansUp {
+                        signal,
+                        reports_started,
+                        millis,
+                    } => {
+                        signal.complete(Ok(15));
+                        let _ = reports_started.wait().await;
+                        let _ = context.clock.delay(*millis, Signal::new()).await;
                     }
                 }
             }
@@ -683,68 +704,16 @@ fn a_channel_failure_the_listener_still_holds_at_the_end_fails_the_run_d84() {
     assert_eq!(run_failure(&outcome), [format!("{PROBE}: the device events failed")]);
 }
 
-/// A Graphite backend that holds the first Track of a pool's result for 5 s, as a slow backend would.
-struct SlowBackend(
-    Arc<std::sync::OnceLock<Arc<dyn marathon_core::runtime::VendorClock>>>,
-    &'static str,
-    AtomicBool,
-);
-impl marathon_core::analytics::TrackerInternalAdapter for SlowBackend {
-    fn test<'a>(&'a self, event: &'a marathon_core::report::TestEvent) -> VendorFuture<'a, ()> {
-        let hold = event.pool_id.name == self.1 && !self.2.swap(true, Ordering::SeqCst);
-        Box::pin(async move {
-            if hold && let Some(clock) = self.0.get() {
-                clock.delay(5_000, Signal::new()).await?;
-            }
-            Ok(())
-        })
-    }
-}
-struct SlowBackends(Arc<std::sync::OnceLock<Arc<dyn marathon_core::runtime::VendorClock>>>);
-impl marathon_core::analytics::BackendFactory for SlowBackends {
-    fn create(
-        &self,
-        _: marathon_core::analytics::BackendRequest,
-    ) -> marathon_core::runtime::ServiceFuture<
-        '_,
-        Result<Option<Arc<dyn marathon_core::analytics::TrackerInternal>>, Failure>,
-    > {
-        let backend = SlowBackend(self.0.clone(), "modelY", AtomicBool::new(false));
-        Box::pin(async move {
-            Ok(Ok(Some(
-                Arc::new(backend) as Arc<dyn marathon_core::analytics::TrackerInternal>
-            )))
-        })
-    }
-}
-
-/// D84, review rounds 3 and 4 (R3-1b, I3): in pool modelY both tests end at 1,100 ms; the first result's Track is held
-/// for 5 s and the second waits in the queue. The device channel fails at 2,000 ms. The stop drains pool modelY's queue
-/// before anything closes, so both results are in the reports, and the run ends with the channel's cause.
+/// D84, review rounds 3, 4 and the gate (R3-1b, I3): in pool modelY both tests end at 1,100 ms; the device channel fails
+/// at 2,000 ms, while `serial-1`'s test runs in pool modelA. The stop drains every queue before anything closes, so both
+/// of pool modelY's results are in the reports, and the run ends with the channel's cause. (A queue held in its Track
+/// with a result waiting behind is witnessed where the tracker can be held: `pool_scheduler`'s
+/// `a_result_delivered_to_the_queue_before_a_failure_is_still_tracked_d84` and
+/// `a_pool_failure_leaves_every_queue_the_results_delivered_to_it_d84`. Here the analytics backend's queue would take
+/// test results asynchronously, so a backend cannot hold the run's queue.)
 #[test]
 fn the_reports_hold_the_results_a_stop_drains_d84() {
-    use marathon_core::analytics::{Analytics, NoOpMetricsProvider};
-    let (mut factory, script) = script();
-    factory.analytics = Some(Box::new(|context| {
-        Ok(Analytics::noop(NoOpMetricsProvider::new(false, context)?))
-    }));
-    factory.configuration.configuration.analytics_configuration =
-        marathon_config::AnalyticsConfiguration::Graphite(marathon_config::GraphiteConfiguration {
-            host: "carbon.invalid".into(),
-            port: None,
-            prefix: None,
-            defaults: marathon_config::Defaults {
-                success_rate: 0.0,
-                duration: jcompat::jtime::duration_of(0, 0).unwrap(),
-                observed_duration_min_tests: None,
-            },
-            read_only: false,
-        });
-    let clock = Arc::new(std::sync::OnceLock::new());
-    factory.backend = Some(Arc::new(SlowBackends(clock.clone())));
-    let prepare: scenario::Prepare = Box::new(move |core, _| {
-        let _ = clock.set(core.vendor_clock());
-    });
+    let (factory, script) = script();
     let ready: Option<Ready> = Some(Box::new(|built| {
         let channel = built.provider.channel();
         let device = |serial: &str| {
@@ -773,7 +742,7 @@ fn the_reports_hold_the_results_a_stop_drains_d84() {
             assert!(built.provider.send(DeviceEvent::Connected(DeviceRef(device))));
         }
     }));
-    let outcome = scenario::drive(factory, script, Some(prepare), ready);
+    let outcome = scenario::drive(factory, script, None, ready);
     assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
     assert_eq!(run_failure(&outcome), [format!("{PROBE}: the device events failed")]);
     let raw: Value = serde_json::from_str(&outcome.read("test_result/raw.json")).unwrap();
@@ -829,40 +798,12 @@ fn now(clock: &SharedClock) -> i64 {
     clock.get().map_or(-1, |clock| clock.now_millis())
 }
 
-/// A Graphite backend whose Track of `serial-x`'s connection takes 5 s, and which raises SIGTERM 1 s into it.
-struct SignalsWhileHeld(SharedClock, Arc<SharedDeferred<i32>>);
-impl marathon_core::analytics::TrackerInternalAdapter for SignalsWhileHeld {
-    fn device_connected<'a>(&'a self, event: &'a marathon_core::report::DeviceConnectedEvent) -> VendorFuture<'a, ()> {
-        let hold = event.device.serial_number == "serial-x";
-        Box::pin(async move {
-            if let (true, Some(clock)) = (hold, self.0.get()) {
-                clock.delay(1_000, Signal::new()).await?;
-                self.1.complete(Ok(15));
-                clock.delay(4_000, Signal::new()).await?;
-            }
-            Ok(())
-        })
-    }
-}
-struct SignalsWhileHeldBackends(SharedClock, Arc<SharedDeferred<i32>>);
-impl marathon_core::analytics::BackendFactory for SignalsWhileHeldBackends {
-    fn create(
-        &self,
-        _: marathon_core::analytics::BackendRequest,
-    ) -> marathon_core::runtime::ServiceFuture<
-        '_,
-        Result<Option<Arc<dyn marathon_core::analytics::TrackerInternal>>, Failure>,
-    > {
-        let backend = SignalsWhileHeld(self.0.clone(), self.1.clone());
-        Box::pin(async move {
-            Ok(Ok(Some(
-                Arc::new(backend) as Arc<dyn marathon_core::analytics::TrackerInternal>
-            )))
-        })
-    }
-}
-/// A reporter that takes 6.5 s and records when it ends.
-struct SlowReports(SharedClock, Arc<std::sync::Mutex<Vec<(String, i64)>>>);
+/// A reporter that takes 6.5 s, reports when it starts and records when it starts and ends.
+struct SlowReports(
+    SharedClock,
+    Arc<std::sync::Mutex<Vec<(String, i64)>>>,
+    Arc<SharedDeferred<()>>,
+);
 impl marathon_core::report::Reporter for SlowReports {
     fn generate<'a>(
         &'a self,
@@ -870,6 +811,7 @@ impl marathon_core::report::Reporter for SlowReports {
     ) -> marathon_core::runtime::ServiceFuture<'a, ()> {
         Box::pin(async move {
             self.1.lock().unwrap().push(("reports started".into(), now(&self.0)));
+            self.2.complete(Ok(()));
             if let Some(clock) = self.0.get() {
                 let _ = clock.delay(6_500, Signal::new()).await;
             }
@@ -878,38 +820,59 @@ impl marathon_core::report::Reporter for SlowReports {
         })
     }
 }
+/// The console. When it is given the output only the run's finish flushes (the line of the run's last pool ending,
+/// "terminate pool"), it connects the late device and holds that flush until the late device's batch is running: the
+/// late device's pool starts after D65's boundary, while the finish is under way.
+struct ConnectsLateWhileFinishing {
+    late: Arc<std::sync::Mutex<Option<(Arc<SharedChannel<DeviceEvent>>, DeviceRef)>>>,
+    running: Arc<SharedDeferred<()>>,
+}
+impl marathon_core::output::ConsoleSink for ConnectsLateWhileFinishing {
+    fn write(&self, records: Vec<marathon_core::logging::OutputRecord>) -> VendorFuture<'_, ()> {
+        let finishing = records.iter().any(|record| {
+            matches!(record, marathon_core::logging::OutputRecord::Log(log) if log.message.starts_with("terminate pool modelA"))
+        });
+        let late = if finishing {
+            self.late.lock().unwrap().take()
+        } else {
+            None
+        };
+        Box::pin(async move {
+            if let Some((channel, device)) = late {
+                let _ = channel.try_send(DeviceEvent::Connected(device));
+                let _ = self.running.wait().await;
+            }
+            Ok(())
+        })
+    }
+}
 
-/// D52, D84 (review round 5): the run's finish is settling, waiting for the listener, which is still tracking a late
-/// device's connection, when SIGTERM arrives (at 11,500 ms). The signal's finish writes the reports first (6.5 s here);
-/// the listener's Track ends at 15,500 ms, inside the reports' head start. The run's own finish then hands over: the
-/// provider is terminated only after the reports have ended, and the run exits with 143 within D52's 24 s.
+/// D52, D84 (review round 5; made event-driven after the gate): SIGTERM arrives while the run's finish is settling,
+/// waiting for a cancelled batch to end, and that wait ends inside the signal's reports' head start. The order is held
+/// by events, not by times: the console starts a late pool when it is given the output only the finish flushes, and
+/// holds that flush until the late pool's batch runs; the settle stops that pool, and the cancelled batch raises the
+/// signal and then cleans up until the signal's reports (6.5 s) have started and 4 s more. The run's own finish then
+/// hands over: the provider is terminated only after the reports have ended, and the run exits with 143 within D52's
+/// 24 s. On 9f744841 the finish went on after the settle and terminated the provider beside the reports.
 #[test]
 fn a_signal_while_the_run_settles_keeps_the_reports_first_d84() {
-    use marathon_core::analytics::{Analytics, NoOpMetricsProvider, ReporterRegistration, ReporterSlot};
-    let (mut factory, mut script) = script();
-    factory.analytics = Some(Box::new(|context| {
-        Ok(Analytics::noop(NoOpMetricsProvider::new(false, context)?))
-    }));
-    factory.configuration.configuration.analytics_configuration =
-        marathon_config::AnalyticsConfiguration::Graphite(marathon_config::GraphiteConfiguration {
-            host: "carbon.invalid".into(),
-            port: None,
-            prefix: None,
-            defaults: marathon_config::Defaults {
-                success_rate: 0.0,
-                duration: jcompat::jtime::duration_of(0, 0).unwrap(),
-                observed_duration_min_tests: None,
-            },
-            read_only: false,
-        });
+    use marathon_core::analytics::{ReporterRegistration, ReporterSlot};
+    let (mut factory, script) = script();
+    factory.configuration.configuration.debug = true;
     let clock: SharedClock = Arc::new(std::sync::OnceLock::new());
     let trigger = SharedDeferred::<i32>::new();
-    factory.signal_trigger = Some(trigger.clone());
-    factory.backend = Some(Arc::new(SignalsWhileHeldBackends(clock.clone(), trigger)));
+    let reports_started = SharedDeferred::new();
+    let running = SharedDeferred::new();
     let events: Arc<std::sync::Mutex<Vec<(String, i64)>>> = Arc::default();
+    factory.signal_trigger = Some(trigger.clone());
+    let late: Arc<std::sync::Mutex<Option<(Arc<SharedChannel<DeviceEvent>>, DeviceRef)>>> = Arc::default();
+    factory.console_sink = Some(Arc::new(ConnectsLateWhileFinishing {
+        late: late.clone(),
+        running: running.clone(),
+    }));
     factory.reporters = vec![ReporterRegistration {
         slot: ReporterSlot::Html,
-        reporter: Arc::new(SlowReports(clock.clone(), events.clone())),
+        reporter: Arc::new(SlowReports(clock.clone(), events.clone(), reports_started.clone())),
     }];
     let (recorded, exit_clock) = (events.clone(), clock.clone());
     factory.exit = Some(Arc::new(move |status| {
@@ -922,13 +885,18 @@ fn a_signal_while_the_run_settles_keeps_the_reports_first_d84() {
     let prepare: scenario::Prepare = Box::new(move |core, _| {
         let _ = prepare_clock.set(core.vendor_clock());
     });
-    let late = stub("serial-x", "modelA", 600_000);
-    script.devices.insert("serial-x".into(), late);
-    script
-        .events
-        .insert(1, (10_500, "connect".into(), Some("serial-x".into()), Value::Null));
     let (terminated, terminate_clock) = (events.clone(), clock.clone());
     let ready: Option<Ready> = Some(Box::new(move |built| {
+        let device = Hooked {
+            started: Some(running),
+            after_cancel: AfterCancel::SignalsThenCleansUp {
+                signal: trigger,
+                reports_started,
+                millis: 4_000,
+            },
+            ..hooked(stub("serial-l", "modelZ", 0))
+        };
+        *late.lock().unwrap() = Some((built.provider.channel(), DeviceRef(Arc::new(device))));
         *built.provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
             terminated
                 .lock()
@@ -950,9 +918,8 @@ fn a_signal_while_the_run_settles_keeps_the_reports_first_d84() {
         at("provider terminated") >= at("reports ended"),
         "the provider was terminated while the signal's reports were still being written: {events:?}"
     );
-    assert_eq!(at("reports started"), 11_500, "{events:?}");
     let exit = at("exit 143");
-    assert!(exit <= 11_500 + 25_000, "{events:?}");
+    assert!(exit <= at("reports started") + 25_000, "{events:?}");
 }
 
 struct NeverExtracts;

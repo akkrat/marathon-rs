@@ -205,6 +205,30 @@ returned (P1, a late pool). A D52 signal does not enter it; D52 keeps its own pa
   the provider's device channel with the cause. An ordinary error while devices are connected is logged at ERROR and
   the run carries on with them, as before D84.
 
+## Gate (remote Linux): the round-5 signal witness made event-driven
+
+The gate failed `run_supervision::a_signal_while_the_run_settles_keeps_the_reports_first_d84` on Linux. Cause: the
+witness held the run through a Graphite backend's `device_connected`, but the analytics backend sits behind a
+`RemoteTracker` queue that forwards only test results ("The production remote trackers only implement test
+metrics"), so no device event ever reached it and nothing held the settle. On macOS the round-5 witness passed for
+another reason (the backend's 5 s hold of its test-result queue made the analytics close wait), and that timing
+depended on the backend's worker thread. A run's listener cannot in fact be held by a backend.
+
+The witness now holds the settle where it really waits, in the stop routine, and orders everything by events:
+the console starts a late pool (a new model's device) when it is given the output only the finish flushes ("terminate
+pool modelA"), and holds that flush until the late device's batch is running; the settle then stops that pool, whose
+cancelled batch raises SIGTERM and cleans up until the signal's reports have started and 4 s more. Assertions are
+unchanged in strength: the provider is terminated only after the reports end, exit 143 within 24 s of the signal's
+reports. With the round-5 hand-over checks disabled (the 9f744841 finish), it fails: provider terminated at 15,000 ms
+while the reports ran to 17,500 ms.
+
+Audit of the other timing-scripted D84 witnesses: they order virtual timers only (device prepare delays, stub test
+times, bounds), which the replay driver advances in order since vendor calls are tracked work; none depends on a
+backend's worker thread. One other test used the Graphite backend: `the_reports_hold_the_results_a_stop_drains_d84`
+claimed the backend held the queue's Track, which it cannot; its assertions held for another reason (the drain). The
+backend is removed from it and its comment corrected; the held-queue drain is witnessed in `pool_scheduler`, where the
+tracker can be held.
+
 ## Review round 6 (Sol 6.2 delta): per-finding status
 
 | Item | Status | Fix | Witness |
