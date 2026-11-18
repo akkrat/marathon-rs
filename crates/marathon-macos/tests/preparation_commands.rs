@@ -1,8 +1,9 @@
 //! Port of vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/MacosDevice.kt
 //! D87: a Mac's preparation budget counts every command with a limit that a preparation can send. Each variant runs a whole
-//! preparation on the fake worker along its longest path (the installer's three attempts at the test bundle, an arm64e
-//! Mac whose runner loses an architecture, the probe finding XCUITest) and compares the commands sent, all under `shell`,
-//! with the budget: equal where the variant's longest path is the one the budget counts, never more.
+//! preparation on the fake worker along its longest path (an earlier preparation on the same worker has sent every file,
+//! so each send first checks the copy is still there, and finds it gone; the installer's three attempts at the test
+//! bundle; an arm64e Mac whose runner loses an architecture; the probe finding XCUITest) and compares the commands sent,
+//! all under `shell`, with the budget: equal where the variant's longest path is the one the budget counts, never more.
 mod support;
 use marathon_apple::apple_device::AppleDevice;
 use marathon_config::vendor::{MacosPermission, TestType};
@@ -14,12 +15,21 @@ use support::*;
 const SHELL: i64 = 30_000;
 
 /// What a whole preparation of the variant sends, and the budget the device gives it.
-async fn variant(test_type: Option<TestType>, permissions: usize, coverage: bool) -> R<(i64, i64, Vec<String>)> {
+async fn variant(
+    test_type: Option<TestType>,
+    permissions: usize,
+    coverage: bool,
+    extra: bool,
+) -> R<(i64, i64, Vec<String>)> {
     let mut h = Harness::new("")?;
     {
+        let extra_app = std::path::PathBuf::from(h.root.path().join("MacApp.app").to_string_lossy().into_owned());
         let vendor = Arc::make_mut(&mut h.options.vendor);
         if let Some(bundle) = vendor.bundle.as_mut() {
             bundle.test_type = test_type;
+            if extra {
+                bundle.extra_applications = Some(vec![extra_app]);
+            }
         }
         if permissions > 0 {
             vendor.permissions.grant = vec![(
@@ -47,6 +57,13 @@ async fn variant(test_type: Option<TestType>, permissions: usize, coverage: bool
             None => answer(cmd),
         }
     });
+    // An earlier preparation on this worker sends every file, so that each send of the next first checks for its copy.
+    let earlier = h.device_with_udid("1111-1111");
+    v(earlier.setup(&h.context).await)?;
+    // Logic tests end in the test root factory's refusal, after the sends.
+    let _ = earlier
+        .prepare(h.options.dependencies.configuration.clone(), h.context.clone())
+        .await;
     // The installer's three attempts at the test bundle.
     h.bridge.failing_sends.store(2, Ordering::SeqCst);
     let device = h.device_with_udid("0000-0000");
@@ -71,35 +88,45 @@ fn budget_of(commands: i64) -> i64 {
     commands * SHELL + 2_000
 }
 
-async fn longest_path_is_counted(test_type: Option<TestType>, permissions: usize, expected: i64) -> R {
-    let (sent, budget, commands) = variant(test_type, permissions, false).await?;
+async fn longest_path_is_counted(test_type: Option<TestType>, permissions: usize, extra: bool, expected: i64) -> R {
+    let (sent, budget, commands) = variant(test_type, permissions, false, extra).await?;
     assert_eq!(sent, expected, "{commands:#?}");
     assert_eq!(budget, budget_of(sent), "{commands:#?}");
     Ok(())
 }
 
-/// The defaults, the test type left to the probe, which finds XCUITest: 25 commands, 752 s.
+/// The defaults, the test type left to the probe, which finds XCUITest: 25 commands, and a check for each of the test
+/// bundle's and the app's earlier copies, 27 (812 s).
 #[tokio::test]
 async fn a_preparation_with_the_test_type_left_to_the_probe_sends_what_its_budget_counts_d87() -> R {
-    longest_path_is_counted(None, 0, 25).await
+    longest_path_is_counted(None, 0, false, 27).await
 }
 
-/// XCUITest configured: 24 commands, among them the removal before each of the runner's two overwriting copies.
+/// XCUITest configured: 24 commands, among them the removal before each of the runner's two overwriting copies, and the
+/// two checks, 26.
 #[tokio::test]
 async fn an_xcuitest_preparation_sends_what_its_budget_counts_d87() -> R {
-    longest_path_is_counted(Some(TestType::Xcuitest), 0, 24).await
+    longest_path_is_counted(Some(TestType::Xcuitest), 0, false, 26).await
 }
 
-/// Hosted XCTest with one permission: 12 commands, the SIP check and two writes, 15 (452 s).
+/// Hosted XCTest with one permission: 12 commands, the SIP check and two writes, and a check for each of the test
+/// bundle's, the app's and its `PlugIns` copy's, 18 (542 s).
 #[tokio::test]
 async fn a_hosted_xctest_preparation_with_a_permission_sends_what_its_budget_counts_d87() -> R {
-    longest_path_is_counted(Some(TestType::Xctest), 1, 15).await
+    longest_path_is_counted(Some(TestType::Xctest), 1, false, 18).await
 }
 
-/// Hosted XCTest with two permissions: 12, the SIP check and four writes, 17.
+/// Hosted XCTest with two permissions: 12, the SIP check and four writes, and three checks, 20.
 #[tokio::test]
 async fn a_hosted_xctest_preparation_with_two_permissions_sends_what_its_budget_counts_d87() -> R {
-    longest_path_is_counted(Some(TestType::Xctest), 2, 17).await
+    longest_path_is_counted(Some(TestType::Xctest), 2, false, 20).await
+}
+
+/// Hosted XCTest with an extra application: 12 commands, three checks, and the check for the extra application's copy,
+/// 16.
+#[tokio::test]
+async fn a_hosted_xctest_preparation_with_an_extra_application_sends_what_its_budget_counts_d87() -> R {
+    longest_path_is_counted(Some(TestType::Xctest), 0, true, 16).await
 }
 
 /// Logic tests end in the test root factory's refusal, and with code coverage (no `xctestrun`, so no static libraries)
@@ -107,7 +134,7 @@ async fn a_hosted_xctest_preparation_with_two_permissions_sends_what_its_budget_
 #[tokio::test]
 async fn logic_tests_and_code_coverage_send_no_more_than_their_budget_counts_d87() -> R {
     for (test_type, coverage) in [(Some(TestType::LogicTest), false), (Some(TestType::Xcuitest), true)] {
-        let (sent, budget, commands) = variant(test_type, 0, coverage).await?;
+        let (sent, budget, commands) = variant(test_type, 0, coverage, false).await?;
         assert!(budget_of(sent) <= budget, "{test_type:?} {coverage}: {commands:#?}");
     }
     Ok(())

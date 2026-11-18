@@ -179,7 +179,10 @@ impl MacosDevice {
     ///   architecture commands on arm64e (`lipo` twice and a removal), three plist edits, its `PlugIns` directory and the
     ///   test bundle's copy into it; the app's `chmod`. (With a runner of its own: `chmod`, a removal and a link, and the
     ///   architecture commands, fewer.)
-    /// - with permissions to grant: the SIP check, then 2 per permission (the system's TCC database and the user's).
+    /// - with permissions to grant: the SIP check, then 2 per permission (the system's TCC database and the user's);
+    /// - for each shared destination sent to, one `test -e` when an earlier transfer of the same file there is on record
+    ///   (a parse or another device sent it) and it may have gone: the test bundle, the app, hosted XCTest's copy into the
+    ///   app's `PlugIns`, each extra application.
     ///
     /// Not counted: code coverage's static-library directories, one per library, which only the built bundle names.
     pub fn preparation_commands(&self) -> i64 {
@@ -195,7 +198,14 @@ impl MacosDevice {
             true => 0,
             false => 1 + 2 * grants.iter().map(|(_, p)| p.len() as i64).sum::<i64>(),
         };
-        3 + 6 + probe + 1 + test_root + permissions
+        let extras = vendor
+            .bundle
+            .as_ref()
+            .and_then(|b| b.extra_applications.as_ref())
+            .map_or(0, |e| e.len() as i64);
+        let hosted = matches!(test_type, Some(marathon_config::vendor::TestType::Xctest));
+        let cached = 2 + i64::from(hosted) + extras;
+        3 + 6 + probe + 1 + test_root + permissions + cached
     }
     /// D87: whether a retry of this Mac's preparation may start now, before its deadline.
     fn may_start_attempt(&self) -> bool {
