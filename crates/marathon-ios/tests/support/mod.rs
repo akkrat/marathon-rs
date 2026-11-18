@@ -56,8 +56,11 @@ impl VendorRuntime for Runtime {
     fn spawn_blocking(&self, body: Box<dyn FnOnce() -> VendorResult<()> + Send>) -> Arc<dyn VendorTask> {
         let task = Arc::new(Task(watch::channel(None).0));
         let complete = task.clone();
+        // As the run's runtime does: a panic is the task's error.
         tokio::task::spawn_blocking(move || {
-            complete.0.send_replace(Some(body()));
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(body))
+                .unwrap_or_else(|payload| Err(VendorError::Other(marathon_core::executor::panic_failure(payload))));
+            complete.0.send_replace(Some(result));
         });
         task
     }

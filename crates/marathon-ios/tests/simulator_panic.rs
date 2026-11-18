@@ -419,3 +419,38 @@ async fn a_borrow_still_takes_a_simulator_registered_after_a_published_failure_d
         .map_err(provider_support::test_error)?;
     Ok(())
 }
+
+/// U211: the static Marathondevices file is read in a blocking task whose result initialization waits for. A panic there
+/// (here its log line's sink) ended the task without that result, and initialization waited for ever. It now ends with the
+/// panic.
+#[tokio::test(start_paused = true)]
+async fn a_panic_while_reading_the_devices_file_ends_the_initialization_with_it_u211() -> TestResult {
+    let p = provider_support::ProviderHarness::new(|_| {})?;
+    std::fs::write(
+        p.h.dir.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: simulator, udid: a}]\n",
+    )?;
+    let mut services = provider_support::ProviderHarness::services(&p.h, p.connections.clone(), p.recovery.clone());
+    let mut logging = services.logging.clone();
+    logging.registry.lock().unwrap().set_level(
+        "marathon_ios::device::simulator_provider",
+        marathon_logging::Level::DEBUG,
+    );
+    let sink = logging.sink.clone();
+    logging.sink = Arc::new(move |logger, level, message, cause| {
+        if message == "Using static device provider" {
+            panic!("{PROBE}");
+        }
+        sink(logger, level, message, cause)
+    });
+    services.logging = logging;
+    let provider = marathon_ios::device::simulator_provider::AppleSimulatorProvider::new(services)
+        .map_err(provider_support::test_error)?;
+    use marathon_core::vendor::DeviceProvider;
+    let initialized = guarded("the initialization", provider.initialize(p.h.services.context.clone())).await;
+    assert!(matches!(&initialized, Err(error) if is_probe(error)), "{initialized:?}");
+    guarded("the termination", provider.terminate())
+        .await
+        .map_err(provider_support::test_error)?;
+    Ok(())
+}

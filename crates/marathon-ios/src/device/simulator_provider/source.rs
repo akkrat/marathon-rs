@@ -30,9 +30,15 @@ async fn blocking<T: Send + Sync + Clone + 'static>(
         result.complete(work());
         Ok(())
     }));
-    let result = done.wait().await.map(|v| (*v).clone());
+    // U211: the task first, which ends with the work's panic as its error; a panic never completes the cell.
     task.join().await?;
-    result
+    match done.completed() {
+        Some(result) => result.map(|v| (*v).clone()),
+        None => Err(other(
+            FailureKind::IllegalState,
+            "Blocking work ended without its result",
+        )),
+    }
 }
 fn config_failure(error: ConfigurationError) -> marathon_core::error::Failure {
     let mut cause = None;
