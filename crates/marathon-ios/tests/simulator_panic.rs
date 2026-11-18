@@ -208,3 +208,84 @@ async fn a_listener_that_panics_still_lets_the_batch_clean_up_d84() -> TestResul
     guarded("the retained tasks", d.join_retained()).await.unwrap();
     Ok(())
 }
+
+fn monitor_error() -> VendorError {
+    VendorError::Other(marathon_apple::cmd::failure(
+        marathon_error::FailureKind::IllegalArgument,
+        "D84 probe: the monitor failed",
+    ))
+}
+
+/// D84, review round 2 (I5): an ordinary monitoring error while a simulator is connected does not fail the run: the
+/// error is logged and the run carries on with the simulator, as before D84. (Round 1 failed the device channel.)
+#[tokio::test(start_paused = true)]
+async fn a_monitor_error_with_a_device_connected_lets_the_run_carry_on_d84() -> TestResult {
+    let p = provider_support::ProviderHarness::new(|_| {})?;
+    std::fs::write(
+        p.h.dir.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: simulator, udid: a}]\n",
+    )?;
+    *p.recovery.reconnect_error.lock().unwrap() = Some(monitor_error());
+    use marathon_core::vendor::{DeviceEvent, DeviceProvider};
+    guarded(
+        "the initialization",
+        p.provider.initialize(p.h.services.context.clone()),
+    )
+    .await
+    .map_err(provider_support::test_error)?;
+    let first = guarded("the device channel", p.provider.subscribe().receive()).await;
+    assert!(
+        matches!(first, Ok(Some(DeviceEvent::Connected(_)))),
+        "the simulator was not connected"
+    );
+    let next = tokio::time::timeout(Duration::from_secs(600), p.provider.subscribe().receive()).await;
+    assert!(
+        next.is_err(),
+        "the device channel ended although a simulator is connected"
+    );
+    assert!(
+        p.h.logs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_, level, message, _)| *level == marathon_logging::Level::ERROR
+                && message == "Device monitoring failed; the run carries on with the devices it has"),
+        "{:?}",
+        p.h.logs.lock().unwrap()
+    );
+    guarded("the termination", p.provider.terminate())
+        .await
+        .map_err(provider_support::test_error)?;
+    Ok(())
+}
+
+/// D84, review round 2 (I5): a monitoring error that leaves no simulator to run on fails the device channel with it,
+/// so the run ends with the cause instead of waiting for devices until its timeout.
+#[tokio::test(start_paused = true)]
+async fn a_monitor_error_with_no_device_fails_the_device_channel_d84() -> TestResult {
+    let p = provider_support::ProviderHarness::new(|_| {})?;
+    std::fs::write(
+        p.h.dir.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: []\n",
+    )?;
+    *p.recovery.reconnect_error.lock().unwrap() = Some(monitor_error());
+    use marathon_core::vendor::DeviceProvider;
+    guarded(
+        "the initialization",
+        p.provider.initialize(p.h.services.context.clone()),
+    )
+    .await
+    .map_err(provider_support::test_error)?;
+    let received = guarded("the device channel", p.provider.subscribe().receive()).await;
+    match &received {
+        Err(error) => assert_eq!(
+            error.failure().message.as_deref(),
+            Some("D84 probe: the monitor failed")
+        ),
+        Ok(_) => panic!("the device channel did not fail"),
+    }
+    guarded("the termination", p.provider.terminate())
+        .await
+        .map_err(provider_support::test_error)?;
+    Ok(())
+}

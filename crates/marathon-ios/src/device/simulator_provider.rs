@@ -23,11 +23,7 @@ use marathon_apple::{
     apple_device_registry::AppleDeviceRegistry,
     artifact_processor::ArtifactProcessor,
     bin::xcrun::xcresulttool::describe_timeout,
-    cmd::{
-        failure,
-        remote::ssh::sshj::config::SshLogging,
-        retained_tasks::{RetainedTasks, panic_as_error},
-    },
+    cmd::{failure, remote::ssh::sshj::config::SshLogging, retained_tasks::RetainedTasks},
 };
 use marathon_config::{
     binding::BindingContext,
@@ -1145,20 +1141,39 @@ impl AppleSimulatorProvider {
             ..self.services.context.clone()
         };
         let task = self.services.runtime.spawn(Box::pin(async move {
+            use futures_util::FutureExt;
             let monitor = this.clone();
-            let result = panic_as_error(monitor.monitor(initial, context)).await;
-            // D84: the monitor is the only source of devices, and its join at termination discards its result. If it
-            // ends with an error, a panic included, the run hears of it through the device channel, which then fails,
-            // instead of waiting for devices that never come.
+            let (result, panicked) = match std::panic::AssertUnwindSafe(monitor.monitor(initial, context))
+                .catch_unwind()
+                .await
+            {
+                Ok(result) => (result, false),
+                Err(payload) => (
+                    Err(VendorError::Other(marathon_core::executor::panic_failure(payload))),
+                    true,
+                ),
+            };
+            // D84 (I5): the monitor is the only source of devices, and its join at termination discards its result. A
+            // panic, or an error that leaves the run no device, fails the device channel with the cause, which ends the
+            // run instead of leaving it to wait for devices that never come. An ordinary error while devices are
+            // connected is logged, and the run carries on with them, as before.
             if let Err(error) = &result
                 && !matches!(error, VendorError::Cancelled(_))
             {
-                this.log(
-                    Level::ERROR,
-                    || "Device monitoring failed".into(),
-                    Some(error.failure().clone()),
-                );
-                this.channel.close(Some(error.failure().clone()));
+                if panicked || this.devices().is_empty() {
+                    this.log(
+                        Level::ERROR,
+                        || "Device monitoring failed".into(),
+                        Some(error.failure().clone()),
+                    );
+                    this.channel.close(Some(error.failure().clone()));
+                } else {
+                    this.log(
+                        Level::ERROR,
+                        || "Device monitoring failed; the run carries on with the devices it has".into(),
+                        Some(error.failure().clone()),
+                    );
+                }
             }
             result
         }));

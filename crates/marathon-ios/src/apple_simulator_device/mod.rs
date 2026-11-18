@@ -333,6 +333,11 @@ impl SimulatorSetup for AppleSimulatorDevice {
     }
 }
 impl Device for AppleSimulatorDevice {
+    /// D84: a cancelled batch is joined within `cancelled_batch_millis`, which also covers its session's stop; a
+    /// cancelled preparation returns at once.
+    fn cancellation_cleanup_millis(&self) -> Option<i64> {
+        Some(self.services.timeouts.cancelled_batch_millis)
+    }
     fn info(&self) -> DeviceInfo {
         self.state().info.clone()
     }

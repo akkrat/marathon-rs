@@ -573,6 +573,10 @@ fn unsupported<T>() -> VendorResult<T> {
     )))
 }
 impl Device for MacosDevice {
+    /// D84: a cancelled batch is joined within `cancelled_batch_timeout`; a cancelled preparation returns at once.
+    fn cancellation_cleanup_millis(&self) -> Option<i64> {
+        self.options.cancelled_batch_timeout.to_millis()
+    }
     fn info(&self) -> DeviceInfo {
         self.facts.lock().unwrap_or_else(|e| e.into_inner()).info.clone()
     }

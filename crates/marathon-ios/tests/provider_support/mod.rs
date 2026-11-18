@@ -34,6 +34,8 @@ pub struct Recovery {
     pub ticks: AtomicUsize,
     pub missing: Mutex<Vec<Vec<AppleTarget>>>,
     pub failed: Mutex<Vec<Vec<AppleTarget>>>,
+    /// Returned once by the next `reconnect`, which the provider's monitor calls after each update (D84 witnesses).
+    pub reconnect_error: Mutex<Option<marathon_core::error::VendorError>>,
 }
 impl ProviderRecovery for Recovery {
     fn connect_worker(
@@ -46,7 +48,13 @@ impl ProviderRecovery for Recovery {
     }
     fn reconnect(&self, _: Arc<AppleSimulatorProvider>, _: VendorContext) -> VendorFuture<'_, ()> {
         self.ticks.fetch_add(1, Ordering::SeqCst);
-        Box::pin(async { Ok(()) })
+        let error = self.reconnect_error.lock().unwrap().take();
+        Box::pin(async move {
+            match error {
+                Some(error) => Err(error),
+                None => Ok(()),
+            }
+        })
     }
     fn admit(&self, _: &str, _: &Simulator) -> marathon_ios::device::error::ProvisioningResult<()> {
         Ok(())
