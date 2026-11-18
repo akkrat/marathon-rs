@@ -96,6 +96,8 @@ pub struct RecordingBridge {
     /// D54: every transfer runs until it is stopped, and ends as the rsync bridge ends it.
     pub hang: std::sync::atomic::AtomicBool,
     pub hanging: Notify,
+    /// This many sends fail (`false`) before the rest succeed.
+    pub failing_sends: std::sync::atomic::AtomicUsize,
 }
 impl RecordingBridge {
     async fn until_stopped(&self, mut stop: marathon_apple::cmd::TransferStop, receive: bool) -> VendorResult<bool> {
@@ -144,6 +146,13 @@ impl FileBridge for RecordingBridge {
                         "no progress",
                     ),
                 });
+            }
+            if self
+                .failing_sends
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok()
+            {
+                return Ok(false);
             }
             let bytes = if src.is_file() {
                 std::fs::read(src)
@@ -356,6 +365,10 @@ impl Harness {
         })
     }
     pub fn device(&self) -> Arc<MacosDevice> {
+        self.device_with_udid("udid")
+    }
+    /// A udid with a `-` is an arm64e Mac's (`apple_arch`).
+    pub fn device_with_udid(&self, udid: &str) -> Arc<MacosDevice> {
         let binary = AppleBinaryEnvironment::new(
             self.worker.clone(),
             &self.options.dependencies.configuration,
@@ -364,7 +377,7 @@ impl Harness {
             self.options.logging.clone(),
         );
         MacosDevice::new(
-            "udid".into(),
+            udid.into(),
             Transport::Local,
             binary,
             self.bridge.clone(),
