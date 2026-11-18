@@ -24,6 +24,10 @@ impl PreparationEpisode {
     pub fn may_start(&self, now: i64) -> bool {
         now < self.deadline
     }
+    /// When it ends, on the vendor clock.
+    pub fn deadline(&self) -> i64 {
+        self.deadline
+    }
 }
 
 fn millis(duration: Duration) -> i64 {

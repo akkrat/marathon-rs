@@ -91,6 +91,9 @@ pub struct FakeSimulatorWorker {
     /// Refuse a request whose context is already cancelled, as the SSH and local executors do. Off by default, so the
     /// worlds recorded without it keep their transcripts.
     pub refuses_cancelled: AtomicBool,
+    /// End a command whose `before` hook is still running when its context is cancelled, as a real command ends on
+    /// TERM or KILL (D30). Off by default, so the worlds recorded without it keep their transcripts.
+    pub cancellable_before: AtomicBool,
     /// D54: why the connection was lost, once `lose` has been called.
     lost: tokio::sync::watch::Sender<Option<Failure>>,
 }
@@ -118,6 +121,7 @@ impl FakeSimulatorWorker {
             before: Mutex::new(Arc::new(|_| Box::pin(async { Ok(None) }))),
             session: Mutex::new(Arc::new(|_| Ok(None))),
             refuses_cancelled: AtomicBool::new(false),
+            cancellable_before: AtomicBool::new(false),
             lost: tokio::sync::watch::channel(None).0,
         }
     }
@@ -264,7 +268,16 @@ impl CommandExecutor for FakeSimulatorWorker {
                 return Ok(session);
             }
             let before = self.before.lock().unwrap_or_else(|e| e.into_inner()).clone();
-            let result = match before(request.command.clone()).await? {
+            let answered = before(request.command.clone());
+            let answered = if self.cancellable_before.load(Ordering::SeqCst) {
+                tokio::select! { biased;
+                    reason = context.cancellation.cancelled() => Err(VendorError::Cancelled(reason)),
+                    answered = answered => answered,
+                }
+            } else {
+                answered.await
+            };
+            let result = match answered? {
                 Some(result) => result,
                 None => self.answer(&request.command)?,
             };

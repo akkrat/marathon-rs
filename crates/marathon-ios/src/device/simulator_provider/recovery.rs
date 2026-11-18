@@ -544,12 +544,17 @@ impl SimulatorRecovery {
                 }
                 let pause = self.recovery_pause_millis.wrapping_mul(i64::from(loss.wrapping_sub(1)));
                 // D87: a simulator lost by a failed preparation is set up again only if that starts before the
-                // preparation's deadline: asked before the pause, and where the setup starts, after it.
-                if let Some(device) = lost.iter().find(|d| !d.may_start_attempt(pause)) {
+                // preparation's deadline: asked before the pause, and where the setup starts, after it. Only while this
+                // recovery's claim on it is current: one removed or added back meanwhile is left to D44's paths below.
+                let spent = |after: i64| {
+                    lost.iter()
+                        .find(|d| provider.claimed(&apple_id(d.udid(), transport)) && !d.may_start_attempt(after))
+                };
+                if let Some(device) = spent(pause) {
                     return Ok(out_of_time(provider, transport, device));
                 }
                 caller.clock.delay(pause, caller.cancellation.clone()).await?;
-                if let Some(device) = lost.iter().find(|d| !d.may_start_attempt(0)) {
+                if let Some(device) = spent(0) {
                     return Ok(out_of_time(provider, transport, device));
                 }
             }
