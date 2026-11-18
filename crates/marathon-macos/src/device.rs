@@ -10,7 +10,7 @@ use marathon_apple::{
     apple_device_test_runner::{AppleDeviceTestRunner, RunError},
     bin::AppleBinaryEnvironment,
     cmd::{
-        CommandResult, Termination, failure,
+        CommandResult, ShutdownWindow, Termination, failure,
         remote::ssh::sshj::config::SshLogging,
         retained_tasks::{RetainedTasks, panic_as_error},
         shared_transfers::SharedTransfers,
@@ -88,8 +88,8 @@ struct Execution {
     /// D91, D93: sends to this Mac that may still be running, whoever waits for them, registered under this lock so that
     /// none starts once the Mac is sealed.
     transfers: Vec<Arc<marathon_apple::cmd::TransferReceipt>>,
-    /// D93: sealed by the run's stop or by the first disposal: when, on the vendor clock, the Mac's work is to have ended.
-    shutdown_by: Option<i64>,
+    /// D93: sealed by the run's stop or by the first disposal: the Mac's one window, its verdict and its receipt.
+    shutdown: Option<Arc<Shutdown>>,
     /// D93: its disposal could not confirm that its work had ended: its lease is quarantined, not released.
     quarantined: bool,
 }
@@ -98,30 +98,43 @@ impl Execution {
     fn refusal(&self, serial: &str) -> Option<String> {
         if self.disposal.is_some() {
             Some(format!("Device {serial} has been disposed"))
-        } else if self.shutdown_by.is_some() {
+        } else if self.shutdown.is_some() {
             Some(format!("Device {serial} is stopping"))
         } else {
             None
         }
     }
 }
-/// D93: what a sealed Mac's one window covers.
-struct Receipt {
+/// D93: a sealed Mac's one window, with its verdict, and the receipt it is decided on: what the Mac ran when it was
+/// sealed. Sealed, it starts nothing new.
+struct Shutdown {
+    window: Arc<ShutdownWindow>,
+    /// Sealed by the run's stop, whose published bound the lease's release shares.
+    by_run_stop: bool,
     batches: Vec<Arc<BatchJob>>,
     preparation: Option<Arc<SharedDeferred<()>>>,
+    preparation_stop: Option<Arc<Signal>>,
     transfers: Vec<Arc<marathon_apple::cmd::TransferReceipt>>,
 }
 struct BatchJob {
     result: Arc<SharedDeferred<()>>,
     cancellation: Arc<Signal>,
+    /// D93: the xcodebuild sessions this batch opened, which the Mac's stop can stop while the batch is still in its
+    /// cleanup (an xcresult pull) before its runner stops them. A parse's sessions are not here: they are its own.
+    sessions: Mutex<Vec<Arc<XcodebuildSession>>>,
 }
 impl BatchJob {
     fn new() -> Arc<Self> {
         Arc::new(Self {
             result: SharedDeferred::new(),
             cancellation: Signal::new(),
+            sessions: Mutex::default(),
         })
     }
+}
+tokio::task_local! {
+    /// D93: the batch whose task this is, so that a session it opens is known as the batch's.
+    static BATCH: Arc<BatchJob>;
 }
 pub struct MacosDevice {
     identity: Weak<Self>,
@@ -436,8 +449,7 @@ impl MacosDevice {
     /// D93: within what is left of the Mac's one window (sealed by the run's stop or its disposal), together with the rest
     /// of its work, rather than a window of its own; what did not end is for its disposal to report.
     pub async fn join_preparation(&self) -> VendorResult<()> {
-        let deadline = self.seal();
-        self.finish_work(None, deadline).await?;
+        self.finish_work().await;
         Ok(())
     }
     fn window_millis(&self) -> VendorResult<i64> {
@@ -446,84 +458,122 @@ impl MacosDevice {
             .to_millis()
             .ok_or_else(|| VendorError::Other(failure(FailureKind::Arithmetic, "long overflow")))
     }
-    /// D93: seals the Mac, once: it starts no batch, preparation or send from now on, and its window for ending what it
-    /// runs (`cancelled_batch_timeout`) starts. Returns when that window ends, on the vendor clock. No I/O, no blocking.
-    fn seal(&self) -> i64 {
+    /// D93: seals the Mac, once: it starts no batch, preparation or send from now on, its window for ending what it runs
+    /// (`cancelled_batch_timeout`) starts, and what it runs now is the receipt its one verdict is decided on. No I/O, no
+    /// blocking: the run's stop calls it on the core thread.
+    fn seal(&self) -> Arc<Shutdown> {
         let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
-        self.seal_locked(&mut execution)
+        self.seal_locked(&mut execution, false)
     }
-    /// A window too long for millis has no end; its waits then fail as `window_millis` says.
-    fn seal_locked(&self, execution: &mut Execution) -> i64 {
+    /// A window too long for millis has no end; deciding then fails as `window_millis` says, which is `Unconfirmed`.
+    fn seal_locked(&self, execution: &mut Execution, by_run_stop: bool) -> Arc<Shutdown> {
+        if let Some(shutdown) = &execution.shutdown {
+            return shutdown.clone();
+        }
         let window = self.options.cancelled_batch_timeout.to_millis().unwrap_or(i64::MAX);
-        *execution.shutdown_by.get_or_insert_with(|| {
-            self.options
-                .dependencies
-                .clock
-                .now_millis()
-                .saturating_add(window.max(0))
-        })
-    }
-    fn receipt(&self, batch: Option<&Arc<BatchJob>>) -> Receipt {
-        let execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
-        let running = execution
-            .running
-            .clone()
-            .filter(|r| !batch.is_some_and(|b| Arc::ptr_eq(b, r)));
-        Receipt {
-            batches: batch.cloned().into_iter().chain(running).collect(),
+        let deadline = self
+            .options
+            .dependencies
+            .clock
+            .now_millis()
+            .saturating_add(window.max(0));
+        let shutdown = Arc::new(Shutdown {
+            window: ShutdownWindow::new(deadline),
+            by_run_stop,
+            batches: execution.running.clone().into_iter().collect(),
             preparation: execution.preparation.clone().filter(|p| p.completed().is_none()),
+            preparation_stop: execution.preparation_stop.clone(),
+            // D91: a send whose cleanup was not confirmed earlier in the run counts too (`send_stop` keeps those).
             transfers: execution
                 .transfers
                 .iter()
-                .filter(|t| t.ended().is_none())
+                .filter(|t| t.ended() != Some(marathon_apple::cmd::TransferCleanup::Confirmed))
                 .cloned()
                 .collect(),
+        });
+        execution.shutdown = Some(shutdown.clone());
+        match self.identity.upgrade() {
+            Some(device) => {
+                let deciding = shutdown.clone();
+                self.tasks.spawn(&*self.options.dependencies.io, async move {
+                    match panic_as_error(device.await_receipt(&deciding)).await {
+                        Ok(verdict) => {
+                            deciding.window.decide(verdict);
+                        }
+                        Err(error) => deciding.window.fail(error),
+                    }
+                    Ok(())
+                });
+            }
+            None => {
+                shutdown.window.decide(Termination::Unconfirmed(vec![
+                    "the Mac's allocation was released".into(),
+                ]));
+            }
         }
+        shutdown
     }
-    /// D93: the sessions that were told to stop: a batch's once it has ended. One nobody has stopped is its owner's.
-    fn open_sessions(&self) -> Vec<Arc<XcodebuildSession>> {
-        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        sessions.iter().filter(|s| s.stopping()).cloned().collect()
+    /// D93: the sessions the receipt covers: those told to stop, and those its batches opened, stopped or not.
+    fn receipt_sessions(&self, shutdown: &Shutdown) -> Vec<Arc<XcodebuildSession>> {
+        let mut sessions: Vec<Arc<XcodebuildSession>> = self
+            .sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter(|s| s.stopping())
+            .cloned()
+            .collect();
+        for batch in &shutdown.batches {
+            for session in batch.sessions.lock().unwrap_or_else(|e| e.into_inner()).iter() {
+                if !sessions.iter().any(|s| Arc::ptr_eq(s, session)) {
+                    sessions.push(session.clone());
+                }
+            }
+        }
+        sessions
     }
-    /// D93: stops what the sealed Mac still runs (its batch, its preparation, its sends) and waits for it until
-    /// `deadline`; then says whether all of it has ended: each send with its cleanup confirmed (D91), and every xcodebuild
-    /// session's producer with its command closed. In the force reserve at the window's end, a session whose producer
-    /// still runs is stopped. Every caller passes the one deadline, so no wait outlasts it.
-    async fn finish_work(&self, batch: Option<&Arc<BatchJob>>, deadline: i64) -> VendorResult<Termination> {
-        let receipt = self.receipt(batch);
+    /// D93: stops everything in the receipt: the batch, the preparation, the sends (by the window's end). Idempotent.
+    fn stop_all(&self, shutdown: &Shutdown) {
         let stop = || {
             marathon_core::error::Cancellation::Requested(failure(
                 FailureKind::JobCancelled,
                 format!("Device {} is being disposed", self.serial),
             ))
         };
-        for job in &receipt.batches {
+        for job in &shutdown.batches {
             job.cancellation
                 .cancel(marathon_core::error::Cancellation::Requested(failure(
                     FailureKind::JobCancelled,
                     "LazyDeferredCoroutine was cancelled",
                 )));
         }
-        let preparation_stop = self
-            .execution
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .preparation_stop
-            .clone();
-        if let Some(signal) = preparation_stop {
+        if let Some(signal) = &shutdown.preparation_stop {
             signal.cancel(stop());
         }
-        for transfer in &receipt.transfers {
-            transfer.stop(stop(), Some(deadline));
+        for transfer in &shutdown.transfers {
+            transfer.stop(stop(), Some(shutdown.window.deadline));
         }
+    }
+    /// D93: seals the Mac if it is not yet, stops what it runs and returns its one verdict, decided at most once, within
+    /// its window. Every caller (the cancelled call, the run's stop, disposal, the provider) reads the same verdict.
+    async fn finish_work(&self) -> Termination {
+        let shutdown = self.seal();
+        self.stop_all(&shutdown);
+        shutdown.window.verdict().await
+    }
+    /// D93: the one decision: waits for the receipt until the window's end, forcing in its reserve what has not ended (the
+    /// batch's sessions, still running while the batch is stuck in its cleanup, are stopped); then what has not ended.
+    async fn await_receipt(&self, shutdown: &Shutdown) -> VendorResult<Termination> {
         let context = self.context();
         let clock = context.clock.clone();
+        let deadline = shutdown.window.deadline;
         let reserve = marathon_apple::cmd::device_commands::force_reserve_millis(self.window_millis()?);
         let graceful = deadline.saturating_sub(reserve).saturating_sub(clock.now_millis());
-        if !self.wait_for(&receipt, graceful, &context).await? {
+        if !self.wait_for(shutdown, graceful, &context).await? {
+            self.stop_all(shutdown);
             let left = deadline.saturating_sub(clock.now_millis()).max(0);
             let forced = self
-                .open_sessions()
+                .receipt_sessions(shutdown)
                 .into_iter()
                 .filter(|s| s.ended().is_none())
                 .map(|session| {
@@ -536,18 +586,18 @@ impl MacosDevice {
                 });
             let (_, waited) = tokio::join!(
                 futures_util::future::join_all(forced),
-                self.wait_for(&receipt, left, &context)
+                self.wait_for(shutdown, left, &context)
             );
             waited?;
         }
         let mut left = Vec::new();
-        if receipt.batches.iter().any(|b| b.result.completed().is_none()) {
+        if shutdown.batches.iter().any(|b| b.result.completed().is_none()) {
             left.push("its batch has not ended".to_owned());
         }
-        if receipt.preparation.as_ref().is_some_and(|p| p.completed().is_none()) {
+        if shutdown.preparation.as_ref().is_some_and(|p| p.completed().is_none()) {
             left.push("its preparation has not ended".to_owned());
         }
-        for transfer in &receipt.transfers {
+        for transfer in &shutdown.transfers {
             match transfer.ended() {
                 None => left.push("a send has not ended".to_owned()),
                 Some(marathon_apple::cmd::TransferCleanup::Unconfirmed(why)) => left.push(format!(
@@ -557,7 +607,7 @@ impl MacosDevice {
                 Some(marathon_apple::cmd::TransferCleanup::Confirmed) => {}
             }
         }
-        for session in self.open_sessions() {
+        for session in self.receipt_sessions(shutdown) {
             match session.ended() {
                 None => left.push("an xcodebuild session has not ended".to_owned()),
                 Some(false) => left.push("an xcodebuild session's command did not close".to_owned()),
@@ -570,14 +620,14 @@ impl MacosDevice {
             Termination::Unconfirmed(left)
         })
     }
-    /// Waits up to `millis` for everything in `receipt`, then for the sessions' producers (a batch opens its session
+    /// Waits up to `millis` for everything in the receipt, then for its sessions' producers (a batch opens its session
     /// itself); whether all of it ended. Nothing left: no wait, only a look.
-    async fn wait_for(&self, receipt: &Receipt, millis: i64, context: &VendorContext) -> VendorResult<bool> {
+    async fn wait_for(&self, shutdown: &Shutdown, millis: i64, context: &VendorContext) -> VendorResult<bool> {
         let ended = |device: &Self| {
-            receipt.batches.iter().all(|b| b.result.completed().is_some())
-                && receipt.preparation.as_ref().is_none_or(|p| p.completed().is_some())
-                && receipt.transfers.iter().all(|t| t.ended().is_some())
-                && device.open_sessions().iter().all(|s| s.ended().is_some())
+            shutdown.batches.iter().all(|b| b.result.completed().is_some())
+                && shutdown.preparation.as_ref().is_none_or(|p| p.completed().is_some())
+                && shutdown.transfers.iter().all(|t| t.ended().is_some())
+                && device.receipt_sessions(shutdown).iter().all(|s| s.ended().is_some())
         };
         if ended(self) {
             return Ok(true);
@@ -585,14 +635,6 @@ impl MacosDevice {
         if millis <= 0 {
             return Ok(false);
         }
-        let cells: Vec<_> = receipt
-            .batches
-            .iter()
-            .map(|b| b.result.clone())
-            .chain(receipt.preparation.clone())
-            .collect();
-        let sends = receipt.transfers.clone();
-        let device = self.retained()?;
         let finished = context
             .clock
             .with_timeout_or_null(
@@ -600,20 +642,25 @@ impl MacosDevice {
                 millis,
                 Box::new(move |signal| {
                     Box::pin(async move {
+                        let cells = shutdown
+                            .batches
+                            .iter()
+                            .map(|b| b.result.clone())
+                            .chain(shutdown.preparation.clone());
                         for done in cells {
                             tokio::select! { biased;
                                 reason = signal.cancelled() => return Err(VendorError::Cancelled(reason)),
                                 _ = done.wait() => {}
                             }
                         }
-                        for send in sends {
+                        for send in &shutdown.transfers {
                             if let Err(VendorError::Cancelled(reason)) = send.wait_in(signal.clone()).await
                                 && send.ended().is_none()
                             {
                                 return Err(VendorError::Cancelled(reason));
                             }
                         }
-                        for session in device.open_sessions() {
+                        for session in self.receipt_sessions(shutdown) {
                             tokio::select! { biased;
                                 reason = signal.cancelled() => return Err(VendorError::Cancelled(reason)),
                                 _ = session.wait_ended() => {}
@@ -627,19 +674,24 @@ impl MacosDevice {
             .is_some();
         Ok(finished && ended(self))
     }
-    /// D93: the disposal could not confirm that the Mac's work had ended: one WARN naming it and what was left, no further
-    /// command from it, and its lease quarantined rather than released.
+    /// D93: the disposal could not confirm that the Mac's work had ended: once, one WARN naming it and what was left, no
+    /// further command from it, and its lease quarantined in its connection factory now rather than released.
     fn quarantine(&self, left: &[String]) {
-        let why = failure(
+        {
+            let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
+            if execution.quarantined {
+                return;
+            }
+            execution.quarantined = true;
+        }
+        self.device_commands.quarantine(failure(
             FailureKind::IllegalState,
             format!(
                 "Device {}'s work was not confirmed to have ended: {}",
                 self.serial,
                 left.join(", ")
             ),
-        );
-        self.device_commands.revoke(why);
-        self.execution.lock().unwrap_or_else(|e| e.into_inner()).quarantined = true;
+        ));
         self.log(
             Level::WARN,
             format!(
@@ -651,13 +703,36 @@ impl MacosDevice {
             None,
         );
     }
+    /// D93: how the provider quarantines this Mac's lease, applied when its disposal decides to.
+    pub fn on_lease_quarantine(&self, hook: marathon_apple::cmd::device_commands::LeaseQuarantine) {
+        self.device_commands.on_quarantine(hook);
+    }
+    /// D93: the window's end, on the vendor clock, once the Mac is sealed.
+    pub fn shutdown_deadline(&self) -> Option<i64> {
+        self.execution
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .shutdown
+            .as_ref()
+            .filter(|s| s.by_run_stop)
+            .map(|s| s.window.deadline)
+    }
     /// A batch whose call was cancelled. D93: once the Mac is sealed this is part of its one window; otherwise the call has
     /// its own window, as in Kotlin.
     async fn join_cancelled(&self, batch: &Arc<BatchJob>) -> VendorResult<()> {
-        let sealed = self.execution.lock().unwrap_or_else(|e| e.into_inner()).shutdown_by;
-        if let Some(deadline) = sealed {
-            self.finish_work(Some(batch), deadline).await?;
-            return Ok(());
+        let sealed = self
+            .execution
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .shutdown
+            .clone();
+        if let Some(shutdown) = sealed {
+            self.finish_work().await;
+            // An error while deciding is this call's error too, as the window's wait's was before D93.
+            return match shutdown.window.failure() {
+                Some(error) => Err(error),
+                None => Ok(()),
+            };
         }
         batch
             .cancellation
@@ -699,16 +774,16 @@ impl MacosDevice {
         Ok(())
     }
     async fn dispose_inner(&self) -> VendorResult<()> {
-        let (cell, deadline, first) = {
+        let (cell, first) = {
             let mut state = self.execution.lock().unwrap_or_else(|e| e.into_inner());
             match &state.disposal {
-                Some(cell) => (cell.clone(), 0, false),
+                Some(cell) => (cell.clone(), false),
                 None => {
                     let cell = SharedDeferred::new();
                     state.disposal = Some(cell.clone());
                     // D93: the window the run's stop sealed, or one that starts with this first disposal.
-                    let deadline = self.seal_locked(&mut state);
-                    (cell, deadline, true)
+                    self.seal_locked(&mut state, false);
+                    (cell, true)
                 }
             }
         };
@@ -721,12 +796,20 @@ impl MacosDevice {
                 // D84: a panic is published to the callers too. D93: only work confirmed to have ended lets the lease
                 // be released.
                 let outcome = panic_as_error(async {
-                    if let Termination::Unconfirmed(left) = device.finish_work(None, deadline).await? {
+                    if let Termination::Unconfirmed(left) = device.finish_work().await {
                         device.quarantine(&left);
                     }
-                    Ok(())
+                    // An error while deciding is the disposal's error too, after the quarantine.
+                    match device.seal().window.failure() {
+                        Some(error) => Err(error),
+                        None => Ok(()),
+                    }
                 })
                 .await;
+                if let Err(error) = &outcome {
+                    // D93: a disposal that failed or panicked has confirmed nothing.
+                    device.quarantine(&[marathon_apple::cmd::device_commands::failure_text(error.failure())]);
+                }
                 // Kotlin completes the shared disposal cell with Unit in finally.
                 complete.complete(Ok(()));
                 first_complete.complete(outcome);
@@ -823,7 +906,10 @@ impl MacosDevice {
                     None,
                 );
             } else {
-                execution.transfers.retain(|t| t.ended().is_none());
+                // D93: a send whose cleanup was not confirmed is kept, so that the Mac's stop still counts it.
+                execution
+                    .transfers
+                    .retain(|t| t.ended() != Some(marathon_apple::cmd::TransferCleanup::Confirmed));
                 execution.transfers.push(receipt.clone());
             }
         }
@@ -923,7 +1009,8 @@ impl Device for MacosDevice {
         Box::pin(self.join_preparation())
     }
     fn seal_for_stop(&self) {
-        self.seal();
+        let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
+        self.seal_locked(&mut execution, true);
     }
     fn info(&self) -> DeviceInfo {
         self.facts.lock().unwrap_or_else(|e| e.into_inner()).info.clone()
@@ -1031,7 +1118,18 @@ impl Device for MacosDevice {
                     Err(VendorError::Cancelled(reason))
                 } else {
                     // D84: a panic is this batch's error too, so that the caller and disposal hear of its end.
-                    panic_as_error(device.run(configuration, pool, batch, result, own_context, caller_cancellation))
+                    BATCH
+                        .scope(
+                            running.clone(),
+                            panic_as_error(device.run(
+                                configuration,
+                                pool,
+                                batch,
+                                result,
+                                own_context,
+                                caller_cancellation,
+                            )),
+                        )
                         .await
                 };
                 {
@@ -1186,6 +1284,14 @@ impl AppleDevice for MacosDevice {
                 sessions.retain(|s| !s.closed());
                 sessions.push(session.clone());
             }
+            // D93: a session a batch opens is that batch's, for the Mac's stop.
+            let _ = BATCH.try_with(|batch| {
+                batch
+                    .sessions
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(session.clone())
+            });
             Ok(execute_test_request(
                 self.retained()?,
                 request,

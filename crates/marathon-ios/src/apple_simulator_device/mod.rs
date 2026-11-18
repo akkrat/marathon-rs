@@ -130,21 +130,17 @@ struct State {
     episode: Option<PreparationEpisode>,
     /// D93: the simulator is stopping, sealed by the run's stop or by its first disposal, whichever came first: when, on
     /// the vendor clock, its work is to have ended. Every wait for that work ends there; no new work starts.
-    shutdown_by: Option<i64>,
+    shutdown: Option<Arc<execution::Shutdown>>,
     /// D93: its disposal could not confirm that its work had ended: its lease is quarantined, not released.
     quarantined: bool,
     last_session: Option<Arc<marathon_apple::xcodebuild_session::XcodebuildSession>>,
 }
 impl State {
-    /// D91: the sends registered that have not ended. `send_stop` prunes the others as it registers one.
-    fn unended_transfers(&self) -> Vec<Arc<marathon_apple::cmd::TransferReceipt>> {
-        self.transfers.iter().filter(|t| t.ended().is_none()).cloned().collect()
-    }
     /// U179, D91, D93: why no new batch, preparation or send may start, if none may: disposal, or the run's stop.
     fn refusal(&self, serial: &str) -> Option<String> {
         if self.disposal.is_some() {
             Some(format!("Device {serial} has been disposed"))
-        } else if self.shutdown_by.is_some() {
+        } else if self.shutdown.is_some() {
             Some(format!("Device {serial} is stopping"))
         } else {
             None
@@ -237,7 +233,7 @@ impl AppleSimulatorDevice {
             preparations: Vec::new(),
             transfers: Vec::new(),
             episode: None,
-            shutdown_by: None,
+            shutdown: None,
             quarantined: false,
             last_session: None,
         };
@@ -312,6 +308,10 @@ impl AppleSimulatorDevice {
     pub fn quarantined(&self) -> bool {
         self.state().quarantined
     }
+    /// D93: how the provider quarantines this simulator's lease, applied when its disposal decides to.
+    pub fn on_lease_quarantine(&self, hook: marathon_apple::cmd::device_commands::LeaseQuarantine) {
+        self.commands.on_quarantine(hook);
+    }
     /// The output-line listeners installed now (D84 witnesses).
     #[doc(hidden)]
     pub fn line_listener_count(&self) -> usize {
@@ -385,20 +385,14 @@ impl Device for AppleSimulatorDevice {
     /// D93: within what is left of the window the run's stop sealed (`seal_for_stop`), not a window of its own.
     fn join_cancelled_work(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
-            let context = VendorContext {
-                cancellation: marathon_core::executor::shared::Signal::new(),
-                ..self.services.context.clone()
-            };
-            let deadline = self.seal();
-            if let marathon_apple::cmd::Termination::Unconfirmed(_) = self.finish_work(None, deadline, &context).await?
-            {
+            if let marathon_apple::cmd::Termination::Unconfirmed(_) = self.finish_work().await {
                 self.retire();
             }
             Ok(())
         })
     }
     fn seal_for_stop(&self) {
-        self.seal();
+        self.seal_for_run_stop();
     }
     fn info(&self) -> DeviceInfo {
         self.state().info.clone()

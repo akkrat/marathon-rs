@@ -558,8 +558,11 @@ impl marathon_core::runtime::VendorClock for FatalJoin {
         self.inner.with_timeout_or_null(parent, millis, body)
     }
 }
+/// D74, amended by D93: a disposal whose wait fails fatally has confirmed nothing, so its fatal error still ends the run
+/// but the lease is quarantined, not released (before: released, with the batch's session still held open); a repeated
+/// termination releases nothing.
 #[tokio::test]
-async fn a_fatal_disposal_still_releases_the_lease_and_a_repeated_termination_releases_nothing_more_d74() -> R {
+async fn a_fatal_disposal_quarantines_the_lease_and_a_repeated_termination_releases_nothing_d93() -> R {
     let mut h = Harness::new("")?;
     Arc::make_mut(&mut h.options.vendor).devices_file = None;
     std::fs::write(
@@ -588,8 +591,10 @@ async fn a_fatal_disposal_still_releases_the_lease_and_a_repeated_termination_re
     clock.armed.store(true, Ordering::SeqCst);
     let outcome = p.terminate().await;
     assert!(matches!(&outcome, Err(error) if error.failure().kind.is_fatal()));
-    // A82 for macOS: the lease is released although the disposal failed.
-    assert_eq!(c.releases.load(Ordering::SeqCst), 1);
+    // D93: the batch's session is still open: the lease is quarantined, at the disposal, not released.
+    assert_eq!(c.releases.load(Ordering::SeqCst), 0);
+    assert_eq!(c.quarantines.load(Ordering::SeqCst), 1);
+    assert!(device.quarantined());
     // M-x69-2: the Mac leaves the registry with its lease, although the disposal failed.
     assert!(
         p.registry
@@ -598,15 +603,18 @@ async fn a_fatal_disposal_still_releases_the_lease_and_a_repeated_termination_re
         "Mac left the registry"
     );
     v(p.terminate().await)?;
-    assert_eq!(c.releases.load(Ordering::SeqCst), 1);
+    assert_eq!(c.releases.load(Ordering::SeqCst), 0);
+    assert_eq!(c.quarantines.load(Ordering::SeqCst), 1);
     clock.armed.store(false, Ordering::SeqCst);
     running.release.notify_one();
     let _ = tokio::time::timeout(std::time::Duration::from_secs(60), batch).await?;
     v(device.join_pending().await)?;
     Ok(())
 }
+/// A107, amended by D93: the replaced Mac's disposal fails fatally; the new Mac is still registered and announced, and the
+/// old Mac's lease, its work not confirmed to have ended, is quarantined rather than released (before: released).
 #[tokio::test]
-async fn a_replacement_whose_predecessor_fails_to_dispose_is_announced_and_released_once_a107() -> R {
+async fn a_replacement_whose_predecessor_fails_to_dispose_is_announced_and_its_lease_quarantined_a107_d93() -> R {
     use marathon_core::vendor::DeviceRef;
     let mut h = Harness::new("")?;
     Arc::make_mut(&mut h.options.vendor).devices_file = None;
@@ -642,8 +650,9 @@ async fn a_replacement_whose_predecessor_fails_to_dispose_is_announced_and_relea
     let new = p.snapshot().remove(0);
     assert!(!Arc::ptr_eq(&old, &new));
     assert_eq!(c.creates.load(Ordering::SeqCst), 2);
-    // The old Mac's lease is released after its failed disposal.
-    assert_eq!(c.releases.load(Ordering::SeqCst), 1);
+    // D93: the old Mac's lease is quarantined after its failed disposal, not released.
+    assert_eq!(c.releases.load(Ordering::SeqCst), 0);
+    assert_eq!(c.quarantines.load(Ordering::SeqCst), 1);
     assert!(
         p.registry.lookup(&DeviceRef(old.clone())).is_err(),
         "old Mac left the registry"
@@ -668,10 +677,11 @@ async fn a_replacement_whose_predecessor_fails_to_dispose_is_announced_and_relea
     v(p.join_pending().await)?;
     v(p.terminate().await)?;
     assert!(v(p.subscribe().receive().await)?.is_none(), "no further announcement");
-    // Termination releases the new Mac's lease, once; the old one is not released again.
-    assert_eq!(c.releases.load(Ordering::SeqCst), 2);
+    // Termination releases the new Mac's lease, once; the old one is never released.
+    assert_eq!(c.releases.load(Ordering::SeqCst), 1);
     v(p.terminate().await)?;
-    assert_eq!(c.releases.load(Ordering::SeqCst), 2);
+    assert_eq!(c.releases.load(Ordering::SeqCst), 1);
+    assert_eq!(c.quarantines.load(Ordering::SeqCst), 1);
     v(p.join_pending().await)?;
     Ok(())
 }

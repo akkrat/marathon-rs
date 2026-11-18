@@ -221,6 +221,9 @@ impl AppleMacosProvider {
             udid = binary.ioreg.get_udid(context).await?;
         }
         let device = MacosDevice::new(udid, transport, binary, commands, bridge, self.options.clone());
+        // D93: a disposal that cannot confirm the Mac's work ended quarantines its lease in the factory at once.
+        let connections = self.connections.clone();
+        device.on_lease_quarantine(Arc::new(move |executor| connections.quarantine(executor)));
         self.retained
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -262,10 +265,26 @@ impl AppleMacosProvider {
     /// Mac's work had ended; the lease is then quarantined, so that the connection never closes under that work.
     async fn release_after_disposal(&self, device: &MacosDevice) -> VendorResult<()> {
         if device.quarantined() {
-            self.connections.quarantine(&device.executor());
+            // Its disposal has quarantined the lease in the factory already.
             return Ok(());
         }
-        self.connections.release(device.executor()).await
+        let release = self.connections.release(device.executor());
+        let Some(deadline) = device.shutdown_deadline() else {
+            return release.await;
+        };
+        // D93: the wait is held to the Mac's window; a close that outlasts it goes on in the factory's own task.
+        let clock = self.options.dependencies.clock.clone();
+        let left = deadline.saturating_sub(clock.now_millis()).max(0);
+        tokio::select! { biased;
+            released = release => released,
+            _ = clock.delay(left, marathon_core::executor::shared::Signal::new()) => {
+                self.log(
+                    Level::DEBUG,
+                    format!("Not waiting for the connection of {} to close beyond its window", device.udid()),
+                );
+                Ok(())
+            }
+        }
     }
     async fn release_after_disposal_logged(&self, device: &MacosDevice) {
         let host = device.executor().host().id.clone();

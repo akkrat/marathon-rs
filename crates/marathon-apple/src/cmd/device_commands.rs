@@ -5,6 +5,7 @@
 use super::{CommandExecutor, CommandHost, CommandRequest, CommandSession, failure};
 use marathon_core::{
     error::{Failure, VendorError},
+    executor::shared::SharedDeferred,
     runtime::VendorFuture,
     vendor::VendorContext,
 };
@@ -26,6 +27,57 @@ pub enum Termination {
     Unconfirmed(Vec<String>),
 }
 
+/// D93: a stopping device's one window and its verdict, decided once: when everything the device ran at the seal has
+/// ended, or at the window's end, whichever comes first. Sticky: every later caller (disposal, the provider's termination,
+/// a recovery) reads it, and nothing that ends later turns an `Unconfirmed` into `Confirmed`.
+pub struct ShutdownWindow {
+    /// When the window ends, on the vendor clock.
+    pub deadline: i64,
+    verdict: Arc<SharedDeferred<Termination>>,
+}
+impl ShutdownWindow {
+    pub fn new(deadline: i64) -> Arc<Self> {
+        Arc::new(Self {
+            deadline,
+            verdict: SharedDeferred::new(),
+        })
+    }
+    /// Latches `verdict` unless one already is; returns the one that stands.
+    pub fn decide(&self, verdict: Termination) -> Termination {
+        self.verdict.complete(Ok(verdict));
+        self.decided()
+            .unwrap_or_else(|| Termination::Unconfirmed(vec!["no verdict".into()]))
+    }
+    /// Latches `Unconfirmed` for an error while deciding, which [`Self::failure`] keeps for the disposal to report.
+    pub fn fail(&self, error: VendorError) {
+        self.verdict.complete(Err(error));
+    }
+    /// The error that deciding ended with, if it did.
+    pub fn failure(&self) -> Option<VendorError> {
+        self.verdict.completed()?.err()
+    }
+    pub fn decided(&self) -> Option<Termination> {
+        match self.verdict.completed()? {
+            Ok(verdict) => Some((*verdict).clone()),
+            Err(error) => Some(Termination::Unconfirmed(vec![failure_text(error.failure())])),
+        }
+    }
+    /// Waits for the verdict.
+    pub async fn verdict(&self) -> Termination {
+        match self.verdict.wait().await {
+            Ok(verdict) => (*verdict).clone(),
+            Err(error) => Termination::Unconfirmed(vec![failure_text(error.failure())]),
+        }
+    }
+}
+/// What a failure while confirming says, for an `Unconfirmed` verdict.
+pub fn failure_text(failure: &Failure) -> String {
+    format!(
+        "confirming its end failed ({})",
+        failure.message.as_deref().unwrap_or_else(|| failure.kind.description())
+    )
+}
+
 /// D93: the part of a device's one shutdown window, at its end, given to forcing what has not ended (an xcodebuild
 /// session whose producer still runs is stopped): 5 s of the default 70 s, in proportion for another window.
 pub fn force_reserve_millis(window: i64) -> i64 {
@@ -36,16 +88,56 @@ pub fn force_reserve_millis(window: i64) -> i64 {
 /// device whose work could not be confirmed to have ended can be made to send nothing more, without touching the
 /// connection, which a sibling may share (D90). The lease is the connection itself, which the provider releases or
 /// quarantines.
+/// What the device's provider does to the lease when the device is quarantined: its connection factory's quarantine.
+pub type LeaseQuarantine = Arc<dyn Fn(&super::super::device::connection_factory::Executor) + Send + Sync>;
 pub struct DeviceCommands {
     lease: super::super::device::connection_factory::Executor,
     revoked: Mutex<Option<Failure>>,
+    /// The provider's quarantine for the lease, and whether it has been applied.
+    quarantine: Mutex<(Option<LeaseQuarantine>, bool)>,
 }
 impl DeviceCommands {
     pub fn new(lease: super::super::device::connection_factory::Executor) -> Arc<Self> {
         Arc::new(Self {
             lease,
             revoked: Mutex::new(None),
+            quarantine: Mutex::new((None, false)),
         })
+    }
+    /// D93: how the provider quarantines this device's lease. If the device was quarantined before this is given, it is
+    /// applied at once.
+    pub fn on_quarantine(&self, hook: LeaseQuarantine) {
+        let apply = {
+            let mut quarantine = self.quarantine.lock().unwrap_or_else(|e| e.into_inner());
+            if quarantine.1 {
+                Some(hook)
+            } else {
+                quarantine.0 = Some(hook);
+                None
+            }
+        };
+        if let Some(hook) = apply {
+            hook(&self.lease);
+        }
+    }
+    /// D93: the device's work was not confirmed to have ended: its commands are revoked with `why` and its lease is
+    /// quarantined in its connection factory now, so that no other device is given that connection from here on. Once.
+    pub fn quarantine(&self, why: Failure) {
+        self.revoke(why);
+        let hook = {
+            let mut quarantine = self.quarantine.lock().unwrap_or_else(|e| e.into_inner());
+            if quarantine.1 {
+                return;
+            }
+            quarantine.1 = true;
+            quarantine.0.take()
+        };
+        if let Some(hook) = hook {
+            hook(&self.lease);
+        }
+    }
+    pub fn quarantined(&self) -> bool {
+        self.quarantine.lock().unwrap_or_else(|e| e.into_inner()).1
     }
     /// The connection this device holds a lease on.
     pub fn lease(&self) -> super::super::device::connection_factory::Executor {

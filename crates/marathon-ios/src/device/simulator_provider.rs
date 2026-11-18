@@ -380,6 +380,12 @@ impl AppleSimulatorProvider {
         });
     }
     pub async fn register(&self, id: String, device: ConstructedSimulator<Simulator>) -> ProvisioningResult<()> {
+        // D93: a disposal that cannot confirm the simulator's work ended quarantines its lease in the factory at once, so
+        // that no simulator set up meanwhile is given that connection.
+        let connections = self.services.connections.clone();
+        device
+            .handle
+            .on_lease_quarantine(Arc::new(move |executor| connections.quarantine(executor)));
         self.services.recovery.admit(&id, &device.handle)?;
         let serial = device.handle.serial().to_owned();
         let previous = {
@@ -1211,10 +1217,27 @@ impl AppleSimulatorProvider {
         executor: marathon_apple::device::connection_factory::Executor,
     ) -> VendorResult<()> {
         if simulator.quarantined() {
-            self.services.connections.quarantine(&executor);
+            // Its disposal has quarantined the lease in the factory already.
             return Ok(());
         }
-        self.services.connections.release(executor).await
+        let release = self.services.connections.release(executor);
+        let Some(deadline) = simulator.shutdown_deadline() else {
+            return release.await;
+        };
+        // D93: the wait is held to the simulator's window; a close that outlasts it goes on in the factory's own task.
+        let clock = self.services.context.clock.clone();
+        let left = deadline.saturating_sub(clock.now_millis()).max(0);
+        tokio::select! { biased;
+            released = release => released,
+            _ = clock.delay(left, Signal::new()) => {
+                self.log(
+                    Level::DEBUG,
+                    || format!("Not waiting for the connection of {} to close beyond its window", simulator.serial()),
+                    None,
+                );
+                Ok(())
+            }
+        }
     }
     async fn terminate_inner(&self) -> VendorResult<()> {
         let _lifecycle = self.lifecycle.lock().await;

@@ -66,7 +66,10 @@ impl AppleSimulatorDevice {
                     None,
                 );
             } else {
-                state.transfers.retain(|t| t.ended().is_none());
+                // D93: a send whose cleanup was not confirmed is kept, so that the simulator's stop still counts it.
+                state
+                    .transfers
+                    .retain(|t| t.ended() != Some(marathon_apple::cmd::TransferCleanup::Confirmed));
                 state.transfers.push(receipt.clone());
             }
         }
