@@ -205,6 +205,30 @@ returned (P1, a late pool). A D52 signal does not enter it; D52 keeps its own pa
   the provider's device channel with the cause. An ordinary error while devices are connected is logged at ERROR and
   the run carries on with them, as before D84.
 
+## CI race after merge (x82b, U215)
+
+GitHub CI on main d5b0181d (Linux) failed `pool_scheduler::a_queue_that_fails_while_its_pool_shuts_down_still_ends_the_run_d68`
+in its cancel case: the run ended with the Track's error where the test expected a cancellation. Both gates had
+passed it. The test opened the gate (the failing Track then ends on a vendor thread) and cancelled the run in the same
+moment. When the Track ended before the cancel, the queue's task was woken first; its failure reached `Inner::fail`
+after the cancel had been requested but before the run's wait had seen it, and was recorded as the run's cause. So the
+outcome of the same event order depended on thread timing: a product race, not only a test one.
+
+Rule (D84, stated in the deviations and PLAN): a requested cancellation of the run (a signal, D52, or the run's owner)
+explains what fails after it. A failure that reaches the Scheduler once the run's context is cancelled is logged at WARN
+("A failure after the run was cancelled; the cancellation stands"), the run still stops (`begin_stop`), and no cause is
+recorded. A failure recorded before the cancel stays the run's cause. The one exception is the run's context being
+cancelled by that very failure (a failed subscription fails the run's task with its own cause): its reason equals the
+failure, and the failure is recorded as before. Nothing can hang or lose a cause through this: the stop still runs, and
+the cancel's own outcome stands.
+
+The test now orders both cases by events: the cancel handled (`run_current`) before the gate opens (the run ends
+cancelled, and `Scheduler::failure` stays empty; on d5b0181d the cause was recorded, so this case fails there), and the
+failure recorded (`Scheduler::failure` set) before the cancel (the run ends with the Track's error); its other assertions
+are unchanged. Audit: no other test in `pool_scheduler.rs` or `run_supervision.rs` opens a gate and cancels in the same
+moment (the other cancels are not raced against a gate; the channel cancels in `run_supervision` are the failures
+themselves).
+
 ## Gate (remote Linux): the round-5 signal witness made event-driven
 
 The gate failed `run_supervision::a_signal_while_the_run_settles_keeps_the_reports_first_d84` on Linux. Cause: the

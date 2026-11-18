@@ -2264,7 +2264,9 @@ the run. Other unexpected ends still left the run hanging, or ended it without s
   is the run's error, whatever the run had reached before, a success, a no-device timeout or a finish error, and
   `ignoreFailures` maps it as any failure. A provider device channel that ends with a failure, or with a cancellation
   nothing in the run asked for (only a signal, D52, or the run's normal end stops the run's listening), is such a
-  cause, also when it is read only after the provider has terminated.
+  cause, also when it is read only after the provider has terminated. A failure that reaches the run only after the
+  run was cancelled (a signal, or its owner cancelling it) is explained by that cancellation: it is logged at WARN and
+  the run stops, but the run stays cancelled ([U215](found-bugs.md)).
 - **The run stops in order.** At that failure the run admits no more work: no pool takes a new device, starts a batch
   or a retry, waits for a device to return or ends itself, and no new pool is created. The device listener stops, and
   every device's work is cancelled as at a D52 cancel. The run then waits for each device to end its cancelled call and
