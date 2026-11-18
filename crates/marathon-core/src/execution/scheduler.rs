@@ -76,6 +76,8 @@ struct Inner {
     waiter: RefCell<Option<JobRef>>,
     /// The device subscription, which a stop ends.
     subscription: RefCell<Option<JobRef>>,
+    /// D84 (F1): the provider's device channel has been seen to end (closed, failed or cancelled).
+    channel_ended: std::cell::Cell<bool>,
     /// D84: the shutdown state. `None` while running; once `begin_stop` has run, the job of the stop routine, which has
     /// completed once the run has stopped. Set once.
     stop: RefCell<Option<JobRef>>,
@@ -119,6 +121,7 @@ impl Scheduler {
                 stop: RefCell::new(None),
                 draining: std::cell::Cell::new(false),
                 channel: RefCell::new(None),
+                channel_ended: std::cell::Cell::new(false),
                 subscription: RefCell::new(None),
             }),
         }
@@ -169,38 +172,36 @@ impl Scheduler {
     pub fn failure(&self) -> Option<Failure> {
         self.inner.fatal.borrow().clone()
     }
-    /// D84 (R3-1): called by the run once the provider has terminated, before the reports are written. The device
-    /// listener is stopped and joined, and what its channel ended with is read, so that a failure it was still holding
-    /// is recorded now; a pool still running (one a late device started) is stopped and drained; and a stop under way
-    /// is waited for. After this nothing of the Scheduler runs, so the reports' snapshot is final and so is the
-    /// first cause.
+    /// D84 (R3-1, F2, F3, F6): the first step of the run's finish, before the provider terminates. Admission closes
+    /// for good (no connection the listener still holds reaches a pool), the device listener is stopped and joined,
+    /// what the provider's channel has ended with is read, pools or devices still running (a pool a late device
+    /// started, or a pool whose supervisor still owns a device cleaning up) are stopped after taking what was
+    /// delivered to them, and the stop is waited for. After this nothing of the Scheduler runs. Idempotent.
     pub async fn settle(&self) {
         let inner = &self.inner;
+        inner.draining.set(true);
         let subscription = inner.subscription.borrow().clone();
         if let Some(subscription) = subscription {
-            subscription.cancel(requested("The provider has terminated"));
+            subscription.cancel(requested("The run is finishing"));
             let _ = subscription.join().await;
-            let read_its_end = !matches!(subscription.state(), JobState::Completed(Completion::Failed(_)));
-            let channel = inner.channel.borrow().clone();
-            if let (true, Some(channel)) = (read_its_end, channel) {
-                use futures_util::FutureExt;
-                // Events left after the provider's termination are of no use; its failure is the run's.
-                while let Some(received) = channel.receive().now_or_never() {
-                    match received {
-                        Ok(Some(_)) => continue,
-                        Ok(None) | Err(VendorError::Cancelled(_)) => break,
-                        Err(error) => {
-                            inner.fail(error.failure().clone());
-                            break;
-                        }
-                    }
-                }
-            }
         }
-        let running = inner.pools.borrow().values().any(|pool| !pool.terminated());
+        inner.read_channel_end();
+        let running = inner
+            .pools
+            .borrow()
+            .values()
+            .any(|pool| !pool.terminated() || !matches!(pool.supervisor.state(), JobState::Completed(_)));
         if running {
             inner.begin_stop(requested("The run is finishing"));
         }
+        if let Some(stop) = self.stopping() {
+            let _ = stop.join().await;
+        }
+    }
+    /// D84 (F1): after the provider has terminated, what its device channel ended with: a failure, or a cancellation
+    /// nothing in the run asked for, is the run's cause. A stop it begins has nothing left to run and is waited for.
+    pub async fn settle_after_termination(&self) {
+        self.inner.read_channel_end();
         if let Some(stop) = self.stopping() {
             let _ = stop.join().await;
         }
@@ -411,6 +412,53 @@ impl Inner {
         }));
     }
 
+    /// D84 (F1): reads, without waiting, what the provider's device channel has ended with, once the listener is no
+    /// longer reading it. Events still buffered are dropped: the run is finishing. A failure is the run's cause, and so
+    /// is a cancellation, which nothing in the run asks the provider for; a close is the normal end. A listener that
+    /// failed has already read and recorded it.
+    fn read_channel_end(&self) {
+        if self.channel_ended.get() {
+            return;
+        }
+        let subscription = self.subscription.borrow().clone();
+        if let Some(subscription) = &subscription {
+            if !matches!(subscription.state(), JobState::Completed(_)) {
+                return;
+            }
+            if matches!(subscription.state(), JobState::Completed(Completion::Failed(_))) {
+                self.channel_ended.set(true);
+                return;
+            }
+        }
+        let channel = self.channel.borrow().clone();
+        let Some(channel) = channel else { return };
+        use futures_util::FutureExt;
+        while let Some(received) = channel.receive().now_or_never() {
+            match received {
+                Ok(Some(_)) => continue,
+                Ok(None) => {
+                    self.channel_ended.set(true);
+                    return;
+                }
+                Err(VendorError::Cancelled(reason)) => {
+                    self.channel_ended.set(true);
+                    let mut cancelled = failure(
+                        FailureKind::IllegalState,
+                        "The provider's device channel was cancelled, but the run was not",
+                    );
+                    cancelled.cause = Some(Box::new(reason.failure().clone()));
+                    self.fail(cancelled);
+                    return;
+                }
+                Err(error) => {
+                    self.channel_ended.set(true);
+                    self.fail(error.failure().clone());
+                    return;
+                }
+            }
+        }
+    }
+
     /// D68, D84 (I1): the first failure is the run's error and is logged at once; a later one is only logged. Either way
     /// the run stops.
     fn fail(&self, cause: Failure) {
@@ -571,6 +619,10 @@ impl Inner {
     }
 
     async fn on_device_connected(&self, device: DeviceRef, task: &TaskContext) -> OperationResult<()> {
+        // D84 (I2, F6): once the run stops or finishes, a connection the listener still reads reaches no pool.
+        if self.draining.get() {
+            return Ok(());
+        }
         let info = device.0.info();
         let serial = info.serial_number.clone();
         if self.filtered_by_configuration(&serial)? {
@@ -623,6 +675,9 @@ impl Inner {
             });
             self.on_failure(&pool);
             self.pools.borrow_mut().insert(pool_id.clone(), pool);
+        }
+        if self.draining.get() {
+            return Ok(());
         }
         // A pool that has terminated stays here, closed: the device is dropped but still tracked (B1).
         let pool = self.pools.borrow().get(&pool_id).cloned();

@@ -2038,12 +2038,13 @@ fn a_result_delivered_to_the_queue_before_a_failure_is_still_tracked_d84() {
             h.run_current().await;
             gate.open();
             h.advance_until_idle().await;
+            // Which device takes which test is not fixed; each ran one, and both results must be tracked.
             let tracked = h.tracker.events();
             assert!(
-                tracked
+                ["serial-A", "serial-B"]
                     .iter()
-                    .any(|event| event.starts_with("test2 PASSED") && event.ends_with("on serial-B")),
-                "B's delivered result was not tracked: {tracked:?}"
+                    .all(|serial| tracked.iter().any(|event| event.ends_with(&format!("on {serial}")))),
+                "the delivered result was not tracked: {tracked:?}"
             );
             match run.result.borrow().as_ref() {
                 Some((300, Err(VendorError::Other(cause)))) => {
@@ -2372,6 +2373,128 @@ fn the_stop_an_unwind_begins_waits_for_a_slow_cleanup_d84() {
             h.advance_until_idle().await;
             assert!(matches!(stopping.state(), JobState::Completed(_)));
             assert!(cleaned.load(std::sync::atomic::Ordering::SeqCst));
+            run.finish(&h).await;
+        })
+    });
+}
+
+/// D84, review round 4 (F3): a pool can close its actor while its supervisor still owns a device whose cancelled batch is
+/// cleaning up (3 s here, ignoring the cancellation). The run's settle, which comes before the provider terminates,
+/// waits for that device, not only for the pool's actor.
+#[test]
+fn settling_waits_for_a_device_its_closed_pool_still_owns_d84() {
+    scheduling_test(|h| {
+        Box::pin(async move {
+            let run = Run::new_with_shard(
+                &h,
+                waiting(),
+                h.tracker.clone(),
+                tests(1, "marathon_core::execution::scheduler"),
+            );
+            h.run_current().await;
+            let cleaned = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let done = cleaned.clone();
+            let slow = TestDevice::new_with_model(
+                "slow",
+                "test",
+                None,
+                None,
+                on_execute(move |e| {
+                    let done = done.clone();
+                    async move {
+                        let reason = e.context.cancellation.cancelled().await;
+                        let _ = e
+                            .context
+                            .clock
+                            .delay(3000, marathon_core::executor::shared::Signal::new())
+                            .await;
+                        done.store(true, std::sync::atomic::Ordering::SeqCst);
+                        Err(VendorError::Cancelled(reason))
+                    }
+                }),
+            );
+            run.connect(&slow);
+            advance(&h, 500).await;
+            assert_eq!(slow.batches().len(), 1);
+            let (_, pool) = run.scheduler.pools().remove(0);
+            assert!(
+                pool.actor
+                    .try_send(marathon_core::execution::DevicePoolMessage::FromScheduler(
+                        marathon_core::execution::FromScheduler::Terminate
+                    ))
+                    .is_ok()
+            );
+            h.run_current().await;
+            assert!(pool.terminated(), "the pool's actor has closed");
+            assert!(
+                !matches!(pool.supervisor.state(), JobState::Completed(_)),
+                "its device is still cleaning up"
+            );
+            let settled = Rc::new(std::cell::Cell::new(false));
+            let (scheduler, mark) = (run.scheduler.clone(), settled.clone());
+            h.core.spawn(
+                h.core.job(JobKind::Ordinary, None),
+                Box::new(move |_| {
+                    Box::pin(async move {
+                        scheduler.settle().await;
+                        mark.set(true);
+                        Ok(())
+                    })
+                }),
+            );
+            advance(&h, 500 + 2999).await;
+            assert!(!settled.get(), "the run settled while a device was still cleaning up");
+            h.advance_until_idle().await;
+            assert!(settled.get());
+            assert!(cleaned.load(std::sync::atomic::Ordering::SeqCst));
+            run.finish(&h).await;
+        })
+    });
+}
+
+/// D84, review round 4 (F6): a device's connection is still waiting in the provider's channel when the run settles.
+/// The listener may still read it, but it reaches no pool: the device is never prepared.
+#[test]
+fn a_connection_waiting_when_the_run_settles_reaches_no_pool_d84() {
+    scheduling_test(|h| {
+        Box::pin(async move {
+            let run = Run::new_with_shard(
+                &h,
+                waiting(),
+                h.tracker.clone(),
+                tests(2, "marathon_core::execution::scheduler"),
+            );
+            h.run_current().await;
+            run.connect(&device("b1", "test", -1, false));
+            advance(&h, 500).await;
+            let prepared = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let flag = prepared.clone();
+            let b2 = TestDevice::new_with_model(
+                "b2",
+                "test",
+                None,
+                Some(on_prepare(move |_| {
+                    flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                    async { Ok(()) }
+                })),
+                slow_execute(100),
+            );
+            run.connect(&b2);
+            let scheduler = run.scheduler.clone();
+            h.core.spawn(
+                h.core.job(JobKind::Ordinary, None),
+                Box::new(move |_| {
+                    Box::pin(async move {
+                        scheduler.settle().await;
+                        Ok(())
+                    })
+                }),
+            );
+            h.advance_until_idle().await;
+            assert!(
+                !prepared.load(std::sync::atomic::Ordering::SeqCst),
+                "a connection read after the run settled reached a pool"
+            );
             run.finish(&h).await;
         })
     });

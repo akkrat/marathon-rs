@@ -141,6 +141,8 @@ struct Hooked {
     /// when it ends; `join_cancelled_work` waits for it.
     retained_preparation: Option<(i64, Arc<AtomicBool>)>,
     clock: std::sync::OnceLock<Arc<dyn marathon_core::runtime::VendorClock>>,
+    /// Set when the device is asked to prepare.
+    prepared: Option<Arc<AtomicBool>>,
 }
 #[derive(Default)]
 enum AfterCancel {
@@ -162,6 +164,7 @@ fn hooked(inner: Arc<StubDevice>) -> Hooked {
         cleanup_bound: None,
         retained_preparation: None,
         clock: std::sync::OnceLock::new(),
+        prepared: None,
     }
 }
 impl Device for Hooked {
@@ -186,6 +189,9 @@ impl Device for Hooked {
     fn prepare<'a>(&'a self, configuration: Arc<Configuration>, context: VendorContext) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let _ = self.clock.set(context.clock.clone());
+            if let Some(prepared) = &self.prepared {
+                prepared.store(true, Ordering::SeqCst);
+            }
             if let Some((channel, after)) = &self.fail_events {
                 context.clock.delay(*after, context.cancellation.clone()).await?;
                 if self.cancel_events {
@@ -487,62 +493,51 @@ fn a_cleanup_within_the_devices_own_bound_is_waited_for_d84() {
     assert_eq!(run_failure(&outcome), [format!("{PROBE}: the device events failed")]);
 }
 
-/// D84, review round 1: after the Scheduler has returned, while the run finishes, a late device starts a pool that then
-/// fails. The run had read success; it now fails with the pool's cause, and the late pool is stopped.
+/// D84, review rounds 1 and 4 (F6): a device that connects while the run finishes (here, while the provider terminates)
+/// is not admitted: the Scheduler settles before the provider terminates, so no late pool can start, run or fail beside
+/// the finish. The run passes with its two results, and the late device is never prepared. (Rounds 1 to 3 admitted such
+/// a device and stopped its pool when it failed.)
 #[test]
-fn a_pool_that_fails_while_the_run_finishes_fails_the_run_d84() {
+fn a_device_connecting_while_the_run_finishes_is_not_admitted_d84() {
     let (factory, script) = script();
-    let ready: Option<Ready> = Some(Box::new(|built| {
+    let prepared = Arc::new(AtomicBool::new(false));
+    let seen = prepared.clone();
+    let ready: Option<Ready> = Some(Box::new(move |built| {
         let channel = built.provider.channel();
-        let panicking = SharedDeferred::new();
         let late = Arc::new(Hooked {
-            worker_panics: true,
-            panicking: Some(panicking.clone()),
-            ..hooked(stub("serial-2", "modelZ", 1_000))
+            prepared: Some(seen),
+            ..hooked(stub("serial-2", "modelZ", 0))
         });
         *built.provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
-            let (channel, late, panicking) = (channel.clone(), late.clone(), panicking.clone());
-            Box::pin(async move {
-                // Connects while the run terminates the provider, and holds the termination until the device's pool
-                // has asked for a batch, which panics.
-                let _ = channel.try_send(DeviceEvent::Connected(DeviceRef(late)));
-                let _ = panicking.wait().await;
-                Ok(())
-            })
+            let _ = channel.try_send(DeviceEvent::Connected(DeviceRef(late.clone())));
+            Box::pin(async { Ok(()) })
         }));
     }));
     let outcome = scenario::drive(factory, script, None, ready);
     assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
-    assert!(matches!(outcome.value, Some(Ok(false))), "{:?}", outcome.value);
-    assert_eq!(run_failure(&outcome), [format!("{PROBE}: the pool's handler panicked")]);
+    assert!(matches!(outcome.value, Some(Ok(true))), "{:?}", outcome.value);
+    assert!(
+        !prepared.load(Ordering::SeqCst),
+        "a device that connected while the run finished was started"
+    );
     let raw: Value = serde_json::from_str(&outcome.read("test_result/raw.json")).unwrap();
     assert_eq!(raw.as_array().unwrap().len(), 2, "{raw}");
-    let alive = outcome
-        .open_mailboxes
-        .iter()
-        .filter(|label| label.ends_with("Actor"))
-        .collect::<Vec<_>>();
-    assert!(alive.is_empty(), "actors still alive after the run: {alive:?}");
 }
 
-/// D84, review round 2 (P1, I1): the late pool fails while the provider terminates, and the termination then fails too.
-/// The pool's failure is the run's error; the termination's is only logged.
+/// D84, review rounds 2 and 4 (I1): the provider's device channel fails while the provider terminates, and the
+/// termination then fails too. The channel's failure is the run's error, decided once the finish is over; the
+/// termination's error is only logged.
 #[test]
 fn a_cleanup_error_after_the_first_failure_does_not_replace_it_d84() {
     let (factory, script) = script();
     let ready: Option<Ready> = Some(Box::new(|built| {
         let channel = built.provider.channel();
-        let panicking = SharedDeferred::new();
-        let late = Arc::new(Hooked {
-            worker_panics: true,
-            panicking: Some(panicking.clone()),
-            ..hooked(stub("serial-2", "modelZ", 1_000))
-        });
         *built.provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
-            let (channel, late, panicking) = (channel.clone(), late.clone(), panicking.clone());
-            Box::pin(async move {
-                let _ = channel.try_send(DeviceEvent::Connected(DeviceRef(late)));
-                let _ = panicking.wait().await;
+            channel.close(Some(failure(
+                FailureKind::IllegalState,
+                &format!("{PROBE}: the device events failed"),
+            )));
+            Box::pin(async {
                 Err(VendorError::Other(failure(
                     FailureKind::IllegalState,
                     &format!("{PROBE}: the termination failed"),
@@ -552,18 +547,105 @@ fn a_cleanup_error_after_the_first_failure_does_not_replace_it_d84() {
     }));
     let outcome = scenario::drive(factory, script, None, ready);
     assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
-    assert_eq!(run_failure(&outcome), [format!("{PROBE}: the pool's handler panicked")]);
+    assert_eq!(run_failure(&outcome), [format!("{PROBE}: the device events failed")]);
     assert!(logged(
         &outcome,
         Level::ERROR,
-        "Finishing the run failed after its first failure"
+        "The run also failed after its first failure"
     ));
+    let raw: Value = serde_json::from_str(&outcome.read("test_result/raw.json")).unwrap();
+    assert_eq!(raw.as_array().unwrap().len(), 2, "{raw}");
 }
 
-/// D84, review round 3 (R3-1a): while the run terminates the provider, a late device connects and the device channel
-/// then fails. The listener is still inside that device's connection (its pool's history prefetch never answers), so it
-/// has not read the failure when the run would store its success. The run settles its Scheduler before the reports:
-/// the listener ends, the channel's failure is read and is the run's error.
+/// D84, review round 4 (F2): the provider's termination ends with a cancellation of its own, which nothing in the run
+/// asked for. It used to stop the finish before the reports, and the run's protected finish then did nothing, so the
+/// two passes that had finished reached no report file. The finish now logs it and goes on: the reports are written,
+/// and the run fails with that error.
+#[test]
+fn a_cancelled_provider_termination_still_writes_the_reports_d84() {
+    let (factory, script) = script();
+    let ready: Option<Ready> = Some(Box::new(|built| {
+        *built.provider.on_terminate.lock().unwrap() = Some(Arc::new(|| {
+            Box::pin(async {
+                Err(VendorError::Cancelled(requested(&format!(
+                    "{PROBE}: the termination was cancelled"
+                ))))
+            })
+        }));
+    }));
+    let outcome = scenario::drive(factory, script, None, ready);
+    assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
+    assert!(matches!(outcome.value, Some(Ok(false))), "{:?}", outcome.value);
+    let raw: Value = serde_json::from_str(&outcome.read("test_result/raw.json")).unwrap();
+    assert_eq!(raw.as_array().unwrap().len(), 2, "{raw}");
+    assert!(logged(&outcome, Level::ERROR, "failed during cleanup"));
+}
+
+/// D84, review round 4 (F1): the provider's device channel is cancelled while the provider terminates; nothing in the
+/// run asked for that. The finish reads how the channel ended and the run fails with it, where it used to pass.
+#[test]
+fn a_device_channel_cancelled_while_the_provider_terminates_fails_the_run_d84() {
+    let (factory, script) = script();
+    let ready: Option<Ready> = Some(Box::new(|built| {
+        let channel = built.provider.channel();
+        *built.provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
+            channel.cancel(requested(&format!("{PROBE}: the device events were cancelled")));
+            Box::pin(async { Ok(()) })
+        }));
+    }));
+    let outcome = scenario::drive(factory, script, None, ready);
+    assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
+    assert!(matches!(outcome.value, Some(Ok(false))), "{:?}", outcome.value);
+    assert_eq!(
+        run_failure(&outcome),
+        [
+            "The provider's device channel was cancelled, but the run was not".to_owned(),
+            format!("{PROBE}: the device events were cancelled"),
+        ]
+    );
+    let raw: Value = serde_json::from_str(&outcome.read("test_result/raw.json")).unwrap();
+    assert_eq!(raw.as_array().unwrap().len(), 2, "{raw}");
+}
+
+/// D84, review round 4 (F1): no device ever gets a pool: the only one's history prefetch never answers, and the device
+/// channel's failure waits behind its connection. The run reaches its no-device timeout; its finish then reads the
+/// channel's failure, which is the run's error, not NoDevices, so `ignoreFailures` maps it (exit 0) where NoDevices
+/// would have failed the run.
+#[test]
+fn a_channel_failure_waiting_at_the_no_device_timeout_is_the_runs_cause_d84() {
+    use marathon_core::analytics::{Analytics, NoOpMetricsProvider};
+    let (mut factory, mut script) = script();
+    factory.configuration.configuration.device_initialization_timeout_millis = 10_000;
+    factory.configuration.configuration.ignore_failures = true;
+    factory.analytics = Some(Box::new(|context| {
+        let prefetch: Arc<dyn Fn() -> marathon_core::runtime::ServiceFuture<'static, ()> + Send + Sync> =
+            Arc::new(|| Box::pin(std::future::pending()));
+        Ok(Analytics::from_gated_lookup(
+            Arc::new(NoOpMetricsProvider::new(false, context)?),
+            prefetch,
+        ))
+    }));
+    script.events.retain(|(_, event, ..)| event == "end");
+    let ready: Option<Ready> = Some(Box::new(|built| {
+        let channel = built.provider.channel();
+        let only = Arc::new(hooked(stub("serial-2", "modelZ", 1_000)));
+        assert!(channel.try_send(DeviceEvent::Connected(DeviceRef(only))).is_ok());
+        channel.close(Some(failure(
+            FailureKind::IllegalState,
+            &format!("{PROBE}: the device events failed"),
+        )));
+    }));
+    let outcome = scenario::drive(factory, script, None, ready);
+    assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
+    assert!(matches!(outcome.value, Some(Ok(true))), "{:?}", outcome.value);
+    assert_eq!(run_failure(&outcome), [format!("{PROBE}: the device events failed")]);
+    assert!(!logged(&outcome, Level::WARN, "No devices found"));
+}
+
+/// D84, review rounds 3 and 4 (R3-1a, I1): while the run terminates the provider, a late device connects and the device
+/// channel then fails. The run task has stored its success by the time anything could read that failure; the finish
+/// reads the channel's end after the termination, and the run's one decision point, after the finish, makes the
+/// failure the run's error. Without that decision point the run would pass.
 #[test]
 fn a_channel_failure_the_listener_still_holds_at_the_end_fails_the_run_d84() {
     use marathon_core::analytics::{Analytics, NoOpMetricsProvider};
@@ -636,12 +718,11 @@ impl marathon_core::analytics::BackendFactory for SlowBackends {
     }
 }
 
-/// D84, review round 3 (R3-1b): while the run terminates the provider, late devices start two pools. In pool modelY
-/// both tests end at once: the first result's Track is held for 5 s and the second waits in the queue. Then pool
-/// modelZ's handler panics. The reports are written only after the stop has drained pool modelY's queue, so both of
-/// its results are in them, and the run ends with the panic.
+/// D84, review rounds 3 and 4 (R3-1b, I3): in pool modelY both tests end at 1,100 ms; the first result's Track is held
+/// for 5 s and the second waits in the queue. The device channel fails at 2,000 ms. The stop drains pool modelY's queue
+/// before anything closes, so both results are in the reports, and the run ends with the channel's cause.
 #[test]
-fn the_reports_wait_for_a_late_failures_drain_d84() {
+fn the_reports_hold_the_results_a_stop_drains_d84() {
     use marathon_core::analytics::{Analytics, NoOpMetricsProvider};
     let (mut factory, script) = script();
     factory.analytics = Some(Box::new(|context| {
@@ -666,12 +747,11 @@ fn the_reports_wait_for_a_late_failures_drain_d84() {
     });
     let ready: Option<Ready> = Some(Box::new(|built| {
         let channel = built.provider.channel();
-        let panicking = SharedDeferred::new();
-        let late = |serial: &str, model: &str, prepare: i64| {
+        let device = |serial: &str| {
             let device = StubDevice::new(StubDeviceOptions {
                 serial_number: serial.into(),
-                model: model.into(),
-                prepare_time_millis: prepare,
+                model: "modelY".into(),
+                prepare_time_millis: 100,
                 test_time_millis: 1_000,
                 ..StubDeviceOptions::default()
             });
@@ -682,30 +762,22 @@ fn the_reports_wait_for_a_late_failures_drain_d84() {
             device
         };
         let devices: Vec<Arc<dyn Device>> = vec![
-            Arc::new(hooked(late("serial-3", "modelY", 100))),
-            Arc::new(hooked(late("serial-5", "modelY", 100))),
+            Arc::new(hooked(device("serial-3"))),
+            Arc::new(hooked(device("serial-5"))),
             Arc::new(Hooked {
-                worker_panics: true,
-                panicking: Some(panicking.clone()),
-                ..hooked(late("serial-4", "modelZ", 3_000))
+                fail_events: Some((channel, 2_000)),
+                ..hooked(stub("serial-4", "modelZ", 600_000))
             }),
         ];
-        *built.provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
-            for device in &devices {
-                let _ = channel.try_send(DeviceEvent::Connected(DeviceRef(device.clone())));
-            }
-            let panicking = panicking.clone();
-            Box::pin(async move {
-                let _ = panicking.wait().await;
-                Ok(())
-            })
-        }));
+        for device in devices {
+            assert!(built.provider.send(DeviceEvent::Connected(DeviceRef(device))));
+        }
     }));
     let outcome = scenario::drive(factory, script, Some(prepare), ready);
     assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
-    assert_eq!(run_failure(&outcome), [format!("{PROBE}: the pool's handler panicked")]);
+    assert_eq!(run_failure(&outcome), [format!("{PROBE}: the device events failed")]);
     let raw: Value = serde_json::from_str(&outcome.read("test_result/raw.json")).unwrap();
-    for serial in ["serial-1", "serial-3", "serial-5"] {
+    for serial in ["serial-3", "serial-5"] {
         assert!(
             raw.as_array().unwrap().iter().any(|row| row["deviceSerial"] == serial),
             "no result of {serial} in the reports: {raw}"

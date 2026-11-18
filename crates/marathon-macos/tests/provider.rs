@@ -836,10 +836,55 @@ async fn hold_preparation(h: &Harness, release: Arc<tokio::sync::Notify>) -> Arc
 /// D84, review round 3 (R3-2): the run stops after another pool's failure while this Mac is preparing (installing).
 /// The cancelled `prepare` returns to its caller at once and the installation goes on in a retained task. Termination
 /// now waits for it before it releases the Mac's lease.
+/// The Mac's clock, which reports when a bounded wait begins once it is armed: termination's wait for a running
+/// preparation is the first such wait (no batch runs, so disposal waits for none).
+struct WaitGate {
+    inner: Arc<dyn marathon_core::runtime::VendorClock>,
+    armed: std::sync::atomic::AtomicBool,
+    entered: tokio::sync::Notify,
+}
+impl marathon_core::runtime::VendorClock for WaitGate {
+    fn delay(
+        &self,
+        millis: i64,
+        cancellation: Arc<dyn marathon_core::runtime::CancellationSignal>,
+    ) -> marathon_core::runtime::VendorFuture<'_, ()> {
+        self.inner.delay(millis, cancellation)
+    }
+    fn now_millis(&self) -> i64 {
+        self.inner.now_millis()
+    }
+    fn with_timeout<'a>(
+        &'a self,
+        parent: Arc<dyn marathon_core::runtime::CancellationSignal>,
+        millis: i64,
+        body: marathon_core::runtime::VendorTimeoutBody<'a>,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        self.inner.with_timeout(parent, millis, body)
+    }
+    fn with_timeout_or_null<'a>(
+        &'a self,
+        parent: Arc<dyn marathon_core::runtime::CancellationSignal>,
+        millis: i64,
+        body: marathon_core::runtime::VendorTimeoutBody<'a>,
+    ) -> marathon_core::runtime::VendorFuture<'a, Option<()>> {
+        if self.armed.swap(false, Ordering::SeqCst) {
+            self.entered.notify_one();
+        }
+        self.inner.with_timeout_or_null(parent, millis, body)
+    }
+}
+
 #[tokio::test]
 async fn termination_does_not_release_a_lease_under_a_running_preparation_d84() -> R {
     let mut h = Harness::new("")?;
     Arc::make_mut(&mut h.options.vendor).devices_file = None;
+    let gate = Arc::new(WaitGate {
+        inner: h.options.dependencies.clock.clone(),
+        armed: false.into(),
+        entered: tokio::sync::Notify::new(),
+    });
+    h.options.dependencies.clock = gate.clone();
     std::fs::write(
         h.root.path().join("Marathondevices"),
         "workers:\n- transport: {type: local}\n  devices: [{type: host}]\n",
@@ -859,11 +904,13 @@ async fn termination_does_not_release_a_lease_under_a_running_preparation_d84() 
     tokio::time::timeout(std::time::Duration::from_secs(60), entered.notified()).await?;
     signal.cancel(marathon_apple::cmd::cancelled("the run is stopping"));
     assert!(matches!(prepare.await?, Err(VendorError::Cancelled(_))));
+    gate.armed.store(true, Ordering::SeqCst);
     let terminating = tokio::spawn({
         let p = p.clone();
         async move { p.terminate().await }
     });
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    // Termination is now waiting for the preparation, which is still held.
+    tokio::time::timeout(std::time::Duration::from_secs(60), gate.entered.notified()).await?;
     assert_eq!(
         c.releases.load(Ordering::SeqCst),
         0,

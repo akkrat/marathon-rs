@@ -277,6 +277,11 @@ pub struct Marathon {
     validator: LogicalConfigurationValidator,
     /// `cleanedUp`: one core thread, so a Cell is the AtomicBoolean.
     cleaned_up: Cell<bool>,
+    /// D84 (F2): the finish ran to its end. A finish a step's own cancellation did not stop, but a requested one did,
+    /// is resumed by the run's protected finish so that its later steps (the reports) still run.
+    finish_completed: Cell<bool>,
+    /// D52: a signal's finish has begun; the run's own finish then does nothing, as before.
+    signalled: Cell<bool>,
     hook_installed: Rc<Cell<bool>>,
     steps: FinishSteps,
     /// D52: the output directory is this run's, wiped and ready for reports.
@@ -322,6 +327,8 @@ impl Marathon {
             services,
             validator: LogicalConfigurationValidator,
             cleaned_up: Cell::new(false),
+            finish_completed: Cell::new(false),
+            signalled: Cell::new(false),
             hook_installed: Rc::new(Cell::new(false)),
             steps: FinishSteps::default(),
             output_ready: Cell::new(false),
@@ -621,25 +628,8 @@ impl Marathon {
             scheduler.execute().await?
         };
 
-        let finished = self.on_finish(task.job.cancellation_signal()).await;
-        // D84 (I1): the run's machinery can still fail after the Scheduler has returned, in a pool a late device started
-        // while the run finished. That stop is waited for, and its first cause is the run's error; an error of the finish
-        // itself is then only logged.
-        if let Some(stop) = scheduler.stopping() {
-            let _ = stop.join().await;
-        }
-        if let Some(cause) = scheduler.failure() {
-            if let Err(error) = finished {
-                self.log(
-                    LOGGER,
-                    Level::ERROR,
-                    "Finishing the run failed after its first failure".into(),
-                    Some(error.failure().clone()),
-                );
-            }
-            return Err(VendorError::Other(cause));
-        }
-        finished?;
+        // D84 (I1): the run's outcome is not decided here; `run` decides it once the finish is over.
+        self.on_finish(task.job.cancellation_signal()).await?;
         Ok(result)
     }
 
@@ -838,10 +828,21 @@ impl Marathon {
     /// D51: one step of `on_finish` that failed is logged and doesn't stop the later ones, and the
     /// first failure is what the run returns, so the exit code stays as it was. Cancellation still
     /// stops them, as the steps after it would only be cancelled too.
-    fn finish_step(&self, first: &mut Option<VendorError>, step: &str, result: VendorResult<()>) -> VendorResult<()> {
+    /// A requested cancellation of the finish (a signal, a harness teardown) stops it; the run's protected finish then
+    /// resumes it. D84 (F2): a step's own cancellation, that nothing asked for, is an error like any other: it is logged
+    /// and the next steps still run, the reports among them.
+    fn finish_step(
+        &self,
+        first: &mut Option<VendorError>,
+        step: &str,
+        result: VendorResult<()>,
+        cancellation: &Arc<dyn CancellationSignal>,
+    ) -> VendorResult<()> {
         match result {
             Ok(()) => Ok(()),
-            Err(VendorError::Cancelled(reason)) => Err(first.take().unwrap_or(VendorError::Cancelled(reason))),
+            Err(VendorError::Cancelled(reason)) if cancellation.reason().is_some() => {
+                Err(first.take().unwrap_or(VendorError::Cancelled(reason)))
+            }
             Err(error) => {
                 self.log(
                     LOGGER,
@@ -859,34 +860,40 @@ impl Marathon {
     /// failed (C25). Unlike Kotlin, a failing step doesn't skip the later ones (D51). D1 keeps the
     /// usage slot as a no-op. A signal finishes in its own order instead: see `finish_cancelled`.
     async fn on_finish(&self, cancellation: Arc<dyn CancellationSignal>) -> VendorResult<()> {
-        if self.cleaned_up.replace(true) {
+        if self.finish_completed.get() || self.signalled.get() {
             return Ok(());
         }
+        self.cleaned_up.set(true);
         let mut first = None;
         // Console order: records logged so far precede the reporters' stdout summary.
         let flushed = self.flush(cancellation.clone()).await;
-        self.finish_step(&mut first, "Console output", flushed)?;
+        self.finish_step(&mut first, "Console output", flushed, &cancellation)?;
+        // D84 (F2, F3): the Scheduler settles first: admission closes, the device listener ends, pools and devices still
+        // running stop after taking what was delivered to them. Nothing of it runs while analytics closes, while the
+        // provider terminates or while the reports take their snapshot.
+        let scheduler = self.diagnostic_scheduler.borrow().clone();
+        if let Some(scheduler) = &scheduler {
+            scheduler.settle().await;
+        }
         for step in [FinishStep::Analytics, FinishStep::Provider] {
             let result = self.run_step(step, cancellation.clone()).await;
-            self.finish_step(&mut first, step.label(), result)?;
+            self.finish_step(&mut first, step.label(), result, &cancellation)?;
         }
-        // D84 (R3-1): with the provider terminated, the Scheduler settles before the reports take their snapshot: the
-        // device listener ends and a failure it held is recorded, pools still running stop after taking what was
-        // delivered to them, and a stop under way is waited for.
-        let scheduler = self.diagnostic_scheduler.borrow().clone();
-        if let Some(scheduler) = scheduler {
-            scheduler.settle().await;
+        // D84 (F1): what the provider's device channel ended with, now that it has terminated.
+        if let Some(scheduler) = &scheduler {
+            scheduler.settle_after_termination().await;
         }
         // Termination logs are enqueued by vendor tasks. Kotlin prints them
         // synchronously before Allure and the stdout summary close.
         let flushed = self.flush(cancellation.clone()).await;
-        self.finish_step(&mut first, "Console output", flushed)?;
+        self.finish_step(&mut first, "Console output", flushed, &cancellation)?;
         for step in [FinishStep::Reports, FinishStep::Usage] {
             let result = self.run_step(step, cancellation.clone()).await;
-            self.finish_step(&mut first, step.label(), result)?;
+            self.finish_step(&mut first, step.label(), result, &cancellation)?;
         }
-        let flushed = self.flush(cancellation).await;
-        self.finish_step(&mut first, "Console output", flushed)?;
+        let flushed = self.flush(cancellation.clone()).await;
+        self.finish_step(&mut first, "Console output", flushed, &cancellation)?;
+        self.finish_completed.set(true);
         first.map_or(Ok(()), Err)
     }
 
@@ -948,7 +955,11 @@ impl Marathon {
         self.services.core.spawn_cleanup(Box::new(move |_| {
             Box::pin(async move {
                 let result = marathon.run_step(step, Signal::new()).await;
-                let _ = marathon.finish_step(&mut None, step.label(), result);
+                // A cancelled step is not logged here, as before D84.
+                if !matches!(result, Err(VendorError::Cancelled(_))) {
+                    let signal: Arc<dyn CancellationSignal> = Signal::new();
+                    let _ = marathon.finish_step(&mut None, step.label(), result, &signal);
+                }
                 Ok(())
             })
         }))
@@ -984,6 +995,7 @@ impl Marathon {
             None,
         );
         self.cleaned_up.set(true);
+        self.signalled.set(true);
         self.stop_execution("Cancelled by a signal");
         let _ = race(
             self.flush(Signal::new()),
@@ -1084,13 +1096,9 @@ impl Marathon {
         if let Some(stop) = scheduler.as_ref().and_then(Scheduler::stopping) {
             let _ = stop.join().await;
         }
-        // D84 (R3-1, I1): the decision is taken here, after the run task and its listener have ended: a cause recorded
-        // before then is the run's error, whatever the run task stored.
-        let outcome = match (outcome, scheduler.as_ref().and_then(Scheduler::failure)) {
-            (Ok(_), Some(cause)) => Err(VendorError::Other(cause)),
-            (outcome, _) => outcome,
-        };
-        if outcome.is_err() {
+        // D84 (F2): also a finish a requested cancellation interrupted (its reports may not have run); never after a
+        // successful parse, which has no finish (C26).
+        if outcome.is_err() || (self.cleaned_up.get() && !self.finish_completed.get()) {
             // invokeOnCompletion { runBlocking { withContext(NonCancellable) { onFinish() } } }.
             // A failing finish there is reported by the completion handler, not rethrown:
             // the original throwable still reaches the catch.
@@ -1103,6 +1111,25 @@ impl Marathon {
             }));
             let _ = cleanup.join().await;
         }
+        // D84 (I1, F1): the run's one decision point, after the finish, which settled the Scheduler (its listener has
+        // ended and what the provider's channel ended with was read) and wrote the reports. The first cause the run's
+        // machinery recorded is its error, whatever the run task stored; any other error is then only logged.
+        let outcome = match scheduler.as_ref().and_then(Scheduler::failure) {
+            Some(cause) => {
+                if let Err(error) = &outcome
+                    && *error.failure() != cause
+                {
+                    self.log(
+                        LOGGER,
+                        Level::ERROR,
+                        "The run also failed after its first failure".into(),
+                        Some(error.failure().clone()),
+                    );
+                }
+                Err(VendorError::Other(cause))
+            }
+            None => outcome,
+        };
         supervisor.complete();
         let mapped = match outcome {
             Ok(value) => value,
