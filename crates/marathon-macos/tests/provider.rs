@@ -964,3 +964,40 @@ async fn termination_stops_waiting_for_a_preparation_after_the_macs_bound_d84() 
     v(tokio::time::timeout(std::time::Duration::from_secs(60), device.join_pending()).await?)?;
     Ok(())
 }
+
+/// U210: a Mac's preparation that begins only after termination has disposed of it (a late device actor) starts nothing:
+/// the disposed Mac refuses it under the lock its disposal took, so termination's wait for preparations, which ran before
+/// it, has missed none, and no installation runs on a Mac whose lease is released.
+#[tokio::test]
+async fn a_preparation_after_the_macs_disposal_starts_nothing_u210() -> R {
+    let mut h = Harness::new("")?;
+    Arc::make_mut(&mut h.options.vendor).devices_file = None;
+    std::fs::write(
+        h.root.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: host}]\n",
+    )?;
+    let (p, c) = h.provider();
+    v(p.initialize(h.context.clone()).await)?;
+    v(p.join_pending().await)?;
+    let device = p.snapshot().remove(0);
+    v(tokio::time::timeout(std::time::Duration::from_secs(60), p.terminate()).await?)?;
+    assert_eq!(c.releases.load(Ordering::SeqCst), 1);
+    let sent = h.worker.requests.lock().unwrap().len();
+    let prepared = marathon_core::vendor::Device::prepare(
+        &*device,
+        h.options.dependencies.configuration.clone(),
+        h.context.clone(),
+    )
+    .await;
+    assert!(
+        matches!(&prepared, Err(VendorError::DeviceLost(f)) if f.to_string().contains("has been disposed")),
+        "{prepared:?}"
+    );
+    assert_eq!(
+        h.worker.requests.lock().unwrap().len(),
+        sent,
+        "the disposed Mac began a preparation"
+    );
+    v(device.join_pending().await)?;
+    Ok(())
+}

@@ -716,7 +716,18 @@ impl Device for MacosDevice {
             let device = self.retained()?;
             let own_context = self.context();
             let done = SharedDeferred::new();
-            self.execution.lock().unwrap_or_else(|e| e.into_inner()).preparation = Some(done.clone());
+            {
+                // U210: registered under the lock that disposal installs itself with, so a disposed Mac starts no
+                // preparation, and `join_preparation` after a disposal sees every preparation there is.
+                let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
+                if execution.disposal.is_some() {
+                    return Err(lost(failure(
+                        FailureKind::IllegalState,
+                        format!("Device {} has been disposed", self.serial.to_owned()),
+                    )));
+                }
+                execution.preparation = Some(done.clone());
+            }
             let task = self.tasks.spawn(&*self.options.dependencies.io, async move {
                 let outcome = panic_as_error(async {
                     let started = own_context
