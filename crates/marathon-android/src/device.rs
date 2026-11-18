@@ -1,6 +1,7 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AdamAndroidDevice.kt,
 //! BaseAndroidDevice.kt, AndroidDevice.kt and adam/LogcatManager.kt.
 use crate::{
+    cleanup::{self, ChildSignal, DeviceWork, Work},
     models::*,
     remote_file_manager::RemoteFileManager,
     requests::*,
@@ -181,6 +182,10 @@ struct Inner {
     client: AndroidDebugBridgeClient,
     /// D21: for requests under a configured timeout or watchdog, or silent by nature.
     bounded_client: AndroidDebugBridgeClient,
+    cleanup_client: AndroidDebugBridgeClient,
+    work: DeviceWork,
+    screenrecord_active: AtomicBool,
+    perfetto_active: AtomicBool,
     adb_serial: String,
     runtime: Arc<AndroidRuntime>,
     tracker: Arc<DeviceStateTracker>,
@@ -192,7 +197,7 @@ struct Inner {
     /// D22: the logcat stream has ended, as it does when the adb server goes away.
     logcat_ended: tokio::sync::watch::Sender<bool>,
     reverse: Mutex<Vec<RemotePortSpec>>,
-    disposal: tokio::sync::Mutex<bool>,
+    recovery: tokio::sync::Mutex<()>,
     /// D24: this device object was disconnected. A reconnect makes a new object on the same tracker, whose
     /// state then says `device` again, so the tracker alone cannot tell.
     lost: AtomicBool,
@@ -231,11 +236,17 @@ impl AndroidDevice {
         runtime: Arc<AndroidRuntime>,
     ) -> Self {
         let logger = runtime.component("marathon_android::device");
+        let cleanup_client = client.scoped().without_idle_limit();
+        let client = client.scoped();
         Self {
             inner: Arc::new(Inner {
                 reference: Mutex::default(),
                 bounded_client: client.without_idle_limit(),
+                work: DeviceWork::new(client.socket_factory().clone()),
                 client,
+                cleanup_client,
+                screenrecord_active: AtomicBool::new(false),
+                perfetto_active: AtomicBool::new(false),
                 adb_serial,
                 runtime,
                 tracker,
@@ -261,7 +272,7 @@ impl AndroidDevice {
                 logcat: Mutex::default(),
                 logcat_ended: tokio::sync::watch::Sender::new(false),
                 reverse: Mutex::default(),
-                disposal: tokio::sync::Mutex::new(false),
+                recovery: tokio::sync::Mutex::new(()),
                 lost: AtomicBool::new(false),
                 return_wait_used: AtomicI64::new(0),
                 prepare_failed_at: OnceLock::new(),
@@ -403,6 +414,32 @@ impl AndroidDevice {
     fn timeouts(&self) -> &marathon_config::vendor::AndroidTimeoutConfiguration {
         &self.runtime().configuration.timeout_configuration
     }
+    pub(crate) fn stopping(&self) -> bool {
+        self.inner.work.is_sealed()
+    }
+    pub(crate) fn ensure_running(&self) -> VendorResult<()> {
+        self.inner.work.ensure_running()
+    }
+    pub(crate) fn admit(&self) -> VendorResult<Work> {
+        self.inner.work.admit()
+    }
+    pub(crate) fn spawn_owned(&self, body: VendorTaskBody) -> VendorResult<Arc<dyn VendorTask>> {
+        self.inner.work.spawn(self.runtime().dependencies.io.as_ref(), body)
+    }
+    pub(crate) fn spawn_admitted(&self, work: Work, body: VendorTaskBody) -> Arc<dyn VendorTask> {
+        self.inner
+            .work
+            .spawn_admitted(self.runtime().dependencies.io.as_ref(), work, body)
+    }
+    pub(crate) fn force_with(&self, signal: Arc<dyn CancellationSignal>) -> Arc<dyn CancellationSignal> {
+        Arc::new(ChildSignal(signal, self.inner.work.force.clone()))
+    }
+    pub(crate) fn screenrecord_active(&self, active: bool) {
+        self.inner.screenrecord_active.store(active, Ordering::Release);
+    }
+    pub(crate) fn perfetto_active(&self, active: bool) {
+        self.inner.perfetto_active.store(active, Ordering::Release);
+    }
     async fn request<R: ComplexRequest>(
         &self,
         request: R,
@@ -440,6 +477,11 @@ impl AndroidDevice {
         Ok(lock(&self.inner.state).props.get(name).cloned())
     }
     pub async fn setup(&self, context: VendorContext) -> VendorResult<()> {
+        let _work = self.admit()?;
+        let context = VendorContext {
+            cancellation: self.force_with(context.cancellation),
+            ..context
+        };
         lock(&self.inner.state).booted = false;
         let boot_clock = context.clock.clone();
         let boot = timed(&context, millis(self.timeouts().boot)?, |signal| {
@@ -576,7 +618,7 @@ impl AndroidDevice {
             )
             .await?;
         lock(&self.inner.state).adb_features = features;
-        self.start_logcat();
+        self.start_logcat()?;
         if self.runtime().configuration.test_access_configuration.adb && !self.is_local_emulator() {
             context
                 .clock
@@ -631,12 +673,37 @@ impl AndroidDevice {
         error_message: &str,
         context: VendorContext,
     ) -> VendorResult<Option<ShellCommandResult>> {
+        self.timed_shell(self.bounded_client(), command, error_message, context)
+            .await
+    }
+    pub(crate) async fn cleanup_shell(
+        &self,
+        command: &str,
+        context: VendorContext,
+    ) -> VendorResult<Option<ShellCommandResult>> {
+        self.timed_shell(
+            &self.inner.cleanup_client,
+            command,
+            "Android cleanup command failed",
+            context,
+        )
+        .await
+    }
+    async fn timed_shell(
+        &self,
+        client: &AndroidDebugBridgeClient,
+        command: &str,
+        error_message: &str,
+        context: VendorContext,
+    ) -> VendorResult<Option<ShellCommandResult>> {
         let result = timed(&context, millis(self.timeouts().shell)?, |s| {
-            Box::pin(async move {
-                self.bounded_request(ShellCommandRequest::new(command), s)
+            Box::pin(cancellable(s, async move {
+                client
+                    .execute(ShellCommandRequest::new(command), Some(self.adb_serial()))
                     .await
                     .map(Into::into)
-            })
+                    .map_err(adb_error)
+            }))
         })
         .await;
         self.shell_catch(result, error_message)
@@ -686,53 +753,51 @@ impl AndroidDevice {
             .execute_channel(request, Some(self.adb_serial()))
             .map_err(adb_error)
     }
-    fn start_logcat(&self) {
+    fn start_logcat(&self) -> VendorResult<()> {
+        let mut logcat = lock(&self.inner.logcat);
         self.inner.logcat_ended.send_replace(false);
         let device = self.clone();
-        let task = self
-            .runtime()
-            .dependencies
-            .io
-            .spawn_cancellable(Box::new(move |signal| {
-                Box::pin(async move {
-                    let result = async {
-                        let mut stream = device
-                            .client()
-                            .execute_channel(logcat_request(&["long"]), Some(device.adb_serial()))
-                            .map_err(adb_error)?;
-                        let mut parser = crate::logcat::LogCatMessageParser::new();
-                        let mut lines = LogcatLines::default();
-                        loop {
-                            let chunk = cancellable(signal.clone(), async {
-                                stream.next().await.transpose().map_err(adb_error)
-                            })
-                            .await?;
-                            let Some(chunk) = chunk else { break };
-                            for message in parser.process_log_lines(&lines.push(&chunk)) {
-                                device.on_logcat(&message).await?;
-                            }
+        let task = self.spawn_owned(Box::new(move |signal| {
+            Box::pin(async move {
+                let result = async {
+                    let mut stream = device
+                        .client()
+                        .execute_channel(logcat_request(&["long"]), Some(device.adb_serial()))
+                        .map_err(adb_error)?;
+                    let mut parser = crate::logcat::LogCatMessageParser::new();
+                    let mut lines = LogcatLines::default();
+                    loop {
+                        let chunk = cancellable(signal.clone(), async {
+                            stream.next().await.transpose().map_err(adb_error)
+                        })
+                        .await?;
+                        let Some(chunk) = chunk else { break };
+                        for message in parser.process_log_lines(&lines.push(&chunk)) {
+                            cancellable(signal.clone(), device.on_logcat(&message)).await?;
                         }
-                        for message in parser.process_log_lines(&lines.finish()) {
-                            device.on_logcat(&message).await?;
-                        }
-                        Ok(())
                     }
-                    .await;
-                    device.inner.logcat_ended.send_replace(true);
-                    if let Err(e) = &result
-                        && !matches!(e, VendorError::Cancelled(_))
-                    {
-                        device.log_named(
-                            "marathon_android::device",
-                            Level::ERROR,
-                            "Task stopped due to unrecoverable error",
-                            Some(e.failure()),
-                        );
+                    for message in parser.process_log_lines(&lines.finish()) {
+                        cancellable(signal.clone(), device.on_logcat(&message)).await?;
                     }
-                    result
-                })
-            }));
-        *lock(&self.inner.logcat) = Some(task);
+                    Ok(())
+                }
+                .await;
+                device.inner.logcat_ended.send_replace(true);
+                if let Err(e) = &result
+                    && !matches!(e, VendorError::Cancelled(_))
+                {
+                    device.log_named(
+                        "marathon_android::device",
+                        Level::ERROR,
+                        "Task stopped due to unrecoverable error",
+                        Some(e.failure()),
+                    );
+                }
+                result
+            })
+        }))?;
+        *logcat = Some(task);
+        Ok(())
     }
     pub async fn on_logcat(&self, message: &crate::logcat::LogCatMessage) -> VendorResult<()> {
         let line = format!(
@@ -764,21 +829,27 @@ impl AndroidDevice {
     /// has forgotten. Failures are logged; they do not make the device unusable.
     ///
     /// U170: this runs outside the tracking loop, so the device may have been disconnected meanwhile. It holds the
-    /// disposal lock: a disposal either comes after it and undoes what it set up, or came first and it does nothing.
+    /// recovery lock against marker writes. Disposal seals admission and joins a recovery before undoing its work,
+    /// or closes its request sockets if it has not joined by the grace deadline.
     pub(crate) async fn resume_after_server_return(&self, context: VendorContext) -> VendorResult<()> {
-        let disposed = cancellable(context.cancellation.clone(), async {
-            Ok(self.inner.disposal.lock().await)
+        let _work = self.admit()?;
+        let context = VendorContext {
+            cancellation: self.force_with(context.cancellation),
+            ..context
+        };
+        let _recovery = cancellable(context.cancellation.clone(), async {
+            Ok(self.inner.recovery.lock().await)
         })
         .await?;
         if let Some(reason) = context.cancellation.reason() {
             return Err(VendorError::Cancelled(reason));
         }
-        if *disposed || self.inner.lost.load(Ordering::Acquire) {
+        if self.stopping() || self.inner.lost.load(Ordering::Acquire) {
             return Ok(());
         }
         if *self.inner.logcat_ended.borrow() {
             self.stop_logcat().await;
-            self.start_logcat();
+            self.start_logcat()?;
         }
         let rules = lock(&self.inner.reverse).clone();
         for local in rules {
@@ -813,17 +884,20 @@ impl AndroidDevice {
         Ok(parse_identity(response.output().trim()))
     }
     async fn record_preparation(&self, context: &VendorContext) -> VendorResult<()> {
-        let disposed = cancellable(context.cancellation.clone(), async {
-            Ok(self.inner.disposal.lock().await)
+        let _recovery = cancellable(context.cancellation.clone(), async {
+            Ok(self.inner.recovery.lock().await)
         })
         .await?;
-        if *disposed || self.is_disconnected() {
+        if self.stopping() || self.is_disconnected() {
             return Ok(());
         }
         // A snapshot may include the provider setup but precede the APK installation. Publish the
         // marker only once the pool's preparation has finished.
         let token = {
             let mut state = lock(&self.inner.state);
+            if self.stopping() {
+                return Ok(());
+            }
             let marker = state.preparation_marker.get_or_insert_with(|| PreparationMarker {
                 token: Uuid::new_v4(),
                 confirmed: false,
@@ -838,29 +912,21 @@ impl AndroidDevice {
         let confirmed = self
             .optional_probe(probe, "Unable to write Android preparation marker")?
             .is_some_and(|reply| reply.exit_code == 0 && parse_identity(reply.output().trim()) == Some(token));
-        lock(&self.inner.state).preparation_marker = Some(PreparationMarker { token, confirmed });
+        if let Some(marker) = &mut lock(&self.inner.state).preparation_marker {
+            marker.confirmed = confirmed;
+        }
         Ok(())
     }
-    async fn clear_preparation_marker(&self, signal: Arc<dyn CancellationSignal>) -> VendorResult<()> {
+    async fn clear_preparation_marker(&self, context: VendorContext) -> VendorResult<()> {
         let marker = lock(&self.inner.state).preparation_marker.take();
         if let Some(marker) = marker
             && self.adb_server_available()
             && self.inner.tracker.get_state(self.adb_serial()) == Some(DeviceState::Device)
         {
-            self.bounded_request(
-                ShellCommandRequest::new(MarkerCommand::Remove.command(marker.token)),
-                signal,
-            )
-            .await?;
+            let command = MarkerCommand::Remove.command(marker.token);
+            self.cleanup_shell(&command, context).await?;
         }
         Ok(())
-    }
-    pub(crate) async fn remove_preparation_marker(&self, signal: Arc<dyn CancellationSignal>) -> VendorResult<()> {
-        let _disposal = cancellable(signal.clone(), async { Ok(self.inner.disposal.lock().await) }).await?;
-        self.clear_preparation_marker(signal).await
-    }
-    pub(crate) fn has_preparation_marker(&self) -> bool {
-        lock(&self.inner.state).preparation_marker.is_some()
     }
     fn optional_probe<T>(&self, probe: VendorResult<Option<T>>, message: &str) -> VendorResult<Option<T>> {
         match probe {
@@ -1108,7 +1174,9 @@ impl AndroidDevice {
     /// now on the core cannot take it back uncharged. Refused, as a cancellation, once it has taken it back. A batch run
     /// other than through [`Device::execute`], as by a test, is not tracked and passes.
     pub fn record_submission(&self, batch: &BatchRef) -> VendorResult<()> {
-        match lock(&self.inner.batch).as_mut() {
+        let mut current = lock(&self.inner.batch);
+        self.ensure_running()?;
+        match current.as_mut() {
             Some(r) if Arc::ptr_eq(&r.batch, batch) => match r.stage {
                 Stage::Withdrawn => Err(VendorError::Cancelled(requested("batch given back before it started"))),
                 _ => {
@@ -1193,48 +1261,124 @@ impl AndroidDevice {
             _ => Ok(()),
         }
     }
-    pub(crate) async fn stop_logcat(&self) {
+    async fn stop_logcat(&self) {
         let task = lock(&self.inner.logcat).take();
         if let Some(task) = task {
             task.cancel(requested("logcat closed"));
             let _ = task.join().await;
         }
     }
-    async fn dispose_inner(&self) -> VendorResult<()> {
-        let mut disposed = self.inner.disposal.lock().await;
-        if *disposed {
-            return Ok(());
-        }
-        let task = lock(&self.inner.logcat).take();
-        if let Some(task) = task {
+    pub(crate) fn seal(&self) {
+        let now = self.runtime().dependencies.clock.now_millis();
+        self.inner
+            .work
+            .seal(now.saturating_add(cleanup::allowance(self.timeouts())));
+    }
+    pub(crate) async fn dispose_inner(&self, remove_reverse: bool) -> VendorResult<()> {
+        self.start_cleanup(remove_reverse).join().await
+    }
+    pub(crate) fn start_cleanup(&self, remove_reverse: bool) -> Arc<dyn VendorTask> {
+        self.seal();
+        lock(&self.inner.work.cleanup)
+            .get_or_insert_with(|| {
+                let device = self.clone();
+                self.runtime()
+                    .dependencies
+                    .io
+                    .spawn(Box::pin(async move { device.finish_cleanup(remove_reverse).await }))
+            })
+            .clone()
+    }
+    async fn finish_cleanup(&self, remove_reverse: bool) -> VendorResult<()> {
+        let context = self.cleanup_context();
+        let deadline = self.inner.work.deadline().unwrap_or_else(|| context.clock.now_millis());
+        if let Some(task) = lock(&self.inner.logcat).take() {
             task.cancel(requested("device disposed"));
-            let _ = task.join().await;
         }
+        let grace = deadline
+            .saturating_sub(cleanup::FORCE_RESERVE_MILLIS)
+            .saturating_sub(context.clock.now_millis());
+        let forced = if grace > 0 {
+            tokio::select! {
+                biased;
+                _ = self.inner.work.idle() => false,
+                _ = context.clock.delay(grace, context.cancellation.clone()) => true,
+            }
+        } else {
+            true
+        };
+        if forced {
+            self.inner
+                .work
+                .force
+                .cancel(requested("Android device cleanup grace ended"));
+        }
+        self.client().close();
+        lock(&self.inner.line_listeners).clear();
+        lock(&self.inner.logcat_listeners).clear();
+
+        let left = deadline.saturating_sub(context.clock.now_millis());
+        let joined = async {
+            tokio::join!(
+                self.inner.work.idle(),
+                self.cleanup_remote(remove_reverse, context.clone())
+            );
+        };
+        let expired = if left > 0 {
+            tokio::select! {
+                biased;
+                _ = context.clock.delay(left, context.cancellation.clone()) => true,
+                _ = joined => false,
+            }
+        } else {
+            true
+        };
+        self.inner.cleanup_client.close();
+        if expired {
+            let error = other(
+                FailureKind::Timeout,
+                format!("Android cleanup could not be confirmed for {}", self.serial_number()),
+            );
+            self.log(Level::WARN, "Android cleanup deadline reached", Some(error.failure()));
+            return Err(error);
+        }
+        Ok(())
+    }
+    async fn cleanup_remote(&self, remove_reverse: bool, context: VendorContext) {
+        let reverse = async {
+            if remove_reverse {
+                self.remove_reverse_forwards().await;
+            }
+        };
+        let marker = self.clear_preparation_marker(context.clone());
+        let recording = async {
+            if self.inner.screenrecord_active.load(Ordering::Acquire) {
+                let _ = crate::artifact_listeners::video::stop_screen_record_for_cleanup(self, context.clone()).await;
+            }
+        };
+        let profiling = async {
+            if self.inner.perfetto_active.load(Ordering::Acquire) {
+                let _ = self.cleanup_shell("killall perfetto", context.clone()).await;
+            }
+        };
+        let _ = tokio::join!(reverse, marker, recording, profiling);
+    }
+    async fn remove_reverse_forwards(&self) {
         let rules = std::mem::take(&mut *lock(&self.inner.reverse));
         for local in rules {
-            let context = self.cleanup_context();
             if let Err(e) = self
-                .request(
-                    RemoveReversePortForwardRequest { local },
-                    Some(self.adb_serial()),
-                    context.cancellation,
-                )
+                .inner
+                .cleanup_client
+                .execute(RemoveReversePortForwardRequest { local }, Some(self.adb_serial()))
                 .await
             {
-                self.log(Level::WARN, "Unable to remove reverse port forward", Some(e.failure()));
+                self.log(
+                    Level::WARN,
+                    "Unable to remove reverse port forward",
+                    Some(adb_error(e).failure()),
+                );
             }
         }
-        if self.has_preparation_marker()
-            && let Ok(limit) = millis(self.timeouts().shell)
-        {
-            let context = self.cleanup_context();
-            let _ = timed(&context, limit, |signal| {
-                Box::pin(self.clear_preparation_marker(signal))
-            })
-            .await;
-        }
-        *disposed = true;
-        Ok(())
     }
     pub(crate) fn cleanup_context(&self) -> VendorContext {
         VendorContext {
@@ -1304,8 +1448,9 @@ impl Device for AndroidDevice {
             context.cancellation.clone(),
             move |signal| {
                 Box::pin(async move {
+                    let _work = device.admit()?;
                     let context = VendorContext {
-                        cancellation: signal,
+                        cancellation: device.force_with(signal),
                         ..context
                     };
                     let start = context
@@ -1366,6 +1511,8 @@ impl Device for AndroidDevice {
             context.cancellation.clone(),
             move |signal| {
                 Box::pin(async move {
+                    let _work = device.admit()?;
+                    let signal = device.force_with(signal);
                     if !device.take_batch(&batch, &result) {
                         return Err(VendorError::Cancelled(requested("batch given back before it started")));
                     }
@@ -1455,8 +1602,24 @@ impl Device for AndroidDevice {
         Box::pin(call_vendor(
             self.runtime().dependencies.io.as_ref(),
             Signal::new(),
-            move |_| Box::pin(async move { device.dispose_inner().await }),
+            move |_| Box::pin(async move { device.dispose_inner(true).await }),
         ))
+    }
+    fn begin_stop(&self) -> Option<VendorFuture<'static, ()>> {
+        self.seal();
+        let device = self.clone();
+        Some(Box::pin(async move { device.dispose_inner(true).await }))
+    }
+    fn cancellation_cleanup_millis(&self) -> Option<i64> {
+        Some(cleanup::allowance(self.timeouts()))
+    }
+    fn join_cancelled_work(&self) -> VendorFuture<'_, ()> {
+        Box::pin(async move {
+            if self.stopping() {
+                self.dispose_inner(true).await?;
+            }
+            Ok(())
+        })
     }
     fn return_wait_used_millis(&self) -> i64 {
         self.inner.return_wait_used.load(Ordering::Acquire)
@@ -1535,7 +1698,9 @@ impl Device for AndroidDevice {
 }
 impl LogProducer for AndroidDevice {
     fn add_line_listener(&self, listener: Arc<dyn LineListener>) -> VendorResult<()> {
-        lock(&self.inner.line_listeners).push(listener);
+        let mut listeners = lock(&self.inner.line_listeners);
+        self.ensure_running()?;
+        listeners.push(listener);
         Ok(())
     }
     fn remove_line_listener(&self, listener: &Arc<dyn LineListener>) -> VendorResult<()> {
@@ -1548,7 +1713,10 @@ impl LogProducer for AndroidDevice {
 }
 impl crate::logcat_listener::LogcatProducer for AndroidDevice {
     fn add_logcat_listener(&self, listener: Arc<dyn crate::logcat_listener::LogcatListener>) {
-        lock(&self.inner.logcat_listeners).push(listener)
+        let mut listeners = lock(&self.inner.logcat_listeners);
+        if !self.stopping() {
+            listeners.push(listener);
+        }
     }
     fn remove_logcat_listener(&self, listener: &Arc<dyn crate::logcat_listener::LogcatListener>) {
         let mut listeners = lock(&self.inner.logcat_listeners);

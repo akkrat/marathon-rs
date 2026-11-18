@@ -2280,9 +2280,7 @@ the run. Other unexpected ends still left the run hanging, or ended it without s
   the work its vendor keeps running after it (an iOS or macOS preparation, which a cancel does not end at once: iOS
   stops it and waits as disposal does under D74, macOS lets its installation finish), for as long as that device's
   vendor says a cancelled call can take, plus 5 s: 75 s by default on iOS and macOS (their 70 s cancelled-batch bound,
-  which covers a preparation too), and without a limit on Android, whose cleanup after a cancel ends once each ADB
-  request has reached its own timeout, as the run already waited for it under D68 (a known limit: an Android call that
-  waited for the provider's termination would hold the run). A device still running after its bound is logged at
+  which covers a preparation too), and 65 s by default on Android ([D92](#d92--android-device-cleanup-has-one-deadline)). A device still running after its bound is logged at
   ERROR and left; this is the only device work that can still run while the provider terminates. A macOS Mac's worker
   lease is not released while its preparation still runs, within the same bound; past it, the wait is logged at WARN
   and the lease released. Then every
@@ -2333,10 +2331,9 @@ the run. Other unexpected ends still left the run hanging, or ended it without s
   its own, no longer skips the reports.
 - A run task that panics fails the run with the panic as its cause; if the Scheduler is running then, it stops the same
   way, and the run waits for that before it terminates the provider.
-- **Known limits.** An Android device has no overall bound for ending a cancelled call, and the run waits for it until
-  it ends (an Android call that waited for the provider's termination would hold the run). On a signal (D52) the
+- **Known limits.** On a signal (D52) the
   provider's termination now waits for a macOS preparation still running, so a signal exit that was quick can take up
-  to D52's deadline. A device still running when its bound has passed is waited for once more, within the same bound,
+  to D52's deadline. An Apple device still running when its bound has passed is waited for once more, within the same bound,
   when the provider's termination disposes of it: an iOS simulator's disposal waits for its stopped batch and
   preparations before its on-dispose lifecycle, and a Mac's termination for its batch and its installation before it
   releases the lease, as the Kotlin marathon's disposal waits again for a batch whose cancelled wait ran out (its
@@ -2633,6 +2630,30 @@ Approved 2026-11-18 (project owner's decision).
 
 **Migration action:** none. A shared worker can see an extra simultaneous SSH connection after this failure. Sharing
 is still off by default.
+
+## D92 — Android device cleanup has one deadline
+
+Android previously waited for cancelled work without a device-wide limit ([U218](found-bugs.md)). A listener could
+retain work behind the runner's cancelled caller. An active sync connection can keep delivering bytes without finishing,
+and closing the shared ADB factory to end it would also close the healthy devices' connections.
+
+Admission to the stopping device closes before the Scheduler cancels its actor. Setup, installs and their retries,
+instrumentation and optional artifact pulls can no longer start there. In-flight work shares the largest positive
+`timeoutConfiguration.shell`, `install`, `pullFile` or enabled `socketIdleTimeout`, with a five-second floor.
+The defaults give 60 seconds. The final five seconds are included in that allowance. If work is still in flight at
+that point, the device cancels pending connects, closes its request sockets, unregisters its listeners and joins
+its producers. An incomplete pull cannot publish its file. D85 marker removal, reverse-forward removal and recorder
+stop attempts share the remaining time. Provider termination reuses a cleanup already started. Active siblings retain
+their own connections. Healthy pulls and video chunks keep their normal timeouts, including D21's idle policy.
+
+D84 adds five seconds to its wait for the device, so the default Scheduler device wait is at most 65 seconds from the
+stop. The original failure and results already committed to the queues still reach the reports. D52's signal deadline
+continues to apply. If adb cannot acknowledge cleanup, the runner cannot confirm remote state. See the
+[x91 findings](wp/x91-findings.md) for the fake-adb witnesses and remote limits.
+
+Approved 2026-11-18 (project owner's decision).
+
+No migration action is required.
 
 ## Other accepted text differences
 

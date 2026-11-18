@@ -81,19 +81,3 @@ impl Attachments {
         Ok(())
     }
 }
-
-/// Profiling inherits its execute cancellation while retaining an explicit child handle.
-pub(crate) struct ChildSignal(
-    pub Arc<dyn marathon_core::runtime::CancellationSignal>,
-    pub Arc<dyn marathon_core::runtime::CancellationSignal>,
-);
-impl marathon_core::runtime::CancellationSignal for ChildSignal {
-    fn reason(&self) -> Option<Cancellation> {
-        self.0.reason().or_else(|| self.1.reason())
-    }
-    fn cancelled(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Cancellation> + Send + '_>> {
-        Box::pin(async move {
-            tokio::select! { biased; c=self.0.cancelled()=>c, c=self.1.cancelled()=>c }
-        })
-    }
-}

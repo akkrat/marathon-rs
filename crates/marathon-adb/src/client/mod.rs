@@ -114,6 +114,13 @@ impl AndroidDebugBridgeClient {
         &self.socket_factory
     }
 
+    pub fn scoped(&self) -> Self {
+        Self {
+            socket_factory: self.socket_factory.scoped(),
+            ..self.clone()
+        }
+    }
+
     fn address(&self) -> SocketAddr {
         SocketAddr::new(self.host, self.port)
     }

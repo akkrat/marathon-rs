@@ -5,6 +5,7 @@ use marathon_logging::Level;
 use crate::{
     arguments::ArgumentsFactory,
     artifact_listeners::coverage::{self, CoverageFile},
+    cleanup::ChildSignal,
     device::{AndroidBatchExecutor, AndroidDevice},
     listeners::*,
     models::*,
@@ -30,17 +31,30 @@ pub struct InstrumentationChannel {
     /// D25: why the producer stopped, set before the channel closes. Kotlin discards it (N38).
     failure: Arc<Mutex<Option<VendorError>>>,
 }
+impl Drop for InstrumentationChannel {
+    fn drop(&mut self) {
+        self.task.cancel(requested("instrumentation channel dropped"));
+    }
+}
 impl InstrumentationChannel {
-    pub fn start(device: &AndroidDevice, request: TestRunnerRequest) -> Self {
+    pub fn start(device: &AndroidDevice, request: TestRunnerRequest) -> VendorResult<Self> {
+        Self::start_with(device, request, || Ok(()))
+    }
+
+    fn start_with(
+        device: &AndroidDevice,
+        request: TestRunnerRequest,
+        submitted: impl FnOnce() -> VendorResult<()>,
+    ) -> VendorResult<Self> {
+        let work = device.admit()?;
+        submitted()?;
         let (sender, receiver) = tokio::sync::mpsc::channel(1);
         let owned = device.clone();
         let failure = Arc::new(Mutex::new(None));
         let producer_failure = failure.clone();
-        let task = device
-            .runtime()
-            .dependencies
-            .io
-            .spawn_cancellable(Box::new(move |signal| {
+        let task = device.spawn_admitted(
+            work,
+            Box::new(move |signal| {
                 Box::pin(async move {
                     let mut stream = marathon_adb::client::shell::compat::FallibleCompatShellStream::start(
                         owned.client(),
@@ -86,13 +100,14 @@ impl InstrumentationChannel {
                     // Consumed produce failures do not invoke Kotlin's exception handler.
                     result
                 })
-            }));
-        Self {
+            }),
+        );
+        Ok(Self {
             receiver,
             task,
             device: device.clone(),
             failure,
-        }
+        })
     }
     pub async fn receive(&mut self, context: &VendorContext) -> VendorResult<Option<Vec<TestEvent>>> {
         // A closed channel is the end of the output; `take_failure` then tells whether it ended well.
@@ -404,8 +419,9 @@ impl AndroidDeviceTestRunner<'_> {
                         None,
                     );
                     // D70: from here the batch counts as started, whatever comes back.
-                    self.device.record_submission(raw)?;
-                    *channel = Some(InstrumentationChannel::start(self.device, request));
+                    *channel = Some(InstrumentationChannel::start_with(self.device, request, || {
+                        self.device.record_submission(raw)
+                    })?);
                     if let Some(channel) = channel.as_mut() {
                         loop {
                             let update = timed(&child, configuration.test_output_timeout_millis, |signal| {
@@ -484,8 +500,10 @@ impl AndroidDeviceTestRunner<'_> {
             // D81: before the next instrumentation's `pm clear` would remove the file. Only an instrumentation that was
             // sent can have written one; a cancelled batch is not waited for.
             let result = match (result, &coverage, &channel) {
-                (Ok(()), Some(file), Some(_)) => listener.on_coverage_in(file, context.clone()).await,
-                (result, Some(file), Some(_)) if context.cancellation.reason().is_none() => {
+                (Ok(()), Some(file), Some(_)) if !self.device.stopping() => {
+                    listener.on_coverage_in(file, context.clone()).await
+                }
+                (result, Some(file), Some(_)) if !self.device.stopping() && context.cancellation.reason().is_none() => {
                     let _ = listener.on_coverage_in(file, context.clone()).await;
                     result
                 }
@@ -577,44 +595,46 @@ impl AndroidBatchExecutor for AndroidRunnerExecutor {
             let owned = device.clone();
             let (mut sender, receiver) = tokio::sync::oneshot::channel();
             // The task retains the cleanup owner; closing the waiter cancels the body.
-            let task = device.runtime().dependencies.io.spawn(Box::pin(async move {
-                let dropped = marathon_core::executor::Signal::new();
-                let context = VendorContext {
-                    cancellation: Arc::new(crate::artifact_listeners::ChildSignal(
-                        dropped.clone(),
-                        context.cancellation,
-                    )),
-                    ..context
-                };
-                let runner = AndroidDeviceTestRunner { device: &owned };
-                let run = runner.execute(configuration, batch, &*listener, context.clone());
-                tokio::pin!(run);
-                let outcome = tokio::select! {
-                    outcome = &mut run => outcome,
-                    _ = sender.closed() => { dropped.cancel(requested("execute waiter dropped")); run.await }
-                };
-                let cleanup = listener
-                    .cleanup_in(VendorContext {
-                        cancellation: marathon_core::executor::Signal::new(),
+            let task = device.spawn_owned(Box::new(move |force| {
+                Box::pin(async move {
+                    let dropped = marathon_core::executor::Signal::new();
+                    let context = VendorContext {
+                        cancellation: Arc::new(ChildSignal(
+                            Arc::new(ChildSignal(dropped.clone(), context.cancellation)),
+                            force.clone(),
+                        )),
                         ..context
-                    })
-                    .await;
-                if let Err(error) = &cleanup {
-                    owned.log_named(
-                        "AndroidDeviceTestRunner",
-                        Level::ERROR,
-                        "Artifact listener cleanup failed",
-                        Some(error.failure()),
-                    );
-                }
-                let _ = sender.send(outcome.and(cleanup));
-                Ok(())
-            }));
-            let outcome = receiver
-                .await
-                .map_err(|_| other(FailureKind::IllegalState, "batch task ended without outcome"))?;
+                    };
+                    let runner = AndroidDeviceTestRunner { device: &owned };
+                    let run = runner.execute(configuration, batch, &*listener, context.clone());
+                    tokio::pin!(run);
+                    let outcome = tokio::select! {
+                        outcome = &mut run => outcome,
+                        _ = sender.closed() => { dropped.cancel(requested("execute waiter dropped")); run.await }
+                    };
+                    let cleanup = listener
+                        .cleanup_in(VendorContext {
+                            cancellation: force,
+                            ..context
+                        })
+                        .await;
+                    if let Err(error) = &cleanup {
+                        owned.log_named(
+                            "AndroidDeviceTestRunner",
+                            Level::ERROR,
+                            "Artifact listener cleanup failed",
+                            Some(error.failure()),
+                        );
+                    }
+                    let _ = sender.send(outcome.and(cleanup));
+                    Ok(())
+                })
+            }))?;
+            let outcome = receiver.await;
             task.join().await?;
-            outcome.map_err(execution_error)
+            outcome
+                .map_err(|_| other(FailureKind::IllegalState, "batch task ended without outcome"))?
+                .map_err(execution_error)
         })
     }
 }

@@ -156,6 +156,9 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
     fn after_test_run_in(&self, context: VendorContext) -> VendorFuture<'_, ()> {
         Box::pin(async move {
             let device = &self.artifacts.device;
+            if device.stopping() {
+                return Ok(());
+            }
             let packages = lock(&self.packages).clone();
             for entry in &device.runtime().file_sync.pull {
                 let pool = matches!(

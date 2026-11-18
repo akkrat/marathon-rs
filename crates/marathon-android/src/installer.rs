@@ -220,6 +220,7 @@ impl AndroidAppInstaller {
         // select drops a vendor body, which would detach file completion here.
         for attempt in 0..3 {
             let result = async {
+                device.ensure_running()?;
                 if let Some(reason) = context.cancellation.reason() {
                     return Err(VendorError::Cancelled(reason));
                 }

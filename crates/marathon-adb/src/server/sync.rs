@@ -297,6 +297,43 @@ pub(crate) async fn serve(
                     json!({"path": path, "size": content.as_ref().ok().map(Vec::len), "error": content.as_ref().err()}),
                 );
                 match content {
+                    Ok(c) if cut == Some(RecvCut::Trickle) => {
+                        let mut first = b"DATA".to_vec();
+                        let bytes = &c[..c.len().min(1)];
+                        first.extend((bytes.len() as u32).to_le_bytes());
+                        first.extend(bytes);
+                        wr.write_all(&first).await?;
+                        let mut byte = [0; 1];
+                        let mut interval = tokio::time::interval(std::time::Duration::from_millis(5));
+                        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                        loop {
+                            tokio::select! {
+                                biased;
+                                peer = rd.read(&mut byte) => {
+                                    match peer {
+                                        Ok(0) => record("peer-eof", json!({"path": path})),
+                                        Err(e) if e.kind() == io::ErrorKind::ConnectionReset => {
+                                            record("peer-eof", json!({"path": path}));
+                                        }
+                                        result => {
+                                            result?;
+                                        }
+                                    }
+                                    return Ok(());
+                                }
+                                _ = interval.tick() => {
+                                    match wr.write_all(b"DATA\0\0\0\0").await {
+                                        Ok(()) => record("trickle", json!({"path": path})),
+                                        Err(e) if matches!(e.kind(), io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset) => {
+                                            record("peer-eof", json!({"path": path}));
+                                            return Ok(());
+                                        }
+                                        Err(e) => return Err(e),
+                                    }
+                                }
+                            }
+                        }
+                    }
                     Ok(c) if cut.is_some() => {
                         let mut out = b"DATA".to_vec();
                         out.extend((c.len().min(DATA_MAX) as u32).to_le_bytes());

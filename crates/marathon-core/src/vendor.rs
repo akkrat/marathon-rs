@@ -68,6 +68,11 @@ pub trait Device: Send + Sync {
     fn return_wait_used_millis(&self) -> i64 {
         0
     }
+    /// Seal the device at run stop, before cancelling its actor. Runs on core without I/O or blocking.
+    /// If returned, cleanup runs on the vendor runtime alongside the actor's cancellation.
+    fn begin_stop(&self) -> Option<VendorFuture<'static, ()>> {
+        None
+    }
     /// D84: how long a cancelled call of this device can take to end, by the vendor's own bound for cleaning up after a
     /// cancel; `None` when there is no overall bound and the call ends once each request it waits on has timed out. A
     /// run stopping after an internal failure waits this long (plus a margin) for the device before it finishes anyway.

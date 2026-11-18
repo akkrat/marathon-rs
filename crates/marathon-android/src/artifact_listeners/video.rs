@@ -19,6 +19,19 @@ pub fn grep_pid(output: &str) -> String {
         .unwrap_or_default()
 }
 pub async fn stop_screen_record(device: &AndroidDevice, context: VendorContext) -> VendorResult<()> {
+    stop_screen_record_inner(device, context, false).await
+}
+pub(crate) async fn stop_screen_record_for_cleanup(device: &AndroidDevice, context: VendorContext) -> VendorResult<()> {
+    stop_screen_record_inner(device, context, true).await
+}
+async fn stop_screen_record_inner(device: &AndroidDevice, context: VendorContext, cleanup: bool) -> VendorResult<()> {
+    let shell = async |command: &str| {
+        if cleanup {
+            device.cleanup_shell(command, context.clone()).await
+        } else {
+            device.safe_execute_shell_command(command, "", context.clone()).await
+        }
+    };
     device.log_named("ScreenRecorder", Level::DEBUG, "Stopping screen recorder", None);
     for _ in 0..5 {
         let killed: VendorResult<bool> = async {
@@ -27,11 +40,7 @@ pub async fn stop_screen_record(device: &AndroidDevice, context: VendorContext) 
             } else {
                 "ps | grep screenrecord"
             };
-            let output = device
-                .safe_execute_shell_command(cmd, "", context.clone())
-                .await?
-                .map(|r| r.output.to_owned())
-                .unwrap_or_default();
+            let output = shell(cmd).await?.map(|r| r.output.to_owned()).unwrap_or_default();
             let pid = grep_pid(&output);
             if !output.chars().all(jcompat::jstring::is_whitespace) {
                 device.log_named(
@@ -56,9 +65,7 @@ pub async fn stop_screen_record(device: &AndroidDevice, context: VendorContext) 
                 &format!("Killing PID {pid} on {}", device.serial_number().to_owned()),
                 None,
             );
-            device
-                .safe_execute_shell_command(&format!("kill -2 {pid}"), "", context.clone())
-                .await?;
+            shell(&format!("kill -2 {pid}")).await?;
             Ok(true)
         }
         .await;
@@ -142,6 +149,9 @@ impl ScreenRecorderTestBatchListener {
             .device
             .log_named("ScreenRecorderTestBatchListener", Level::TRACE, "cancel", None);
         self.join().await;
+        if !self.artifacts.device.stopping() {
+            self.artifacts.device.screenrecord_active(false);
+        }
         let end = self.artifacts.now("android.ScreenRecorderTestBatchListener.join")?;
         self.artifacts.device.log_named(
             "ScreenRecorderTestBatchListener",
@@ -261,76 +271,72 @@ impl AndroidTestRunListener for ScreenRecorderTestBatchListener {
                     let artifacts = self.artifacts.clone();
                     let state = self.state.clone();
                     let chunked = self.chunked;
-                    let job = self
-                        .artifacts
-                        .device
-                        .runtime()
-                        .dependencies
-                        .io
-                        .spawn_cancellable(Box::new(move |signal| {
-                            Box::pin(async move {
-                                let context = VendorContext {
-                                    cancellation: signal,
-                                    ..context
-                                };
-                                let mut remote = first;
-                                loop {
-                                    let result = async {
-                                        let start = artifacts.now("android.ScreenRecorder.startRecordingTestVideo")?;
-                                        artifacts
-                                            .device
-                                            .safe_start_screen_recorder(
-                                                &remote.to_owned(),
-                                                &artifacts
-                                                    .device
-                                                    .runtime()
-                                                    .configuration
-                                                    .screen_record_configuration
-                                                    .video_configuration,
-                                                context.clone(),
-                                            )
-                                            .await?;
-                                        let end = artifacts.now("android.ScreenRecorder.startRecordingTestVideo")?;
-                                        artifacts.device.log_named(
-                                            "ScreenRecorder",
-                                            Level::DEBUG,
-                                            &format!(
-                                                "Recording finished in {}ms {}",
-                                                end.wrapping_sub(start),
-                                                remote.to_owned()
-                                            ),
-                                            None,
-                                        );
-                                        Ok(())
-                                    }
-                                    .await;
-                                    if let Err(e) = result {
-                                        let (level, msg) = if matches!(e, VendorError::Cancelled(_)) {
-                                            (Level::WARN, "screenrecord start was interrupted")
-                                        } else {
-                                            (Level::ERROR, "Something went wrong while screen recording")
-                                        };
-                                        artifacts
-                                            .device
-                                            .log_named("ScreenRecorder", level, msg, Some(e.failure()));
-                                        return Err(e);
-                                    }
-                                    let mut state = lock(&state);
-                                    if !chunked || state.cancelling {
-                                        break;
-                                    }
-                                    let chunk = state.chunks.entry(test.clone()).or_default();
-                                    *chunk = chunk.wrapping_add(1);
-                                    remote = artifacts.device.file_manager().remote_chunked_video_for_test(
-                                        &test,
-                                        &artifacts.batch.id,
-                                        Some(*chunk),
-                                    )?;
-                                    state.last.push(remote.clone());
+                    let job = self.artifacts.device.spawn_owned(Box::new(move |signal| {
+                        Box::pin(async move {
+                            let context = VendorContext {
+                                cancellation: signal,
+                                ..context
+                            };
+                            let mut remote = first;
+                            loop {
+                                let result = async {
+                                    artifacts.device.ensure_running()?;
+                                    artifacts.device.screenrecord_active(true);
+                                    let start = artifacts.now("android.ScreenRecorder.startRecordingTestVideo")?;
+                                    artifacts
+                                        .device
+                                        .safe_start_screen_recorder(
+                                            &remote.to_owned(),
+                                            &artifacts
+                                                .device
+                                                .runtime()
+                                                .configuration
+                                                .screen_record_configuration
+                                                .video_configuration,
+                                            context.clone(),
+                                        )
+                                        .await?;
+                                    let end = artifacts.now("android.ScreenRecorder.startRecordingTestVideo")?;
+                                    artifacts.device.log_named(
+                                        "ScreenRecorder",
+                                        Level::DEBUG,
+                                        &format!(
+                                            "Recording finished in {}ms {}",
+                                            end.wrapping_sub(start),
+                                            remote.to_owned()
+                                        ),
+                                        None,
+                                    );
+                                    Ok(())
                                 }
-                                Ok(())
-                            })
-                        }));
+                                .await;
+                                if let Err(e) = result {
+                                    let (level, msg) = if matches!(e, VendorError::Cancelled(_)) {
+                                        (Level::WARN, "screenrecord start was interrupted")
+                                    } else {
+                                        (Level::ERROR, "Something went wrong while screen recording")
+                                    };
+                                    artifacts
+                                        .device
+                                        .log_named("ScreenRecorder", level, msg, Some(e.failure()));
+                                    return Err(e);
+                                }
+                                let mut state = lock(&state);
+                                if !chunked || state.cancelling {
+                                    break;
+                                }
+                                let chunk = state.chunks.entry(test.clone()).or_default();
+                                *chunk = chunk.wrapping_add(1);
+                                remote = artifacts.device.file_manager().remote_chunked_video_for_test(
+                                    &test,
+                                    &artifacts.batch.id,
+                                    Some(*chunk),
+                                )?;
+                                state.last.push(remote.clone());
+                            }
+                            Ok(())
+                        })
+                    }))?;
                     *lock(&self.job) = Some(job);
                 }
                 TestEvent::TestFailed { .. } | TestEvent::TestAssumptionFailed { .. } => {

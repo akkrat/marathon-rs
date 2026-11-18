@@ -10,6 +10,8 @@
 //! provider events received by the scheduler). A test
 //! takes four virtual seconds on a device (`VirtualDuration`), where the fake in the CLI runs wait four real ones.
 use marathon_error::{AdbKind, FailureKind, InjectedKind};
+#[path = "support/bounded_cleanup.rs"]
+mod bounded_cleanup;
 mod support;
 
 use marathon_adb::client::shell::boot_marker::{BOOT_ID_COMMAND, MarkerCommand};

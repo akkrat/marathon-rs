@@ -73,6 +73,20 @@ impl AndroidTestRunListener for ScreenCapturerTestRunListener {
     fn cleanup_in(&self, _context: VendorContext) -> VendorFuture<'_, ()> {
         Box::pin(async move {
             self.join().await;
+            if self.artifacts.device.stopping() {
+                let test = lock(&self.state).1.take();
+                if let Some(test) = test {
+                    let file = self
+                        .artifacts
+                        .file(FileType::Screenshot, Some(&test), None, None)
+                        .await?;
+                    match tokio::fs::remove_file(file).await {
+                        Ok(()) => {}
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(e) => return Err(io(e)),
+                    }
+                }
+            }
             Ok(())
         })
     }
@@ -95,10 +109,7 @@ impl AndroidTestRunListener for ScreenCapturerTestRunListener {
                     *lock(&self.job) = Some(
                         self.artifacts
                             .device
-                            .runtime()
-                            .dependencies
-                            .io
-                            .spawn_cancellable(Box::new(move |signal| capturer.start_owned(&test, signal))),
+                            .spawn_owned(Box::new(move |signal| capturer.start_owned(&test, signal)))?,
                     );
                 }
                 TestEvent::TestFailed { .. } => lock(&self.state).0 = true,

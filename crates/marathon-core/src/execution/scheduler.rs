@@ -99,6 +99,8 @@ pub struct SchedulerParts {
     pub cancellation: RunCancellation,
 }
 
+type StoppingDevice = (JobRef, DeviceRef, Option<JobRef>);
+
 #[derive(Clone)]
 pub struct Scheduler {
     inner: Rc<Inner>,
@@ -550,6 +552,7 @@ impl Inner {
             return;
         }
         let Some(inner) = self.myself.upgrade() else { return };
+        let started = self.parts.core.clock().now_millis();
         self.draining.set(true);
         // The pools are only borrowed for moments that run no job transition, so this always succeeds; if it ever did
         // not, stopping everything at once is still a stop.
@@ -575,15 +578,25 @@ impl Inner {
                 if Rc::ptr_eq(&child, &queue) {
                     continue;
                 }
-                child.cancel(reason.clone());
                 if let Some((_, device)) = actors.iter().find(|(job, _)| Rc::ptr_eq(job, &child)) {
-                    devices.push((child, device.clone()));
+                    let cleanup = device.0.begin_stop().map(|cleanup| {
+                        let vendor = self.parts.core.vendor();
+                        self.parts.core.spawn_cleanup(Box::new(move |_| {
+                            Box::pin(async move {
+                                crate::executor::bridge::call_vendor(vendor.as_ref(), Signal::new(), move |_| cleanup)
+                                    .await
+                                    .map_err(vendor_to_operation)
+                            })
+                        }))
+                    });
+                    devices.push((child.clone(), device.clone(), cleanup));
                 }
+                child.cancel(reason.clone());
             }
         }
         let routine = self.parts.core.spawn_cleanup(Box::new(move |_| {
             Box::pin(async move {
-                inner.stop_routine(pools, devices, reason).await;
+                inner.stop_routine(pools, devices, reason, started).await;
                 Ok(())
             })
         }));
@@ -597,21 +610,30 @@ impl Inner {
     /// D84: (I4) waits for every cancelled device to end, each within its vendor's own bound for a cancelled call (none
     /// for a vendor without one); (I3) has each pool and then its queue take what was delivered to them, through
     /// barriers each answers after the messages before it; then cancels the pools and queues and waits for them.
-    async fn stop_routine(&self, pools: Vec<DevicePool>, devices: Vec<(JobRef, DeviceRef)>, reason: Cancellation) {
+    async fn stop_routine(
+        &self,
+        pools: Vec<DevicePool>,
+        devices: Vec<StoppingDevice>,
+        reason: Cancellation,
+        started: i64,
+    ) {
         let clock = self.parts.core.clock();
-        let started = clock.now_millis();
         let timer = self.parts.core.job(JobKind::Ordinary, None);
-        for (job, device) in devices {
+        for (job, device, cleanup) in devices {
             // The device's cancelled call, then what the vendor keeps running after it (R3-2: an Apple preparation),
             // both within the device's one bound.
             let vendor = self.parts.core.vendor();
             let held = device.0.clone();
             let ended = async move {
                 let _ = job.join().await;
-                let _ = crate::executor::bridge::call_vendor(vendor.as_ref(), Signal::new(), move |_| {
-                    Box::pin(async move { held.join_cancelled_work().await })
-                })
-                .await;
+                if let Some(cleanup) = cleanup {
+                    let _ = cleanup.join().await;
+                } else {
+                    let _ = crate::executor::bridge::call_vendor(vendor.as_ref(), Signal::new(), move |_| {
+                        Box::pin(async move { held.join_cancelled_work().await })
+                    })
+                    .await;
+                }
             };
             match device.0.cancellation_cleanup_millis() {
                 None => ended.await,

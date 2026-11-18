@@ -204,6 +204,8 @@ pub enum RecvCut {
     Close,
     /// Wait, so that the session ends only when the device disconnects or goes offline.
     Hang,
+    /// Keep sending DATA without DONE until the client closes its connection.
+    Trickle,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -26,10 +26,7 @@ use std::{
     net::IpAddr,
     path::PathBuf,
     process::Stdio,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex},
 };
 #[derive(Clone)]
 pub struct AdamDeviceProvider {
@@ -39,7 +36,7 @@ struct Provided {
     device: AndroidDevice,
     reference: DeviceRef,
     task: Arc<dyn VendorTask>,
-    ready: Arc<AtomicBool>,
+    ready: Arc<Mutex<bool>>,
     /// A replacement inherits the allowance while adb still lists this serial on the same boot.
     retried_prepare: bool,
 }
@@ -96,6 +93,9 @@ impl AdamDeviceProvider {
     fn publish_failure(&self, cause: Failure) {
         lock(&self.inner.monitor_failure).get_or_insert_with(|| cause.clone());
         self.inner.channel.close(Some(cause));
+        for (_, device) in &*lock(&self.inner.all_devices) {
+            device.seal();
+        }
     }
     fn log(&self, level: Level, message: &str, error: Option<&Failure>) {
         self.inner.runtime.emit(&self.inner.logger, level, message, error)
@@ -295,6 +295,7 @@ impl AdamDeviceProvider {
         // U211 review: a panic here is this monitor's error, so that the servers' tasks are still ended and joined below,
         // rather than left tracking (and, once the client is closed, reconnecting) for the rest of the process.
         let result = std::panic::AssertUnwindSafe(async {
+            let mut retiring: HashMap<_, Vec<Arc<dyn VendorTask>>> = HashMap::new();
             loop {
                 let event = cancellable(context.cancellation.clone(), async { Ok(rx.recv().await) }).await?;
                 let Some(event) = event else { return Ok(()) };
@@ -366,6 +367,10 @@ impl AdamDeviceProvider {
                 for (serial, update) in updates {
                     match update {
                         TrackingUpdate::Connected => {
+                            let predecessors = retiring
+                                .get(&(server.clone(), serial.clone()))
+                                .cloned()
+                                .unwrap_or_default();
                             let device = AndroidDevice::new(
                                 client.clone(),
                                 serial.clone(),
@@ -380,8 +385,15 @@ impl AdamDeviceProvider {
                                 .instant("core.Track.trackProviderDevicePreparing")
                                 .map_err(|e| other(FailureKind::ReplayClock, e.message))?;
                             let reference = device.reference();
+                            {
+                                let mut devices = lock(&self.inner.all_devices);
+                                if EventChannel::state(self.inner.channel.as_ref()).closed_for_send {
+                                    return Err(VendorError::Cancelled(requested("device provider is closed")));
+                                }
+                                devices.push((reference.clone(), device.clone()));
+                            }
                             let connected_reference = reference.clone();
-                            let ready = Arc::new(AtomicBool::new(false));
+                            let ready = Arc::new(Mutex::new(false));
                             let completed = ready.clone();
                             let connected = device.clone();
                             let channel = self.inner.channel.clone();
@@ -395,6 +407,13 @@ impl AdamDeviceProvider {
                                 .io
                                 .spawn_cancellable(Box::new(move |signal| {
                                     Box::pin(async move {
+                                        for task in predecessors {
+                                            cancellable(signal.clone(), async {
+                                                let _ = task.join().await;
+                                                Ok(())
+                                            })
+                                            .await?;
+                                        }
                                         let permit = cancellable(signal.clone(), async {
                                             barriers
                                                 .enter("android.AdamDeviceProvider.connected", &key)
@@ -409,10 +428,12 @@ impl AdamDeviceProvider {
                                                     ..c
                                                 })
                                                 .await?;
+                                            let mut ready = lock(&completed);
+                                            connected.ensure_running()?;
                                             channel.try_send(DeviceEvent::Connected(connected_reference)).map_err(
                                                 |_| other(FailureKind::ChannelSendClosed, "Channel was closed"),
                                             )?;
-                                            completed.store(true, Ordering::Release);
+                                            *ready = true;
                                             Ok(())
                                         }
                                         .await;
@@ -430,7 +451,6 @@ impl AdamDeviceProvider {
                                     })
                                 }));
                             lock(&self.inner.setups).push(task.clone());
-                            lock(&self.inner.all_devices).push((reference.clone(), device.clone()));
                             lock(&self.inner.devices).insert(
                                 (server.clone(), serial.clone()),
                                 Provided {
@@ -481,15 +501,24 @@ impl AdamDeviceProvider {
                                 if let Some(since) = self.inner.trackers.tracker(&client).away_since(&serial) {
                                     device.set_return_wait_used(context.clock.now_millis().saturating_sub(since));
                                 }
-                                if !ready.load(Ordering::Acquire) {
+                                let was_ready = {
+                                    let ready = lock(&ready);
+                                    device.seal();
+                                    *ready
+                                };
+                                if !was_ready {
                                     task.cancel(requested("device disconnected"));
-                                    let _ = task.join().await;
                                 }
                                 self.inner
                                     .channel
                                     .try_send(DeviceEvent::Disconnected(reference))
                                     .map_err(|_| other(FailureKind::ChannelSendClosed, "Channel was closed"))?;
-                                device.dispose().await?;
+                                // D41 releases the old batch's gate after this tracked update is handled.
+                                // Keep monitoring while it ends. A setup for the same serial waits for the
+                                // old cleanup before it uses that serial's remote state.
+                                let pending = retiring.entry((server.clone(), serial.clone())).or_default();
+                                pending.retain(|task| task.join().now_or_never().is_none());
+                                pending.push(device.start_cleanup(true));
                             }
                         }
                         TrackingUpdate::NothingToDo => {}
@@ -794,7 +823,7 @@ impl AdamDeviceProvider {
         let provided = |serial: &str| {
             lock(&self.inner.devices)
                 .get(&(server.clone(), serial.to_owned()))
-                .filter(|p| p.ready.load(Ordering::Acquire))
+                .filter(|p| *lock(&p.ready))
                 .map(|p| p.device.clone())
         };
         let (returned, gone) = blips.update(&devices);
@@ -883,7 +912,7 @@ impl AdamDeviceProvider {
         let serial = done.serial;
         let current = lock(&self.inner.devices)
             .get(&(server_name(client), serial.clone()))
-            .is_some_and(|p| p.ready.load(Ordering::Acquire) && p.device.is_same(&device));
+            .is_some_and(|p| *lock(&p.ready) && p.device.is_same(&device));
         if !current {
             return Ok(());
         }
@@ -963,11 +992,11 @@ impl AdamDeviceProvider {
             let provided = lock(&self.inner.devices);
             let mine = || provided.iter().filter(|((s, _), _)| *s == server);
             let interrupted: Vec<AndroidDevice> = mine()
-                .filter(|((_, serial), p)| kept.contains(serial) && !p.ready.load(Ordering::Acquire))
+                .filter(|((_, serial), p)| kept.contains(serial) && !*lock(&p.ready))
                 .map(|(_, p)| p.device.clone())
                 .collect();
             let resumed: Vec<AndroidDevice> = mine()
-                .filter(|(_, p)| p.ready.load(Ordering::Acquire))
+                .filter(|(_, p)| *lock(&p.ready))
                 .map(|(_, p)| p.device.clone())
                 .collect();
             (interrupted, resumed)
@@ -1026,46 +1055,30 @@ impl AdamDeviceProvider {
             task.cancel(requested("provider terminated"));
         }
         self.inner.channel.close(None);
-        if let Some(task) = provider {
-            let _ = task.join().await;
+        let failed = self.published_failure().is_some();
+        let devices = lock(&self.inner.all_devices).clone();
+        for (_, device) in &devices {
+            device.seal();
         }
-        let setups = lock(&self.inner.setups).clone();
-        for task in &setups {
+        for task in &*lock(&self.inner.setups) {
             task.cancel(requested("provider terminated"));
         }
-        for task in setups {
-            let _ = task.join().await;
-        }
-        let mut devices = lock(&self.inner.all_devices).clone();
-        for (_, device) in &devices {
-            device.stop_logcat().await;
-        }
-        devices.retain(|(_, device)| device.has_preparation_marker());
-        if !devices.is_empty()
-            && let Ok(limit) = millis(self.inner.runtime.configuration.timeout_configuration.shell)
-        {
-            use futures_util::StreamExt;
-            let context = VendorContext {
-                cancellation: Signal::new(),
-                clock: self.inner.runtime.dependencies.clock.clone(),
-                hooks: self.inner.runtime.dependencies.hooks.clone(),
-            };
-            // Marker cleanup is best effort. Share its deadline so unreachable devices cannot add up.
-            let _ = timed(&context, limit, |signal| {
-                Box::pin(async move {
-                    futures_util::stream::iter(devices)
-                        .for_each_concurrent(RECOVERIES_PER_SERVER, |(_, device)| {
-                            let signal = signal.clone();
-                            async move {
-                                let _ = device.remove_preparation_marker(signal).await;
-                            }
-                        })
-                        .await;
-                    Ok(())
-                })
-            })
-            .await;
-        }
+        let devices_done = async {
+            futures_util::future::join_all(devices.iter().map(|(_, device)| device.dispose_inner(failed))).await;
+        };
+        let provider_done = async {
+            if let Some(task) = provider {
+                let _ = task.join().await;
+            }
+            // Registration closes with the channel. A registered device's setup could have been spawned
+            // after the first scan of the setup handles, so join after the monitor ends.
+            let setups = lock(&self.inner.setups).clone();
+            for task in &setups {
+                task.cancel(requested("provider terminated"));
+            }
+            let _ = futures_util::future::join_all(setups.iter().map(|task| task.join())).await;
+        };
+        tokio::join!(devices_done, provider_done);
         self.inner.factory.close();
         *closed = true;
         Ok(())
@@ -1097,7 +1110,7 @@ impl DeviceProvider for AdamDeviceProvider {
                 let available: Vec<_> = lock(&self.inner.devices)
                     .iter()
                     // D41: a device in its grace period cannot take work now. Never true in a healthy run.
-                    .filter(|(_, p)| p.ready.load(Ordering::Acquire) && !p.device.is_held())
+                    .filter(|(_, p)| *lock(&p.ready) && !p.device.is_held() && !p.device.stopping())
                     .map(|((server, serial), p)| (server.clone(), serial.clone(), p.reference.clone()))
                     .collect();
                 if !available.is_empty() {

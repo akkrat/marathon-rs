@@ -29,3 +29,4 @@ pub mod remote_parser;
 pub mod runner;
 
 pub mod artifact_listeners;
+mod cleanup;

@@ -78,6 +78,8 @@ pub struct SocketFactory {
     /// adam creates its `vertx` lazily, on the first request, and `close()` before that closes nothing
     /// (`VertxSocketFactory.kt:32-35,47-50`).
     initialized: AtomicBool,
+    sealed: AtomicBool,
+    parent: Option<Arc<SocketFactory>>,
     /// The connections `close()` shuts down. Registration and `close()` share the lock, so a connection
     /// is either shut down or refused.
     live: std::sync::Mutex<Vec<Weak<Shared>>>,
@@ -90,13 +92,36 @@ impl SocketFactory {
             idle_timeout_ms,
             closed: Arc::new(watch::Sender::new(false)),
             initialized: AtomicBool::new(false),
+            sealed: AtomicBool::new(false),
+            parent: None,
             live: std::sync::Mutex::new(Vec::new()),
         }
+    }
+
+    /// Give one owner a connection group under this factory. Closing the group leaves
+    /// other groups open. Closing the parent still closes every connection.
+    pub fn scoped(self: &Arc<Self>) -> Arc<Self> {
+        Arc::new(Self {
+            parent: Some(self.parent.as_ref().unwrap_or(self).clone()),
+            ..Self::new(self.connect_timeout_ms, self.idle_timeout_ms)
+        })
+    }
+
+    /// Refuse new requests while allowing a connect admitted earlier to finish.
+    pub fn seal(&self) {
+        self.sealed.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_sealed(&self) -> bool {
+        self.sealed.load(Ordering::SeqCst)
     }
 
     /// Kotlin's first use of `vertx`: from now on, `close()` closes the factory.
     pub(crate) fn initialize(&self) {
         self.initialized.store(true, Ordering::Release);
+        if let Some(parent) = &self.parent {
+            parent.initialize();
+        }
     }
 
     /// `tcp(socketAddress, connectTimeout, idleTimeout)`: the per-request timeouts, in milliseconds,
@@ -111,32 +136,56 @@ impl SocketFactory {
     ) -> Result<Socket, AdbError> {
         self.initialize();
         self.check_open()?;
-        let connect = TcpStream::connect(addr);
-        let result = match connect_timeout(connect_timeout_ms.unwrap_or(self.connect_timeout_ms)) {
-            Some(limit) => match tokio::time::timeout(limit, connect).await {
-                Ok(r) => r,
-                Err(_) => {
-                    return Err(AdbError::Connect(ConnectError {
+        if self.is_sealed() {
+            return Err(AdbError::VertxClosed);
+        }
+        let connect = async {
+            let connect = TcpStream::connect(addr);
+            let result = match connect_timeout(connect_timeout_ms.unwrap_or(self.connect_timeout_ms)) {
+                Some(limit) => tokio::time::timeout(limit, connect).await.map_err(|_| {
+                    AdbError::Connect(ConnectError {
                         timed_out: true,
                         message: format!("connection timed out: {}", socket_address(addr, host_name)),
-                    }));
-                }
-            },
-            None => connect.await,
+                    })
+                })?,
+                None => connect.await,
+            };
+            result.map_err(|e| connect_error(e, addr, host_name))
         };
-        let stream = result.map_err(|e| connect_error(e, addr, host_name))?;
+        let mut closed = self.closed.subscribe();
+        let parent_closed = async {
+            if let Some(parent) = &self.parent {
+                let _ = parent.closed.subscribe().wait_for(|closed| *closed).await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
+        let stream = tokio::select! {
+            biased;
+            _ = closed.wait_for(|closed| *closed) => return Err(AdbError::VertxClosed),
+            _ = parent_closed => return Err(AdbError::VertxClosed),
+            stream = connect => stream?,
+        };
         let _ = stream.set_nodelay(true);
         let socket = Socket::new(
             stream,
             idle_timeout(idle_timeout_ms.unwrap_or(self.idle_timeout_ms)),
             self.closed.clone(),
+            self.parent.as_ref().map(|parent| parent.closed.subscribe()),
         )
         .map_err(|e| AdbError::Io(e.to_string()))?;
         let mut live = self.live.lock().unwrap_or_else(PoisonError::into_inner);
         // A close() that raced the connect wins, as vert.x would refuse the deployment.
         self.check_open()?;
         live.retain(|shared| shared.strong_count() > 0);
-        live.push(Arc::downgrade(&socket.writer.0));
+        let shared = Arc::downgrade(&socket.writer.0);
+        if let Some(parent) = &self.parent {
+            let mut parent_live = parent.live.lock().unwrap_or_else(PoisonError::into_inner);
+            parent.check_open()?;
+            parent_live.retain(|shared| shared.strong_count() > 0);
+            parent_live.push(shared.clone());
+        }
+        live.push(shared);
         Ok(socket)
     }
 
@@ -144,7 +193,7 @@ impl SocketFactory {
     /// connection is closed, so its server sees the end at once, its reads end and its writes fail; new
     /// connections fail.
     pub fn close(&self) {
-        if !self.initialized.load(Ordering::Acquire) {
+        if self.parent.is_none() && !self.initialized.load(Ordering::Acquire) {
             return;
         }
         let live = {
@@ -158,7 +207,7 @@ impl SocketFactory {
     }
 
     pub fn is_closed(&self) -> bool {
-        *self.closed.borrow()
+        *self.closed.borrow() || self.parent.as_ref().is_some_and(|parent| parent.is_closed())
     }
 
     fn check_open(&self) -> Result<(), AdbError> {
@@ -245,6 +294,7 @@ pub struct Socket {
     rd: OwnedReadHalf,
     writer: SocketWriter,
     factory_closed: watch::Receiver<bool>,
+    parent_closed: Option<watch::Receiver<bool>>,
     eof: bool,
     logging: Option<AdamLogging>,
 }
@@ -254,7 +304,12 @@ pub struct Socket {
 pub struct SocketWriter(Arc<Shared>);
 
 impl Socket {
-    fn new(stream: TcpStream, idle: Option<Duration>, factory: Arc<watch::Sender<bool>>) -> io::Result<Self> {
+    fn new(
+        stream: TcpStream,
+        idle: Option<Duration>,
+        factory: Arc<watch::Sender<bool>>,
+        parent_closed: Option<watch::Receiver<bool>>,
+    ) -> io::Result<Self> {
         // Taken out of tokio and back to duplicate the handle portably; `into_std` keeps it non-blocking.
         let stream = stream.into_std()?;
         let handle = stream.try_clone()?;
@@ -272,6 +327,7 @@ impl Socket {
             rd,
             writer: SocketWriter(Arc::new(shared)),
             factory_closed: factory.subscribe(),
+            parent_closed,
             eof: false,
             logging: None,
         })
@@ -290,7 +346,7 @@ impl Socket {
     /// closed, undeploying the socket's verticle fails with `IllegalStateException: Unknown deployment`
     /// (JVM probe `close-v1-stream`). A request that already failed keeps its own error.
     pub fn close_result(&self) -> Result<(), AdbError> {
-        if *self.factory_closed.borrow() {
+        if *self.factory_closed.borrow() || self.parent_closed.as_ref().is_some_and(|parent| *parent.borrow()) {
             return Err(AdbError::IllegalState("Unknown deployment".into()));
         }
         Ok(())

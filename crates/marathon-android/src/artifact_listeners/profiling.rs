@@ -2,6 +2,7 @@
 use marathon_logging::Level;
 
 use super::*;
+use crate::cleanup::ChildSignal;
 use crate::listeners::{AndroidTestRunListener, to_test};
 use jcompat::StringSubstitutor;
 use marathon_adb::testrunner::TestEvent;
@@ -36,6 +37,9 @@ impl ProfilingRunListener {
             .device
             .safe_execute_shell_command("killall perfetto", "", context)
             .await;
+        let stopped = result
+            .as_ref()
+            .is_ok_and(|reply| reply.as_ref().is_some_and(|r| r.exit_code == 0));
         let end = self.artifacts.now("android.ProfilingRunListener.stop")?;
         self.log(
             Level::DEBUG,
@@ -48,6 +52,9 @@ impl ProfilingRunListener {
                 job.cancel(requested("profiling stopped"));
             }
             let _ = job.join().await;
+        }
+        if stopped && !self.artifacts.device.stopping() {
+            self.artifacts.device.perfetto_active(false);
         }
         let end = self.artifacts.now("android.ProfilingRunListener.join")?;
         self.log(
@@ -106,7 +113,11 @@ impl AndroidTestRunListener for ProfilingRunListener {
     fn cleanup_in(&self, context: VendorContext) -> VendorFuture<'_, ()> {
         Box::pin(async move {
             if lock(&self.job).is_some() {
-                let result = self.stop(context, true).await;
+                let result = if self.artifacts.device.stopping() {
+                    Ok(())
+                } else {
+                    self.stop(context, true).await
+                };
                 let remaining = lock(&self.job).take();
                 if let Some(job) = remaining {
                     job.cancel(requested("profiling cleanup"));
@@ -167,48 +178,44 @@ impl AndroidTestRunListener for ProfilingRunListener {
                         .remote_profiling_for_test(&to_test(id), &self.artifacts.batch.id)?;
                     let config = lock(&self.config).1.clone().unwrap_or_else(|| "null".into());
                     let device = self.artifacts.device.clone();
-                    *lock(&self.job) = Some(self.artifacts.device.runtime().dependencies.io.spawn_cancellable(
-                        Box::new(move |signal| {
-                            Box::pin(async move {
-                                let result = device
-                                    .execute_shell_command(
-                                        &format!("echo '{config}' | perfetto --txt -c - -o {}", remote.to_owned()),
-                                        "",
-                                        VendorContext {
-                                            cancellation: Arc::new(ChildSignal(signal, context.cancellation.clone())),
-                                            ..context
-                                        },
-                                    )
-                                    .await;
-                                match &result {
-                                    Ok(r) => device.log_named(
-                                        "ProfilingRunListener",
-                                        Level::DEBUG,
-                                        &format!(
-                                            "perfetto process finished: {}",
-                                            r.as_ref()
-                                                .map(|r| format!(
-                                                    "output={} exitCode={}",
-                                                    r.output.to_owned(),
-                                                    r.exit_code
-                                                ))
-                                                .unwrap_or_else(|| "null".into())
-                                        ),
-                                        None,
+                    *lock(&self.job) = Some(self.artifacts.device.spawn_owned(Box::new(move |signal| {
+                        Box::pin(async move {
+                            device.ensure_running()?;
+                            device.perfetto_active(true);
+                            let result = device
+                                .execute_shell_command(
+                                    &format!("echo '{config}' | perfetto --txt -c - -o {}", remote.to_owned()),
+                                    "",
+                                    VendorContext {
+                                        cancellation: Arc::new(ChildSignal(signal, context.cancellation.clone())),
+                                        ..context
+                                    },
+                                )
+                                .await;
+                            match &result {
+                                Ok(r) => device.log_named(
+                                    "ProfilingRunListener",
+                                    Level::DEBUG,
+                                    &format!(
+                                        "perfetto process finished: {}",
+                                        r.as_ref()
+                                            .map(|r| format!("output={} exitCode={}", r.output.to_owned(), r.exit_code))
+                                            .unwrap_or_else(|| "null".into())
                                     ),
-                                    Err(e) => {
-                                        let (level, text) = if matches!(e, VendorError::Cancelled(_)) {
-                                            (Level::WARN, "perfetto start was interrupted")
-                                        } else {
-                                            (Level::ERROR, "Something went wrong while recording perfetto trace")
-                                        };
-                                        device.log_named("ProfilingRunListener", level, text, Some(e.failure()));
-                                    }
+                                    None,
+                                ),
+                                Err(e) => {
+                                    let (level, text) = if matches!(e, VendorError::Cancelled(_)) {
+                                        (Level::WARN, "perfetto start was interrupted")
+                                    } else {
+                                        (Level::ERROR, "Something went wrong while recording perfetto trace")
+                                    };
+                                    device.log_named("ProfilingRunListener", level, text, Some(e.failure()));
                                 }
-                                result.map(|_| ())
-                            })
-                        }),
-                    ));
+                            }
+                            result.map(|_| ())
+                        })
+                    }))?);
                 }
                 TestEvent::TestEnded { id, .. } => {
                     let result = async {

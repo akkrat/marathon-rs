@@ -36,6 +36,11 @@ impl AndroidDevice {
         }
     }
     pub async fn pull_file(&self, remote: &str, local: &str, context: VendorContext) -> VendorResult<()> {
+        let _work = self.admit()?;
+        let context = VendorContext {
+            cancellation: self.force_with(context.cancellation),
+            ..context
+        };
         let blips = self.grace_periods();
         let result = self
             .measurement()
@@ -71,9 +76,26 @@ impl AndroidDevice {
                         .await?;
                         return Ok(());
                     }
+                    // A pool or run attachment may have the same destination on several devices.
+                    // Only the request that finishes gets to publish bytes at that path.
+                    let destination = PathBuf::from(local);
+                    let parent = destination
+                        .parent()
+                        .filter(|path| !path.as_os_str().is_empty())
+                        .unwrap_or_else(|| Path::new("."))
+                        .to_owned();
+                    let staging = blocking(self.runtime().dependencies.io.as_ref(), move || {
+                        std::fs::create_dir_all(&parent).map_err(io)?;
+                        tempfile::Builder::new()
+                            .prefix(".marathon-pull-")
+                            .tempdir_in(parent)
+                            .map_err(io)
+                    })
+                    .await?;
+                    let staged = staging.path().join("file");
                     let request = CompatPullFileRequest::new(
                         remote,
-                        PathBuf::from(local),
+                        staged.clone(),
                         self.supported_features(),
                         Some(stat.size() as i64),
                     );
@@ -103,7 +125,8 @@ impl AndroidDevice {
                     }
                     .await;
                     completion.close().await.map_err(adb_error)?;
-                    result
+                    result?;
+                    tokio::fs::rename(staged, destination).await.map_err(io)
                 }),
             )
             .await;
@@ -275,6 +298,11 @@ impl AndroidDevice {
         Ok(())
     }
     pub async fn pull_folder(&self, remote: &str, local: &str, context: VendorContext) -> VendorResult<()> {
+        let _work = self.admit()?;
+        let context = VendorContext {
+            cancellation: self.force_with(context.cancellation),
+            ..context
+        };
         if !tokio::fs::metadata(local).await.is_ok_and(|m| m.is_dir()) {
             return Err(transfer(
                 format!("Destination {local} is not a directory").as_str().to_owned(),
@@ -285,6 +313,7 @@ impl AndroidDevice {
         while !dirs.is_empty() {
             let mut next = Vec::new();
             for dir in dirs {
+                self.ensure_running()?;
                 let response = timed(
                     &context,
                     millis(self.runtime().configuration.timeout_configuration.list_files)?,
@@ -422,6 +451,11 @@ impl AndroidDevice {
         params: &[String],
         context: VendorContext,
     ) -> VendorResult<ShellCommandResult> {
+        let _work = self.admit()?;
+        let context = VendorContext {
+            cancellation: self.force_with(context.cancellation),
+            ..context
+        };
         let features = self.supported_features();
         let args: Vec<_> = params
             .iter()
@@ -522,6 +556,11 @@ impl AndroidDevice {
         params: &[String],
         context: VendorContext,
     ) -> VendorResult<String> {
+        let _work = self.admit()?;
+        let context = VendorContext {
+            cancellation: self.force_with(context.cancellation),
+            ..context
+        };
         timed(
             &context,
             millis(self.runtime().configuration.timeout_configuration.install)?,

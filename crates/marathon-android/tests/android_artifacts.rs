@@ -1142,6 +1142,7 @@ fn unhealthy_run_failure_joins_recording_without_pull() {
                 .unwrap()
                 .push(json!({"prefix":"screenrecord ","hang":true}));
             shell(&mut script, "echo quickhealthcheck", "unhealthy");
+            shell(&mut script, "ps -A | grep screenrecord", "");
             let server = server(script).await;
             let device = device(&server, runtime);
             device.setup(context.clone()).await?;
@@ -1176,6 +1177,7 @@ fn cancelled_and_dropped_execute_join_artifact_jobs() {
                 let _temp = temp;
                 let mut script = base_script(33, vec![]);
                 script["shell"].as_array_mut().unwrap().extend([json!({"prefix":"screenrecord ","hang":true}),json!({"prefix":"am instrument ","stdout":"INSTRUMENTATION_STATUS: class=pkg.clazz\nINSTRUMENTATION_STATUS: test=method\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\n","hang":true})]);
+                shell(&mut script, "ps -A | grep screenrecord", "");
                 let server = server(script).await;
                 let device = device(&server, runtime.clone());
                 device.setup(context.clone()).await?;

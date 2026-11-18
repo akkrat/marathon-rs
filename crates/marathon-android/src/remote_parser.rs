@@ -155,7 +155,7 @@ impl AmInstrumentTestParser {
             );
             request.runner_class = info.test_runner_class;
             listener.start();
-            channel = Some(InstrumentationChannel::start(device, request));
+            channel = Some(InstrumentationChannel::start(device, request)?);
             let mut tests = vec![];
             let mut observed = false;
             let mut session = SessionEnd::default();
