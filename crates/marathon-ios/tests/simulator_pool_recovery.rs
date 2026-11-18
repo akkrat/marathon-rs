@@ -11,7 +11,7 @@ use marathon_config::devices::Transport;
 use marathon_core::{
     analytics::Analytics,
     ci::Ci,
-    execution::scheduler::{Scheduler, SchedulerParts},
+    execution::scheduler::{RunCancellation, Scheduler, SchedulerParts},
     executor::{
         CoreExecutor,
         hooks::RuntimeHooks,
@@ -118,6 +118,7 @@ fn last_device_loss(wait_millis: i64, returns_in_time: bool) -> TestResult {
                     sink: Arc::new(pool_support::NullSink),
                 },
                 context: core.context(parent.clone()),
+                cancellation: RunCancellation::owned_by(parent.clone()),
             }));
             let running = scheduler.clone();
             let finished = SharedDeferred::new();
@@ -247,6 +248,7 @@ fn cutoff_crossed_during_real_prepare_leaves_the_pool_without_requesting_a_first
                     sink: Arc::new(pool_support::NullSink),
                 },
                 context: core.context(parent.clone()),
+                cancellation: RunCancellation::owned_by(parent.clone()),
             });
             assert!(!scheduler.execute().await.map_err(|e| e.failure().clone())?);
             assert_eq!(scheduler.pools().len(), 1);
@@ -340,6 +342,7 @@ fn a_re_provisioning_that_fails_once_gives_the_pool_exactly_one_replacement() ->
                     sink: Arc::new(pool_support::NullSink),
                 },
                 context: core.context(parent.clone()),
+                cancellation: RunCancellation::owned_by(parent.clone()),
             }));
             let running = scheduler.clone();
             core.spawn(
@@ -441,6 +444,7 @@ fn no_devices_with_failing_setups(pause: i64, finished_retries: bool) -> TestRes
                     sink: Arc::new(pool_support::NullSink),
                 },
                 context: core.context(parent.clone()),
+                cancellation: RunCancellation::owned_by(parent.clone()),
             });
             let outcome = scheduler.execute().await;
             let waited = started.elapsed();
@@ -541,6 +545,7 @@ fn silent_batches_on_one_simulator(pause: i64, wait_millis: i64) -> TestResult<(
                     sink: Arc::new(pool_support::NullSink),
                 },
                 context: core.context(parent.clone()),
+                cancellation: RunCancellation::owned_by(parent.clone()),
             });
             let passed = scheduler.execute().await.map_err(|e| e.failure().clone())?;
             assert_eq!(scheduler.pools().len(), 1);

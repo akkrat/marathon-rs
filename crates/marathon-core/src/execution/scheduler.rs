@@ -35,8 +35,48 @@ const LOGGER: &str = "marathon_core::execution::scheduler";
 /// core's handling after it. Past both, a stopping run finishes without that device.
 pub const STOP_MARGIN_MILLIS: i64 = 5_000;
 
+/// D84 (x82b): whether the run was asked to stop, by its owner or by a signal (D52). The Scheduler's `fail` and the
+/// run's decision point read only this. It reads the owner's own job, which the owner's cancel reaches at once whatever
+/// the run's tasks are doing (the run task may have completed, the protected finish may be running), and never a job of
+/// the run's own machinery, which a failure inside the run can cancel. Everything here runs on the core thread, so a
+/// request and a failure are ordered as they happen.
+#[derive(Clone, Default)]
+pub struct RunCancellation(Rc<RunCancellationState>);
+#[derive(Default)]
+struct RunCancellationState {
+    owner: RefCell<Option<JobRef>>,
+    requested: RefCell<Option<Cancellation>>,
+}
+impl RunCancellation {
+    /// A run whose owner's job is `owner`: its cancellation is a request to stop the run.
+    pub fn owned_by(owner: JobRef) -> Self {
+        let cancellation = Self::default();
+        cancellation.set_owner(owner);
+        cancellation
+    }
+    pub fn set_owner(&self, owner: JobRef) {
+        *self.0.owner.borrow_mut() = Some(owner);
+    }
+    /// A request with no job behind it: a signal. The first one stands.
+    pub fn request(&self, reason: Cancellation) {
+        self.0.requested.borrow_mut().get_or_insert(reason);
+    }
+    /// The request, if the run was asked to stop.
+    pub fn reason(&self) -> Option<Cancellation> {
+        if let Some(reason) = self.0.requested.borrow().clone() {
+            return Some(reason);
+        }
+        self.0
+            .owner
+            .borrow()
+            .as_ref()
+            .and_then(|owner| owner.cancellation_signal().reason())
+    }
+}
+
 /// The Kotlin constructor's parameters, plus what the accumulators and actors need on core.
-/// `context` is the run's coroutine context: the subscription is its child.
+/// `context` is the run's coroutine context: the subscription is its child. `cancellation` says whether the run was
+/// asked to stop.
 pub struct SchedulerParts {
     pub core: Rc<CoreExecutor>,
     pub provider: Arc<dyn DeviceProvider>,
@@ -51,6 +91,7 @@ pub struct SchedulerParts {
     pub ci: Ci,
     pub output: OutputDriver,
     pub context: TaskContext,
+    pub cancellation: RunCancellation,
 }
 
 #[derive(Clone)]
@@ -473,12 +514,11 @@ impl Inner {
             );
             return;
         }
-        // D84 (U215): the run was cancelled (a signal, D52, or its owner) before this failure reached the Scheduler. The
-        // cancellation explains what fails after it, so the failure is not the run's cause; the run still stops. Nothing
-        // of the Scheduler's own cancels the run's task (the subscription is scoped), so any cancellation of it is such a
-        // request. Without this the outcome depended on whether a failure that ended in the same moment as the cancel
-        // was handled before or after the run's wait saw the cancel.
-        if let Some(reason) = self.parts.context.job.cancellation_signal().reason() {
+        // D84 (U215): the run was asked to stop (a signal, D52, or its owner) before this failure reached the Scheduler.
+        // The request explains what fails after it, so the failure is not the run's cause; the run still stops. Without
+        // this the outcome depended on whether a failure that ended in the same moment as the cancel was handled before
+        // or after the run's wait saw the cancel.
+        if let Some(reason) = self.parts.cancellation.reason() {
             self.log(
                 Level::WARN,
                 "A failure after the run was cancelled; the cancellation stands".into(),

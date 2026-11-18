@@ -15,7 +15,7 @@ use marathon_apple::cmd::CommandResult;
 use marathon_core::{
     analytics::Analytics,
     ci::Ci,
-    execution::scheduler::{Scheduler, SchedulerParts},
+    execution::scheduler::{RunCancellation, Scheduler, SchedulerParts},
     executor::{CoreExecutor, hooks::RuntimeHooks, shared::requested},
     model::TestShard,
     output::OutputDriver,
@@ -196,6 +196,7 @@ fn probe_never_succeeds_on_the_only_simulator(from: From) -> TestResult<Timeline
                     sink: Arc::new(pool_support::NullSink),
                 },
                 context: core.context(parent.clone()),
+                cancellation: RunCancellation::owned_by(parent.clone()),
             });
             let passed = scheduler.execute().await.map_err(|e| e.failure().clone())?;
             let ended = p.h().clock.now();

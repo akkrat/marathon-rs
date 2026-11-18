@@ -71,23 +71,7 @@ fn script() -> (marathon_test_support::factory::MarathonFactory, Script) {
 
 /// The cause of `Marathon run failed`, outermost first.
 fn run_failure(outcome: &Outcome) -> Vec<String> {
-    let causes = outcome
-        .lines
-        .iter()
-        .filter_map(|line| match line {
-            Line::Log {
-                level: Level::ERROR,
-                message,
-                cause: Some(cause),
-                ..
-            } if message == "Marathon run failed" => Some(cause.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(causes.len(), 1, "{:?}", outcome.lines);
-    std::iter::successors(causes.first(), |cause| cause.cause.as_deref())
-        .map(|cause| cause.message.clone().unwrap_or_default())
-        .collect()
+    run_failure_in(&outcome.lines)
 }
 
 /// The run ended, before `ends_before`, as a failed run: `false` without `ignoreFailures`, test1's result in the
@@ -984,20 +968,19 @@ fn a_parse_deadline_ends_with_the_providers_published_failure_d84() {
     assert!(!logged(&outcome, Level::WARN, "No devices found"));
 }
 
-/// D84 (x82b review): all tests have passed and the provider is terminating when the run's owner cancels it; the
-/// termination then ends and the provider's device channel fails. The cancel explains the failure after it (U215), and
-/// a run its owner cancelled never ends as a success: the run ends cancelled, which without `ignoreFailures` maps to a
-/// failed run, as it did when the late failure was recorded instead.
-#[test]
-fn an_owner_cancel_during_the_finish_never_ends_the_run_green_d84() {
+/// The run's owner cancels the run while the provider terminates in the run's finish; the termination then ends and
+/// closes the provider's device channel with `channel_end`. With `connect`, `serial-1` runs both tests; without, the run
+/// ends with no devices (the 1 s device timeout) before its finish. Returns the run's value and the console lines.
+fn owner_cancel_during_termination(
+    mut factory: marathon_test_support::factory::MarathonFactory,
+    first: Option<Arc<StubDevice>>,
+    channel_end: Option<marathon_core::error::Failure>,
+) -> (Option<OperationResult<bool>>, Vec<Line>) {
     use marathon_core::{
         executor::CoreExecutor,
         runtime::{JobKind, TaskContext},
         time::ReplayDriver,
     };
-    let (mut factory, script) = script();
-    factory.configuration.configuration.ignore_failures = false;
-    let first = script.devices["serial-1"].clone();
     let result = CoreExecutor::run_virtual(move |core, replay| {
         Box::pin(async move {
             let built = factory
@@ -1009,21 +992,20 @@ fn an_owner_cancel_during_the_finish_never_ends_the_run_green_d84() {
             let channel = built.provider.channel();
             let (entered, release) = (terminating.clone(), released.clone());
             *built.provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
-                let (entered, release, channel) = (entered.clone(), release.clone(), channel.clone());
+                let (entered, release, channel, end) =
+                    (entered.clone(), release.clone(), channel.clone(), channel_end.clone());
                 Box::pin(async move {
                     entered.complete(Ok(()));
                     let _ = release.wait().await;
-                    channel.close(Some(failure(
-                        FailureKind::IllegalState,
-                        &format!("{PROBE}: the device events failed"),
-                    )));
+                    channel.close(end);
                     Ok(())
                 })
             }));
-            assert!(built.provider.send(DeviceEvent::Connected(first.reference())));
+            if let Some(first) = first {
+                assert!(built.provider.send(DeviceEvent::Connected(first.reference())));
+            }
             let owner = core.job(JobKind::Ordinary, None);
-            let value: std::rc::Rc<std::cell::RefCell<Option<marathon_core::error::OperationResult<bool>>>> =
-                Default::default();
+            let value: std::rc::Rc<std::cell::RefCell<Option<OperationResult<bool>>>> = Default::default();
             let (output, marathon, run_owner) = (value.clone(), built.marathon.clone(), owner.clone());
             core.spawn(
                 core.job(JobKind::Ordinary, None),
@@ -1043,7 +1025,7 @@ fn an_owner_cancel_during_the_finish_never_ends_the_run_green_d84() {
                 Box::new(move |_: TaskContext| {
                     Box::pin(async move {
                         let _ = terminating.wait().await;
-                        canceller.cancel(requested("the run's owner cancelled it"));
+                        canceller.cancel(requested(&format!("{PROBE}: the run's owner cancelled it")));
                         released.complete(Ok(()));
                         Ok(())
                     })
@@ -1054,11 +1036,92 @@ fn an_owner_cancel_during_the_finish_never_ends_the_run_green_d84() {
                 .await
                 .map_err(|e| failure(FailureKind::ReplayClock, &e.message.to_owned()))?;
             let value = value.borrow_mut().take();
-            Ok(value)
+            Ok((value, built.console.lines()))
         })
     });
     match result {
-        Ok(Some(Ok(passed))) => assert!(!passed, "a run its owner cancelled ended as a success"),
-        other => panic!("the run did not end as expected: {other:?}"),
+        Ok(outcome) => outcome,
+        Err(e) => panic!("the run's driver failed: {e:?}"),
     }
+}
+
+/// The cause chain of the one `Marathon run failed` in `lines`, outermost first.
+fn run_failure_in(lines: &[Line]) -> Vec<String> {
+    let causes = lines
+        .iter()
+        .filter_map(|line| match line {
+            Line::Log {
+                level: Level::ERROR,
+                message,
+                cause: Some(cause),
+                ..
+            } if message == "Marathon run failed" => Some(cause.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(causes.len(), 1, "{lines:?}");
+    std::iter::successors(causes.first(), |cause| cause.cause.as_deref())
+        .map(|cause| cause.message.clone().unwrap_or_default())
+        .collect()
+}
+
+/// D84 (x82b review): all tests have passed and the provider is terminating when the run's owner cancels it; the
+/// termination then ends and the provider's device channel fails. The cancel explains the failure after it (U215), and
+/// a run its owner cancelled never ends as a success: the run ends cancelled, which without `ignoreFailures` maps to a
+/// failed run, as it did when the late failure was recorded instead.
+#[test]
+fn an_owner_cancel_during_the_finish_never_ends_the_run_green_d84() {
+    let (mut factory, script) = script();
+    factory.configuration.configuration.ignore_failures = false;
+    let first = script.devices["serial-1"].clone();
+    let end = failure(FailureKind::IllegalState, &format!("{PROBE}: the device events failed"));
+    let (value, lines) = owner_cancel_during_termination(factory, Some(first), Some(end));
+    assert!(
+        matches!(value, Some(Ok(false))),
+        "a run its owner cancelled ended as a success: {value:?}"
+    );
+    assert_eq!(
+        run_failure_in(&lines),
+        [format!("{PROBE}: the run's owner cancelled it")]
+    );
+}
+
+/// D84 (x82b re-check): the run ends with no devices, and its owner cancels it while the protected finish waits for
+/// the provider's termination, after the run task has completed; the termination then closes the provider's device
+/// channel with `end`. The cancel stands: the run ends cancelled, which `ignoreFailures` maps, not with the channel's
+/// failure and not without devices.
+fn assert_owner_cancel_stands_after_no_devices(end: Option<marathon_core::error::Failure>) {
+    let (mut factory, _) = script();
+    factory.configuration.configuration.ignore_failures = true;
+    factory.configuration.configuration.device_initialization_timeout_millis = 1_000;
+    let (value, lines) = owner_cancel_during_termination(factory, None, end);
+    assert!(
+        matches!(value, Some(Ok(true))),
+        "a cancelled run maps through ignoreFailures: {value:?}"
+    );
+    assert_eq!(
+        run_failure_in(&lines),
+        [format!("{PROBE}: the run's owner cancelled it")]
+    );
+    assert!(
+        !lines
+            .iter()
+            .any(|line| matches!(line, Line::Log { level: Level::WARN, message, .. } if message == "No devices found")),
+        "{lines:?}"
+    );
+}
+
+/// (a): the channel fails after the cancel; the failure is not the run's cause.
+#[test]
+fn an_owner_cancel_during_the_protected_finish_explains_a_channel_failure_d84() {
+    assert_owner_cancel_stands_after_no_devices(Some(failure(
+        FailureKind::IllegalState,
+        &format!("{PROBE}: the device events failed"),
+    )));
+}
+
+/// (b): the channel closes normally; the run ends cancelled, not without devices.
+#[test]
+fn an_owner_cancel_during_the_protected_finish_outranks_no_devices_d84() {
+    assert_owner_cancel_stands_after_no_devices(None);
 }

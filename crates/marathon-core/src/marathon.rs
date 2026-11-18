@@ -10,7 +10,7 @@ use crate::{
     artifact_io::{blocking, clock_error, vendor_error},
     ci::Ci,
     error::*,
-    execution::scheduler::{Scheduler, SchedulerParts},
+    execution::scheduler::{RunCancellation, Scheduler, SchedulerParts},
     executor::{CoreExecutor, bridge::call_vendor, retry::with_retry, shared::*},
     filter::{FilterDependencies, TestFilter},
     model::{ExecutionCommand, Test, TestShard},
@@ -282,6 +282,8 @@ pub struct Marathon {
     finish_completed: Cell<bool>,
     /// D52: a signal's finish has begun; the run's own finish then does nothing, as before.
     signalled: Cell<bool>,
+    /// D84 (x82b): whether the run's owner or a signal asked the run to stop, for the whole of `run_under`.
+    cancellation: RunCancellation,
     hook_installed: Rc<Cell<bool>>,
     steps: FinishSteps,
     /// D52: the output directory is this run's, wiped and ready for reports.
@@ -329,6 +331,7 @@ impl Marathon {
             cleaned_up: Cell::new(false),
             finish_completed: Cell::new(false),
             signalled: Cell::new(false),
+            cancellation: RunCancellation::default(),
             hook_installed: Rc::new(Cell::new(false)),
             steps: FinishSteps::default(),
             output_ready: Cell::new(false),
@@ -599,6 +602,7 @@ impl Marathon {
             ci: self.services.ci,
             output: self.services.output.clone(),
             context: task.clone(),
+            cancellation: self.cancellation.clone(),
         });
         *self.scheduler_job.borrow_mut() = Some(scheduler.job());
         *self.diagnostic_scheduler.borrow_mut() = Some(scheduler.clone());
@@ -1020,6 +1024,7 @@ impl Marathon {
         );
         self.cleaned_up.set(true);
         self.signalled.set(true);
+        self.cancellation.request(requested("Cancelled by a signal"));
         self.stop_execution("Cancelled by a signal");
         let _ = race(
             self.flush(Signal::new()),
@@ -1058,6 +1063,9 @@ impl Marathon {
         parent: Option<JobRef>,
     ) -> OperationResult<bool> {
         let core = self.services.core.clone();
+        if let Some(owner) = &parent {
+            self.cancellation.set_owner(owner.clone());
+        }
         let root = core.job(JobKind::Ordinary, parent);
         let relay = self
             .services
@@ -1152,13 +1160,11 @@ impl Marathon {
                 }
                 Err(VendorError::Other(cause))
             }
-            // D84 (x82b): a run its owner or a signal cancelled never ends as a success, whatever it had stored; a cause
-            // recorded before the cancel wins above.
-            None => match (outcome, root.cancellation_signal().reason()) {
-                (Ok(_), Some(reason)) => Err(VendorError::Cancelled(reason)),
-                (Ok(_), None) if self.signalled.get() => {
-                    Err(VendorError::Cancelled(requested("Cancelled by a signal")))
-                }
+            // D84 (x82b): a run its owner or a signal asked to stop ends cancelled, whatever it had reached (a success, a
+            // no-device timeout), also when the request came during the protected finish; a cause recorded before the
+            // request wins above, and an error the run reached is mapped as a cancellation is.
+            None => match (outcome, self.cancellation.reason()) {
+                (Ok(_) | Err(VendorError::NoDevices(_)), Some(reason)) => Err(VendorError::Cancelled(reason)),
                 (outcome, _) => outcome,
             },
         };

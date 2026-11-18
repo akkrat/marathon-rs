@@ -7,7 +7,7 @@ use marathon_core::{
     analytics::Analytics,
     ci::Ci,
     error::*,
-    execution::scheduler::{Scheduler, SchedulerParts},
+    execution::scheduler::{RunCancellation, Scheduler, SchedulerParts},
     executor::shared::SharedChannel,
     model::*,
     output::OutputDriver,
@@ -113,6 +113,7 @@ impl Run {
                 sink: h.sink.clone(),
             },
             context: h.core.context(parent.clone()),
+            cancellation: RunCancellation::owned_by(parent.clone()),
         }));
         let result = Rc::new(RefCell::new(None));
         Self {
