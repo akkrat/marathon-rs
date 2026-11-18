@@ -205,6 +205,14 @@ returned (P1, a late pool). A D52 signal does not enter it; D52 keeps its own pa
   the provider's device channel with the cause. An ordinary error while devices are connected is logged at ERROR and
   the run carries on with them, as before D84.
 
+## Review round 6 (Sol 6.2 delta): per-finding status
+
+| Item | Status | Fix | Witness |
+|---|---|---|---|
+| 1: the parse deadline discarded a cause published during the borrow's sleep | fixed | the iOS borrow, when cancelled without a simulator, returns the cause published by then; `DeviceProvider::published_failure` (default none; iOS reports its monitoring's cause) is read when the remote parse's deadline ends without a device, in place of NoDevices | `simulator_panic::a_borrow_ended_by_its_deadline_ends_with_the_published_failure_d84` (sleep from 1,000 ms, publication at 1,020 ms, deadline at 1,050 ms; fails on 9d891389); run level `run_supervision::a_parse_deadline_ends_with_the_providers_published_failure_d84` (needs the new provider hook, so compile-only on 9d891389) |
+| 2: the cached cause aborted a parse that could succeed | fixed | the borrow no longer returns early on the cached cause; it keeps polling as before D84 | `simulator_panic::a_borrow_still_takes_a_simulator_registered_after_a_published_failure_d84` (fails on 9d891389) |
+| D84 text | fixed | the remote-parse sentence (deviations, PLAN row) | — |
+
 ## Review round 5 (Sol 6.2, REQUEST_CHANGES): per-finding status
 
 | Item | Status | Fix | Witness (fails on 9f744841) |
