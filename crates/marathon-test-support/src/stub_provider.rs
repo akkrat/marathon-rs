@@ -59,6 +59,19 @@ impl StubDeviceProvider {
     pub fn send(&self, event: DeviceEvent) -> bool {
         self.channel.try_send(event).is_ok()
     }
+
+    fn finish(&self, entry: &'static str) -> VendorFuture<'_, ()> {
+        lock(&self.calls).push(entry);
+        let hook = lock(&self.on_terminate).clone();
+        Box::pin(async move {
+            if let Some(hook) = hook {
+                hook().await?;
+            }
+            // `channel.close()`: graceful, the buffer drains.
+            self.channel.close(None);
+            Ok(())
+        })
+    }
 }
 impl DeviceProvider for StubDeviceProvider {
     fn initialize(&self, context: VendorContext) -> VendorFuture<'_, ()> {
@@ -113,16 +126,10 @@ impl DeviceProvider for StubDeviceProvider {
         })
     }
     fn terminate(&self) -> VendorFuture<'_, ()> {
-        lock(&self.calls).push("terminate");
-        let hook = lock(&self.on_terminate).clone();
-        Box::pin(async move {
-            if let Some(hook) = hook {
-                hook().await?;
-            }
-            // `channel.close()`: graceful, the buffer drains.
-            self.channel.close(None);
-            Ok(())
-        })
+        self.finish("terminate")
+    }
+    fn terminate_after_stop(&self) -> VendorFuture<'_, ()> {
+        self.finish("terminate_after_stop")
     }
     fn published_failure(&self) -> Option<marathon_core::error::Failure> {
         lock(&self.published_failure).clone()

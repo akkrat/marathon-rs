@@ -74,6 +74,14 @@ fn run_failure(outcome: &Outcome) -> Vec<String> {
     run_failure_in(&outcome.lines)
 }
 
+fn termination_calls(calls: &[&'static str]) -> Vec<&'static str> {
+    calls
+        .iter()
+        .copied()
+        .filter(|call| matches!(*call, "terminate" | "terminate_after_stop"))
+        .collect()
+}
+
 /// The run ended, before `ends_before`, as a failed run: `false` without `ignoreFailures`, test1's result in the
 /// reports, the provider terminated and no actor alive.
 fn assert_failed_run(outcome: &Outcome, ends_before: i64) {
@@ -94,11 +102,7 @@ fn assert_failed_run(outcome: &Outcome, ends_before: i64) {
         .map(|row| row["status"].as_str().unwrap().to_owned())
         .collect::<Vec<_>>();
     assert_eq!(test1, ["PASSED"], "{raw}");
-    assert!(
-        outcome.provider_calls.contains(&"terminate"),
-        "{:?}",
-        outcome.provider_calls
-    );
+    assert_eq!(termination_calls(&outcome.provider_calls), ["terminate_after_stop"]);
     let alive = outcome
         .open_mailboxes
         .iter()
@@ -938,6 +942,71 @@ fn a_healthy_run_completes_in_its_usual_order_d94() {
     assert_drain_results(&outcome, &["test1", "test2"]);
 }
 
+#[test]
+fn a_run_with_failed_assertions_uses_routine_provider_termination_d94() {
+    let (mut factory, script) = script();
+    factory.configuration.configuration.retry_strategy = marathon_config::schema::RetryStrategyConfiguration::NoRetry;
+    script.devices["serial-1"].set_execution_results(HashMap::from([
+        (scenario::test("test", "SimpleTest", "test1"), vec![TestStatus::Failure]),
+        (scenario::test("test", "SimpleTest", "test2"), vec![TestStatus::Passed]),
+    ]));
+    let outcome = scenario::drive(factory, script, None, None);
+    assert!(matches!(outcome.value, Some(Ok(false))));
+    assert_eq!(outcome.completed_at, Some(SECOND_TEST_ENDS));
+    let raw: Value = serde_json::from_str(&outcome.read("test_result/raw.json")).unwrap();
+    assert_eq!(raw[0]["status"], "FAILURE");
+    assert_eq!(termination_calls(&outcome.provider_calls), ["terminate"]);
+}
+
+#[test]
+fn an_owner_cancel_before_termination_uses_the_interrupted_provider_entry_d94() {
+    use marathon_core::{executor::CoreExecutor, model::ExecutionCommand, runtime::JobKind, time::ReplayDriver};
+    let (mut factory, script) = script();
+    CoreExecutor::run_virtual(move |core, replay| {
+        Box::pin(async move {
+            let built = factory.build(&core).await.map_err(OperationError::Failed)?;
+            let started = SharedDeferred::new();
+            let device = Hooked {
+                started: Some(started.clone()),
+                ..hooked(script.devices["serial-1"].clone())
+            };
+            assert!(built.provider.send(DeviceEvent::Connected(DeviceRef(Arc::new(device)))));
+            let owner = core.job(JobKind::Ordinary, None);
+            let cancelled = owner.clone();
+            core.spawn_cleanup(Box::new(move |_| {
+                Box::pin(async move {
+                    started.wait().await.unwrap();
+                    cancelled.cancel(requested("The test owner cancelled the run"));
+                    Ok(())
+                })
+            }));
+            let finished = std::rc::Rc::new(std::cell::Cell::new(None));
+            let (marathon, result) = (built.marathon, finished.clone());
+            core.spawn_cleanup(Box::new(move |_| {
+                Box::pin(async move {
+                    result.set(Some(marathon.run_under(ExecutionCommand::Run, Some(owner)).await?));
+                    Ok(())
+                })
+            }));
+            replay
+                .advance_to(120_000)
+                .await
+                .map_err(|e| failure(FailureKind::ReplayClock, &e.message.to_owned()))?;
+            assert_eq!(finished.get(), Some(false));
+            assert_eq!(
+                run_failure_in(&built.console.lines()),
+                ["The test owner cancelled the run"]
+            );
+            assert_eq!(
+                termination_calls(&built.provider.calls.lock().unwrap()),
+                ["terminate_after_stop"]
+            );
+            Ok(())
+        })
+    })
+    .unwrap();
+}
+
 struct StalledSubscription;
 impl marathon_core::analytics::TrackerInternalAdapter for StalledSubscription {
     fn device_connected<'a>(&'a self, _: &'a marathon_core::report::DeviceConnectedEvent) -> VendorFuture<'a, ()> {
@@ -1076,7 +1145,8 @@ fn a_signal_while_the_run_settles_keeps_the_reports_first_d84() {
             Box::pin(async { Ok(()) })
         }));
     }));
-    let _outcome = scenario::drive(factory, script, Some(prepare), ready);
+    let outcome = scenario::drive(factory, script, Some(prepare), ready);
+    assert_eq!(termination_calls(&outcome.provider_calls), ["terminate"]);
     let events = events.lock().unwrap().clone();
     let at = |name: &str| {
         events

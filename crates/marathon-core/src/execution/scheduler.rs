@@ -22,7 +22,7 @@ use crate::{
     vendor::{Device, DeviceEvent, DeviceProvider, DeviceRef, TestBundleIdentifier},
     wiring::Tracker,
 };
-use futures_util::future::Either;
+use futures_util::{FutureExt, future::Either};
 use indexmap::IndexMap;
 use marathon_config::Configuration;
 use marathon_error::FailureKind;
@@ -520,7 +520,6 @@ impl Inner {
         }
         let channel = self.channel.borrow().clone();
         let Some(channel) = channel else { return };
-        use futures_util::FutureExt;
         // An open provider can keep publishing while it is being settled. Inspect only the current backlog and
         // one terminal read. After termination we check again, when the provider has closed the channel.
         for _ in 0..=channel.state().queued {
@@ -663,7 +662,8 @@ impl Inner {
     }
 
     /// D84: (I4) waits for every cancelled device to end, each within its vendor's own bound for a cancelled call (none
-    /// for a vendor without one). D94 bounds each barrier. The pool takes its results before its queue takes them.
+    /// for a vendor without one). D94 gives all barriers one deadline. Each pool forwards results before its queue's
+    /// barrier is sent.
     async fn stop_routine(
         &self,
         pools: Vec<(DevicePoolId, DevicePool)>,
@@ -714,25 +714,32 @@ impl Inner {
         });
         futures_util::future::join_all(joins).await;
         timer.cancel(requested("The devices have stopped"));
-        for (id, pool) in &pools {
+        let timer = self.parts.core.job(JobKind::Ordinary, None);
+        let drain_by = clock.now_millis().saturating_add(DRAIN_LIMIT_MILLIS);
+        let deadline = async { clock.delay(drain_by.saturating_sub(clock.now_millis()), timer).await }.shared();
+        let drains = pools.iter().map(|(id, pool)| {
             let barrier = crate::execution::pool_message::DrainBarrier(SharedDeferred::new());
             let drain = DevicePoolMessage::FromScheduler(FromScheduler::Drain(barrier.clone()));
-            if pool.actor.try_send(drain).is_ok() {
-                self.drain_actor(&pool.actor, barrier.0.wait(), "pool", id, &reason)
+            let sent = pool.actor.seal_after(drain);
+            let deadline = deadline.clone();
+            let reason = &reason;
+            async move {
+                let answer = sent.then(|| barrier.0.wait());
+                let pool_drained = self
+                    .drain_actor(&pool.actor, answer, deadline.clone(), "pool", id, reason)
                     .await;
+                // If the pool expired, an idle queue has already taken all its results and needs no final barrier.
+                if pool_drained || pool.queue.has_work_to_drain() {
+                    let queue = pool.queue.actor();
+                    let (taken, answer) = tokio::sync::oneshot::channel();
+                    let answer = queue.seal_after(QueueMessage::IsEmpty(taken)).then_some(answer);
+                    self.drain_actor(&queue, answer, deadline, "queue for pool", id, reason)
+                        .await;
+                }
             }
-            let (taken, answer) = tokio::sync::oneshot::channel();
-            if pool.queue.try_send(QueueMessage::IsEmpty(taken)) {
-                self.drain_actor(&pool.queue.actor(), answer, "queue for pool", id, &reason)
-                    .await;
-            }
-        }
-        self.job.cancel(reason.clone());
-        // An over-budget device may have sent a message behind a barrier. The acknowledged prefix is all we wait for.
-        for (_, pool) in &pools {
-            pool.actor.interrupt(reason.clone());
-            pool.queue.actor().interrupt(reason.clone());
-        }
+        });
+        futures_util::future::join_all(drains).await;
+        self.job.cancel(reason);
         for (_, pool) in &pools {
             let _ = pool.actor.job().join().await;
             let _ = pool.queue.job().join().await;
@@ -742,15 +749,21 @@ impl Inner {
     async fn drain_actor<M: 'static>(
         &self,
         actor: &RuntimeActor<M>,
-        answer: impl Future,
+        answer: Option<impl Future>,
+        deadline: impl Future,
         name: &str,
         id: &DevicePoolId,
         reason: &Cancellation,
-    ) {
+    ) -> bool {
         let job = actor.job();
-        let timer = self.parts.core.job(JobKind::Ordinary, None);
-        let clock = self.parts.core.clock();
-        if let Either::Right(_) = race(race(answer, job.join()), clock.delay(DRAIN_LIMIT_MILLIS, timer)).await {
+        let drained = async {
+            if let Some(answer) = answer {
+                let _ = race(answer, job.join()).await;
+            } else {
+                let _ = job.join().await;
+            }
+        };
+        if let Either::Right(_) = race(drained, deadline).await {
             self.log(
                 Level::WARN,
                 format!(
@@ -760,7 +773,9 @@ impl Inner {
                 None,
             );
             actor.interrupt(reason.clone());
+            return false;
         }
+        true
     }
 
     fn on_device_disconnected(&self, device: DeviceRef) -> OperationResult<()> {

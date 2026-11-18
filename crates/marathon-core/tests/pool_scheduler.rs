@@ -2245,6 +2245,66 @@ impl marathon_core::wiring::Tracker for PoolGatedTrack {
     }
 }
 
+#[test]
+fn several_stalled_queues_share_one_drain_deadline_d94() {
+    scheduling_test(|h| {
+        Box::pin(async move {
+            let slow = Gate::default();
+            let run = Run::new_with_tracker(
+                &h,
+                waiting_with_models(),
+                Arc::new(PoolGatedTrack(
+                    h.tracker.clone(),
+                    vec![
+                        ("A", Gate::default()),
+                        ("B", Gate::default()),
+                        ("C", Gate::default()),
+                        ("D", slow.clone()),
+                    ],
+                )),
+            );
+            h.run_current().await;
+            let devices = ["A", "B", "C", "D"].map(|model| device(model, model, 100, false));
+            for device in &devices {
+                run.connect(device);
+            }
+            advance(&h, 300).await;
+            assert!(devices.iter().all(|device| device.batches().len() == 1));
+            assert!(h.tracker.events().is_empty());
+
+            let cause = ise("device events failed");
+            run.provider.channel.close(Some(cause.clone()));
+            advance(&h, 64_300).await;
+            slow.open();
+            h.run_current().await;
+            let tracked = h.tracker.events();
+            assert_eq!(tracked.len(), 1, "{tracked:?}");
+            assert!(tracked[0].ends_with("on D"), "{tracked:?}");
+            assert_eq!(ended_at(&run), None);
+
+            advance(&h, 65_300).await;
+            assert_eq!(ended_at(&run), Some(65_300));
+            assert_eq!(run.scheduler.failure(), Some(cause));
+            let warnings = sorted(
+                h.logs()
+                    .into_iter()
+                    .filter(|log| {
+                        log.level == marathon_logging::Level::WARN && log.message.starts_with("Drain timed out")
+                    })
+                    .map(|log| log.message)
+                    .collect(),
+            );
+            assert_eq!(
+                warnings,
+                ["A", "B", "C"]
+                    .map(|pool| { format!("Drain timed out for queue for pool {pool} after 65000 ms; cancelling it") })
+            );
+            assert!(run.scheduler.pools().iter().all(|(_, pool)| pool.terminated()));
+            run.finish(&h).await;
+        })
+    });
+}
+
 /// A test device whose pool's handler panics when it reads the device's worker, as it does when the device asks for a
 /// batch.
 struct PanicsInPool(Arc<TestDevice>);

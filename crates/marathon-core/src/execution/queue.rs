@@ -121,6 +121,9 @@ impl QueueHandle {
     pub fn actor(&self) -> Rc<RuntimeActor<QueueMessage>> {
         self.actor.clone()
     }
+    pub(crate) fn has_work_to_drain(&self) -> bool {
+        self.busy.get() || self.actor.state().queued != 0
+    }
 }
 
 /// The queue state after a message, in priority/FIFO and LinkedHashMap order.

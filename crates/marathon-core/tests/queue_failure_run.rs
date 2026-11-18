@@ -112,7 +112,7 @@ fn a_failed_queue_ends_the_run_with_its_cause_while_another_pool_is_alive_d68() 
         outcome.output_dir.display()
     );
     assert!(
-        outcome.provider_calls.contains(&"terminate"),
+        outcome.provider_calls.contains(&"terminate_after_stop"),
         "{:?}",
         outcome.provider_calls
     );

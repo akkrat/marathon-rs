@@ -7,15 +7,16 @@ pending indefinitely. A timer alone would have moved the hang to the final actor
 cancellation is cooperative. The device subscription had the same problem when a tracker callback was pending in
 `device_connected`. The protected run joins that subscription even when its task fails before `settle`.
 
-Each barrier gets 65 seconds from submission on the Scheduler clock. D67's 60 seconds exceeds D51's 30-second send
-allowance. The extra five seconds come from D84's core margin. Pools retain their creation order and each pool forwards
-its results before its queue gets a barrier. Each actor has its own allowance, so a stalled actor cannot exhaust another
-pool's time. The worst case for the barrier phase is 130 seconds per pool. During the stop, a pool's existing `IsEmpty`
-query gives way to the Scheduler's ordered drain. This prevents one stalled queue from holding up both barriers.
+After device cleanup, all pools begin draining together, with one 65-second deadline on the Scheduler clock. D67's
+60 seconds exceeds D51's 30-second send allowance. The extra five seconds come from D84's core margin. Each pool forwards
+its results before its own queue gets a barrier. The mailbox is sealed when its barrier is sent, so late messages
+cannot start a new handler behind it. The entire barrier phase has 65 seconds regardless of pool count. A pool's
+existing `IsEmpty` query gives way to the Scheduler's ordered drain.
 
 On expiry, the Scheduler logs one WARN naming the actor and pool and interrupts the receive future. This drops any
 queue progress guard it held. The actor completes with the run's cancellation, then its mailbox is released without
-dispatching more messages. The final cancellation interrupts any receive after an acknowledged barrier before joining.
+dispatching more messages. Actors that completed their barriers are cancelled normally. If a pool misses the deadline,
+its queue is interrupted only if it still has work to drain.
 In production, result and device-connection tracking run off core. Their dispatch is scoped to the waiting handler,
 including the tracker pipeline's second dispatch, so a callback suspended at interruption can be dropped. Ordinary
 device cancellation still lets the vendor clean up. The cancelled subscription has its own 65-second allowance.
@@ -27,15 +28,15 @@ records a run failure, so the preceding channel or actor failure and U215's canc
 The iOS artifact processor belongs to the run and can still have results from batches that ended before devices were
 sealed. Starting its timer after the device window preserves a chance to retrieve them. An interrupted run has a separate
 70-second allowance, matching D93's default device window. The first 30 seconds drain work and the remainder reserves
-D91's 40 seconds for cooperative cancellation and joins. Both cancellation-stage joins use the same absolute deadline.
-Previously the ordinary 300 seconds could be followed by two 60-second waits in code, although the second wait usually
-completed immediately once workers or residual entries finished. On expiry the existing processor ledger identifies
-undelivered bundles before the provider continues to disposal. D54's caller-independent receives retain their behavior.
+D91's 40 seconds for cooperative cancellation and joins. On both paths, worker joins and the final receipt share the
+same cancellation deadline. Routine artifact finalization now has at most 360 seconds of waits (300 + 60), down from
+420 seconds (300 + 60 + 60). On expiry the existing processor ledger identifies undelivered bundles before the provider
+continues to disposal. D54's caller-independent receives retain their behavior.
 
-The protected finish of a failed run uses the shorter iOS allowance. Ordinary completion, including a suite whose tests
-ran and failed assertions, uses the ordinary allowance. The first termination attempt owns the provider's retained
-operation. A later caller joins it, including cancellation that arrives after an ordinary termination has started.
-D52 still starts reports first and bounds the signal path independently.
+Only an internal run failure or owner cancellation selects the shorter iOS allowance. A suite that completes with
+failed assertions uses routine termination, as does D52's signal path under its separate deadline. The first
+termination attempt owns the provider's retained operation. A later caller joins it, including cancellation that
+arrives after an ordinary termination has started.
 
 ## Finish wait audit
 
@@ -47,14 +48,14 @@ The requested x92 base contains D93 and predates the independent x91 branch.
 | Stop admission and seal devices | Synchronous on core. Signals and mailbox state only. |
 | Device actor and `join_cancelled_work` | Concurrent waits against the device limit plus the 5 s core margin. D93 allows 70 s per Apple device, for 75 s in core. D92 on x91 allows 60 s by default on Android, for 65 s in core. The x92 base and a vendor returning `None` have no aggregate device limit. |
 | Pool's existing `IsEmpty` query | Waits for the queue or ordinary cancellation in a running pool. Starting the drain releases the query immediately. |
-| Scheduler's `Drain` and `IsEmpty` barriers | 65 s each from submission, or early actor completion. Pools and queues are traversed in creation order, pool before queue. |
-| Final pool and queue job joins | Interruption drops the receive future and seals its job. Pool supervision owns device actors and return timers separately. The final joins depend on core polling and synchronous destructors, with no remaining handler future or independent timer. |
+| Scheduler's `Drain` and `IsEmpty` barriers | One shared 65 s deadline after device cleanup. All pool barriers are sent together. Each pool's queue barrier follows its pool barrier. |
+| Final pool and queue job joins | Sending a barrier seals its mailbox. Only actors that still have work at the deadline are interrupted. Pool supervision owns device actors and return timers separately. The final joins depend on core polling and synchronous destructors, with no remaining handler future or independent timer. |
 | Run task, subscription, `settle` and protected finish joins | The listener stops on cancellation or D94's 65 s watchdog. A stop job uses the device and drain bounds above. `run_under` joins the protected finish, including its downstream operations below. |
 | Device channel checks in `settle` and `settle_after_termination` | Poll the current backlog and one terminal read without awaiting an empty channel. New arrivals cannot keep the synchronous drain busy. |
 | Core console flushes, serial batch barriers and output pump | The CLI sink enqueues output without waiting for its writer. D67 gives the final CLI flush and writer drain one shared 60 s after core finishes. Injected sinks have no independent core limit and may also hold a batch barrier. |
 | History analytics close | The refresh joins for up to 3 s (D34). Native history sources then close under their own I/O rules. Influx has 60 s connect/read/write timeouts per operation and no D51 total close deadline at this call site. Stub and disabled history close immediately. |
 | iOS monitoring, updates, recovery and event joins | Monitoring and recovery are cancelled before joining. Events publish to the local channel. Worker operations have command and connection deadlines. Provider lifecycle locking and monitoring, setup and recovery joins have no provider-wide timer. Recovery's lost-device session wait is 70 s. |
-| iOS artifact queue close | Interrupted runs get 30 s drain plus up to 40 s for task/receipt joins. Routine finishes get 300 s plus up to 60 s. Undelivered callbacks and ledger processing run synchronously on the vendor runtime. |
+| iOS artifact queue close | Internal failure or owner cancellation gets 30 s drain plus a shared 40 s for worker joins and the final receipt. Routine termination gets 300 s plus one shared 60 s cancellation allowance for a total of 360 s, down from 420 s. Undelivered callbacks and ledger processing run synchronously on the vendor runtime. |
 | iOS and macOS disposal waits for device work | D93's shared 70 s deadline, with a fresh window only for a device first sealed by disposal. Disposal is concurrent across active devices. |
 | iOS on-dispose lifecycle | Executes after confirmed device termination under the existing per-command timeouts and D30 transport cleanup. A simulator state wait issues at most 30 queries with one-second pauses. Lifecycle has no separate aggregate timer. |
 | Apple lease release, including replaced devices | Quarantine is synchronous. The final user closes the shared transport. SSH disconnect and the cancelled keepalive join have no aggregate timer in the release path. |
@@ -78,9 +79,11 @@ the healthy control checks the two recorded results and the ordinary completion 
 | `run_supervision.rs::the_finish_interrupts_a_stalled_subscription_d94` | The finish drops a stalled connection callback after 65 s. Both committed test results reach `raw.json`. |
 | `pool_scheduler.rs::a_pool_waiting_for_its_stalled_queue_does_not_spend_a_second_drain_window_d94` | The last device disconnects and the pool queries its queue. An ensuing channel failure takes 65 s and logs one warning for the queue. |
 | `simulator_provider.rs::a_stopped_run_disposes_simulators_within_one_artifact_window_d94` | A pending artifact observes cancellation at 30 s, holds open past the deadline, and is reported undelivered at 70 s. The simulator is disposed and its lease released. |
+| `pool_scheduler.rs::several_stalled_queues_share_one_drain_deadline_d94` | Three pools stay stalled and a fourth commits at 64 s. The run returns with the first cause at 65 s and there is a warning for each of the three stalled queues. |
+| Stub provider entry-point counts in `run_supervision.rs` | A suite returning `Ok(false)` from failed assertions and a signal each use `terminate` once. A Scheduler failure and owner cancellation before termination each use `terminate_after_stop` once. |
 
-Each witness passed 50 isolated runs and one further run with 12 CPU load workers. On the scratch x92 checkout
-the stalled queue and subscription exceeded the hang guard. Artifact cancellation started at 300 s. The pool query
+The original six witnesses each passed 50 isolated runs and one further run with 12 CPU load workers. On the scratch
+x92 checkout the stalled queue and subscription exceeded the hang guard. Artifact cancellation started at 300 s. The pool query
 witness failed its 65 s completion check both on the base and with D94's timers while retaining the old nested wait.
 The healthy and slow controls passed on the base and the branch.
 
@@ -95,6 +98,12 @@ The final CLI rerun passed nine tests across native vendor differential, late-po
 Plan, source inventory, parity matrix, fixture and offline differential checks passed, including 109 comparator tests.
 The source checks used the release tree named in `docs/release-source.sha`. The batch leaves `scripts/check.sh`, the
 workspace-wide test run and the Linux gate to the orchestrator.
+
+In review, the multi-pool witness was still pending at 65 s on `f65be777`. The shared-deadline witness and the four
+termination-routing witnesses each passed 50 isolated runs and one further run with 12 CPU load workers.
+Formatting and changed-package Clippy passed. Core, test-support and CLI suites passed 1,046 tests with eight ignored,
+including the native vendor differential. The iOS provider and disposal suites passed 30 tests. The plan graph and
+offline differential evidence checks passed.
 
 ## Golden diffs and incidental findings
 

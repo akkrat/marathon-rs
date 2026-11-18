@@ -16,6 +16,7 @@ pub struct RuntimeActor<M> {
     job: JobRef,
     receiver: JobRef,
     interrupt: Arc<Signal>,
+    sealed: Cell<bool>,
     closed: Cell<bool>,
     queue: RefCell<VecDeque<M>>,
     changed: Notify,
@@ -64,6 +65,7 @@ impl<M: 'static> RuntimeActor<M> {
             job: job.clone(),
             receiver: receiver.clone(),
             interrupt: Signal::new(),
+            sealed: Cell::new(false),
             closed: Cell::new(false),
             queue: RefCell::new(VecDeque::new()),
             changed: Notify::new(),
@@ -156,6 +158,21 @@ impl<M: 'static> RuntimeActor<M> {
         self.interrupt.cancel(reason);
     }
 
+    /// D94: make the drain barrier the final message, even if device cleanup outlives its allowance.
+    pub(crate) fn seal_after(&self, barrier: M) -> bool {
+        if self.try_send(barrier).is_err() {
+            return false;
+        }
+        self.sealed.set(true);
+        true
+    }
+
+    fn receiver_closed(&self) -> bool {
+        self.closed.get()
+            || self.receiver.cancellation_signal().reason().is_some()
+            || matches!(self.receiver.state(), JobState::Completed(_))
+    }
+
     async fn receive_loop(
         &self,
         handler: &mut dyn ActorHandler<M>,
@@ -208,9 +225,7 @@ impl<M: 'static> Actor<M> for RuntimeActor<M> {
         self.job.clone()
     }
     fn is_closed_for_send(&self) -> bool {
-        self.closed.get()
-            || self.receiver.cancellation_signal().reason().is_some()
-            || matches!(self.receiver.state(), JobState::Completed(_))
+        self.sealed.get() || self.receiver_closed()
     }
     fn try_send(&self, message: M) -> Result<(), SendError<M>> {
         if self.is_closed_for_send() {
@@ -233,10 +248,10 @@ impl<M: 'static> Actor<M> for RuntimeActor<M> {
 }
 impl<M: 'static> MailboxProbe for RuntimeActor<M> {
     fn state(&self) -> MailboxState {
-        let closed = self.is_closed_for_send();
+        let closed = self.receiver_closed();
         MailboxState {
             queued: if closed { 0 } else { self.queue.borrow().len() },
-            closed_for_send: closed,
+            closed_for_send: self.sealed.get() || closed,
             discarded: closed,
         }
     }
