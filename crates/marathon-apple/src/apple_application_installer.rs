@@ -59,6 +59,8 @@ pub struct AppleApplicationInstaller<'a> {
     /// D87: whether the next step (the test root, the after-install hook, an extra application) may start; by default
     /// always.
     may_continue: &'a (dyn Fn() -> bool + Send + Sync),
+    /// U210: how long a send under way when the installation is cancelled gets to end on it; none by default.
+    cancelled_send_millis: Option<i64>,
 }
 fn always() -> bool {
     true
@@ -84,6 +86,7 @@ impl<'a> AppleApplicationInstaller<'a> {
             code_coverage: false,
             may_retry: &always,
             may_continue: &always,
+            cancelled_send_millis: None,
         }
     }
     pub fn with_after_install(mut self, hook: &'a dyn AfterInstall) -> Self {
@@ -108,6 +111,7 @@ impl<'a> AppleApplicationInstaller<'a> {
             code_coverage: false,
             may_retry: &always,
             may_continue: &always,
+            cancelled_send_millis: None,
         }
     }
     pub fn with_owned_after_install(mut self, hook: Arc<dyn AfterInstall>) -> Self {
@@ -129,6 +133,14 @@ impl<'a> AppleApplicationInstaller<'a> {
     /// which the caller, already failing for another reason, does not report. A step in progress is never stopped.
     pub fn with_step_gate(mut self, may_continue: &'a (dyn Fn() -> bool + Send + Sync)) -> Self {
         self.may_continue = may_continue;
+        self
+    }
+    /// U210: a send of the test bundle under way when the installation is cancelled gets up to `millis` to end on the
+    /// cancellation before the installation returns, so that a caller waiting for the installation's end (a device's
+    /// preparation, which its stop and disposal wait for) does not hear of it while the transfer still stops. Without it
+    /// (test discovery) the send is left at once, as before.
+    pub fn with_cancelled_send_wait(mut self, millis: i64) -> Self {
+        self.cancelled_send_millis = Some(millis);
         self
     }
     fn next_step(&self, step: &str) -> FactoryResult<()> {
@@ -208,6 +220,7 @@ impl<'a> AppleApplicationInstaller<'a> {
                 &*context.clock,
                 context.cancellation.clone(),
                 self.may_retry,
+                self.cancelled_send_millis,
                 || async {
                     let result = async {
                         fm.create_remote_directory(None, context).await?;

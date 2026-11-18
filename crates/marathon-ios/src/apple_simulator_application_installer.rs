@@ -54,6 +54,8 @@ impl<'a> AppleSimulatorApplicationInstaller<'a> {
             .with_after_install(self)
             .with_retry_gate(&may_retry)
             .with_step_gate(self.may_continue)
+            // U210: the preparation ends after the bundle send it was making, within the bound of a cancelled call.
+            .with_cancelled_send_wait(services.timeouts.cancelled_batch_millis)
             .prepare_installation(self.device, false, context)
             .await
             .map_err(|e| e.into_vendor())

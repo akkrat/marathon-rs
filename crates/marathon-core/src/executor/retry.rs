@@ -60,7 +60,7 @@ where
 }
 
 /// Send twin for vendor-side services, using the run's scheduler timeline. An attempt still running when `cancellation`
-/// fires is dropped, so `body` must leave nothing running that its drop does not stop.
+/// fires is dropped.
 pub async fn with_retry_send<T, F, Fut>(
     attempts: i32,
     delay_millis: i64,
@@ -73,38 +73,23 @@ where
     F: FnMut() -> Fut + Send,
     Fut: Future<Output = OperationResult<T>> + Send,
 {
-    retry_send(attempts, delay_millis, clock, cancellation, &|| true, true, body).await
+    with_retry_send_gated(attempts, delay_millis, clock, cancellation, &|| true, None, body).await
 }
 
 /// D87: [`with_retry_send`] whose retries start only while `may_start` says so, asked before a retry's delay and again
 /// where it would start, after the delay. A retry that may not start is not made, and the failure before it is returned.
 ///
-/// U210: an attempt already running when `cancellation` fires is not dropped but awaited: `body` is given the same
-/// signal and must end on it, so that what it started (a transfer that a retained task runs, which takes its own time to
-/// stop) has ended when this returns. The cancellation is then what is returned, as if the attempt had been dropped.
+/// U210: an attempt still running when `cancellation` fires is dropped at once, unless `cancelled_attempt_millis` is
+/// given: it then gets up to that long on `clock` to end on the cancellation, which it is given too, before it is
+/// dropped. Either way the cancellation is what is returned. An attempt that leaves work running in a retained task (a
+/// transfer, which needs its own time to stop) can so end before its caller reports its end, within the caller's bound.
 pub async fn with_retry_send_gated<T, F, Fut>(
     attempts: i32,
     delay_millis: i64,
     clock: &dyn crate::runtime::VendorClock,
     cancellation: std::sync::Arc<dyn crate::runtime::CancellationSignal>,
     may_start: &(dyn Fn() -> bool + Send + Sync),
-    body: F,
-) -> OperationResult<T>
-where
-    T: Send,
-    F: FnMut() -> Fut + Send,
-    Fut: Future<Output = OperationResult<T>> + Send,
-{
-    retry_send(attempts, delay_millis, clock, cancellation, may_start, false, body).await
-}
-
-async fn retry_send<T, F, Fut>(
-    attempts: i32,
-    delay_millis: i64,
-    clock: &dyn crate::runtime::VendorClock,
-    cancellation: std::sync::Arc<dyn crate::runtime::CancellationSignal>,
-    may_start: &(dyn Fn() -> bool + Send + Sync),
-    drop_on_cancel: bool,
+    cancelled_attempt_millis: Option<i64>,
     mut body: F,
 ) -> OperationResult<T>
 where
@@ -112,6 +97,7 @@ where
     F: FnMut() -> Fut + Send,
     Fut: Future<Output = OperationResult<T>> + Send,
 {
+    use futures_util::future::{Either, select};
     if attempts <= 0 {
         return Err(super::shared::failure(FailureKind::IllegalArgument, "attempts must be positive").into());
     }
@@ -119,17 +105,16 @@ where
         if let Some(reason) = cancellation.reason() {
             return Err(reason.into());
         }
-        let outcome = if drop_on_cancel {
-            match futures_util::future::select(Box::pin(body()), cancellation.cancelled()).await {
-                futures_util::future::Either::Left((result, _)) => result,
-                futures_util::future::Either::Right((reason, _)) => return Err(reason.into()),
-            }
-        } else {
-            let result = body().await;
-            if let Some(reason) = cancellation.reason() {
+        let mut running = Box::pin(body());
+        let outcome = match select(running.as_mut(), cancellation.cancelled()).await {
+            Either::Left((result, _)) => result,
+            Either::Right((reason, _)) => {
+                if let Some(millis) = cancelled_attempt_millis {
+                    // Its own signal, never cancelled: the bound ends this wait, not the cancellation it follows.
+                    let _ = select(running, clock.delay(millis, super::shared::Signal::new())).await;
+                }
                 return Err(reason.into());
             }
-            result
         };
         match outcome {
             Ok(value) => return Ok(value),

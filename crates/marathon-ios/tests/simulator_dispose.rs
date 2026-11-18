@@ -474,3 +474,105 @@ async fn the_stop_waits_for_the_bundle_send_a_cancelled_preparation_was_making_u
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }
+/// A bridge whose sends never end and ignore their stop, as a local copy blocked on a stalled volume does.
+#[derive(Default)]
+struct StuckSends {
+    entered: Arc<SharedDeferred<()>>,
+}
+impl marathon_apple::cmd::FileBridge for StuckSends {
+    fn send<'a>(&'a self, _: &'a std::path::Path, _: &'a str) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        self.entered.complete(Ok(()));
+        Box::pin(std::future::pending())
+    }
+    fn receive<'a>(&'a self, _: &'a str, _: &'a std::path::Path) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        Box::pin(async { Ok(true) })
+    }
+}
+async fn on_bridge(
+    h: &Harness,
+    bridge: Arc<dyn marathon_apple::cmd::FileBridge>,
+) -> TestResult<Arc<marathon_ios::apple_simulator_device::AppleSimulatorDevice>> {
+    h.device_on_bridge(
+        h.worker.clone(),
+        "a",
+        Arc::new(
+            marathon_ios::device::worker_provisioning_context::WorkerProvisioningContext::new(
+                marathon_config::devices::Transport::Local,
+                h.clock.clone(),
+            ),
+        ),
+        bridge,
+    )
+    .await
+}
+/// U210 review: test discovery installs the bundle through the same installer, under its own timeout. Its send is not
+/// waited for after that timeout cancels it, so a send that ignores the cancellation (a blocked local copy) does not keep
+/// discovery past its timeout.
+#[tokio::test(start_paused = true)]
+async fn discovery_ends_at_its_timeout_when_its_send_ignores_the_cancellation_u210() -> TestResult {
+    use marathon_core::runtime::VendorClock;
+    let h = long_bound()?;
+    let bridge = Arc::new(StuckSends::default());
+    let d = on_bridge(&h, bridge.clone()).await?;
+    let config = marathon_config::VendorConfiguration::Ios((*h.services.vendor).clone());
+    let installer = marathon_apple::apple_application_installer::AppleApplicationInstaller::new(
+        &config,
+        h.services.runtime.clone(),
+        h.services.logging.clone(),
+    );
+    let context = h.services.context.clone();
+    let started = tokio::time::Instant::now();
+    let discovery = h.clock.with_timeout_or_null(
+        context.cancellation.clone(),
+        180_000,
+        Box::new(|scope| {
+            let context = VendorContext {
+                cancellation: scope,
+                ..context.clone()
+            };
+            let (installer, d) = (&installer, d.clone());
+            Box::pin(async move {
+                installer
+                    .prepare_installation(&*d, true, &context)
+                    .await
+                    .map_err(|e| e.into_vendor())
+            })
+        }),
+    );
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(3_600), discovery)
+        .await
+        .expect("discovery outlived its timeout");
+    assert_eq!(outcome, Ok(None));
+    assert!(bridge.entered.completed().is_some());
+    assert_eq!(started.elapsed(), std::time::Duration::from_secs(180));
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+/// U210 review: a preparation stopped during a send waits for it to end on the cancellation, but only within the
+/// simulator's bound for a cancelled call (`cancelled_batch_millis`, 70 s here); a send that never ends is then left.
+#[tokio::test(start_paused = true)]
+async fn a_preparation_waits_for_its_stopped_send_only_within_the_simulators_bound_u210() -> TestResult {
+    let h = long_bound()?;
+    let bridge = Arc::new(StuckSends::default());
+    let d = on_bridge(&h, bridge.clone()).await?;
+    let signal = Signal::new();
+    let preparation = spawn_prepare(
+        &h,
+        &d,
+        VendorContext {
+            cancellation: signal.clone(),
+            ..h.services.context.clone()
+        },
+    );
+    bridge.entered.wait().await.unwrap();
+    let stopped = tokio::time::Instant::now();
+    signal.cancel(cancelled("the run is stopping"));
+    assert!(matches!(preparation.await?, Err(VendorError::Cancelled(_))));
+    tokio::time::timeout(std::time::Duration::from_secs(3_600), d.join_retained())
+        .await
+        .expect("the preparation waited for its send beyond the bound")
+        .unwrap();
+    assert_eq!(stopped.elapsed(), std::time::Duration::from_secs(70));
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
