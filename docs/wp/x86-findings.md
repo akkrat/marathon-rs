@@ -50,22 +50,31 @@ refuses a disposed simulator's preparation (U179). The first version returned `D
 self-review found that the device actor retries that up to 30 times 10 s apart, each refused at once, so it became a
 cancellation, which the actor does not retry.
 
-**2. The installer's retry waits for its attempt.** `with_retry_send_gated` no longer races an attempt against the
-cancellation. The body is given the same signal and ends on it (every step of the installer's body takes the context:
-the directory commands, the shared-transfer wait, the send's `TransferStop`), so whatever it started has ended when the
-helper returns. If the signal fired during the attempt, the helper returns the cancellation, as before, so its callers
-see the same results; the installer still reports a stall (`LeavePool`) recorded by the attempt over the cancellation.
-`with_retry_send` keeps racing: its one caller, the analytics prefetch, has a body that takes no cancellation. The
-preparation's `done` cell now completes after the transfer has stopped, so the stop's `join_cancelled_work` and
-disposal wait for the transfer within their existing bound (D74's 70 s); the preparation's caller still returns at once.
-macOS runs its installation in a retained task with a context of its own that is never cancelled, so it is unchanged.
+**2. The iOS preparation waits for its send, within a bound.** `with_retry_send_gated` takes an opt-in
+`cancelled_attempt_millis`: when the cancellation comes during an attempt, the attempt (given the same signal: every step
+of the installer's body takes the context, the directory commands, the shared-transfer wait, the send's `TransferStop`)
+gets up to that long on the vendor clock to end on it, and is then dropped. The cancellation is returned either way, as
+before, so callers see the same results; the installer still reports a stall (`LeavePool`) recorded by the attempt over
+the cancellation. `AppleApplicationInstaller::with_cancelled_send_wait` sets it, and only the iOS preparation's installer
+(`AppleSimulatorApplicationInstaller`) does, with `cancelled_batch_millis` (70 s by default), the bound D74 and D84
+already give a cancelled call. The preparation's `done` cell then completes after the transfer has stopped, or once the
+bound has passed, so the stop's `join_cancelled_work` and disposal wait for the transfer within their existing bound;
+the preparation's caller still returns at once. Every other caller leaves its attempt at once, as on d5b0181d: test
+discovery on both Apple vendors (`XCTestParser`, whose installer sets no wait) and the analytics prefetch
+(`with_retry_send`). macOS runs its preparation's installation in a retained task with a context of its own that is
+never cancelled, so it is unchanged. The first version of this fix waited for every caller's attempt without a bound;
+review round 1 found that it let test discovery outlive its timeout (below).
 
 **3. Android monitoring (D88).** A tracker error is logged at WARN and tracking goes on; only the monitor's own
-cancellation ends it there. The monitor task catches a panic, and each server's tracking task does too and sends it to
-the monitor as an error. When the monitor ends with an error and its own signal was not cancelled (only the provider's
-termination cancels it), the device channel is closed with the cause. Under D84 that is the run's cause: the run stops,
-its reports are written, and it exits 1 (0 with `ignoreFailures`). The channel's close is first-wins, so a close after
-termination's `close(None)` changes nothing.
+cancellation ends it there. The monitor catches a panic in its loop as its error, so that it still cancels and joins its
+servers' tracking tasks (a `CancelOnDrop` guard cancels them too if the monitor's future is dropped), and each server's
+tracking task catches its own panic and sends it to the monitor as an error. When the monitor ends with an error and its
+own signal was not cancelled (only the provider's termination cancels it), `publish_failure` keeps the cause for
+`published_failure` and closes the device channel with it, and only then is the ERROR line logged, under
+`catch_unwind`. Under D84 the failed channel is the run's cause: the run stops, its reports are written, and it exits 1
+(0 with `ignoreFailures`). Before the Scheduler exists (remote test discovery), the run reads `published_failure` when
+discovery ends without a device, and a borrow its deadline ends returns the published failure, as iOS's does. The
+channel's close is first-wins, so a close after termination's `close(None)` changes nothing.
 
 **4. The iOS loader.** `blocking` joins the task first and then reads the cell; a panic is the task's error. A cell that
 is somehow empty after a successful join is an `IllegalState` error, never a wait. The iOS test runtime's
@@ -97,33 +106,74 @@ so the branch never sees an acknowledgement. Replacements that reach it otherwis
 
 - A Mac's preparation either is registered before its disposal, and so seen by every `join_preparation` after it, or
   never starts.
-- An Apple preparation's `done` cell is completed only after the bundle send it started has ended.
-- Android device monitoring ends only by the provider's termination, or with the device channel failed with its cause.
+- An iOS preparation's `done` cell is completed only after the bundle send it started has ended, or the simulator's
+  bound for a cancelled call has passed since the cancellation. No other use of the retry helper waits for a cancelled
+  attempt.
+- Android device monitoring ends only by the provider's termination, or with its cause published (the device channel
+  failed, `published_failure` set) before anything else is done; either way its servers' tracking tasks have ended.
 - An analytics call never ends Android device tracking.
 - iOS initialization never waits for a blocking result that a panic dropped.
 
 ## Verification
 
-Each witness fails on d5b0181d, checked in a scratch worktree of d5b0181d with only the new tests (and the test
-runtime's change) copied in:
+Each witness fails on the commit before its fix: the first round's on d5b0181d, review round 1's on f65e9ad5, each
+checked in a scratch worktree of that commit with only the new tests (and the test harness changes) copied in.
 
-| Item | Witness | On d5b0181d |
+| Item | Witness | Before the fix |
 |---|---|---|
 | 1 | `marathon-macos/tests/provider.rs::a_preparation_after_the_macs_disposal_starts_nothing_u210` | the preparation was accepted |
 | 2 | `marathon-ios/tests/simulator_dispose.rs::the_stop_waits_for_the_bundle_send_a_cancelled_preparation_was_making_u210` (a send whose own task takes 3 s to stop; virtual time) | the stop's wait ended before the send |
 | 3 | `marathon-android/tests/provider_test.rs::a_failing_tracker_does_not_end_device_tracking_u211` (fake adb) | the later disconnect was never seen (60 s guard) |
 | 3 | `marathon-android/tests/provider_test.rs::device_monitoring_that_ends_fails_the_device_channel_u211` (fake adb; a panicking tracker) | the channel never failed (60 s guard) |
 | 4 | `marathon-ios/tests/simulator_panic.rs::a_panic_while_reading_the_devices_file_ends_the_initialization_with_it_u211` (virtual time) | initialization never ended (guard) |
+| R1-1 | `marathon-ios/tests/simulator_dispose.rs::discovery_ends_at_its_timeout_when_its_send_ignores_the_cancellation_u210` (the discovery installer under a 180 s timeout, a send that ignores its stop; virtual time) | discovery never ended (3,600 s guard) |
+| R1-1 | `marathon-ios/tests/simulator_dispose.rs::a_preparation_waits_for_its_stopped_send_only_within_the_simulators_bound_u210` (the same send; the preparation's task ends 70 s after the cancellation) | it never ended (3,600 s guard) |
+| R1-2 | `marathon-android/tests/provider_test.rs::a_borrow_ended_by_its_deadline_returns_the_monitors_failure_d88` (fake adb; setup never completes) | no published failure |
+| R1-2 | `marathon-android/tests/reconnect_test.rs::a_monitor_panic_before_the_scheduler_is_the_runs_cause_d88` (whole run, remote discovery, virtual time) | the run reported that no device came |
+| R1-3 | `marathon-android/tests/provider_test.rs::a_log_sink_that_panics_does_not_keep_the_device_channel_open_d88` (fake adb) | the channel never failed (60 s guard) |
+| R1-4 | `marathon-android/tests/provider_test.rs::a_monitor_that_panics_ends_its_servers_tracking_d88` (fake adb, two servers: A lost and reconnecting, then a device on B makes the tracker panic) | after termination and the provider's drop, A's tracking task still held the runtime (60 s guard) |
 
-Stress: each witness 50 runs in a row, all passed (4 × 50), and 20 more each with 12 busy processes on the CPU, all
-passed (4 × 20).
+The R1-4 witness needed a second shape: with one server, an orphaned tracking task ends at termination anyway (a closed
+client ends it, N19); only one reconnecting to a lost server, whose loop does not look at the client, outlives it. It
+waits for A's `Lost device tracking` line before it connects B's device: A's outage marker reaches the monitor right after
+that line, before B's list can arrive over its socket, so A's task is in its reconnect loop when the monitor panics.
+
+Stress, per witness, each run alone (`--exact`); "loaded" is 20 more runs with 12 busy processes on the CPU. Round 1's
+record listed five witnesses but four loops: its Android loop ran both Android witnesses in each of its 50 runs. The
+counts below are per test.
+
+| Witness | Runs | Loaded |
+|---|---|---|
+| `a_preparation_after_the_macs_disposal_starts_nothing_u210` (round 1) | 50/50 | 20/20 |
+| `a_panic_while_reading_the_devices_file_ends_the_initialization_with_it_u211` (round 1) | 50/50 | 20/20 |
+| `the_stop_waits_for_the_bundle_send_a_cancelled_preparation_was_making_u210` (again after review round 1) | 50/50 | 20/20 |
+| `a_failing_tracker_does_not_end_device_tracking_u211` (again after review round 1) | 50/50 | 20/20 |
+| `device_monitoring_that_ends_fails_the_device_channel_u211` (again after review round 1) | 50/50 | 20/20 |
+| `discovery_ends_at_its_timeout_when_its_send_ignores_the_cancellation_u210` | 50/50 | 20/20 |
+| `a_preparation_waits_for_its_stopped_send_only_within_the_simulators_bound_u210` | 50/50 | 20/20 |
+| `a_borrow_ended_by_its_deadline_returns_the_monitors_failure_d88` | 50/50 | 20/20 |
+| `a_log_sink_that_panics_does_not_keep_the_device_channel_open_d88` | 50/50 | 20/20 |
+| `a_monitor_that_panics_ends_its_servers_tracking_d88` | 50/50 | 20/20 |
+| `a_monitor_panic_before_the_scheduler_is_the_runs_cause_d88` | 50/50 | 20/20 |
 
 Run on this Mac: `cargo fmt --check`; `cargo clippy -p marathon-core -p marathon-apple -p marathon-ios -p marathon-macos
 -p marathon-android --all-targets -- -D warnings`; `cargo test --no-fail-fast` of those five crates and of
-`marathon-cli` and `marathon-test-support` (the end-to-end and differential suites), all passing;
+`marathon-cli` and `marathon-test-support` (the end-to-end and differential suites), all passing, after each round;
 `scripts/check_plan_dag.py`. Not run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test
---workspace`. Not verified: a real rsync transfer stopped mid-preparation (the witness models the retained task), a
-real adb server whose tracking fails, the Linux gate.
+--workspace`. `scripts/parity_matrix.py --check` and `scripts/source_inventory.py --check` report both CSVs out of date
+against the Kotlin checkout at e47352f2; neither file is touched here, and the same holds on d5b0181d. Not verified: a
+real rsync transfer stopped mid-preparation (the witness models the retained task), a real adb server whose tracking
+fails, the Linux gate.
+
+## Review round 1 (Sol 6.2 xhigh, REQUEST_CHANGES)
+
+| Finding | Status | Fix | Witness (fails on f65e9ad5) |
+|---|---|---|---|
+| P2-1: XCTest discovery can hang past its timeout (the helper waited for every caller's cancelled attempt; the local bridge's copy ignores cancellation) | fixed | the wait is opt-in and bounded: only the iOS preparation's installer sets it, to `cancelled_batch_millis`; every other caller leaves its attempt at once, as before | `discovery_ends_at_its_timeout_when_its_send_ignores_the_cancellation_u210`, `a_preparation_waits_for_its_stopped_send_only_within_the_simulators_bound_u210` |
+| P2-2: Android loses a monitor failure before the Scheduler starts (no `published_failure`; remote discovery reported a device timeout) | fixed | `published_failure` for Android, set with the channel's failure; `borrow_untried` ended by its deadline returns it | `a_borrow_ended_by_its_deadline_returns_the_monitors_failure_d88`, `a_monitor_panic_before_the_scheduler_is_the_runs_cause_d88` |
+| P2-3: Android logged a terminal failure before publishing it (a panicking sink kept the channel open; a slow one let termination close it cleanly) | fixed | `publish_failure` first, then the log line under `catch_unwind` | `a_log_sink_that_panics_does_not_keep_the_device_channel_open_d88` |
+| P3-4: a monitor panic skipped its servers' tracking tasks' end (one reconnecting kept retrying) | fixed | the monitor catches a panic in its loop as its error and then cancels and joins its tasks; a `CancelOnDrop` guard cancels them if its future is dropped | `a_monitor_that_panics_ends_its_servers_tracking_d88` |
+| Docs: U212 also covers a Mac's preparation and an iOS simulator's setup; the stress record | fixed | U212 row and incidental-bugs entry; per-witness stress counts above | — |
 
 ## Golden diffs
 
@@ -132,7 +182,9 @@ changes the exit status of a run whose Android device monitoring ends, which no 
 
 ## Incidental bugs
 
-- **U212** (recorded in `docs/found-bugs.md`): on macOS a failing `device_provider_init` fails the Mac's connection and
-  with it the provider's initialization; on iOS a failing `device_preparing` (in `Track::prepare`) fails a preparation
-  that succeeded, which the actor then retries. Against D51, as Android's case was. Reached only by a panicking tracker
-  or a replay clock error. Not changed here.
+- **U212** (recorded in `docs/found-bugs.md`): an analytics call's error fails Apple device work that had succeeded. On
+  macOS a failing `device_provider_init` fails the Mac's connection and with it the provider's initialization, and a
+  failing `device_preparing` fails the Mac's preparation; on iOS a failing `device_preparing` (in `Track::prepare`) fails
+  a simulator's preparation, which the actor then retries, and a failing `device_provider_init` (through
+  `track_provider_device_preparing`) fails a simulator's setup, which is then disposed of. Against D51, as Android's case
+  was. Reached only by a panicking tracker or a replay clock error. Not changed here.
