@@ -308,6 +308,10 @@ fn marathonfile(ports: &[u16], output: &Path, options: &Options) -> Vec<u8> {
     if let Some(wait) = options.device_initialization_timeout_millis {
         file["deviceInitializationTimeoutMillis"] = json!(wait);
     }
+    if let Some((timeouts, device_wait)) = &options.timeouts {
+        file["vendorConfiguration"]["timeoutConfiguration"] = timeouts.clone();
+        file["deviceInitializationTimeoutMillis"] = json!(device_wait);
+    }
     file.to_string().into_bytes()
 }
 
@@ -490,6 +494,8 @@ struct Options {
     results: bool,
     reboot: bool,
     device_initialization_timeout_millis: Option<i64>,
+    /// The Android `timeoutConfiguration` and `deviceInitializationTimeoutMillis`, instead of the defaults.
+    timeouts: Option<(Value, i64)>,
 }
 /// The frozen wall clock of a run that keeps its output files, as the native goldens' probe has it.
 const WALL: i64 = 1_577_836_800_000;
@@ -2195,4 +2201,97 @@ fn a_batch_lost_after_it_started_writes_what_ran_u197() {
         actual == golden,
         "result files differ from {LOST_AFTER_START_GOLDEN}; rerun with MARATHON_BLESS_VIRTUAL_RUNS=1 and review the diff"
     );
+}
+
+// ---- D87: one deadline for a device's preparation -------------------------------------------
+
+/// `shell`, `uninstall` and `pushFile` 5 s, `install` 10 s: one attempt to install a package can take 30 s, and the
+/// envelope of a preparation with two packages is 2 × (3 × 30 + 2 × 1) + 3 × 5 = 199 s.
+const D87_ENVELOPE_MILLIS: i64 = 199_000;
+/// `deviceInitializationTimeoutMillis`, below the envelope: the deadline is the envelope, and D48's wait after the
+/// device has left this long.
+const D87_DEVICE_WAIT: i64 = 30_000;
+
+/// The only device, whose installs after the remote parser's two (`app` and its test package) never answer, so each
+/// times out at `install`; or, with `transient`, only the first of them.
+fn run_install_timeouts(transient: bool) -> Observed {
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (mut script, _, index) = load("same-server");
+    let devices = script["devices"].as_array_mut().unwrap();
+    devices.retain(|d| d["serial"] == "emulator-5554");
+    let mut rules = vec![
+        json!({"prefix": "package install", "service": "abb_exec", "times": 2, "stdout": "Success\n"}),
+        json!({"prefix": "package install", "service": "abb_exec", "times": if transient { 1 } else { 1000 }, "hang": true}),
+    ];
+    if transient {
+        rules.push(json!({"prefix": "package install", "service": "abb_exec", "stdout": "Success\n"}));
+    }
+    devices[0]["shell"] = json!(rules);
+    let timeouts = json!({"shell": "PT5S", "uninstall": "PT5S", "pushFile": "PT5S", "install": "PT10S"});
+    run_with(
+        vec![(script, vec![], index)],
+        Options {
+            timeouts: Some((timeouts, D87_DEVICE_WAIT)),
+            ..Options::default()
+        },
+    )
+}
+
+fn package_installs(observed: &Observed) -> usize {
+    observed
+        .transcripts
+        .iter()
+        .flatten()
+        .filter(|r| r["type"] == "shell" && r["command"].as_str().is_some_and(|s| s.starts_with("package install")))
+        .count()
+}
+
+/// D87: each preparation fails after its three attempts at the app time out, about 32 s. The device actor retries every
+/// 10 s while a retry starts before the deadline, and an installation is retried only while another attempt fits before
+/// it, so the device leaves at about 198 s, inside the 199 s deadline, and D48's 30 s wait ends the run. Kotlin's limits,
+/// 30 attempts of the preparation with three installer attempts each, would take about 21 minutes with these timeouts
+/// (96 with the defaults); the harness gives up at 400 s.
+#[test]
+fn an_android_device_whose_installs_time_out_leaves_within_its_preparation_deadline_d87() {
+    let observed = run_install_timeouts(false);
+    assert!(
+        matches!(observed.result, Some(Ok(false))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed.result.as_ref().map(|r| r.is_ok())
+    );
+    assert!(
+        observed.virtual_millis <= D87_ENVELOPE_MILLIS + D87_DEVICE_WAIT + 2000,
+        "{} virtual ms",
+        observed.virtual_millis
+    );
+    let cut = logged(
+        &observed,
+        "is not prepared within its preparation time of 199000 ms, not retrying after",
+    );
+    assert_eq!(cut, 1);
+    // The parser's two, then four preparations with three attempts and two whose single attempt left no time for another.
+    assert_eq!(
+        package_installs(&observed),
+        2 + 4 * 3 + 2,
+        "{:?}",
+        observed.virtual_millis
+    );
+    assert_eq!(logged(&observed, "the device's preparation time would run out"), 2);
+}
+
+/// D87 keeps a single failure's retry: the first install of the preparation times out, the second attempt succeeds, and
+/// the device runs every test.
+#[test]
+fn an_android_install_that_times_out_once_is_still_retried_within_the_deadline_d87() {
+    let observed = run_install_timeouts(true);
+    assert!(
+        matches!(observed.result, Some(Ok(true))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed.result.as_ref().map(|r| r.is_ok())
+    );
+    assert_eq!(package_installs(&observed), 2 + 1 + 2);
+    assert_eq!(logged(&observed, "not retrying"), 0);
+    assert_eq!(logged(&observed, "the device's preparation time would run out"), 0);
 }
