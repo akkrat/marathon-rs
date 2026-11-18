@@ -59,6 +59,11 @@ pub trait ProviderRecovery: Send + Sync {
     >;
     fn reconnect(&self, provider: Arc<AppleSimulatorProvider>, caller: VendorContext) -> VendorFuture<'_, ()>;
     fn admit(&self, id: &str, device: &Simulator) -> ProvisioningResult<()>;
+    /// D87: whether the setup of this simulator may start now, its provisioning permit held. By default, always.
+    fn may_set_up(&self, id: &str) -> bool {
+        let _ = id;
+        true
+    }
     fn offer(&self, transport: &Transport, targets: &[AppleTarget]) -> bool;
     fn missing(
         &self,
@@ -265,7 +270,11 @@ impl AppleSimulatorProvider {
             }),
             services.vendor.threading_configuration.provisioning_concurrency,
             services.logging.clone(),
-        )?;
+        )?
+        .with_setup_gate({
+            let recovery = services.recovery.clone();
+            Arc::new(move |id: &str| recovery.may_set_up(id))
+        });
         let provider = Arc::new_cyclic(|me| Self {
             me: me.clone(),
             logger: services.logging.component("marathon_ios::device::simulator_provider"),

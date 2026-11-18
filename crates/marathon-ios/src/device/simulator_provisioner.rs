@@ -181,9 +181,13 @@ pub struct SimulatorProvisioner<H> {
     register: Registration<H>,
     concurrency: usize,
     permits: Mutex<HashMap<String, Arc<Semaphore>>>,
+    /// D87: whether the setup of an existing simulator, by id, may start; asked once its permit is held.
+    may_set_up: SetupGate,
     logging: SshLogging,
     logger: Component,
 }
+/// D87: whether the setup of the simulator with this id may start now.
+pub type SetupGate = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
     pub fn new(
         connections: Arc<dyn ProvisioningConnections>,
@@ -207,9 +211,16 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
             register,
             concurrency: concurrency as usize,
             permits: Mutex::default(),
+            may_set_up: Arc::new(|_| true),
             logging,
             logger,
         })
+    }
+    /// D87: the setup of an existing simulator starts only if `gate` allows it, asked where it starts: after its
+    /// provisioning permit, before it connects. One refused is dropped, as a setup the run no longer wants.
+    pub fn with_setup_gate(mut self, gate: SetupGate) -> Self {
+        self.may_set_up = gate;
+        self
     }
     pub fn with_simulator_commands(mut self, commands: Arc<dyn SimulatorCommands>) -> Self {
         self.commands = commands;
@@ -301,6 +312,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                     };
                     active(&caller)?;
                     match &failure {
+                        FailedSetup::Existing { udid, .. } if !(self.may_set_up)(&format!("{udid}@{}", transport.id())) => Ok(None),
                         FailedSetup::Existing { udid, .. } => {
                             let outcome = self.setup(udid, &transport, cycle, &caller).await?;
                             Ok(match outcome { Outcome::SetUp | Outcome::Dropped => None, Outcome::Unreachable => Some(failure.clone().with_unreachable(true)), Outcome::Failed => Some(failure.clone().refused()) })

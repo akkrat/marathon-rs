@@ -919,6 +919,27 @@ impl ProviderRecovery for SimulatorRecovery {
         state.setup.forget(id);
         state.carried.shift_remove(id);
     }
+    fn may_set_up(&self, id: &str) -> bool {
+        let Ok(provider) = self.provider() else {
+            return true;
+        };
+        let carried = self.state().carried.get(id).copied();
+        let Some((_, episode)) = carried.filter(|(generation, _)| *generation == provider.generation(id)) else {
+            return true;
+        };
+        if episode.may_start(provider.services.context.clock.now_millis()) {
+            return true;
+        }
+        // D87: past the deadline no setup of it starts, as after its last recovery.
+        self.state().carried.shift_remove(id);
+        provider.log(
+            Level::WARN,
+            || format!("Simulator {id} has not got ready within its preparation time, not setting it up again"),
+            None,
+        );
+        provider.exhaust_claimed(id);
+        false
+    }
     fn admit(&self, id: &str, device: &Simulator) -> ProvisioningResult<()> {
         let provider = self.provider()?;
         // D87: a setup made for a simulator that failed to get ready continues its preparation, and starts only before
@@ -1000,6 +1021,10 @@ impl ProviderRecovery for SimulatorRecovery {
                 // registration/removal must remain available while that check runs.
                 let connected = d.connected();
                 let lost = d.lost();
+                // D87: a simulator lost by a failed preparation is a loss even if its worker dropped since: its recovery
+                // counts it and continues its preparation, so a worker that comes back cannot start the time afresh.
+                // Read before the provider's lock, which is never held while a device's is taken.
+                let failed_preparation = lost && d.preparation_episode().is_some();
                 let mut state = provider.state();
                 // A replacement still waiting to raise its connect is looked at again on the next tick, so that its
                 // disconnect follows that connect.
@@ -1010,7 +1035,7 @@ impl ProviderRecovery for SimulatorRecovery {
                 {
                     continue;
                 }
-                if !connected {
+                if !connected && !failed_preparation {
                     disconnected.push(d.clone());
                 } else if lost {
                     failed.push(d.clone());
