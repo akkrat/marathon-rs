@@ -23,9 +23,10 @@ struct PolicyState {
     awaiting_admission: IndexSet<String>,
     closed: Option<String>,
     setup: setup_retry::SetupRetries,
-    /// D87: the unfinished preparations a recovery hands to the simulators it is setting up, by id, while it sets them
-    /// up.
-    carried: IndexMap<String, crate::apple_simulator_device::PreparationEpisode>,
+    /// D87: the unfinished preparations a recovery hands to the setups it makes of a simulator, by id, with the D44
+    /// generation of the recovery's claim. The next registration of that generation takes it, whether the recovery's
+    /// own setup or a later retry of it (D33, or the worker's retry); a removal or re-add starts afresh.
+    carried: IndexMap<String, (u64, crate::apple_simulator_device::PreparationEpisode)>,
 }
 /// D44: a target waiting for its worker, with the generation of the claim that handed it over. An attempt takes only
 /// what matches its own claims; an entry whose simulator was removed or added back since it was offered is dead.
@@ -542,27 +543,15 @@ impl SimulatorRecovery {
                     return Ok(Vec::new());
                 }
                 let pause = self.recovery_pause_millis.wrapping_mul(i64::from(loss.wrapping_sub(1)));
-                // D87: a simulator lost by a failed preparation is set up again within that preparation's time, and
-                // only if a boot attempt would still fit in it after the pause.
-                if let Some(device) = lost.iter().find(|d| {
-                    d.preparation_left_millis().is_some_and(|left| {
-                        left.saturating_sub(pause).saturating_sub(d.boot_reserve_millis()) <= 0
-                    })
-                }) {
-                    provider.log(
-                        Level::WARN,
-                        || {
-                            format!(
-                                "Simulator {} has not got ready within its preparation time, not re-provisioning it again",
-                                device.serial()
-                            )
-                        },
-                        None,
-                    );
-                    provider.set_exhausted(apple_id(device.udid(), transport), true);
-                    return Ok(Vec::new());
+                // D87: a simulator lost by a failed preparation is set up again only if that starts before the
+                // preparation's deadline: asked before the pause, and where the setup starts, after it.
+                if let Some(device) = lost.iter().find(|d| !d.may_start_attempt(pause)) {
+                    return Ok(out_of_time(provider, transport, device));
                 }
                 caller.clock.delay(pause, caller.cancellation.clone()).await?;
+                if let Some(device) = lost.iter().find(|d| !d.may_start_attempt(0)) {
+                    return Ok(out_of_time(provider, transport, device));
+                }
             }
             let mut udids = Vec::new();
             let mut carried = Vec::new();
@@ -584,22 +573,22 @@ impl SimulatorRecovery {
                 }
                 provider.log(Level::WARN, || format!("Re-provisioning {}", device.serial()), None);
                 udids.push(device.udid().to_owned());
-                // D87: only after a failed preparation; a worker's loss is not one.
+                // D87: only after a failed preparation; a worker's loss is not one. Only for the generation this recovery
+                // holds a current claim on, so a simulator added back meanwhile starts afresh.
                 if let Some(episode) = device.preparation_episode().filter(|_| loss.is_some()) {
-                    carried.push((apple_id(device.udid(), transport), episode));
+                    let id = apple_id(device.udid(), transport);
+                    let held = provider.claim([id.clone()]).0.get(&id).copied().unwrap_or(0);
+                    if held == provider.generation(&id) {
+                        carried.push((id, (held, episode)));
+                    }
                 }
             }
-            self.state().carried.extend(carried.iter().cloned());
-            let result = provider
+            // It stays until a setup of that generation registers, so that a setup retry continues it too.
+            self.state().carried.extend(carried);
+            provider
                 .provisioner
                 .existing(udids, transport.clone(), caller.clone())
-                .await;
-            // A setup that registers later, as a retry's, starts a preparation of its own.
-            let mut state = self.state();
-            for (id, _) in &carried {
-                state.carried.shift_remove(id);
-            }
-            result
+                .await
         }
         .await;
         // D44: after a worker loss the handle stays disconnected, so without an owner the scan would start again on the
@@ -775,6 +764,22 @@ impl SimulatorRecovery {
         self.schedule_setup_retry(provider, transport, failed_targets, started)
     }
 }
+/// D87: a recovery that may not start a setup leaves the simulator out of the run, as after its last recovery, if its
+/// claim on it is still current; a simulator removed and added back meanwhile is not its to decide for.
+fn out_of_time(provider: &AppleSimulatorProvider, transport: &Transport, device: &Simulator) -> Vec<FailedSetup> {
+    provider.log(
+        Level::WARN,
+        || {
+            format!(
+                "Simulator {} has not got ready within its preparation time, not re-provisioning it again",
+                device.serial()
+            )
+        },
+        None,
+    );
+    provider.exhaust_claimed(&apple_id(device.udid(), transport));
+    Vec::new()
+}
 fn not_current(state: &State, id: &str, device: &Simulator) -> bool {
     state
         .devices
@@ -905,14 +910,28 @@ impl ProviderRecovery for SimulatorRecovery {
         })
     }
     fn forget_setup(&self, id: &str) {
-        self.state().setup.forget(id);
+        let mut state = self.state();
+        state.setup.forget(id);
+        state.carried.shift_remove(id);
     }
     fn admit(&self, id: &str, device: &Simulator) -> ProvisioningResult<()> {
-        let carried = self.state().carried.shift_remove(id);
-        if let Some(episode) = carried {
-            device.continue_preparation(episode);
-        }
         let provider = self.provider()?;
+        // D87: a setup made for a simulator that failed to get ready continues its preparation, and starts only before
+        // that preparation's deadline: past it, the simulator stays out of the run, as after its last recovery.
+        let carried = self.state().carried.shift_remove(id);
+        if let Some((generation, episode)) = carried
+            && generation == provider.generation(id)
+        {
+            device.continue_preparation(episode);
+            if !device.may_start_attempt(0) {
+                provider.exhaust_claimed(id);
+                return Err(SetupDropped(format!(
+                    "Simulator {} has not got ready within its preparation time, its new setup is dropped",
+                    device.serial()
+                ))
+                .into());
+            }
+        }
         // D33: a retried simulator joins as late as one of a late worker, under the same cut-off.
         let joining = self.state().pending.contains_key(device.transport()) || setup_retry::in_retried_setup();
         let late = joining && !provider.state().devices.contains_key(id);

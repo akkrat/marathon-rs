@@ -312,6 +312,14 @@ impl AppleSimulatorProvider {
             state.recovering.push(device);
         }
     }
+    /// D87: out of the run for good, as after its last recovery, if the running operation's claim on it is current.
+    pub(crate) fn exhaust_claimed(&self, id: &str) {
+        self.settle(&[id.to_owned()], |state, current| {
+            if current.contains(id) {
+                state.exhausted.insert(id.to_owned());
+            }
+        });
+    }
     pub fn set_exhausted(&self, id: String, exhausted: bool) {
         let mut state = self.state();
         if exhausted {
