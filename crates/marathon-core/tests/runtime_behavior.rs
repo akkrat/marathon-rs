@@ -3,7 +3,10 @@
 mod support;
 use marathon_core::{
     error::*,
-    executor::{CoreExecutor, RuntimeActor, SharedDeferred, retry::with_retry},
+    executor::{
+        CoreExecutor, RuntimeActor, SharedDeferred,
+        retry::{with_retry, with_retry_until},
+    },
     runtime::*,
     time::*,
 };
@@ -410,6 +413,55 @@ fn retry_counts_attempts_and_rethrows_last_failure() {
             })
             .await;
             assert_eq!(result, Ok(42));
+            parent.complete();
+            Ok(())
+        })
+    });
+}
+/// A clock whose delays end `overshoot` ms late, as a loaded host's can.
+struct Overshooting {
+    now: Cell<i64>,
+    overshoot: i64,
+}
+impl SchedulerClock for Overshooting {
+    fn now_millis(&self) -> i64 {
+        self.now.get()
+    }
+    fn delay(&self, millis: i64, _: JobRef) -> LocalFuture<'_, Result<(), Cancellation>> {
+        self.now.set(self.now.get() + millis + self.overshoot);
+        Box::pin(std::future::ready(Ok(())))
+    }
+}
+
+/// D87: whether a retry may start is asked where it starts, after its delay: a delay that ends past the deadline makes
+/// no retry, although the deadline was ahead when the delay began.
+#[test]
+fn a_retry_whose_delay_ends_past_the_deadline_is_not_made_d87() {
+    run(|core, _| {
+        Box::pin(async move {
+            let parent = core.job(JobKind::Ordinary, None);
+            let clock = Overshooting {
+                now: Cell::new(0),
+                overshoot: 10,
+            };
+            let (calls, cut) = (Cell::new(0), Cell::new(None));
+            let result: OperationResult<()> = with_retry_until(
+                30,
+                10,
+                Some(15),
+                &clock,
+                parent.clone(),
+                || {
+                    calls.set(calls.get() + 1);
+                    std::future::ready(Err(failed("x").into()))
+                },
+                |made| cut.set(Some(made)),
+            )
+            .await;
+            assert_eq!(result, Err(failed("x").into()));
+            assert_eq!(calls.get(), 1);
+            assert_eq!(cut.get(), Some(1));
+            assert_eq!(clock.now_millis(), 20);
             parent.complete();
             Ok(())
         })
