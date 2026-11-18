@@ -1325,6 +1325,9 @@ and command construction stay. Real-device report order follows execution order.
 The reviewed native goldens reorder selectors in six views, with the same batch
 members and every report file unchanged; batching limits and configuration stay.
 
+[D83](#d83--copies-of-different-tests-take-turns-in-the-queue) refines the insertion order: the copies of a test no
+longer enter the queue next to each other.
+
 Approved as D60 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12).
 See [WP 8.7](wp/8.7.md), the
 [reviewed golden diff](wp/8.7-golden-diff.md) and [test changes](wp/8.7-test-changes.md).
@@ -2092,6 +2095,47 @@ the per-test result files or Allure should accept `COVERAGE`. Its path, like eve
 that ran marathon; a tool reading a copy of the output folder elsewhere joins the part after the last `/device-files/`
 onto its copy. A job that made its app debuggable only to get coverage
 can stop doing so.
+
+## D83 — Copies of different tests take turns in the queue
+
+[D60](#d60--equal-priority-tests-run-in-insertion-order) breaks priority ties first-in, first-out, and the copies of a
+test were inserted next to each other: `flakinessStrategy` `probability` and `fixed` list a test's copies together, and
+`shardingStrategy: count` repeats each test in place. So with equal sort keys, for example `sortingStrategy: no-sorting`
+or tests without history, a wave of free devices took every copy of the first tests before any copy had run. Under
+`executionStrategy.fast` (the default), a copy can only be dropped while it is still queued, so copies that all started
+together all ran. The Kotlin marathon's heap order mixed copies of different tests by accident.
+
+A pool's queue now takes the shard round by round: every test once, in shard order, then each test's first copy, then
+each test's second copy, and so on. For three tests with four copies each and no sorting, the queue is
+`t1 t2 t3 t1 t2 t3 …` where it was `t1 t2 t3 t1 t1 t1 t1 t2 t2 …`.
+
+- **What stays:** which copies exist and how many (D34, D71, D72), what `marathon parse --includeFlakyTests` lists and
+  in which order, the order between different sort keys (a longer test's copies still come first under
+  `execution-time`), the random keys a seed gives (each test is still first inserted in shard order), batching rules
+  (`fixed-size` never puts two copies of a test in one batch, `class-name` still takes every queued copy of its class),
+  `fast: false`, `ALL_SUCCESS` and D69/D77.
+- **Retries and re-queued tests** are unchanged: a retry, a rejected batch's tests and `fixed-size`'s rejected copies go
+  to the end of their priority, as under D60. A pool admitted late (D65) builds its queue the same way.
+- **What changes:** the order of equal-priority copies, so which copies a wave of devices takes, which test-selector
+  lists workers receive (`adb -e class`, xcodebuild `-only-testing`), how `fixed-size` groups copies into batches, and the
+  number of batches: a batch that used D50's rejected polls on one test's copies and went out short is now full. With
+  `fast`, fewer copies can run, since a test that passed while its copies waited has them dropped; reports and
+  `raw.json` can list fewer executions. A test's result does not change. Executables, flags and non-test operands stay.
+
+Evidence: on a CI farm of Android emulators, a job of 3 tests without history (each given 4 copies by `probability`,
+15 runs) on 8 emulators gave 15 executions with 0.14.0-rc.2 and 10 with the JVM build, in the same wall time: rc.2's
+first wave held all five runs of one test, each started before any had passed, and the copies cost about 50 minutes of
+device time against 35. `flakiness_scenarios::d83_copies_of_different_tests_interleave_so_fast_drops_more_of_them` runs
+3 tests with 4 copies each on 8 Stub devices: the first wave holds every test, and 11 runs happen where the grouped
+order ran 13. `strategy_flakiness::d83_*` pin the order for equal keys, distinct keys and a seeded random order, and the
+batching rules. Registered native goldens have no copies and are unchanged
+([golden-diff note](wp/x81-golden-diff.md)).
+
+Approved 2026-11-18 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the [x81 findings](wp/x81-findings.md).
+
+**Migration action:** none. Snapshots of worker commands or batches for runs with flakiness copies or `count` sharding
+need an update, as for D60.
 
 ## Other accepted text differences
 

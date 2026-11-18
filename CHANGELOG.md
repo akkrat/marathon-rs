@@ -2,6 +2,15 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
+## Unreleased
+
+- **Flakiness copies take turns (D83):** with `flakinessStrategy: probability` or `fixed`, or `shardingStrategy:
+  count`, the extra runs of different tests now alternate in the queue instead of each test's runs waiting together.
+  Free devices spread over the tests, so with `executionStrategy.fast` (the default) a test that passes has its runs
+  that have not started dropped, as in the JVM build. Runs can use less device time and list fewer executions; test
+  results are unchanged. Worker commands can list a batch's tests in another order and grouping, and `fixed-size`
+  batches with copies can be fuller.
+
 ## 0.14.0
 
 This release fixes run-stability and Android, iOS and macOS device-handling bugs found after 0.13.0, with the approved

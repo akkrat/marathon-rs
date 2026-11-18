@@ -127,7 +127,7 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 | cancel runs with SIGINT or SIGTERM, or take a run's reports as a sign that it finished ([D52](deviations.md#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit)) | A cancelled run writes its reports and terminates its devices whatever `debug` says, and exits with 130 or 143 within 25 s. A second signal exits at once. | Allow 25 s before killing it, and read the exit code to tell whether a run finished. [See below](#cancelling-a-run). |
 
 These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D22, D23, D26, D28–D30, D34, D36, D37, D40, D42, D45, D49,
-D51, D53, D54, D64–D66, D68–D70, D74–D77, D80 and D81. D65 can include a previously missed late pool, lengthen a run and correct its reports and
+D51, D53, D54, D64–D66, D68–D70, D74–D77, D80, D81 and D83. D65 can include a previously missed late pool, lengthen a run and correct its reports and
 existing exit status; it needs no configuration change. D66 turns a SIGQUIT, which used to end the run at once, into a
 logged state dump; a wrapper that sends SIGQUIT and then SIGTERM now gets the dump, then D52's reports and exit status. D2, D3, D6, D8–D12, D14, D20, D24, D25, D67, D71, D72 and D78 have an action of their own, described in their entries and in the
 sections below.
@@ -181,6 +181,12 @@ within a poll and the 10 s retry pause, not after `bootWait` (240 s); one that s
 [D80](deviations.md#d80--a-slow-video-transfer-doesnt-cost-the-next-test-its-video-or-its-time) needs no action. With iOS
 video recording on a slow worker link, the tests after the first of a batch keep their videos and their durations; the
 stop, transcode and pull of a test's video now run beside the next test instead of before its start is handled.
+
+[D83](deviations.md#d83--copies-of-different-tests-take-turns-in-the-queue) comes after 0.14.0 and needs no action. The
+copies that `flakinessStrategy` `probability` or `fixed`, or `shardingStrategy: count`, make of a test now take turns
+with other tests' copies in the queue, so a wave of devices spreads over the tests and `fast` drops the copies of a test
+that has passed while they waited. Runs can list fewer executions and send copies in another order and grouping; test
+results are unchanged.
 
 ### A finite `uncompletedTestRetryQuota` (D47)
 
