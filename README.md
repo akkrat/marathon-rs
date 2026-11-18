@@ -10,7 +10,7 @@ bugs (D68–D72, D74–D81) and adds Android coverage for non-debuggable apps; 0
 Phase 8 contract (D55–D65) and changed SIGQUIT and console completion handling (D66, D67). The Kotlin tests are ported or
 marked not applicable with a reason, differential suites compare whole runs with the JVM program, and the release
 candidates ran on real iOS, macOS and Android hosts, as the changelog records. Outside this repository the maintainer
-also ran them beside the JVM build on private CI farms, which cannot be checked here.
+also ran 0.14.0-rc.2 beside the JVM build on private CI farms, which cannot be checked here.
 No isolated shadow or canary results are recorded in this repository. Trial it in a
 disposable environment and keep your JVM distribution for rollback. See the
 [changelog](CHANGELOG.md) for known limits and

@@ -162,27 +162,29 @@ upgrading from an older version.
   started (D70, U197), reviewed as a new file.
 - Each change had one or two review rounds by another model, recorded with their findings and fixes in its findings document.
 - CI runs the repository gate on macOS and Linux; it passes on the code of this release. The changes of x61–x66 and
-  x75–x79 also passed it locally and on a Linux build box before merging. Two CI failures on `main` during the first batch were races that only tests could hit, fixed
-  in a test (U198) and in the console's filter reload (U199). Two tests that fail rarely under CI load are recorded as open
-  (U202, U203); neither involves the released binary.
+  x75–x79 also passed it locally and on a Linux build box before merging. Two CI failures on `main` during the first
+  batch were races that only tests could hit, fixed in a test (U198) and in the console's filter reload (U199). Two
+  tests that fail rarely under heavy load are recorded as open (U202, U203); neither involves the released binary.
 - 0.14.0-rc.1 ran on real hosts: the static Linux build on two API 36 Android emulators (adb server killed and an emulator
   lost mid-batch, brief `offline`, SIGTERM, and D71, D72 and D77 on the real runner), and the macOS build on this
   project's Mac with iOS 18.6 and 26.4 simulators and macOS tests, locally and over SSH to a second Mac as a real worker.
   Healthy runs gave the same per-test outcomes and report data as 0.13.0-rc.1, and the D69–D72, D74, D76 and D77 cases
-  that were exercised behaved as documented; D68 and D75 were not reachable there. Those runs found what D78–D80 and the
+  that were exercised behaved as documented; D68 and D75 were not reachable there. On the remote worker one test lost
+  its video and got a JUnit time of 0 after a slow video transfer, as in 0.13.0. Those runs found what D78–D80 and the
   log changes fix.
 - 0.14.0-rc.2 repeated those runs where they had found something. On the emulators a healthy run gave the same per-test
   results, JUnit and `raw.json` as rc.1, with one `COVERAGE` attachment per test and a readable coverage file per batch
-  (D81), also for a non-debuggable app, which rc.1 left without coverage. On iOS a simulator shut down during its boot
-  wait was ready after 26 s instead of 255 s (D79), the remote run that had lost a video kept every test's video and
-  duration (D80), and passed tests had no `flakyFailure` for passing runs (D78). The changed log lines appeared once, at
-  the documented levels.
+  (D81), also for a non-debuggable app, which rc.1 left without coverage. On iOS a simulator shut down on purpose during its
+  boot wait was ready after 26 s instead of 255 s (D79). The remote run that had lost a video was repeated over a faster
+  link: every test kept its video and a duration equal to its xcodebuild timespan, and no test's handling waited for a
+  pull; a pull longer than the next test was not reproduced (D80). Passed tests had no `flakyFailure` for passing runs
+  (D78). The changed log lines appeared once, at the documented levels.
 - Outside this repository, the maintainer ran 0.14.0-rc.2 on private CI farms against recent runs of the same jobs on the
   JVM build: the macOS build on 80 iOS simulators and the static Linux build on Android emulators, in jobs of up to 1426
-  tests. Every job ended with the same per-test results as the JVM runs, with the same or fewer retried runs and similar
-  wall times. These runs are private and cannot be checked here. Two things they showed are listed under Known limits:
-  one emulator used up a test's incomplete-run retries within seconds (the job's own retry passed it on another device),
-  and probability copies of one test started together.
+  tests. Every job ended with the same passed tests as the JVM runs, two of them after a retry of the job (one after an
+  app that did not launch within a test, one after an emulator whose instrumentation kept failing), with wall times
+  similar to the JVM runs. Retried runs were mostly within the range of the JVM runs; that emulator's job and a job with
+  `probability` flakiness ran more, as Known limits explains. These runs are private and cannot be checked here.
 
 ### Known limits
 
@@ -216,10 +218,14 @@ upgrading from an older version.
   the screen capture and profiling files attached as it ends (D70).
 - An Android device whose instrumentation keeps failing before a test starts can take that test back as soon as it is
   returned to the queue, so one device can use up a test's `uncompletedTestRetryQuota` within seconds while other
-  devices are free.
-- With `flakinessStrategy: probability`, the copies of one test are queued together (D60), so with enough free devices
-  they all start before one of them passes and `fast` has none left to cancel. Results are the same; the copies cost more
-  device time than in the JVM build, which interleaved copies of different tests.
+  devices are free, as in the Kotlin build: Android devices have no worker, so nothing steers a retry to another device.
+- With `flakinessStrategy: probability` or `fixed`, the copies of one test are queued together (D60), so with enough
+  free devices they all start before one of them passes (or fails, under `ALL_SUCCESS`) and `fast` has none left to
+  cancel. Results are the same; the copies cost more device time than in the JVM build, whose heap order interleaved
+  copies of different tests.
+- When an Android device is lost during a batch with `isCodeCoverageEnabled: true`, the batch's coverage is logged as
+  missing, and its cleanup as failed, at ERROR, although its tests run again and their new batch's coverage is pulled.
+  The exit code is unchanged (D81).
 - A Graphite backend that cannot be set up still fails the run, where an InfluxDB one falls back to no history (D71).
 - A JUnit3 `TestCase` method that also carries `@Test` is still listed twice, by both discovery rules, as in Kotlin (D75).
 - A remote parse cut after other text, before its first status atom, can't be told from output that is not the
