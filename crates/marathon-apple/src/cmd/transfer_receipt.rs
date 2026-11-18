@@ -30,6 +30,8 @@ pub struct TransferReceipt {
     stop: Arc<Signal>,
     /// An earlier end than the bridge's own for its cleanup, on the vendor clock; `i64::MAX` for none.
     by: AtomicI64,
+    /// Told of every stop and deadline, so that a step of the cleanup already running sees an earlier deadline.
+    changed: tokio::sync::Notify,
     ended: Arc<SharedDeferred<TransferCleanup>>,
 }
 impl TransferReceipt {
@@ -37,18 +39,19 @@ impl TransferReceipt {
         Arc::new(Self {
             stop: Signal::new(),
             by: AtomicI64::new(i64::MAX),
+            changed: tokio::sync::Notify::new(),
             ended: SharedDeferred::new(),
         })
     }
     /// Stops the transfer with `reason`, as its caller's cancellation would. `by`, on the vendor clock, is when its cleanup
-    /// must have ended if that is sooner than the bridge's own bound; the first stop's is kept.
+    /// must have ended if that is sooner than the bridge's own bound; the earliest given is kept, also when it comes with a
+    /// later stop and the cleanup is under way.
     pub fn stop(&self, reason: Cancellation, by: Option<i64>) {
         if let Some(by) = by {
-            let _ = self
-                .by
-                .compare_exchange(i64::MAX, by.min(i64::MAX - 1), Ordering::AcqRel, Ordering::Acquire);
+            self.by.fetch_min(by.min(i64::MAX - 1), Ordering::AcqRel);
         }
         self.stop.cancel(reason);
+        self.changed.notify_waiters();
     }
     /// How it ended, once it has.
     pub fn ended(&self) -> Option<TransferCleanup> {
@@ -63,6 +66,10 @@ impl TransferReceipt {
     }
     pub(crate) fn stop_signal(&self) -> Arc<Signal> {
         self.stop.clone()
+    }
+    /// Ready at the next stop or deadline given; enable it before reading `deadline`, so that none is missed.
+    pub(crate) fn changed(&self) -> tokio::sync::futures::Notified<'_> {
+        self.changed.notified()
     }
     pub(crate) fn deadline(&self) -> Option<i64> {
         Some(self.by.load(Ordering::Acquire)).filter(|by| *by != i64::MAX)

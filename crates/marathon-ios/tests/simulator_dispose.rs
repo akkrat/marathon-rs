@@ -622,22 +622,44 @@ async fn disposal_waits_for_a_send_whose_caller_stopped_waiting_d91() -> TestRes
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }
-/// D91: a send asked of a disposed simulator is stopped before it starts, by the disposal; nothing else would stop it.
+/// A bridge that starts a transfer, as rsync would, unless its stop has already come, which it looks at first as the rsync
+/// bridge does; it counts what it starts.
+#[derive(Default)]
+struct StartsUnlessStopped {
+    started: Arc<AtomicUsize>,
+}
+impl marathon_apple::cmd::FileBridge for StartsUnlessStopped {
+    fn send<'a>(&'a self, _: &'a std::path::Path, _: &'a str) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        self.started.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async { Ok(true) })
+    }
+    fn receive<'a>(&'a self, _: &'a str, _: &'a std::path::Path) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        Box::pin(async { Ok(true) })
+    }
+    fn send_with<'a>(
+        &'a self,
+        src: &'a std::path::Path,
+        dst: &'a str,
+        mut stop: marathon_apple::cmd::TransferStop,
+    ) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        match stop.now() {
+            Some(stopped) => Box::pin(async move { Err(stopped.into_error()) }),
+            None => self.send(src, dst),
+        }
+    }
+}
+/// D91: a send asked of a disposed simulator is stopped before it starts, by the disposal: no transfer starts. Nothing
+/// else would have stopped it (review round 1: the witness now counts what starts).
 #[tokio::test(start_paused = true)]
 async fn a_send_to_a_disposed_simulator_is_stopped_before_it_starts_d91() -> TestResult {
     use marathon_apple::apple_device::AppleDevice;
     let h = long_bound()?;
-    let bridge = Arc::new(SlowlyStoppingSends::default());
+    let bridge = Arc::new(StartsUnlessStopped::default());
     let d = on_bridge(&h, bridge.clone()).await?;
     d.dispose().await.unwrap();
     let dir = tempfile::tempdir()?;
     let context = h.services.context.clone();
-    let sent = tokio::time::timeout(
-        std::time::Duration::from_secs(3_600),
-        d.push_file(dir.path(), "/tmp/marathon/late", &context),
-    )
-    .await
-    .expect("the send was not stopped");
+    let sent = d.push_file(dir.path(), "/tmp/marathon/late", &context).await;
     match sent {
         Err(VendorError::Cancelled(reason)) => {
             assert!(
@@ -652,6 +674,7 @@ async fn a_send_to_a_disposed_simulator_is_stopped_before_it_starts_d91() -> Tes
         }
         other => panic!("{other:?}"),
     }
+    assert_eq!(bridge.started.load(Ordering::SeqCst), 0, "a transfer started");
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }
