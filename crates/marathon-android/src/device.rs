@@ -202,6 +202,8 @@ struct Inner {
     prepare_failed_at: OnceLock<i64>,
     /// D70.
     batch: Mutex<Option<BatchRecord>>,
+    /// D87: when this device's preparation must end, on the run's vendor clock; `i64::MAX` for none.
+    preparation_deadline: AtomicI64,
 }
 struct State {
     booted: bool,
@@ -262,6 +264,7 @@ impl AndroidDevice {
                 return_wait_used: AtomicI64::new(0),
                 prepare_failed_at: OnceLock::new(),
                 batch: Mutex::default(),
+                preparation_deadline: AtomicI64::new(i64::MAX),
             }),
         }
     }
@@ -1261,6 +1264,17 @@ impl Device for AndroidDevice {
     fn component(&self) -> &Component {
         &self.inner.logger
     }
+    fn preparation_time_left_millis(&self, configuration: &marathon_config::Configuration) -> Option<i64> {
+        let budget = preparation_budget_millis(
+            configuration,
+            crate::installer::preparation_envelope_millis(self.runtime()),
+        );
+        let now = self.runtime().dependencies.clock.now_millis();
+        self.inner
+            .preparation_deadline
+            .store(now.saturating_add(budget).min(i64::MAX - 1), Ordering::Release);
+        Some(budget)
+    }
     fn prepare<'a>(
         &'a self,
         configuration: Arc<marathon_config::Configuration>,
@@ -1283,7 +1297,9 @@ impl Device for AndroidDevice {
                     let mut dependencies = device.runtime().dependencies.clone();
                     dependencies.configuration = configuration;
                     let installation = AndroidRuntime::new(dependencies, device.runtime().executor.clone()).await?;
+                    let deadline = device.inner.preparation_deadline.load(Ordering::Acquire);
                     crate::installer::AndroidAppInstaller::new(installation)
+                        .with_deadline((deadline != i64::MAX).then_some(deadline))
                         .prepare_installation(&device, context.clone())
                         .await?;
                     // D27: Kotlin runs `rm -r $EXTERNAL_STORAGE` and `mkdir` here, wiping the user's data (N4).

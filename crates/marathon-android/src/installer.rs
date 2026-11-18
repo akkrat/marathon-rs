@@ -7,10 +7,67 @@ use std::path::PathBuf;
 use std::sync::Arc;
 pub struct AndroidAppInstaller {
     runtime: Arc<AndroidRuntime>,
+    /// D87: the device's preparation deadline on the run's vendor clock, if this installation is part of one.
+    deadline: Option<i64>,
+}
+/// The pause between two attempts to install a package.
+const INSTALL_RETRY_PAUSE_MILLIS: i64 = 1000;
+/// D87: what one attempt to install a package can take with every step running to its limit: listing the packages,
+/// uninstalling, pushing (where the install pushes the file first), installing and removing the pushed file.
+pub(crate) fn install_attempt_millis(t: &marathon_config::vendor::AndroidTimeoutConfiguration) -> i64 {
+    let ms = |d: jcompat::jtime::Duration| d.to_millis().unwrap_or(i64::MAX);
+    ms(t.shell)
+        .saturating_add(ms(t.uninstall))
+        .saturating_add(ms(t.push_file))
+        .saturating_add(ms(t.install))
+        .saturating_add(ms(t.shell))
+}
+/// D87: what one preparation can take with all three attempts of every package's installation running to their limits,
+/// and the shell commands around them (mock location, clearing logcat).
+pub(crate) fn preparation_envelope_millis(runtime: &AndroidRuntime) -> i64 {
+    let installs = runtime
+        .bundles
+        .iter()
+        .map(|b| i64::from(b.files.application.is_some()) + b.files.extra_applications.len() as i64 + 1)
+        .sum::<i64>();
+    let per_install = install_attempt_millis(&runtime.configuration.timeout_configuration)
+        .saturating_mul(3)
+        .saturating_add(2 * INSTALL_RETRY_PAUSE_MILLIS);
+    let shell = runtime
+        .configuration
+        .timeout_configuration
+        .shell
+        .to_millis()
+        .unwrap_or(i64::MAX);
+    installs
+        .saturating_mul(per_install)
+        .saturating_add(shell.saturating_mul(3))
 }
 impl AndroidAppInstaller {
     pub fn new(runtime: Arc<AndroidRuntime>) -> Self {
-        Self { runtime }
+        Self {
+            runtime,
+            deadline: None,
+        }
+    }
+    /// D87: retries an installation only while another attempt fits before `deadline`.
+    pub fn with_deadline(mut self, deadline: Option<i64>) -> Self {
+        self.deadline = deadline;
+        self
+    }
+    /// Whether another attempt, after its pause, can end before the deadline.
+    fn retry_fits(&self) -> bool {
+        self.deadline.is_none_or(|deadline| {
+            self.runtime
+                .dependencies
+                .clock
+                .now_millis()
+                .saturating_add(INSTALL_RETRY_PAUSE_MILLIS)
+                .saturating_add(install_attempt_millis(
+                    &self.runtime.configuration.timeout_configuration,
+                ))
+                <= deadline
+        })
     }
     fn log(&self, level: Level, message: &str, error: Option<&Failure>) {
         self.runtime.emit(
@@ -232,7 +289,24 @@ impl AndroidAppInstaller {
                 Ok(()) => return Ok(()),
                 Err(e @ VendorError::Cancelled(_)) => return Err(e),
                 Err(e) if attempt == 2 => return Err(e),
-                Err(_) => context.clock.delay(1000, context.cancellation.clone()).await?,
+                Err(e) if !self.retry_fits() => {
+                    self.log(
+                        Level::WARN,
+                        &format!(
+                            "Not installing {} on {} again: the device's preparation time would run out",
+                            package.to_owned(),
+                            device.serial_number().to_owned()
+                        ),
+                        None,
+                    );
+                    return Err(e);
+                }
+                Err(_) => {
+                    context
+                        .clock
+                        .delay(INSTALL_RETRY_PAUSE_MILLIS, context.cancellation.clone())
+                        .await?
+                }
             }
         }
         unreachable!("last attempt returns")
