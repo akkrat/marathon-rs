@@ -1,5 +1,6 @@
 //! Native-only runs of the production run graph with the Stub vendor (no Kotlin counterpart):
-//! D71 (unavailable history adds no probability copies) and D72 (`flakinessStrategy: fixed`).
+//! D71 (unavailable history adds no probability copies), D72 (`flakinessStrategy: fixed`) and D83 (copies
+//! of different tests take turns in the queue).
 //! The scenario input is tools/oracle/scenarios/success.json, adjusted before the run.
 use marathon_config::schema::{ExecutionMode, FlakinessStrategyConfiguration};
 use marathon_core::model::TestStatus;
@@ -296,5 +297,81 @@ fn d77_fast_and_not_fast_track_the_same_final_record() {
             format!("{:?}", slow.value),
             "{mode:?} {answers:?}"
         );
+    }
+}
+
+/// Three tests, each with 4 fixed copies (15 runs), on 8 devices that connect 1 ms apart. Every run passes
+/// in 5 s, except on serial-3, which takes the third test's first run and needs 30 s. Returns the tests of
+/// each `execute` call in order and the number of results in raw.json.
+fn copies_on_eight_devices(fast: bool) -> (Vec<Vec<String>>, usize) {
+    use marathon_test_support::stub_device::{StubDevice, StubDeviceOptions};
+    let (mut factory, mut script) = scenario::load("success.json");
+    let tests: Vec<_> = (1..=3)
+        .map(|i| scenario::test("test", "SimpleTest", &format!("step{i}")))
+        .collect();
+    factory.tests = tests.clone();
+    let configuration = &mut factory.configuration.configuration;
+    configuration.flakiness_strategy = FlakinessStrategyConfiguration::Fixed { count: 4 };
+    configuration.execution_strategy.mode = ExecutionMode::AnySuccess;
+    configuration.execution_strategy.fast = fast;
+    script.devices.clear();
+    script.events.retain(|(_, event, ..)| event == "end");
+    script.events[0].0 = 120_000;
+    for n in 1..=8 {
+        let serial = format!("serial-{n}");
+        let device = StubDevice::new(StubDeviceOptions {
+            serial_number: serial.as_str().into(),
+            test_time_millis: if n == 3 { 30_000 } else { 5_000 },
+            ..StubDeviceOptions::default()
+        });
+        device.set_execution_results(tests.iter().map(|t| (t.clone(), vec![TestStatus::Passed; 5])).collect());
+        script.devices.insert(serial.clone(), device);
+        script
+            .events
+            .push((1_000 + n, "connect".into(), Some(serial), Value::Null));
+    }
+    script.events.sort_by_key(|(at, ..)| *at);
+    let outcome = scenario::drive(factory, script, None, None);
+    assert!(outcome.completed, "the run did not complete");
+    assert!(matches!(outcome.value, Some(Ok(true))));
+    let executed = outcome
+        .log
+        .iter()
+        .filter(|entry| entry["call"] == "execute")
+        .map(|entry| {
+            entry["tests"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|t| t.as_str().unwrap().trim_start_matches("test.SimpleTest#").to_owned())
+                .collect()
+        })
+        .collect();
+    let raw: Value = serde_json::from_str(&outcome.read("test_result/raw.json")).unwrap();
+    assert!(raw.as_array().unwrap().iter().all(|row| row["status"] == "PASSED"));
+    (executed, raw.as_array().unwrap().len())
+}
+
+/// D83: equal-priority copies are queued round by round (every test, then each test's first copy, ...), so the
+/// first wave of devices spreads over the tests and `fast` drops the copies of a test that has passed meanwhile.
+/// Before D83 the copies of one test were queued together: the first wave was step1 ×5, step2 ×2, step3 ×1, and
+/// with step3's one run on the slow device, all four of its copies ran (13 runs).
+#[test]
+fn d83_copies_of_different_tests_interleave_so_fast_drops_more_of_them() {
+    let (executed, results) = copies_on_eight_devices(true);
+    let wave: Vec<&str> = executed[..8].iter().map(|batch| batch[0].as_str()).collect();
+    assert!(executed.iter().all(|batch| batch.len() == 1));
+    assert_eq!(
+        wave,
+        ["step1", "step2", "step3", "step1", "step2", "step3", "step1", "step2"]
+    );
+    // Only step3's copies taken before its fast run on serial-6 passed still run.
+    assert_eq!(&executed[8..], [["step3"], ["step3"], ["step3"]]);
+    assert_eq!(results, 11);
+    // Without `fast` every copy runs: which copies exist did not change.
+    let (executed, results) = copies_on_eight_devices(false);
+    assert_eq!((executed.len(), results), (15, 15));
+    for step in ["step1", "step2", "step3"] {
+        assert_eq!(executed.iter().filter(|batch| batch[0] == step).count(), 5);
     }
 }

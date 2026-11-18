@@ -366,6 +366,16 @@ fn retry_setup(
     setup.pool = "pool".into();
     setup
 }
+/// D83 interleaves equal-priority copies with other tests, so a test whose copies must all go out first is the
+/// longer one under execution-time sorting.
+fn longest_first(mut setup: Setup, test: &Test) -> Setup {
+    setup.configuration.sorting_strategy = marathon_config::schema::SortingStrategyConfiguration::ExecutionTime {
+        percentile: 90.0,
+        time_limit: epoch(),
+    };
+    setup.execution_times.insert(test.clone(), 2000.0);
+    setup
+}
 /// (test, status, final) of each Track since the last call.
 fn tracks(queue: &Queue) -> Vec<(serde_json::Value, String, String, bool)> {
     queue
@@ -404,13 +414,16 @@ fn passing(total: i32, done: i32, running: i32) -> TestState {
 fn a_retry_granted_to_the_attempt_that_completes_the_test_is_not_run_d69() {
     use marathon_config::schema::ExecutionMode::AllSuccess;
     let (c0, c1) = (mtest("pkg", "C0", "m0"), mtest("pkg", "C1", "m1"));
-    let setup = retry_setup(
-        fixed_size(1),
-        AllSuccess,
-        true,
-        (10, 3),
-        vec![c0.clone(), c0.clone(), c1.clone()],
-        vec![],
+    let setup = longest_first(
+        retry_setup(
+            fixed_size(1),
+            AllSuccess,
+            true,
+            (10, 3),
+            vec![c0.clone(), c0.clone(), c1.clone()],
+            vec![],
+        ),
+        &c0,
     );
     run(move |core| {
         Box::pin(async move {
@@ -569,6 +582,7 @@ fn every_failed_copy_beside_a_retried_copy_is_ended_once_d69() {
 fn a_rejected_copy_of_a_completed_test_is_dropped_d69() {
     use marathon_config::schema::ExecutionMode::AnySuccess;
     let (c0, c1) = (mtest("pkg", "C0", "m0"), mtest("pkg", "C1", "m1"));
+    // D83: the queue starts C0, C1, C0, C0.
     let setup = retry_setup(
         fixed_size(1),
         AnySuccess,
@@ -582,6 +596,7 @@ fn a_rejected_copy_of_a_completed_test_is_dropped_d69() {
             let queue = Queue::spawn(&core, setup);
             let [a1, x1, z1, y1, b1] = ["serial-A1", "serial-X1", "serial-Z1", "serial-Y1", "serial-B1"].map(device);
             let on_a1 = batch_of(&queue.request(&a1, Some("worker-A")).await[0]);
+            let on_y1 = batch_of(&queue.request(&y1, Some("worker-Y")).await[0]);
             let on_x1 = batch_of(&queue.request(&x1, Some("worker-X")).await[0]);
             let on_z1 = batch_of(&queue.request(&z1, Some("worker-Z")).await[0]);
             let failure = queue.complete(&a1, statuses(&a1, &on_a1, &[TestStatus::Failure])).await;
@@ -591,7 +606,6 @@ fn a_rejected_copy_of_a_completed_test_is_dropped_d69() {
                     retry_workers: vec!["worker-A".into()]
                 }]
             );
-            let on_y1 = batch_of(&queue.request(&y1, Some("worker-Y")).await[0]);
             let on_b1 = batch_of(&queue.request(&b1, Some("worker-B")).await[0]);
             assert_eq!(
                 [&on_a1, &on_x1, &on_z1, &on_y1, &on_b1].map(|batch| batch.tests.clone()),
@@ -622,7 +636,7 @@ fn a_rejected_copy_of_a_completed_test_is_dropped_d69() {
             assert_eq!(queue.replies(), []);
             let now = snapshot(&queue);
             assert_eq!((now.queue, now.retry_workers), (vec![], vec![]));
-            assert_eq!(now.active_batches, ["serial-Z1", "serial-Y1"]);
+            assert_eq!(now.active_batches, ["serial-Y1", "serial-Z1"]);
             assert_eq!(now.total_retries_left, Some(9));
             assert_eq!(state(&queue, &c0).await, passing(3, 2, -2));
 
@@ -650,13 +664,16 @@ fn a_late_incomplete_copy_of_a_finished_test_is_not_run_again_d69() {
     use marathon_config::schema::ExecutionMode::AnySuccess;
     for returned in [true, false] {
         let (c0, c1) = (mtest("pkg", "C0", "m0"), mtest("pkg", "C1", "m1"));
-        let mut setup = retry_setup(
-            fixed_size(1),
-            AnySuccess,
-            true,
-            (10, 3),
-            vec![c0.clone(), c0.clone(), c1.clone()],
-            vec![],
+        let mut setup = longest_first(
+            retry_setup(
+                fixed_size(1),
+                AnySuccess,
+                true,
+                (10, 3),
+                vec![c0.clone(), c0.clone(), c1.clone()],
+                vec![],
+            ),
+            &c0,
         );
         // The returned batch's one clock read.
         setup.timer = vec![5_000];

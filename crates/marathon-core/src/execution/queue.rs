@@ -327,7 +327,7 @@ impl QueueActor {
             key = wrapper(key);
         }
         let mut queue = TestQueue::new(key);
-        queue.add_all(shard.tests.iter().chain(&shard.flaky_tests).cloned());
+        queue.add_all(crate::strategy::flakiness::queue_order(&shard));
         let clock: Rc<dyn SchedulerClock> = core.clock();
         let diagnostics = Rc::new(Cell::new(QueueCounts {
             pending: queue.len(),

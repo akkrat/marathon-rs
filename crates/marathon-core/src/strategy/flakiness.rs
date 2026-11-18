@@ -2,9 +2,10 @@
 //! and impl/flakiness/IgnoreFlakinessStrategy.kt.
 
 use super::{MetricsKey, MetricsLookup};
-use crate::model::TestShard;
+use crate::model::{Test, TestShard};
 use jcompat::jtime::Instant;
 use marathon_config::schema::FlakinessStrategyConfiguration;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub enum FlakinessStrategy {
@@ -49,7 +50,7 @@ impl FlakinessStrategy {
         let (min_success_rate, max_count, time_limit) = match self {
             Self::Ignore => return shard,
             Self::Fixed { count } => {
-                // Grouped per test in shard order, as probability's copies are.
+                // Grouped per test in shard order, as probability's copies are; the queue interleaves them (D83).
                 let copies = usize::try_from(*count).unwrap_or(0);
                 let output = shard
                     .tests
@@ -106,4 +107,29 @@ impl FlakinessStrategy {
             ..shard
         }
     }
+}
+
+/// D83: the order a shard's tests and copies enter a pool's queue: round by round, where round n
+/// holds the n-th occurrence of each test, in shard order. So every test once, then each test's
+/// first copy, and so on, for flakiness copies (`flaky_tests`) and count sharding's (`tests`)
+/// alike. With equal sort keys the queue is FIFO (D60), so a first wave of devices spreads over
+/// the tests, and a later copy of a test that has passed meanwhile is still queued for `fast` to
+/// drop. Copies queued as the strategies list them, together, could all start before one passed.
+/// Different sort keys still order the queue; only ties change. Each test's first occurrence keeps
+/// its place, so a random sorting draws its keys as before.
+pub fn queue_order(shard: &TestShard) -> Vec<Test> {
+    let mut seen: HashMap<&Test, usize> = HashMap::new();
+    let mut entries: Vec<(usize, &Test)> = shard
+        .tests
+        .iter()
+        .chain(&shard.flaky_tests)
+        .map(|test| {
+            let round = seen.entry(test).or_insert(0);
+            *round += 1;
+            (*round, test)
+        })
+        .collect();
+    // Stable: within a round, shard order.
+    entries.sort_by_key(|(round, _)| *round);
+    entries.into_iter().map(|(_, test)| test.clone()).collect()
 }
