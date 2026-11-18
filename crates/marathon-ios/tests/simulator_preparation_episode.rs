@@ -12,6 +12,7 @@ use marathon_apple::{
 use marathon_config::devices::Transport;
 use marathon_core::{
     error::{LeavePoolReason, VendorError},
+    executor::shared::SharedDeferred,
     runtime::VendorFuture,
     vendor::Device,
 };
@@ -30,6 +31,10 @@ use std::{
 use support::duration;
 
 const SECOND: i64 = 1_000;
+/// The commands of `a` the worker received, with their virtual time.
+type Seen = Arc<Mutex<Vec<(i64, Vec<String>)>>>;
+/// A disposal hold: armed, entered, and the gate it waits for.
+type Hold = (Arc<AtomicBool>, Arc<SharedDeferred<()>>, Arc<SharedDeferred<()>>);
 
 /// A harness with `bootWait` `boot_wait` s, `shell` `shell` s (`boot` and `shutdown` 30 s), and a 1 s poll.
 fn harness(boot_wait: i64, shell: i64) -> TestResult<Harness> {
@@ -86,7 +91,7 @@ fn not_booted(error: &VendorError) -> bool {
 fn on_commands(
     h: &Harness,
     answer: impl Fn(&Boot, &[String], i64) -> Option<VendorFuture<'static, Option<CommandResult>>> + Send + Sync + 'static,
-) -> Arc<Mutex<Vec<(i64, Vec<String>)>>> {
+) -> Seen {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let record = seen.clone();
     let plan = h.boot.clone();
@@ -304,7 +309,6 @@ async fn a_send_that_fails_after_the_deadline_is_not_sent_again_d87() -> TestRes
 
 // ---- Recovery: the episode through setup retries, per D44 claim ------------------------------------------------------
 
-use marathon_core::executor::shared::SharedDeferred;
 use provider_support::{eventually, home};
 use recovery_support::{RecoveryHarness, advance};
 
@@ -329,10 +333,7 @@ fn recovery(
 
 /// The next `getenv a HOME` fails once: the recovery's own setup fails, and D33 sets the simulator up again 30 s later.
 /// With `hold_disposal`, the first `simctl shutdown a` after `armed` waits for `gate` and says so on `entered`.
-fn fail_next_setup(
-    p: &RecoveryHarness,
-    entered: Option<(Arc<AtomicBool>, Arc<SharedDeferred<()>>, Arc<SharedDeferred<()>>)>,
-) {
+fn fail_next_setup(p: &RecoveryHarness, entered: Option<Hold>) {
     let boot = p.h().boot.clone();
     let fail = Arc::new(AtomicBool::new(false));
     let armed_fail = fail.clone();
