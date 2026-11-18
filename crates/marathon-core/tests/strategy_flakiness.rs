@@ -5,10 +5,11 @@
 mod strategy_support;
 
 use marathon_config::schema::FlakinessStrategyConfiguration as Cnf;
+use marathon_config::schema::ShardingStrategyConfiguration as ShardingConfiguration;
 use marathon_core::time::ReplayHooks;
 use marathon_core::{
     model::{Test, TestShard},
-    strategy::{FlakinessStrategy, MetricsKey, flakiness::queue_order},
+    strategy::{FlakinessStrategy, MetricsKey, ShardingStrategy, flakiness::queue_order},
 };
 use serde_json::Value;
 use strategy_support::*;
@@ -248,12 +249,13 @@ fn d83_equal_priority_copies_of_different_tests_interleave() {
     };
     assert_eq!(queue_order(&shard), [&a, &b, &c, &a, &c, &a, &c, &c].map(Test::clone));
     assert_eq!(no_sorting(&shard), queue_order(&shard));
-    // Count sharding's copies are in `tests`; they interleave the same way.
-    let shard = TestShard {
-        tests: vec![a.clone(), a.clone(), b.clone(), b.clone()],
-        flaky_tests: vec![b.clone()],
-    };
-    assert_eq!(queue_order(&shard), [&a, &b, &a, &b, &b].map(Test::clone));
+    // Count sharding's copies are in `tests`; they interleave the same way. The loader allows `count` only with
+    // flakiness `ignore`, so the shard is the sharding strategy's own, after `ignore`.
+    let count = ShardingStrategy::from_config(&ShardingConfiguration::Count { count: 3 });
+    let shard = FlakinessStrategy::Ignore.process(count.create_shard(&[a.clone(), b.clone()]), &Unread);
+    assert_eq!(shard.tests, [&a, &a, &a, &b, &b, &b].map(Test::clone));
+    assert_eq!(queue_order(&shard), [&a, &b, &a, &b, &a, &b].map(Test::clone));
+    assert_eq!(no_sorting(&shard), queue_order(&shard));
     assert_eq!(
         queue_order(&TestShard {
             tests: vec![],
@@ -358,5 +360,60 @@ fn d83_batching_rules_hold_for_copies_in_turns() {
     assert_eq!(
         batches(Batching::ClassName, &copies),
         [[m.clone(), m.clone(), m].concat()]
+    );
+}
+
+/// A test discovered twice (for example in two APKs) is a repeat too: D83 applies to every repeated entry of a
+/// pool's tests, whatever produced it, so its second entry waits for the other tests' first.
+#[test]
+fn d83_a_test_discovered_twice_takes_its_turn_like_a_copy() {
+    let t = generate_tests(3);
+    let [a, b, c] = [&t[0], &t[1], &t[2]].map(Test::clone);
+    let discovered = [&a, &b, &a, &c].map(Test::clone);
+    let parallel = ShardingStrategy::from_config(&ShardingConfiguration::Parallel);
+    let shard = FlakinessStrategy::Ignore.process(parallel.create_shard(&discovered), &Unread);
+    assert_eq!(shard.tests, discovered);
+    assert_eq!(no_sorting(&shard), [&a, &b, &c, &a].map(Test::clone));
+}
+
+/// `fixed-size` batches can also get smaller and more numerous: equal keys, size 2, A ×4, B ×2, C ×2. Grouped, the
+/// queue was `A B C A A A B C` and the batches AB|CA|AB|CA (the third rejected one A); in turns it is
+/// `A B C A B C A A`, and the last two A's cannot share a batch, so they go out alone.
+#[test]
+fn d83_fixed_size_batches_can_also_get_smaller_and_more_numerous() {
+    use marathon_config::schema::BatchingStrategyConfiguration as Batching;
+    use marathon_core::strategy::{BatchingStrategy, SortingStrategy, TestQueue};
+    let t = generate_tests(3);
+    let [a, b, c] = [&t[0], &t[1], &t[2]].map(Test::clone);
+    let shard = TestShard {
+        tests: t.clone(),
+        flaky_tests: vec![a.clone(), a.clone(), a.clone(), b.clone(), c.clone()],
+    };
+    let hooks = ScriptedHooks::with_draws([], None);
+    let mut queue = TestQueue::new(
+        SortingStrategy::NoSorting.process(std::sync::Arc::new(MetricsProviderStub::default()), hooks.clone()),
+    );
+    queue.add_all(queue_order(&shard));
+    let strategy = BatchingStrategy::from_config(&Batching::FixedSize {
+        size: 2,
+        duration_millis: None,
+        percentile: None,
+        time_limit: None,
+        last_mile_length: 0,
+    });
+    let mut batches = Vec::new();
+    while !queue.is_empty() {
+        let batch = strategy.process(&mut queue, &MetricsProviderStub::default(), None, hooks.as_ref());
+        batches.push(batch.unwrap().tests);
+    }
+    assert_eq!(
+        batches,
+        [
+            vec![a.clone(), b.clone()],
+            vec![c.clone(), a.clone()],
+            vec![b, c],
+            vec![a.clone()],
+            vec![a],
+        ]
     );
 }

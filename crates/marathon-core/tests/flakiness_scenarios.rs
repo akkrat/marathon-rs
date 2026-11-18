@@ -300,20 +300,21 @@ fn d77_fast_and_not_fast_track_the_same_final_record() {
     }
 }
 
-/// Three tests, each with 4 fixed copies (15 runs), on 8 devices that connect 1 ms apart. Every run passes
-/// in 5 s, except on serial-3, which takes the third test's first run and needs 30 s. Returns the tests of
-/// each `execute` call in order and the number of results in raw.json.
-fn copies_on_eight_devices(fast: bool) -> (Vec<Vec<String>>, usize) {
+/// Three tests on 8 devices that connect 1 ms apart, every run 5 s except on `slow` (30 s). `configure` sets up
+/// the copies and the execution strategy; `statuses` gives each test's answer on every device. Returns the tests
+/// of each `execute` call in order and raw.json's rows.
+fn on_eight_devices(
+    configure: impl FnOnce(&mut marathon_config::schema::Configuration),
+    statuses: impl Fn(&str) -> TestStatus,
+    slow: Option<usize>,
+) -> (Vec<Vec<String>>, Vec<Value>) {
     use marathon_test_support::stub_device::{StubDevice, StubDeviceOptions};
     let (mut factory, mut script) = scenario::load("success.json");
     let tests: Vec<_> = (1..=3)
         .map(|i| scenario::test("test", "SimpleTest", &format!("step{i}")))
         .collect();
     factory.tests = tests.clone();
-    let configuration = &mut factory.configuration.configuration;
-    configuration.flakiness_strategy = FlakinessStrategyConfiguration::Fixed { count: 4 };
-    configuration.execution_strategy.mode = ExecutionMode::AnySuccess;
-    configuration.execution_strategy.fast = fast;
+    configure(&mut factory.configuration.configuration);
     script.devices.clear();
     script.events.retain(|(_, event, ..)| event == "end");
     script.events[0].0 = 120_000;
@@ -321,19 +322,23 @@ fn copies_on_eight_devices(fast: bool) -> (Vec<Vec<String>>, usize) {
         let serial = format!("serial-{n}");
         let device = StubDevice::new(StubDeviceOptions {
             serial_number: serial.as_str().into(),
-            test_time_millis: if n == 3 { 30_000 } else { 5_000 },
+            test_time_millis: if slow == Some(n) { 30_000 } else { 5_000 },
             ..StubDeviceOptions::default()
         });
-        device.set_execution_results(tests.iter().map(|t| (t.clone(), vec![TestStatus::Passed; 5])).collect());
+        device.set_execution_results(
+            tests
+                .iter()
+                .map(|t| (t.clone(), vec![statuses(&t.method); 5]))
+                .collect(),
+        );
         script.devices.insert(serial.clone(), device);
         script
             .events
-            .push((1_000 + n, "connect".into(), Some(serial), Value::Null));
+            .push((1_000 + n as i64, "connect".into(), Some(serial), Value::Null));
     }
     script.events.sort_by_key(|(at, ..)| *at);
     let outcome = scenario::drive(factory, script, None, None);
     assert!(outcome.completed, "the run did not complete");
-    assert!(matches!(outcome.value, Some(Ok(true))));
     let executed = outcome
         .log
         .iter()
@@ -348,8 +353,25 @@ fn copies_on_eight_devices(fast: bool) -> (Vec<Vec<String>>, usize) {
         })
         .collect();
     let raw: Value = serde_json::from_str(&outcome.read("test_result/raw.json")).unwrap();
-    assert!(raw.as_array().unwrap().iter().all(|row| row["status"] == "PASSED"));
-    (executed, raw.as_array().unwrap().len())
+    let passed = raw.as_array().unwrap().iter().all(|row| row["status"] == "PASSED");
+    assert_eq!(matches!(outcome.value, Some(Ok(true))), passed, "{:?}", outcome.value);
+    (executed, raw.as_array().unwrap().clone())
+}
+
+/// Three tests, each with 4 fixed copies (15 runs), under ANY_SUCCESS, every run passing. serial-3, which takes the
+/// third test's first run, is slow.
+fn copies_on_eight_devices(fast: bool) -> (Vec<Vec<String>>, usize) {
+    let (executed, raw) = on_eight_devices(
+        |configuration| {
+            configuration.flakiness_strategy = FlakinessStrategyConfiguration::Fixed { count: 4 };
+            configuration.execution_strategy.mode = ExecutionMode::AnySuccess;
+            configuration.execution_strategy.fast = fast;
+        },
+        |_| TestStatus::Passed,
+        Some(3),
+    );
+    assert!(raw.iter().all(|row| row["status"] == "PASSED"));
+    (executed, raw.len())
 }
 
 /// D83: equal-priority copies are queued round by round (every test, then each test's first copy, ...), so the
@@ -374,4 +396,45 @@ fn d83_copies_of_different_tests_interleave_so_fast_drops_more_of_them() {
     for step in ["step1", "step2", "step3"] {
         assert_eq!(executed.iter().filter(|batch| batch[0] == step).count(), 5);
     }
+}
+
+/// D83 for `shardingStrategy: count` (the loader allows it only with ALL_SUCCESS and flakiness `ignore`): 5 runs of
+/// each of three tests, step1 failing everywhere. `fast` ends step1 at its first failure and drops its runs that are
+/// still queued. In turns, the first wave is `step1 step2 step3 step1 step2 step3 step1 step2`, so step1's last two
+/// runs are still queued and 13 runs happen. Before D83 the wave was step1 ×5, step2 ×3: every run of step1 had
+/// started before the first failed, and all 15 ran.
+#[test]
+fn d83_count_repeats_interleave_so_fast_all_success_drops_queued_runs() {
+    let run = |fast: bool| {
+        on_eight_devices(
+            |configuration| {
+                configuration.sharding_strategy =
+                    marathon_config::schema::ShardingStrategyConfiguration::Count { count: 5 };
+                configuration.execution_strategy.mode = ExecutionMode::AllSuccess;
+                configuration.execution_strategy.fast = fast;
+            },
+            |method| {
+                if method == "step1" {
+                    TestStatus::Failure
+                } else {
+                    TestStatus::Passed
+                }
+            },
+            None,
+        )
+    };
+    let (executed, raw) = run(true);
+    assert!(executed.iter().all(|batch| batch.len() == 1));
+    let runs = |executed: &[Vec<String>], step: &str| executed.iter().filter(|batch| batch[0] == step).count();
+    assert_eq!(["step1", "step2", "step3"].map(|step| runs(&executed, step)), [3, 5, 5]);
+    assert_eq!(raw.len(), 13);
+    let wave: Vec<&str> = executed[..8].iter().map(|batch| batch[0].as_str()).collect();
+    assert_eq!(
+        wave,
+        ["step1", "step2", "step3", "step1", "step2", "step3", "step1", "step2"]
+    );
+    // Without `fast` every run executes: which runs exist did not change.
+    let (executed, raw) = run(false);
+    assert_eq!(["step1", "step2", "step3"].map(|step| runs(&executed, step)), [5, 5, 5]);
+    assert_eq!(raw.len(), 15);
 }

@@ -111,10 +111,11 @@ impl FlakinessStrategy {
 
 /// D83: the order a shard's tests and copies enter a pool's queue: round by round, where round n
 /// holds the n-th occurrence of each test, in shard order. So every test once, then each test's
-/// first copy, and so on, for flakiness copies (`flaky_tests`) and count sharding's (`tests`)
-/// alike. With equal sort keys the queue is FIFO (D60), so a first wave of devices spreads over
-/// the tests, and a later copy of a test that has passed meanwhile is still queued for `fast` to
-/// drop. Copies queued as the strategies list them, together, could all start before one passed.
+/// first copy, and so on, for flakiness copies (`flaky_tests`), count sharding's repeats (`tests`)
+/// and a test discovered twice alike. With equal sort keys the queue is FIFO (D60), so a first wave
+/// of devices spreads over the tests, and a later copy of a test that has been decided meanwhile
+/// (first pass under ANY_SUCCESS, first failure under ALL_SUCCESS) is still queued for `fast` to
+/// drop. Copies queued as the strategies list them, together, could all start before one ended.
 /// Different sort keys still order the queue; only ties change. Each test's first occurrence keeps
 /// its place, so a random sorting draws its keys as before.
 pub fn queue_order(shard: &TestShard) -> Vec<Test> {
