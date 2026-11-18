@@ -55,7 +55,12 @@ impl RunCancellation {
         cancellation
     }
     pub fn set_owner(&self, owner: JobRef) {
-        *self.0.owner.borrow_mut() = Some(owner);
+        self.replace_owner(Some(owner));
+    }
+    /// The owner of the invocation now running (`None` for one without an owner). Each invocation of the run sets its
+    /// own and releases it at its decision, so a previous owner's cancellation never reaches a later command.
+    pub fn replace_owner(&self, owner: Option<JobRef>) {
+        *self.0.owner.borrow_mut() = owner;
     }
     /// A request with no job behind it: a signal. The first one stands.
     pub fn request(&self, reason: Cancellation) {

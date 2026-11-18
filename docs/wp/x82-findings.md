@@ -266,6 +266,15 @@ Checks: core and iOS suites (1,303 tests) pass; the CLI D52 suites (`shutdown_re
 with 0 failures: the D68 test ×200, `run_supervision` ×100 with default threads and ×100 with one, `run_flow_witnesses`
 D52 tests ×100.
 
+### x82b final check (Sol 6.2): an owner belongs to one invocation
+
+*A previous owner's cancellation could fail a later command.* `RunCancellation` kept the owner of an earlier
+`run_under` past its decision, and `run_under(None)` left it in place, so a successful parse whose owner was cancelled
+after it returned made a later parse on the same `Marathon` end `false`. Fix (orchestrator): each invocation sets its
+own owner (`None` when it has none) with `RunCancellation::replace_owner`, and releases it once the outcome is
+decided. Witness: `run_supervision::an_earlier_owners_cancel_does_not_fail_a_later_command_d84` (two parses; fails
+on the previous commit with `[Ok(true), Ok(false)]`). `run_supervision` and `pool_scheduler` pass.
+
 ## Gate (remote Linux): the round-5 signal witness made event-driven
 
 The gate failed `run_supervision::a_signal_while_the_run_settles_keeps_the_reports_first_d84` on Linux. Cause: the

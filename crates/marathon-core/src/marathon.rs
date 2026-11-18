@@ -1063,9 +1063,8 @@ impl Marathon {
         parent: Option<JobRef>,
     ) -> OperationResult<bool> {
         let core = self.services.core.clone();
-        if let Some(owner) = &parent {
-            self.cancellation.set_owner(owner.clone());
-        }
+        // D84 (x82b): this invocation's owner only; a previous owner's later cancellation must not reach this command.
+        self.cancellation.replace_owner(parent.clone());
         let root = core.job(JobKind::Ordinary, parent);
         let relay = self
             .services
@@ -1168,6 +1167,8 @@ impl Marathon {
                 (outcome, _) => outcome,
             },
         };
+        // The decision is made: release the owner, so its later cancellation has nothing left to explain.
+        self.cancellation.replace_owner(None);
         supervisor.complete();
         let mapped = match outcome {
             Ok(value) => value,

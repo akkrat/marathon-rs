@@ -2318,7 +2318,8 @@ the run. Other unexpected ends still left the run hanging, or ended it without s
   no-device outcome.
 - **Direct callers of `runAsync`** (the run's own tests) do not go through the run's decision point: they get what
   the run task reached, which can be a success after a failure the finish recorded. They have no owner, so only a
-  signal counts as a request to stop. `marathon run` always decides.
+  signal counts as a request to stop. `marathon run` always decides. An owner belongs to one invocation: its
+  cancellation after that invocation's outcome is decided does not reach a later command.
 - **Changes in runs without a failure.** A device that connects while the run finishes is not admitted: its
   connection, and any device event still waiting when the run settles, is dropped, so no pool starts for it and its
   device is not in the reports' device data. A pool a device started after D65's boundary is stopped when the run

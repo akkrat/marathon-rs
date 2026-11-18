@@ -1125,3 +1125,61 @@ fn an_owner_cancel_during_the_protected_finish_explains_a_channel_failure_d84() 
 fn an_owner_cancel_during_the_protected_finish_outranks_no_devices_d84() {
     assert_owner_cancel_stands_after_no_devices(None);
 }
+
+/// D84 (x82b, final check): a run's owner belongs to that invocation only. The owner of an earlier successful parse is
+/// cancelled after it returned; a later parse on the same `Marathon`, with no owner, must still succeed.
+#[test]
+fn an_earlier_owners_cancel_does_not_fail_a_later_command_d84() {
+    use marathon_core::{
+        executor::CoreExecutor,
+        model::ExecutionCommand,
+        runtime::{JobKind, TaskContext},
+        time::ReplayDriver,
+    };
+    let (mut factory, _) = script();
+    factory.configuration.configuration.ignore_failures = false;
+    let parse = || ExecutionCommand::Parse {
+        output_file_name: None,
+        include_flaky_tests: false,
+    };
+    let result = CoreExecutor::run_virtual(move |core, replay| {
+        Box::pin(async move {
+            let built = factory
+                .build(&core)
+                .await
+                .map_err(marathon_core::error::OperationError::Failed)?;
+            let owner = core.job(JobKind::Ordinary, None);
+            let outcomes: std::rc::Rc<std::cell::RefCell<Vec<OperationResult<bool>>>> = Default::default();
+            let (output, marathon, first_owner) = (outcomes.clone(), built.marathon.clone(), owner.clone());
+            core.spawn(
+                core.job(JobKind::Ordinary, None),
+                Box::new(move |_: TaskContext| {
+                    Box::pin(async move {
+                        let first = marathon.run_under(parse(), Some(first_owner.clone())).await;
+                        output.borrow_mut().push(first);
+                        first_owner.cancel(requested(&format!("{PROBE}: the earlier owner cancelled it")));
+                        let second = marathon.run(parse()).await;
+                        output.borrow_mut().push(second);
+                        Ok(())
+                    })
+                }),
+            );
+            replay
+                .advance_to(120_000)
+                .await
+                .map_err(|e| failure(FailureKind::ReplayClock, &e.message.to_owned()))?;
+            let outcomes = std::mem::take(&mut *outcomes.borrow_mut());
+            Ok(outcomes)
+        })
+    });
+    let outcomes = match result {
+        Ok(outcomes) => outcomes,
+        Err(e) => panic!("the run's driver failed: {e:?}"),
+    };
+    assert_eq!(outcomes.len(), 2, "{outcomes:?}");
+    assert!(matches!(outcomes[0], Ok(true)), "the first parse: {outcomes:?}");
+    assert!(
+        matches!(outcomes[1], Ok(true)),
+        "a later command ignores an earlier owner's cancel: {outcomes:?}"
+    );
+}
