@@ -2332,11 +2332,20 @@ the run. Other unexpected ends still left the run hanging, or ended it without s
 - **Known limits.** An Android device has no overall bound for ending a cancelled call, and the run waits for it until
   it ends (an Android call that waited for the provider's termination would hold the run). On a signal (D52) the
   provider's termination now waits for a macOS preparation still running, so a signal exit that was quick can take up
-  to D52's deadline. Two vendor shapes are outside D84 and tracked as open bugs: an Apple preparation that starts after
-  its device's disposal, or whose iOS transfer retry is still stopping when the preparation reports its end
-  ([U210](found-bugs.md)); and vendor device monitors whose failure does not reach the run (an Android
-  `device_provider_init` tracker failure ends device tracking with the channel left open; a panic in the iOS
-  Marathondevices loader's log callback leaves initialization waiting) ([U211](found-bugs.md)).
+  to D52's deadline. A device still running when its bound has passed is waited for once more, within the same bound,
+  when the provider's termination disposes of it: an iOS simulator's disposal waits for its stopped batch and
+  preparations before its on-dispose lifecycle, and a Mac's termination for its batch and its installation before it
+  releases the lease, as the Kotlin marathon's disposal waits again for a batch whose cancelled wait ran out (its
+  `AppleSimulatorDeviceDisposeTest` and `MacosDeviceBatchTest` pin it). A failing run can so take up to that bound
+  longer to exit, and only when a device's work outlives its first bound.
+- **Vendor follow-ups (WP x86).** Two vendor shapes first left outside D84 are fixed ([U210](found-bugs.md),
+  [U211](found-bugs.md)): a disposed Mac refuses a preparation, under the lock its disposal takes, so termination's wait
+  for its preparation has missed none; an iOS preparation stopped while it sends the test bundle ends after that
+  transfer has stopped, within the simulator's bound for a cancelled call (70 s), not when the retry around it lets go
+  of it, so every wait for it covers the transfer (test discovery, which installs the bundle the same way, still leaves
+  a send at its own timeout); a panic
+  while the iOS provider reads the static Marathondevices file ends its initialization with the panic, where it waited
+  for ever; and Android device monitoring that ends fails the device channel ([D88](#d88--android-device-monitoring-that-ends-fails-the-run)).
 - **iOS device monitoring**, which also sets up the first simulators: a panic in it, or an error when no simulator is
   available to the run (one that left, was lost, is retired or recovering, or waits to be set up again does not
   count), fails the provider's device channel with that cause, which ends the run as a failed device listener
@@ -2555,6 +2564,43 @@ Approved 2026-11-18 (project owner's decision). See
 **Migration action:** a device that needs longer than these figures to get ready, through repeated slow failures, should
 be given a larger `deviceInitializationTimeoutMillis`, which raises the deadline (and also D48's wait and the wait for the
 first device).
+
+## D88 — Android device monitoring that ends fails the run
+
+Android's device monitoring follows each adb server's device list for the whole run. It is the only source of the
+provider's device events, and the only one to release a batch that an adb server outage (D22) or a device's grace period
+(D41) holds. It could end and leave the device channel open ([U211](found-bugs.md)): a failing analytics call made for
+each connected device (`device_provider_init`), and any other error or a panic in tracking, ended it with only `Task
+stopped due to unrecoverable error` at ERROR. The run then went on without device events: a device that disconnected
+was not seen to leave, a new device was never admitted, and a batch held by an outage or a grace period waited for ever.
+The outage gates and grace periods are this port's (D22, D41).
+
+**Native behaviour.** A failing analytics call is logged at WARN (`Tracking the setup of device <serial> failed; device
+tracking goes on`) and tracking goes on, as [D51](#d51--metrics-and-cleanup-failures-do-not-stop-a-run) has it for
+every analytics failure. Device monitoring that ends with any other error, or a panic (a panic in one server's tracking
+included), other than through the provider's termination, fails the provider's device channel with that cause. As
+[D84](#d84--an-unexpected-end-of-the-runs-own-machinery-ends-the-run-with-its-cause) has it for any channel failure,
+the run then stops and finishes as a failed run: its reports, `Marathon run failed` with the cause, exit 1 (0 with
+`ignoreFailures: true`). The cause is published as soon as monitoring ends, before its adb servers' tracking is ended
+and before it is logged, so a log sink that fails, or the provider's termination coming meanwhile, cannot lose it. It is also what the provider reports to a remote test
+discovery that ends without a device, before the run has its scheduler (as the iOS provider's under D84): that run fails
+with it, where it reported that no device came in time. And device monitoring that ends, on a panic too, ends its adb
+servers' tracking, which could otherwise go on reconnecting to a lost server after the provider's termination. Before, such a run hung, or went on with what it had and could pass. Healthy runs are
+unchanged: result files, worker commands, the pinned progress and summary text and exit codes. No configuration
+changes.
+
+Evidence, each failing on the commit before the change: `provider_test::a_failing_tracker_does_not_end_device_tracking_u211`
+(fake adb: the device's later disconnection is seen),
+`provider_test::device_monitoring_that_ends_fails_the_device_channel_u211` (fake adb: a panic in tracking fails the
+channel with it), `a_borrow_ended_by_its_deadline_returns_the_monitors_failure_d88`,
+`a_log_sink_that_panics_does_not_keep_the_device_channel_open_d88`, `a_monitor_that_panics_ends_its_servers_tracking_d88`,
+`a_monitor_failure_survives_a_finish_that_comes_while_it_joins_its_tasks_d88`,
+`a_discovery_deadline_while_the_monitor_joins_its_tasks_returns_its_failure_d88` (fake adb) and `reconnect_test::a_monitor_panic_before_the_scheduler_is_the_runs_cause_d88` (a whole run with remote
+discovery, virtual time).
+
+Approved 2026-11-18 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
+[x86 findings](wp/x86-findings.md).
 
 ## D90 — A saturated shared SSH connection is replaced
 

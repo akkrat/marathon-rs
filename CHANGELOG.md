@@ -61,6 +61,14 @@ The section for a version becomes the text of its GitHub release, which carries 
   19 minutes instead of 96, and a Mac whose commands hang in about 14 instead of 30 (estimates for those cases with the
   defaults). Healthy runs, and a device that fails once and then gets ready, are unchanged. Raise
   `deviceInitializationTimeoutMillis` to give slow devices longer (U209).
+- **Device monitors and preparations end cleanly (D88):** on Android, a failing analytics call for a connected device
+  no longer stops device tracking, and device tracking that stops for any other reason (an error or a crash) now fails
+  the run with its cause, where the run went on without noticing devices that left or came, and a batch waiting out an
+  adb outage could wait for ever; during remote test discovery it is now the run's error instead of a report that no
+  device came. On iOS, a crash while reading the Marathondevices file now fails the run instead of
+  hanging it, and a preparation stopped while it sends the test bundle now ends after that transfer (waiting up to 70 s for it), so the run's stop
+  and the simulator's disposal wait for it. On macOS, a Mac already disposed of at the end of the run no longer starts a
+  preparation (U210, U211).
 - **A saturated shared Apple worker can take new devices (D90, U172):** when an abandoned SSH session is followed by
   a session-capacity refusal, the next connection acquisition can open a replacement. Existing sessions keep running
   on their original connection, which closes after its last lease is released. Each shared worker transport has at most

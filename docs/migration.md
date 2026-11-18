@@ -130,7 +130,7 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 | cancel runs with SIGINT or SIGTERM, or take a run's reports as a sign that it finished ([D52](deviations.md#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit)) | A cancelled run writes its reports and terminates its devices whatever `debug` says, and exits with 130 or 143 within 25 s. A second signal exits at once. | Allow 25 s before killing it, and read the exit code to tell whether a run finished. [See below](#cancelling-a-run). |
 
 These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D22, D23, D26, D28–D30, D34, D36, D37, D40, D42, D45, D49,
-D51, D53, D54, D64–D66, D68–D70, D74–D77, D80–D84 and D90. D65 can include a previously missed late pool, lengthen a run and correct its reports and
+D51, D53, D54, D64–D66, D68–D70, D74–D77, D80–D84, D88 and D90. D65 can include a previously missed late pool, lengthen a run and correct its reports and
 existing exit status; it needs no configuration change. D66 turns a SIGQUIT, which used to end the run at once, into a
 logged state dump; a wrapper that sends SIGQUIT and then SIGTERM now gets the dump, then D52's reports and exit status. D2, D3, D6, D8–D12, D14, D20, D24, D25, D67, D71, D72, D78 and D87 have an action of their own, described in their entries and in the
 sections below.
@@ -208,6 +208,12 @@ used to hang. iOS device monitoring that panics, or fails with no simulator avai
 with no devices after `deviceInitializationTimeoutMillis`; with simulators connected the run carries on, as before. In runs without a failure, a device that connects while
 the run finishes is no longer admitted, results that had reached a late pool's queue are now always in the reports,
 and a failing provider termination no longer skips the reports.
+
+[D88](deviations.md#d88--android-device-monitoring-that-ends-fails-the-run) needs no action. Android device monitoring
+that ends with an error or a panic, other than at the provider's termination, now fails the run with that cause (exit 1,
+0 with `ignoreFailures: true`) where the run went on without device events and could hang; during remote test
+discovery that cause is the run's error instead of a no-device timeout. A failing analytics call for a connected device
+is logged and no longer ends it.
 
 [D87](deviations.md#d87--a-devices-preparation-has-one-deadline) bounds how long a device that cannot be prepared keeps its
 place: its preparation, the retries inside it and an iOS simulator's replacements after a failed boot share one deadline,
