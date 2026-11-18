@@ -205,6 +205,14 @@ returned (P1, a late pool). A D52 signal does not enter it; D52 keeps its own pa
   the provider's device channel with the cause. An ordinary error while devices are connected is logged at ERROR and
   the run carries on with them, as before D84.
 
+## Review round 5 (Sol 6.2, REQUEST_CHANGES): per-finding status
+
+| Item | Status | Fix | Witness (fails on 9f744841) |
+|---|---|---|---|
+| 1: a signal during settle let the run's finish start analytics' close and the provider's termination beside D52's reports | fixed | `on_finish` checks `signalled` before every step it would start (after the first flush, after the settle, before analytics, before the provider, after the channel read, before reports and usage) and hands over at once; a step already running when the signal came runs on, and D52's finish waits for it as before; D52's 24 s and exit 128 + signal unchanged | `run_supervision::a_signal_while_the_run_settles_keeps_the_reports_first_d84` (settle waits on a Graphite backend's Track of a late connection, which raises SIGTERM at 11,500 ms and ends at 15,500 ms, inside the reports' head start; reports take 6.5 s; the provider must be terminated only after they end; exit 143 within 24 s) |
+| 2: an iOS channel failure lost to NoDevices during remote parsing | fixed | the iOS provider keeps the cause its monitoring published to the channel; a borrow with no simulator available returns it at once. Chosen over reading the channel without a Scheduler because the cause is the provider's own, and the borrow is the only place that waits before a Scheduler exists | `simulator_panic::a_borrow_ends_with_the_monitorings_failure_when_no_simulator_is_available_d84`; run-level pin (passes on 9f744841, the core already maps the borrow's error): `run_supervision::a_monitoring_failure_a_remote_parse_hears_of_is_the_runs_cause_d84` (exit 0 with `ignoreFailures`, the cause in `Marathon run failed`) |
+| D84 text | fixed | signal hand-over, pre-Scheduler scope, admission after the first console flush, a disconnect already read during the settle, a late pool's batch cancelled at the settle, direct `run_async` callers | — |
+
 ## Review round 4 (Sol 6.2 MAX, REQUEST_CHANGES): per-finding status
 
 The orchestrator split the scope: F1, F2, F3 and F6 are fixed here; F4 and F5 move to a follow-up WP (below).
