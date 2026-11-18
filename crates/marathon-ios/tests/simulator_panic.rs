@@ -336,3 +336,37 @@ async fn a_monitor_error_after_the_last_simulator_left_fails_the_device_channel_
         .map_err(provider_support::test_error)?;
     Ok(())
 }
+
+/// D84, review round 5: the first simulator's setup panics, so the monitoring fails before any simulator is available
+/// and before a Scheduler exists; a remote parse is waiting to borrow one. The borrow now ends with the monitoring's
+/// cause, which the run then fails with (and `ignoreFailures` maps), instead of polling until the device timeout and
+/// ending the run with no devices.
+#[tokio::test(start_paused = true)]
+async fn a_borrow_ends_with_the_monitorings_failure_when_no_simulator_is_available_d84() -> TestResult {
+    let p = provider_support::ProviderHarness::new(|_| {})?;
+    std::fs::write(
+        p.h.dir.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: simulator, udid: a}]\n",
+    )?;
+    panic_on(&p.h, |_| true);
+    use marathon_core::vendor::DeviceProvider;
+    guarded(
+        "the initialization",
+        p.provider.initialize(p.h.services.context.clone()),
+    )
+    .await
+    .map_err(provider_support::test_error)?;
+    let borrowed = guarded(
+        "the borrow",
+        p.provider.borrow_untried(Vec::new(), p.h.services.context.clone()),
+    )
+    .await;
+    match &borrowed {
+        Err(error) => assert!(is_probe(error), "{error:?}"),
+        Ok(_) => panic!("a simulator was borrowed"),
+    }
+    guarded("the termination", p.provider.terminate())
+        .await
+        .map_err(provider_support::test_error)?;
+    Ok(())
+}

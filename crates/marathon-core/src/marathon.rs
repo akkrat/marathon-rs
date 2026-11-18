@@ -860,7 +860,12 @@ impl Marathon {
     /// failed (C25). Unlike Kotlin, a failing step doesn't skip the later ones (D51). D1 keeps the
     /// usage slot as a no-op. A signal finishes in its own order instead: see `finish_cancelled`.
     async fn on_finish(&self, cancellation: Arc<dyn CancellationSignal>) -> VendorResult<()> {
-        if self.finish_completed.get() || self.signalled.get() {
+        // D52, D84 (round 5): a signal's finish owns the order from the moment it begins (the reports first, then the
+        // rest), so this finish hands over to it before every step it would start, including after a step that was
+        // waiting when the signal came: it never starts analytics' close or the provider's termination beside the
+        // signal's reports.
+        let handed_over = || self.signalled.get();
+        if self.finish_completed.get() || handed_over() {
             return Ok(());
         }
         self.cleaned_up.set(true);
@@ -868,6 +873,9 @@ impl Marathon {
         // Console order: records logged so far precede the reporters' stdout summary.
         let flushed = self.flush(cancellation.clone()).await;
         self.finish_step(&mut first, "Console output", flushed, &cancellation)?;
+        if handed_over() {
+            return Ok(());
+        }
         // D84 (F2, F3): the Scheduler settles first: admission closes, the device listener ends, pools and devices still
         // running stop after taking what was delivered to them. Nothing of it runs while analytics closes, while the
         // provider terminates or while the reports take their snapshot.
@@ -876,18 +884,30 @@ impl Marathon {
             scheduler.settle().await;
         }
         for step in [FinishStep::Analytics, FinishStep::Provider] {
+            if handed_over() {
+                return Ok(());
+            }
             let result = self.run_step(step, cancellation.clone()).await;
             self.finish_step(&mut first, step.label(), result, &cancellation)?;
+        }
+        if handed_over() {
+            return Ok(());
         }
         // D84 (F1): what the provider's device channel ended with, now that it has terminated.
         if let Some(scheduler) = &scheduler {
             scheduler.settle_after_termination().await;
+        }
+        if handed_over() {
+            return Ok(());
         }
         // Termination logs are enqueued by vendor tasks. Kotlin prints them
         // synchronously before Allure and the stdout summary close.
         let flushed = self.flush(cancellation.clone()).await;
         self.finish_step(&mut first, "Console output", flushed, &cancellation)?;
         for step in [FinishStep::Reports, FinishStep::Usage] {
+            if handed_over() {
+                return Ok(());
+            }
             let result = self.run_step(step, cancellation.clone()).await;
             self.finish_step(&mut first, step.label(), result, &cancellation)?;
         }

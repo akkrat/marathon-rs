@@ -823,3 +823,167 @@ fn the_run_waits_for_a_preparation_left_running_before_terminating_the_provider_
     assert_eq!(outcome.completed_at, Some(3_000 + 3_000));
     assert_eq!(run_failure(&outcome), [format!("{PROBE}: the device events failed")]);
 }
+
+type SharedClock = Arc<std::sync::OnceLock<Arc<dyn marathon_core::runtime::VendorClock>>>;
+fn now(clock: &SharedClock) -> i64 {
+    clock.get().map_or(-1, |clock| clock.now_millis())
+}
+
+/// A Graphite backend whose Track of `serial-x`'s connection takes 5 s, and which raises SIGTERM 1 s into it.
+struct SignalsWhileHeld(SharedClock, Arc<SharedDeferred<i32>>);
+impl marathon_core::analytics::TrackerInternalAdapter for SignalsWhileHeld {
+    fn device_connected<'a>(&'a self, event: &'a marathon_core::report::DeviceConnectedEvent) -> VendorFuture<'a, ()> {
+        let hold = event.device.serial_number == "serial-x";
+        Box::pin(async move {
+            if let (true, Some(clock)) = (hold, self.0.get()) {
+                clock.delay(1_000, Signal::new()).await?;
+                self.1.complete(Ok(15));
+                clock.delay(4_000, Signal::new()).await?;
+            }
+            Ok(())
+        })
+    }
+}
+struct SignalsWhileHeldBackends(SharedClock, Arc<SharedDeferred<i32>>);
+impl marathon_core::analytics::BackendFactory for SignalsWhileHeldBackends {
+    fn create(
+        &self,
+        _: marathon_core::analytics::BackendRequest,
+    ) -> marathon_core::runtime::ServiceFuture<
+        '_,
+        Result<Option<Arc<dyn marathon_core::analytics::TrackerInternal>>, Failure>,
+    > {
+        let backend = SignalsWhileHeld(self.0.clone(), self.1.clone());
+        Box::pin(async move {
+            Ok(Ok(Some(
+                Arc::new(backend) as Arc<dyn marathon_core::analytics::TrackerInternal>
+            )))
+        })
+    }
+}
+/// A reporter that takes 6.5 s and records when it ends.
+struct SlowReports(SharedClock, Arc<std::sync::Mutex<Vec<(String, i64)>>>);
+impl marathon_core::report::Reporter for SlowReports {
+    fn generate<'a>(
+        &'a self,
+        _: &'a marathon_core::report::ExecutionReport,
+    ) -> marathon_core::runtime::ServiceFuture<'a, ()> {
+        Box::pin(async move {
+            self.1.lock().unwrap().push(("reports started".into(), now(&self.0)));
+            if let Some(clock) = self.0.get() {
+                let _ = clock.delay(6_500, Signal::new()).await;
+            }
+            self.1.lock().unwrap().push(("reports ended".into(), now(&self.0)));
+            Ok(())
+        })
+    }
+}
+
+/// D52, D84 (review round 5): the run's finish is settling, waiting for the listener, which is still tracking a late
+/// device's connection, when SIGTERM arrives (at 11,500 ms). The signal's finish writes the reports first (6.5 s here);
+/// the listener's Track ends at 15,500 ms, inside the reports' head start. The run's own finish then hands over: the
+/// provider is terminated only after the reports have ended, and the run exits with 143 within D52's 24 s.
+#[test]
+fn a_signal_while_the_run_settles_keeps_the_reports_first_d84() {
+    use marathon_core::analytics::{Analytics, NoOpMetricsProvider, ReporterRegistration, ReporterSlot};
+    let (mut factory, mut script) = script();
+    factory.analytics = Some(Box::new(|context| {
+        Ok(Analytics::noop(NoOpMetricsProvider::new(false, context)?))
+    }));
+    factory.configuration.configuration.analytics_configuration =
+        marathon_config::AnalyticsConfiguration::Graphite(marathon_config::GraphiteConfiguration {
+            host: "carbon.invalid".into(),
+            port: None,
+            prefix: None,
+            defaults: marathon_config::Defaults {
+                success_rate: 0.0,
+                duration: jcompat::jtime::duration_of(0, 0).unwrap(),
+                observed_duration_min_tests: None,
+            },
+            read_only: false,
+        });
+    let clock: SharedClock = Arc::new(std::sync::OnceLock::new());
+    let trigger = SharedDeferred::<i32>::new();
+    factory.signal_trigger = Some(trigger.clone());
+    factory.backend = Some(Arc::new(SignalsWhileHeldBackends(clock.clone(), trigger)));
+    let events: Arc<std::sync::Mutex<Vec<(String, i64)>>> = Arc::default();
+    factory.reporters = vec![ReporterRegistration {
+        slot: ReporterSlot::Html,
+        reporter: Arc::new(SlowReports(clock.clone(), events.clone())),
+    }];
+    let (recorded, exit_clock) = (events.clone(), clock.clone());
+    factory.exit = Some(Arc::new(move |status| {
+        recorded
+            .lock()
+            .unwrap()
+            .push((format!("exit {status}"), now(&exit_clock)));
+    }));
+    let prepare_clock = clock.clone();
+    let prepare: scenario::Prepare = Box::new(move |core, _| {
+        let _ = prepare_clock.set(core.vendor_clock());
+    });
+    let late = stub("serial-x", "modelA", 600_000);
+    script.devices.insert("serial-x".into(), late);
+    script
+        .events
+        .insert(1, (10_500, "connect".into(), Some("serial-x".into()), Value::Null));
+    let (terminated, terminate_clock) = (events.clone(), clock.clone());
+    let ready: Option<Ready> = Some(Box::new(move |built| {
+        *built.provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
+            terminated
+                .lock()
+                .unwrap()
+                .push(("provider terminated".into(), now(&terminate_clock)));
+            Box::pin(async { Ok(()) })
+        }));
+    }));
+    let _outcome = scenario::drive(factory, script, Some(prepare), ready);
+    let events = events.lock().unwrap().clone();
+    let at = |name: &str| {
+        events
+            .iter()
+            .find(|(event, _)| event == name)
+            .map(|(_, at)| *at)
+            .unwrap_or_else(|| panic!("no {name}: {events:?}"))
+    };
+    assert!(
+        at("provider terminated") >= at("reports ended"),
+        "the provider was terminated while the signal's reports were still being written: {events:?}"
+    );
+    assert_eq!(at("reports started"), 11_500, "{events:?}");
+    let exit = at("exit 143");
+    assert!(exit <= 11_500 + 25_000, "{events:?}");
+}
+
+struct NeverExtracts;
+impl marathon_core::vendor::RemoteTestParser for NeverExtracts {
+    fn extract(&self, _: DeviceRef, _: VendorContext) -> VendorFuture<'_, Vec<Test>> {
+        Box::pin(async { Ok(vec![]) })
+    }
+}
+
+/// D84, review round 5 (with the iOS witness
+/// `simulator_panic::a_borrow_ends_with_the_monitorings_failure_when_no_simulator_is_available_d84`): before any
+/// Scheduler exists, a remote parse's borrow ends with the provider's device-monitoring failure. That failure is the
+/// run's cause, and `ignoreFailures` maps it as any failure, where a no-device timeout would have failed the run.
+#[test]
+fn a_monitoring_failure_a_remote_parse_hears_of_is_the_runs_cause_d84() {
+    let (mut factory, mut script) = script();
+    factory.configuration.configuration.ignore_failures = true;
+    factory.parser = Some(marathon_core::vendor::TestParser::Remote(Arc::new(NeverExtracts)));
+    script.events.retain(|(_, event, ..)| event == "end");
+    let ready: Option<Ready> = Some(Box::new(|built| {
+        *built.provider.borrow_error.lock().unwrap() = Some(VendorError::Other(failure(
+            FailureKind::Runtime,
+            &format!("{PROBE}: the simulator's setup panicked"),
+        )));
+    }));
+    let outcome = scenario::drive(factory, script, None, ready);
+    assert!(outcome.completed, "the run did not end: {:?}", outcome.lines);
+    assert!(matches!(outcome.value, Some(Ok(true))), "{:?}", outcome.value);
+    assert_eq!(
+        run_failure(&outcome),
+        [format!("{PROBE}: the simulator's setup panicked")]
+    );
+    assert!(!logged(&outcome, Level::WARN, "No devices found"));
+}

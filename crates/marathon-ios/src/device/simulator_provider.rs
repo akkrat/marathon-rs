@@ -186,6 +186,9 @@ struct State {
     initialized: bool,
     monitoring: Option<Arc<dyn VendorTask>>,
     termination: Option<Arc<SharedDeferred<()>>>,
+    /// D84 (I5): the cause the device monitoring failed with, which it published to the device channel. A borrow with no
+    /// simulator available returns it instead of waiting for one that cannot come.
+    monitor_failure: Option<marathon_core::error::Failure>,
 }
 /// D44: the generations of the simulators an asynchronous operation acts for, taken when it starts: a recovery, the
 /// worker retry's attempt, a D33 retry, a devices update's setup, and a plan. Keyed like D33's budget.
@@ -1167,6 +1170,7 @@ impl AppleSimulatorProvider {
                         || "Device monitoring failed".into(),
                         Some(error.failure().clone()),
                     );
+                    this.state().monitor_failure = Some(error.failure().clone());
                     this.channel.close(Some(error.failure().clone()));
                 } else {
                     this.log(
@@ -1264,6 +1268,12 @@ impl DeviceProvider for AppleSimulatorProvider {
                     // D53: the key stays a simulator's across a reconnect that gives it a new object.
                     if devices.keys().any(|key| !tried.contains(key)) {
                         devices.retain(|key, _| !tried.contains(key));
+                    }
+                    // D84 (I5): before any Scheduler exists (a remote parse), the monitoring's failure is the borrower's
+                    // to hear of, as the Scheduler's listener would.
+                    let failure = this.state().monitor_failure.clone();
+                    if let (true, Some(failure)) = (devices.is_empty(), failure) {
+                        return Err(VendorError::Other(failure));
                     }
                     if !devices.is_empty() {
                         let keys: Vec<_> = devices.keys().cloned().collect();
