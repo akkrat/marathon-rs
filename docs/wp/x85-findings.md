@@ -51,7 +51,7 @@ test vehicles keep Kotlin's 30 attempts, so no oracle or differential recording 
 |---|---|---|
 | iOS | 2 × (`bootWait` + `boot` + `shutdown` + `shell`) + the 10 s pause between boot attempts | 2 × (180 + 30 + 30 + 30) + 10 = 550 s |
 | Android | per package to install (the app if any, each extra app, the test app): 3 × (`shell` + `uninstall` + `pushFile` + `install` + `shell`) + 2 × 1 s; plus `shell` (`logcat -c`) and, with mock location, 2 × `shell` per bundle with an app (`appops set`, then `appops query` if it failed) | 2 × (3 × 180 + 2) + 20 = 1,104 s with one app and its test app; 1,144 s with mock location |
-| macOS | `shell` for each command of one preparation that has a limit (listed under "Review round 2"): 23 with the test type left to the probe, 12 for hosted XCTest configured, 22 for XCUITest configured, each with permissions to grant 1 more and 1 per permission; + 2 × 1 s. Transfers are not counted, they have no limit while they progress (D54), nor are code coverage's static-library directories, which only the built bundle names | 692 s with the test type left to the probe; 362 s hosted XCTest |
+| macOS | `shell` for each command with a limit that one preparation can send (`MacosDevice::preparation_commands`, listed under "Review round 3", checked against whole preparations by `tests/preparation_commands.rs`): 25 with the test type left to the probe, 12 for hosted XCTest, 24 for XCUITest, and with permissions to grant the SIP check and 2 per permission; + 2 × 1 s. Transfers are not counted, they have no limit while they progress (D54), nor are code coverage's static-library directories, which only the built bundle names | 752 s with the test type left to the probe; 362 s hosted XCTest |
 
 With the defaults every envelope exceeds the actor's own schedule for a preparation that fails at once (30 attempts, 290 s),
 so such a device keeps its 30 attempts. Only slow failures are cut. The Android figure is the legacy push-and-install path
@@ -88,8 +88,8 @@ spent on a retry that could not start). Nothing running is stopped by it.
      it, and a stale generation is discarded.
    - A replacement's first boot attempt is whole (the whole of `bootWait`), even with less left. Its second attempt is
      held to a bound, the deadline less `shutdown` + `shell`: it starts each state read (the descriptor read and the
-     readiness probe, 2 × (`shell` + 30 s)) and `simctl boot` (`boot` + 30 s) only if, run to its own limit and through
-     D30's escalation (`sshj::client::TIMEOUT_MILLIS`, 30 s), it ends by the bound. Nothing of the attempt is cut: a
+     readiness probe) and `simctl boot` only if each command, at its worst (`command_worst_case_millis`: the SSH channel
+     and the exec's acknowledgment, 30 s each, its own limit, D30's 30 s), ends by the bound. Nothing of the attempt is cut: a
      command that started ends through its own timeout, so the shutdown decision reads the simulator's real state, and
      the shutdown, under its own `shutdown` + `shell` limit, ends by the deadline.
    - A boot that fails for want of time (a held attempt, or one refused) returns `PrepareError::OutOfTime`, on which the
@@ -134,7 +134,7 @@ live sibling (so D48 does not apply); measured only on the witnesses' scaled tim
 | iOS, in general | — | the deadline plus one whole boot attempt of a replacement started just before it and its last probe: 550 + 270 + 50 = 870 s (14.5 min) |
 | iOS, any of these, pool's only simulator | 9 to 11 min (D48, x42) | unchanged: D48's wait from the first departure ends it |
 | Android, one package whose install times out at 60 s every time | 30 × 182 + 290 = 5,750 s (96 min) | eight preparations, the last three with one attempt: leaves at about 1,160 s (19 min) |
-| macOS, every command hanging until KILL | about 1,790 s (30 min) | twelve preparations: about 710 s (12 min) |
+| macOS, every command hanging until KILL | about 1,790 s (30 min) | thirteen preparations: about 770 s (13 min) |
 | Any vendor, preparation failing at once | 30 attempts, 290 s | unchanged with default timeouts (each envelope ≥ 290 s) |
 
 The general bound: the deadline, plus what started before it (on iOS a replacement's whole boot attempt; on Android one
@@ -172,8 +172,9 @@ round's, without its fix (temporary mutation). Guards pass either way, as they s
   (`uninstall` 6 s so that every decision has at least 7 s to spare; deadline 195 s; leaves within the deadline plus one
   attempt; 16 installs); `installer_test.rs::a_preparations_envelope_counts_mock_location_per_bundle_with_an_app_d87`
   (fails with the old flat 3 × `shell`). Guard: a single timed-out install retried.
-- macOS: `batch.rs::a_macs_preparation_deadline_is_the_greater_of_the_wait_and_its_commands_d87` (692, 362 and 752 s for
-  the probe, hosted XCTest and XCUITest with two grants).
+- macOS: `preparation_commands.rs` (each variant's longest path on the fake worker sends exactly what its budget counts:
+  25, 24, 15 and 17 commands; logic tests and code coverage no more), and
+  `batch.rs::a_macs_preparation_deadline_is_the_greater_of_the_wait_and_its_commands_d87` (752, 362 and 872 s).
 
 **Oracle and differential recordings.** None changes, so no comparator allowance is needed: the device-actor oracle
 (`fixtures/oracle/device-actor`, including `thirty failing preparations`) runs the Stub vehicle, which has no deadline; the
@@ -255,6 +256,43 @@ timeouts and a shorter `deviceInitializationTimeoutMillis` can make the deadline
 
 Each round-2 witness fails on 3f4bb7d9, checked in a scratch copy of that tree with the new tests; round 1's witnesses
 pass there, as they should.
+
+## Review round 3
+
+1. *A refused transfer retry cancelled the boot beside it.* The Apple installer's gate records a refusal, and the
+   iOS installation half reports it as `PrepareError::Refused`, which the preparation does not treat as a failure to
+   cancel over: it lets the boot end on its own, then reports the transfer's failure. Every deadline refusal now stops
+   nothing that runs: the actor's and the Android installer's have no sibling, the boot's (`OutOfTime`) and the
+   transfer's (`Refused`) leave theirs to end. Witness: a replacement with 10 s left, `simctl boot` taking 25 s, the
+   send failing at 20 s: the boot's command is not cancelled.
+2. *A held read could spend the shutdown reserve.* `command_worst_case_millis` (next to the SSH limits) is a command's
+   worst case: channel open and exec acknowledgment within 30 s each, its own limit, D30's 30 s. Every check of a held
+   attempt uses it (a state read is two commands). Witness: 15 s boot, then 65 s reads and probes (20 + 20 + 25 s):
+   every shutdown starts with its whole reserve, where one used to start 5 s into it.
+3. *A worker drop during a replacement's preparation renewed the deadline.* The recovery carries the episode for any
+   loss of its claim, a worker's included; only a removal or re-add starts afresh. Witness: replacement inherits the
+   episode, its worker drops while `simctl boot` is pending, reconnect: the next setup continues the same deadline.
+4. *macOS undercount.* The count is now measured, not read off the code: `tests/preparation_commands.rs` runs each
+   variant's longest path on the fake worker (the installer's three attempts forced by two failed sends, an arm64e Mac
+   whose runner has an extra architecture, the probe finding XCUITest) and compares the commands sent, every one under
+   `shell`, with the budget. What it found beyond round 2's list: each permission writes twice (the system's and the
+   user's TCC database), and each of the runner's two overwriting copies is preceded by a removal. Hosted XCTest with a
+   permission: 15 commands, 452 s.
+
+The commands one preparation can send, each under `shell` (round 2's list, corrected):
+
+- `prepare_inner`: remove, create and create-shared directory (3).
+- Apple installer, per attempt at the test bundle: create and create-shared directory (2 × 3).
+- The test type's probe (`nm`), unless configured (1).
+- Test root factory: the test root directory (1).
+- Hosted XCTest: the app's `chmod`, its `PlugIns` directory (2).
+- XCUITest without a runner of its own: the SDK platform path (1); removal and copy of `XCTRunner.app`, removal and copy
+  of its binary (4); `lipo -archs` twice and `lipo -remove` on arm64e (3); three `PlistBuddy` edits (3); the runner's
+  `PlugIns` directory and the test bundle's copy (2); the app's `chmod` (1): 14. With a runner of its own: `chmod`,
+  removal and link, the architecture commands, and the SDK path and the app's `chmod`: 8.
+- Permissions: `csrutil status` (1), and per permission two `sqlite3` writes (2 each).
+- Not counted: code coverage's static-library directories (one per library, only the built xctestrun names them), and
+  transfers (D54).
 
 ## Incidental bugs
 
