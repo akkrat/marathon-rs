@@ -2452,8 +2452,101 @@ fn settling_waits_for_a_device_its_closed_pool_still_owns_d84() {
     });
 }
 
+/// Holds the Track of one device's connection until the gate opens, as a slow tracker backend would.
+struct ConnectHeldTrack(Arc<RecordingTracker>, &'static str, Gate);
+impl marathon_core::wiring::Tracker for ConnectHeldTrack {
+    fn device_connected<'a>(&'a self, p: &'a DevicePoolId, d: &'a DeviceInfo) -> VendorFuture<'a, ()> {
+        let hold = d.serial_number == self.1;
+        Box::pin(async move {
+            if hold {
+                self.2.wait().await;
+            }
+            marathon_core::wiring::Tracker::device_connected(self.0.as_ref(), p, d).await
+        })
+    }
+    fn device_disconnected<'a>(&'a self, p: &'a DevicePoolId, d: &'a DeviceInfo) -> VendorFuture<'a, ()> {
+        marathon_core::wiring::Tracker::device_disconnected(self.0.as_ref(), p, d)
+    }
+    fn device_provider_init<'a>(
+        &'a self,
+        s: &'a str,
+        a: jcompat::jtime::Instant,
+        b: jcompat::jtime::Instant,
+    ) -> VendorFuture<'a, ()> {
+        marathon_core::wiring::Tracker::device_provider_init(self.0.as_ref(), s, a, b)
+    }
+    fn device_preparing<'a>(
+        &'a self,
+        s: &'a str,
+        a: jcompat::jtime::Instant,
+        b: jcompat::jtime::Instant,
+    ) -> VendorFuture<'a, ()> {
+        marathon_core::wiring::Tracker::device_preparing(self.0.as_ref(), s, a, b)
+    }
+    fn test<'a>(&'a self, p: &'a DevicePoolId, d: &'a DeviceInfo, r: &'a TestResult, f: bool) -> VendorFuture<'a, ()> {
+        marathon_core::wiring::Tracker::test(self.0.as_ref(), p, d, r, f)
+    }
+}
+
+/// D84, review round 4 (F6): the listener is still handling one connection (its Track is held) when the run settles,
+/// and the next device's connection waits in the channel behind it. Once the held Track returns, the listener reads that
+/// connection before it sees its cancellation, but the connection reaches no pool: the device is never prepared.
+#[test]
+fn a_connection_the_listener_reads_after_the_run_settles_reaches_no_pool_d84() {
+    scheduling_test(|h| {
+        Box::pin(async move {
+            let gate = Gate::default();
+            let run = Run::new_with_shard(
+                &h,
+                waiting(),
+                Arc::new(ConnectHeldTrack(h.tracker.clone(), "b1", gate.clone())),
+                tests(2, "marathon_core::execution::scheduler"),
+            );
+            h.run_current().await;
+            run.connect(&device("b1", "test", -1, false));
+            advance(&h, 500).await;
+            let prepared = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let flag = prepared.clone();
+            let b2 = TestDevice::new_with_model(
+                "b2",
+                "test",
+                None,
+                Some(on_prepare(move |_| {
+                    flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                    async { Ok(()) }
+                })),
+                slow_execute(100),
+            );
+            run.connect(&b2);
+            h.run_current().await;
+            let scheduler = run.scheduler.clone();
+            h.core.spawn(
+                h.core.job(JobKind::Ordinary, None),
+                Box::new(move |_| {
+                    Box::pin(async move {
+                        scheduler.settle().await;
+                        Ok(())
+                    })
+                }),
+            );
+            h.run_current().await;
+            gate.open();
+            h.advance_until_idle().await;
+            let (_, pool) = run.scheduler.pools().remove(0);
+            assert!(
+                pool.devices()
+                    .iter()
+                    .all(|(_, device)| device.0.info().serial_number != "b2"),
+                "a connection read after the run settled reached a pool"
+            );
+            assert!(!prepared.load(std::sync::atomic::Ordering::SeqCst));
+            run.finish(&h).await;
+        })
+    });
+}
+
 /// D84, review round 4 (F6): a device's connection is still waiting in the provider's channel when the run settles.
-/// The listener may still read it, but it reaches no pool: the device is never prepared.
+/// It reaches no pool: the device is never prepared.
 #[test]
 fn a_connection_waiting_when_the_run_settles_reaches_no_pool_d84() {
     scheduling_test(|h| {

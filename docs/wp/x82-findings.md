@@ -214,7 +214,7 @@ The orchestrator split the scope: F1, F2, F3 and F6 are fixed here; F4 and F5 mo
 | F1 + two decision points | fixed | One decision point, in `run_under` after the (protected, resumable) finish: the first-cause cell beats any stored outcome, a NoDevices or a finish error, which is then logged ("The run also failed after its first failure"); `run_async` no longer decides. The finish reads how the provider's channel ended after termination (`settle_after_termination`): a failure, or a cancellation nothing in the run asked for, goes through `fail` | `run_supervision::a_device_channel_cancelled_while_the_provider_terminates_fails_the_run_d84`; `a_channel_failure_waiting_at_the_no_device_timeout_is_the_runs_cause_d84` (with `ignoreFailures`, exit 0 for the real cause where NoDevices gave false); `a_channel_failure_the_listener_still_holds_at_the_end_fails_the_run_d84` now fails if the decision point is removed (checked) |
 | F2 | fixed | `on_finish`: settle → analytics → provider → channel end → reports → usage; a step's own error or cancellation is logged and the next steps run; only a requested cancellation stops the finish, and `run_under`'s protected finish then resumes it (`finish_completed`; a signal's finish still makes it a no-op) | `run_supervision::a_cancelled_provider_termination_still_writes_the_reports_d84` |
 | F3 | fixed | `settle` runs first in the finish, so no failure or device work overlaps analytics' close or the provider's termination; it stops a pool if its actor or its supervisor is still running (a device of an ended pool still cleaning up) | `pool_scheduler::settling_waits_for_a_device_its_closed_pool_still_owns_d84` |
-| F6 | fixed, documented | `settle` closes admission (`draining`) before it cancels the listener, and `on_device_connected` returns at once when draining, before and after the history prefetch, so a connection read after that reaches no pool; the drain of late pools stays and is deterministic (always before the reports); D84 lists the healthy-run changes | `pool_scheduler::a_connection_waiting_when_the_run_settles_reaches_no_pool_d84`; `run_supervision::a_device_connecting_while_the_run_finishes_is_not_admitted_d84` |
+| F6 | fixed, documented | `settle` closes admission (`draining`) before it cancels the listener, and `on_device_connected` returns at once when draining, before and after the history prefetch, so a connection read after that reaches no pool; the drain of late pools stays and is deterministic (always before the reports); D84 lists the healthy-run changes | `pool_scheduler::a_connection_the_listener_reads_after_the_run_settles_reaches_no_pool_d84` (the listener is held in one connection's Track when the run settles; the next connection must reach no pool). Behaviour pins that also pass on 8a9e7c1b: `a_connection_waiting_when_the_run_settles_reaches_no_pool_d84`, `run_supervision::a_device_connecting_while_the_run_finishes_is_not_admitted_d84` |
 | P3 (macOS sleep) | fixed | the lease witness waits on a clock gate that fires when termination begins its bounded preparation wait | `provider::termination_does_not_release_a_lease_under_a_running_preparation_d84` |
 | D84 text | fixed | single decision point, settle-first finish, healthy-run changes, known limits (Android, macOS signal exit, U210, U211) | — |
 
@@ -225,6 +225,12 @@ too; the round-3 R3-1b witness becomes `the_reports_hold_the_results_a_stop_drai
 channel failure begins mid-run).
 
 Goldens: the run-flow goldens and the differential suites (`marathon-cli` tests) pass unchanged; no golden diff.
+
+Checked in a scratch worktree at 8a9e7c1b with the new test files: the F1, F2, F3 and F6 witnesses above fail there
+(the I1 test fails there only on its new log line). With the decision point removed from the new code,
+`a_channel_failure_the_listener_still_holds_at_the_end_fails_the_run_d84` and the other F1 witnesses fail.
+Also fixed: the round-1 witness `a_result_delivered_to_the_queue_before_a_failure_is_still_tracked_d84` assumed which
+device takes which test; it now checks one tracked result per device (it failed once in the full run).
 
 ## Out of scope / follow-ups (from round 4, for a new WP)
 
