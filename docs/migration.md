@@ -187,10 +187,11 @@ repeated entries of a test in a pool's queue (the copies that `flakinessStrategy
 `shardingStrategy: count`, make, or a test discovered twice) now take turns with other tests' entries, so a wave of
 devices spreads over the tests. `fast` drops a test's copies that are still queued when it is decided: after its first
 pass under `ANY_SUCCESS`, or its first failure under `ALL_SUCCESS`; started copies and batches already handed to a device
-still run, and with copies in turns more are still queued. Runs can list fewer executions, send tests in another order
-and grouping, and launch fuller or emptier, and more or fewer, `fixed-size` batches; a test in another batch gets that
-batch's Android `coverageFile` path. Which device runs which copy can change, so a test whose outcome depends on the
-device can get another verdict, and the final record can come from another attempt; the rules for both are unchanged.
+still run, and with copies in turns more can still be queued. Runs can list fewer executions, send tests in another order
+and grouping, and launch fuller or emptier, and more or fewer, `fixed-size` batches; with code coverage on, a test in another
+batch gets that batch's Android `coverageFile` path. Which device runs which copy can change, so a test whose outcome depends on the
+device can get another verdict, and with it the run's exit status (with `ignoreFailures: false`), and the final record
+can come from another attempt; the rules for both are unchanged.
 
 ### A finite `uncompletedTestRetryQuota` (D47)
 

@@ -2112,10 +2112,11 @@ tests, whatever made the repetition: flakiness copies, `count` repeats, or a tes
 test APKs), whose second entry now waits until every test has had its first.
 
 - **What `fast` drops:** copies that are still queued when the test is decided: after its first pass under
-  `ANY_SUCCESS` (flakiness copies; the configuration rejects a `count` other than 1 with `ANY_SUCCESS`), or after its first
+  `ANY_SUCCESS` (flakiness copies or a test discovered twice; the configuration rejects a `count` other than 1 with
+  `ANY_SUCCESS`), or after its first
   failure under `ALL_SUCCESS` (`count` repeats and `fixed` copies, for example). A copy that has started runs to the end,
   and so does a batch already handed to a device, even if its tests have not started yet. With copies in turns, more of a
-  test's copies are still queued when it is decided, so `fast` can drop more of them.
+  test's copies can still be queued when it is decided, so `fast` can drop more of them.
 - **What stays:** which copies exist and how many (D34, D71, D72), what `marathon parse --includeFlakyTests` lists and
   in which order, the order between different sort keys (a longer test's copies still come first under
   `execution-time`), the random keys a seed gives (each test is still first inserted in shard order), batching rules
@@ -2128,13 +2129,13 @@ test APKs), whose second entry now waits until every test has had its first.
   which copy. Where a test's outcome depends on the device, its verdict can change with the device: with two devices,
   `count: 2`, `ALL_SUCCESS` and `fast: false`, the grouped order could send one copy of a test to the device where it
   fails, and the new order both copies to the device where it passes, so the run passes where it failed, with the same
-  outcome on each device. Even with the same verdict, D77 can pick another attempt as the final record, from another
+  outcome on each device, and with `ignoreFailures: false` exits 0 where it exited 1; the exit-code rules are the same. Even with the same verdict, D77 can pick another attempt as the final record, from another
   device, with other timing and attachments. Test-selector lists in worker commands (`adb -e class`, xcodebuild
   `-only-testing`) change order and grouping, and `fixed-size` batches can be fuller or emptier and more or fewer: a
   batch that used D50's rejected polls on one test's copies and went out short is now full, but with size 2 and
   A ×4, B ×2, C ×2 the batches go from `AB|CA|AB|CA` to `AB|CA|BC|A|A`, one more launch. With `fast`, fewer copies can
   run, so reports and `raw.json` can list fewer executions. Executables and flags stay; non-test operands are built as
-  before, but a test in another batch gets that batch's generated Android `coverageFile` path.
+  before, but with code coverage on a test in another batch gets that batch's generated Android `coverageFile` path.
 
 Evidence: on a CI farm of Android emulators, a job of 3 tests without history (each given 4 copies by `probability`,
 15 runs) on 8 emulators gave 15 executions with 0.14.0-rc.2 and 10 with the JVM build, in the same wall time: rc.2's

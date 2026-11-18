@@ -3,9 +3,10 @@
 No golden, recording or comparator allowance changes.
 
 D83 changes only the order in which a pool's queue first takes a shard's tests, and only where a test occurs more than
-once: flakiness copies (`flaky_tests`) or `shardingStrategy: count` repeats. Where `tests` has no repeats and
-`flaky_tests` has at most one copy of each test, the round-by-round order equals the old `tests` then `flaky_tests`
-order.
+once: flakiness copies (`flaky_tests`), `shardingStrategy: count` repeats, or a test discovered twice (for example in two
+test APKs). Where `tests` has no repeats and `flaky_tests` has at most one copy of each test, the round-by-round order
+equals the old `tests` then `flaky_tests` order. The evidence below rests on that: each recorded or golden queue is
+unchanged only because its insertion order has no repeated entry, not because D83 leaves repeated entries alone.
 
 | Evidence | What it holds | Result |
 |---|---|---|

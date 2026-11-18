@@ -63,7 +63,8 @@ runs whose copies have equal keys, and so can `fixed-size` batch membership and 
 under `fast` can list fewer executions in `raw.json`, JUnit and HTML, and since the device that runs a copy can change, a
 device-dependent verdict and the final record can change too (review round 1). Hence D83 (PLAN
 §3.11 row, `docs/deviations.md` section with evidence and user impact, migration row, CHANGELOG `## Unreleased`).
-Configuration, CLI, exit codes and pinned progress/summary text are unchanged. No configuration field was added.
+Configuration, CLI, the exit-code rules and pinned progress/summary text are unchanged; a run whose verdict changes exits
+with the other status (with `ignoreFailures: false`, 0 instead of 1 or the reverse; review round 2). No configuration field was added.
 
 ## Tests
 
@@ -175,3 +176,19 @@ test -p marathon-core` 859 passed, 0 failed; `cargo test -p marathon-cli` 95 pas
 tools/differential/run validate`, `python3 -I tools/differential/test_evidence.py` and `scripts/check_plan_dag.py` pass.
 Not run, per the batch's gate rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test --workspace`. No golden,
 recording or allowance changes (the new tests are Stub-vendor and unit tests).
+
+## Review round 2
+
+A second cross-model pass found five points, fixed by the orchestrator:
+
+1. `ANY_SUCCESS` does not need flakiness copies: the loader rejects it only with a `count` other than 1, so a test
+   discovered twice under `parallel` sharding can use it. The PLAN row and D83 now state the exact restriction, and the
+   count scenario's comment says it applies to `count: 5`.
+2. A changed verdict changes the process status under the same exit-code rules (with `ignoreFailures: false`, 0 instead
+   of 1 or the reverse). Stated in the D83 row and section, migration, CHANGELOG and the contract paragraph above.
+3. "More copies are still queued" is now "can still be queued", and the Android `coverageFile` association applies only
+   with code coverage on.
+4. The golden-diff note lists discovery duplicates and says its evidence rests on the recorded queues having no repeated
+   entry.
+5. The scenario helper now requires the run to complete normally (`Some(Ok(_))`), so the count scenario's failed run
+   must be `Ok(false)`, not an error.

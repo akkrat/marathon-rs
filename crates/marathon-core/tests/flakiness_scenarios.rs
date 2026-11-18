@@ -354,6 +354,8 @@ fn on_eight_devices(
         .collect();
     let raw: Value = serde_json::from_str(&outcome.read("test_result/raw.json")).unwrap();
     let passed = raw.as_array().unwrap().iter().all(|row| row["status"] == "PASSED");
+    // The run completed normally either way: Ok(true) when every run passed, Ok(false) otherwise, never an error.
+    assert!(matches!(outcome.value, Some(Ok(_))), "{:?}", outcome.value);
     assert_eq!(matches!(outcome.value, Some(Ok(true))), passed, "{:?}", outcome.value);
     (executed, raw.as_array().unwrap().clone())
 }
@@ -398,7 +400,7 @@ fn d83_copies_of_different_tests_interleave_so_fast_drops_more_of_them() {
     }
 }
 
-/// D83 for `shardingStrategy: count` (the loader allows it only with ALL_SUCCESS and flakiness `ignore`): 5 runs of
+/// D83 for `shardingStrategy: count` (the loader allows `count: 5` only with ALL_SUCCESS and flakiness `ignore`): 5 runs of
 /// each of three tests, step1 failing everywhere. `fast` ends step1 at its first failure and drops its runs that are
 /// still queued. In turns, the first wave is `step1 step2 step3 step1 step2 step3 step1 step2`, so step1's last two
 /// runs are still queued and 13 runs happen. Before D83 the wave was step1 ×5, step2 ×3: every run of step1 had

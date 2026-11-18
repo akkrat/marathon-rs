@@ -7,13 +7,14 @@ The section for a version becomes the text of its GitHub release, which carries 
 - **Flakiness copies take turns (D83):** with `flakinessStrategy: probability` or `fixed`, or `shardingStrategy:
   count`, the extra runs of different tests now alternate in the queue instead of each test's runs waiting together; so
   does a test discovered twice, for example in two test APKs. Free devices spread over the tests, so with
-  `executionStrategy.fast` (the default) more of a test's runs are still queued when it is decided, after its first pass
+  `executionStrategy.fast` (the default) more of a test's runs can still be queued when it is decided, after its first pass
   under `ANY_SUCCESS` or its first failure under `ALL_SUCCESS`, and those are dropped, as in the JVM build; runs that
   have started, or whose batch a device already has, still run. Runs can use less device time and list fewer executions.
   Which device runs which copy can change, so a test that passes on some devices and fails on others can get another
-  verdict, and its final record can come from another run; the rules that decide both are unchanged. Worker commands can
+  verdict, and with it the run's exit status, and its final record can come from another run; the rules that decide them
+  are unchanged. Worker commands can
   list a batch's tests in another order and grouping, `fixed-size` batches can be fuller or emptier and more or fewer,
-  and an Android test in another batch gets that batch's coverage file.
+  and with code coverage on an Android test in another batch gets that batch's coverage file.
 
 ## 0.14.0
 
