@@ -29,6 +29,19 @@ pub(super) struct PreparationJob {
     /// Completed when the preparation's work has ended, whatever its outcome.
     pub(super) done: Arc<SharedDeferred<()>>,
 }
+/// D87, U163: a transfer that stalled takes the simulator out of the run whatever its boot did at the same time, so it is
+/// what the preparation reports, rather than a boot that failed or ran out of time beside it.
+fn terminal_transfer<T>(installation: Result<T, PrepareError>) -> Option<PrepareError> {
+    match installation {
+        Err(PrepareError::Vendor(
+            error @ VendorError::LeavePool {
+                reason: LeavePoolReason::TransferStalled,
+                ..
+            },
+        )) => Some(PrepareError::Vendor(error)),
+        _ => None,
+    }
+}
 impl AppleSimulatorDevice {
     pub(super) async fn prepare_device(&self, context: VendorContext) -> VendorResult<()> {
         let started = self.timing.elapsed()?;
@@ -213,8 +226,8 @@ impl AppleSimulatorDevice {
             result = &mut simulator => match result {
                 Ok(time) => (installation.await?, time),
                 // D87: the installation runs on; a transfer in progress ends as it would.
-                Err(PrepareError::OutOfTime(reason)) => { let _ = installation.await; return Err(PrepareError::Boot(reason)); },
-                Err(error) => { installation_signal.cancel(cancelled("Preparation sibling failed")); let _ = installation.await; return Err(error); },
+                Err(PrepareError::OutOfTime(reason)) => return Err(terminal_transfer(installation.await).unwrap_or(PrepareError::Boot(reason))),
+                Err(error) => { installation_signal.cancel(cancelled("Preparation sibling failed")); return Err(terminal_transfer(installation.await).unwrap_or(error)); },
             },
             reason = context.cancellation.cancelled() => {
                 installation_signal.cancel(reason.clone()); simulator_signal.cancel(reason.clone());
