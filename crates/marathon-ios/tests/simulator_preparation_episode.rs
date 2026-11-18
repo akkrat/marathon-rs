@@ -218,8 +218,9 @@ impl Drop for Dropped {
 }
 
 /// D87 (review round 2, item 1): the deadline never cuts a command of a replacement's held attempt; it only keeps one
-/// from starting that, run to its worst case, could end after the held bound, the deadline less `shutdown` + `shell`
-/// (60 s). A state read is two commands, each at worst 3 × 30 s and `shell` (30 s): 240 s. With 1,500 s left and a
+/// from starting that, run to its worst case, could end after the held bound, the deadline less what the shutdown can
+/// take at worst (240 s). A state read is two commands, each at worst 3 × 30 s and `shell` (30 s): 240 s. With 1,680 s
+/// left and a
 /// 1,000 s `bootWait`, the whole first attempt fails at 1,000 s; the held attempt's probes each take 25 s, its reads start
 /// every 26 s from 1,000 s to 1,182 s, and the next, at 1,208 s, could end after 1,440 s, so it does not start and the
 /// shutdown follows. No command is dropped, where the held attempt used to cut the probe running at its bound.
@@ -227,7 +228,7 @@ impl Drop for Dropped {
 async fn a_held_boot_never_cuts_a_command_and_starts_none_that_could_outlast_its_bound_d87() -> TestResult {
     let h = harness(1_000, 30)?;
     h.worker.cancellable_before.store(true, Ordering::SeqCst);
-    let d = replacement(&h, None, 1_500 * SECOND).await?;
+    let d = replacement(&h, None, 1_680 * SECOND).await?;
     h.boot.finish_after.store(usize::MAX, Ordering::SeqCst);
     let start = h.clock.now();
     let dropped = Arc::new(AtomicUsize::new(0));
@@ -715,4 +716,82 @@ async fn a_worker_dropping_during_a_replacements_boot_does_not_renew_the_prepara
     );
     let _ = preparing.await;
     p.balanced().await
+}
+
+// ---- Review round 4 ------------------------------------------------------------------------------------------------
+
+/// D87 (review round 4, item 2): once a transfer retry has been refused, the preparation starts no further step. A
+/// replacement with 10 s left boots for 25 s; its test bundle's send fails at 20 s and the resend is refused. The boot
+/// ends on its own, and the media upload that would follow it does not start: one send in all, where the upload used to
+/// start, uncapped, before the known failure was reported.
+#[tokio::test(start_paused = true)]
+async fn a_refused_transfer_retry_starts_no_media_upload_after_the_boot_d87() -> TestResult {
+    let mut h = harness(60, 30)?;
+    let media = h.dir.path().join("photo.jpg");
+    std::fs::write(&media, b"jpeg")?;
+    Arc::make_mut(&mut h.services.vendor).media_files =
+        Some(vec![std::path::PathBuf::from(media.to_string_lossy().into_owned())]);
+    let bridge = Arc::new(SlowFailingSends {
+        after: Duration::from_secs(20),
+        sends: AtomicUsize::new(0),
+    });
+    let d = replacement(&h, Some(bridge.clone()), 10 * SECOND).await?;
+    on_commands(&h, |boot, cmd, _| {
+        (cmd.len() == 4 && cmd[2] == "boot" && cmd[3] == "a").then(|| {
+            let reply = boot.answer(cmd);
+            Box::pin(async move {
+                tokio::time::sleep(Duration::from_secs(25)).await;
+                Ok(reply)
+            }) as VendorFuture<'static, Option<CommandResult>>
+        })
+    });
+    let error = h.prepare(&d).await.unwrap_err();
+    assert!(matches!(error, VendorError::DeviceSetup(_)), "{error:?}");
+    assert_eq!(bridge.sends.load(Ordering::SeqCst), 1, "no media upload started");
+    h.finish(&[d]).await;
+    Ok(())
+}
+
+/// D87 (review round 4, item 3): a held attempt keeps, before the deadline, what the shutdown after it can take at worst:
+/// its descriptor read and `simctl shutdown`, each from asking for its SSH channel to D30's escalation, 2 × 120 s. With
+/// 1,500 s left and a 1,000 s `bootWait`, the held attempt starts at 1,000 s; its reads and probes take 120 s and the
+/// shutdown's command 100 s (cut at the shutdown's own 60 s limit, but ending only through its own). The held attempt
+/// reads, boots, then starts nothing more, and the shutdown ends at about 1,340 s, before the deadline. Keeping only
+/// `shutdown` + `shell` (60 s), the held attempt read once more and the shutdown ended at about 1,581 s, past it.
+#[tokio::test(start_paused = true)]
+async fn a_held_attempts_shutdown_ends_by_the_deadline_at_its_worst_d87() -> TestResult {
+    let h = harness(1_000, 30)?;
+    let d = replacement(&h, None, 1_500 * SECOND).await?;
+    h.boot.finish_after.store(usize::MAX, Ordering::SeqCst);
+    let start = h.clock.now();
+    on_commands(&h, |boot, cmd, _| {
+        let held = boot.shutdowns.load(Ordering::SeqCst) >= 1;
+        let slow = match cmd.first().map(String::as_str) {
+            Some("cat") if held => 120,
+            Some("xcrun") if held && cmd.get(4).is_some_and(|s| s == "launchctl") => 120,
+            Some("xcrun") if held && cmd.get(2).is_some_and(|s| s == "shutdown") => 100,
+            _ => 0,
+        };
+        (slow > 0).then(|| {
+            let reply = boot.answer(cmd);
+            Box::pin(async move {
+                tokio::time::sleep(Duration::from_secs(slow)).await;
+                Ok(reply)
+            }) as VendorFuture<'static, Option<CommandResult>>
+        })
+    });
+    let error = h.prepare(&d).await.unwrap_err();
+    assert!(not_booted(&error), "{error:?}");
+    let ended = h.clock.now() - start;
+    assert!(
+        ended <= 1_500 * SECOND,
+        "the shutdown ended {ended} ms in, past the deadline"
+    );
+    assert_eq!(
+        h.boot.shutdowns.load(Ordering::SeqCst),
+        2,
+        "the held attempt ran and was shut down"
+    );
+    h.finish(&[d]).await;
+    Ok(())
 }
