@@ -380,6 +380,7 @@ impl AppleDeviceTestRunner {
                 Some(CommandTermination::Status(status)) => format!("xcodebuild exited with status {status}"),
                 Some(CommandTermination::Signal(signal)) => format!("xcodebuild was terminated by signal {signal}"),
                 Some(CommandTermination::NoStatus) => "xcodebuild ended without an exit status".into(),
+                Some(CommandTermination::NotStarted) => "xcodebuild did not start".into(),
                 Some(CommandTermination::BatchTimeout) => "marathon ended the session: batch timeout".into(),
                 None => match error {
                     Some(error) => format!("marathon ended the session: {}", error.failure().for_log()),

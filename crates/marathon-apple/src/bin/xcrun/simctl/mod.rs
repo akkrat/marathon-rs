@@ -50,13 +50,14 @@ impl SimctlService {
         command.extend(args);
         command
     }
-    pub(crate) async fn open(
+    pub(crate) async fn open_recording(
         &self,
         timeout: Duration,
         args: Vec<String>,
         context: &VendorContext,
     ) -> VendorResult<CommandSession> {
-        let request = self.tools.request(Self::command(args), timeout);
+        let mut request = self.tools.request(Self::command(args), timeout);
+        request.detached_worker = true;
         self.tools.executor.execute(request, context.clone()).await
     }
     pub(crate) async fn critical_exec(

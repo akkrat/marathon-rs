@@ -272,7 +272,7 @@ def _d96_sender(argv):
     return root, lease, argv[5]
 
 
-def d96_worker_sessions(sessions, signals):
+def d96_worker_sessions(sessions, signals, fallback_connections=None):
     """Validate the envelope and receipts before comparing the original payloads."""
     boots, roots, commands, requests = set(), {}, {}, []
     for key, session in list(sessions.items()):
@@ -282,6 +282,8 @@ def d96_worker_sessions(sessions, signals):
             boots.add(key[0])
             if session['exit'] != 0:
                 _d96_fallback_bootstrap(session)
+                if fallback_connections is not None:
+                    fallback_connections.add(key[0])
             else:
                 root = re.fullmatch(rb'MARATHON_D96_1 (' + D96_ROOT.encode() + rb')\n', session['stdout'])
                 e.require(root and _d96_recorder_reply(session, 0, stdout=session['stdout']),
@@ -301,7 +303,8 @@ def d96_worker_sessions(sessions, signals):
             token = argv[5]
             e.require(re.fullmatch(D96_TOKEN, token) and token not in commands,
                       'D96 invalid or reused supervised exec token')
-            sender = argv[2] == 'rsync'
+            mode = argv[2]
+            sender = mode == 'rsync'
             if sender:
                 _d96_sender(argv)
                 remote = argv[7:]
@@ -309,7 +312,7 @@ def d96_worker_sessions(sessions, signals):
                           'D96 invalid wrapped sender framing')
                 session['wire'] = shlex.join(['/usr/bin/rsync', *remote])
             else:
-                e.require(wire.startswith('exec ') and argv[2] == 'run', 'D96 invalid supervised command')
+                e.require(wire.startswith('exec ') and mode in ('run', 'detach'), 'D96 invalid supervised command')
                 if argv[6:8] == ['/bin/sh', '-c']:
                     e.require(len(argv) == 9 and argv[8], 'D96 invalid supervised shell command')
                     session['wire'] = argv[8]
@@ -318,13 +321,16 @@ def d96_worker_sessions(sessions, signals):
                               all(re.fullmatch(r'[a-zA-Z0-9/._-]+', part) for part in argv[6:]),
                               'D96 invalid supervised literal command')
                     session['wire'] = ' '.join(argv[6:])
-            commands[token] = (key, session, root, lease, sender)
-    proofs = set()
+            if mode == 'detach':
+                e.require(D96_VIDEO.fullmatch(session['wire']) and _d96_recorder_reply(session, 0),
+                          'D96 invalid detached recorder acknowledgement')
+            commands[token] = (key, session, root, lease, mode)
+    proofs = {}
     for key, session, root, lease, request in requests:
         matched = re.fullmatch(fr'({D96_TOKEN}):(status|renew-[0-9]{{1,16}}|[123])', request)
         e.require(matched and matched[1] in commands, 'D96 invalid or unowned control request')
         token, operation = matched.groups()
-        launch_key, launch, command_root, command_lease, _ = commands[token]
+        launch_key, launch, command_root, command_lease, mode = commands[token]
         e.require((root, lease) == (command_root, command_lease), 'D96 control addresses another lease')
         e.require(root in roots and session['seq'] > roots[root][1], 'D96 control precedes installation')
         e.require(_d96_recorder_reply(session, 0, stdout=session['stdout']), 'D96 invalid control channel end')
@@ -335,18 +341,21 @@ def d96_worker_sessions(sessions, signals):
         if value.startswith(b'done:'):
             status = int(value[5:])
             e.require(value[5:] == str(status).encode() and status <= 255 and
-                      status == launch['exit'] and session['seq'] > launch['seq'],
+                      (mode == 'detach' or status == launch['exit']) and
+                      (token not in proofs or proofs[token] == status) and session['seq'] > launch['seq'],
                       'D96 worker receipt differs from the payload exit')
-            proofs.add(token)
+            proofs[token] = status
         elif operation in ('1', '2', '3') and value.startswith(b'running:'):
             signals[launch_key].append({'1': 'INT', '2': 'TERM', '3': 'KILL'}[operation])
         del sessions[key]
-    for token, (key, session, root, _, sender) in commands.items():
+    for token, (key, session, root, _, mode) in commands.items():
         e.require(root in roots and roots[root][1] < session['seq'], 'D96 worker token has no installed supervisor')
-        e.require(sender != (key[0] == roots[root][0]), 'D96 wrong supervisor transport for payload')
-        e.require(token in proofs or (not sender and session['end'] == 'completed' and session['exit'] is not None),
+        e.require((mode == 'rsync') != (key[0] == roots[root][0]), 'D96 wrong supervisor transport for payload')
+        e.require(token in proofs or (mode == 'run' and session['end'] == 'completed' and session['exit'] is not None),
                   'D96 missing worker exit proof')
-    return {(root, lease, token) for token, (_, _, root, lease, sender) in commands.items() if sender}
+        if mode == 'detach':
+            session['exit'] = proofs[token]
+    return {(root, lease, token) for token, (_, _, root, lease, mode) in commands.items() if mode == 'rsync'}
 
 
 def ssh(data, name=None, before_d32=False, *, d96_recorder_transport=False, d96_worker_transport=False, sender_tokens=None):
@@ -383,8 +392,9 @@ def ssh(data, name=None, before_d32=False, *, d96_recorder_transport=False, d96_
     e.require(sessions,'no SSH sessions')
     ended = {row['connection'] for row in rows if row['event'] == 'connection_end'}
     e.require({key[0] for key in sessions} <= ended,'unfinished SSH connection')
+    fallback_connections = set()
     if d96_worker_transport:
-        senders = d96_worker_sessions(sessions, signals)
+        senders = d96_worker_sessions(sessions, signals, fallback_connections)
         if sender_tokens is not None:
             sender_tokens.update(senders)
     control = {key[0] for key,s in sessions.items() if not s['wire'].startswith('/usr/bin/rsync --server ') and s['wire'] != 'xcrun simctl list --json'}
@@ -395,7 +405,7 @@ def ssh(data, name=None, before_d32=False, *, d96_recorder_transport=False, d96_
     e.require(len(set(transfers)) == len(transfers) and not set(transfers)&(control|inventory),
               'SSH transfer connection role collision')
     if name == 'ios-media' and d96_recorder_transport:
-        removed, lanes['recorder'] = d96_recorder(sessions, signals, before_d32)
+        removed, lanes['recorder'] = d96_recorder(sessions, signals, before_d32 or control <= fallback_connections)
         sessions = {key: value for key, value in sessions.items() if key not in removed}
     preparing = False
     for session in sessions.values():

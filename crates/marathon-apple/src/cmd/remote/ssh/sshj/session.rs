@@ -37,7 +37,8 @@ pub(crate) fn session_control(
                 }
                 closing.store(true, Ordering::SeqCst);
                 let result = async {
-                    if command.is_open() && !command.is_closing() {
+                    let detached = command.worker_lease().is_some_and(|lease| lease.is_detached());
+                    if (detached || command.is_open()) && !command.is_closing() {
                         command.signal(Sig::TERM)?;
                     }
                     // TERM, KILL, CLOSE and at most 30 s in all (D30).

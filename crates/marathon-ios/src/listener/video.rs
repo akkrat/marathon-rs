@@ -73,24 +73,57 @@ impl ScreenRecordingListener {
             attachments: self.attachments.clone(),
         }
     }
-    fn stop_current(&self) -> Option<Arc<Recording>> {
+    fn stop_current(&self, healthy: bool) -> Option<Arc<Recording>> {
         let mut slots = self.recordings.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(recording) = slots.active.take() {
-            recording.request_stop(self.c.context.clock.as_ref(), None);
-            slots.stopping = Some(recording);
+        let recording = slots.active.take()?;
+        let context = &self.c.context;
+        if healthy && context.cancellation.reason().is_none() {
+            let shell = self
+                .c
+                .device
+                .services()
+                .vendor
+                .timeout_configuration
+                .shell
+                .to_millis()
+                .unwrap_or(i64::MAX);
+            recording.request_healthy_stop(context.clock.as_ref(), shell, self.c.device.shutdown_deadline());
+        } else {
+            recording.request_stop(context.clock.as_ref(), self.c.device.shutdown_deadline());
         }
-        slots.stopping.clone()
+        slots.stopping = Some(recording.clone());
+        Some(recording)
     }
     /// Joins the protected stop even when the batch context has been cancelled.
     pub async fn stop(&self) -> VendorResult<RecordingFinalization> {
-        match self.stop_current() {
+        self.stop_with_budget(true).await
+    }
+    async fn stop_with_budget(&self, healthy: bool) -> VendorResult<RecordingFinalization> {
+        match self.stop_current(healthy) {
             Some(recording) => recording.finalization().await,
-            None => Ok(RecordingFinalization::NotStarted),
+            None => {
+                let prior = self
+                    .recordings
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .stopping
+                    .clone();
+                if let Some(prior) = prior {
+                    if !healthy {
+                        prior.request_stop(self.c.context.clock.as_ref(), None);
+                    }
+                    let _ = prior.finalization().await;
+                }
+                if self.c.device.uses_legacy_recording().await.unwrap_or(false) {
+                    let _ = self.c.device.stop_legacy_recording_if_present(&self.c.context).await?;
+                }
+                Ok(RecordingFinalization::NotStarted)
+            }
         }
     }
     async fn ended(&self, test: &Test, failed: bool) -> VendorResult<()> {
         // D80: stop, transcode and transfer stay off the test event path.
-        let stop = self.stop_current();
+        let stop = self.stop_current(true);
         self.recordings.lock().unwrap_or_else(|e| e.into_inner()).last_path = None;
         let runtime = self.c.device.services().runtime.clone();
         let media = self.media();
@@ -301,7 +334,13 @@ impl AppleTestRunListener for ScreenRecordingListener {
     }
     fn test_started<'a>(&'a self, test: &'a Test) -> VendorFuture<'a, ()> {
         Box::pin(async move {
-            let previous = self.stop_current();
+            let previous = self.stop_current(true).or_else(|| {
+                self.recordings
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .stopping
+                    .clone()
+            });
             let src = self
                 .c
                 .device
@@ -327,10 +366,21 @@ impl AppleTestRunListener for ScreenRecordingListener {
                 Ok(true)
             });
             let mut slots = self.recordings.lock().unwrap_or_else(|e| e.into_inner());
-            let recording = self
+            let recording = match self
                 .c
                 .device
-                .begin_recording(src.clone(), self.c.context.clone(), ready)?;
+                .begin_recording(src.clone(), self.c.context.clone(), ready)
+            {
+                Ok(recording) => recording,
+                Err(error) => {
+                    self.c.log(
+                        &self.logger,
+                        Level::DEBUG,
+                        format!("Video recording was refused: {}", error.failure().for_log()),
+                    );
+                    return Ok(());
+                }
+            };
             slots.last_path = Some(src);
             slots.active = Some(recording);
             Ok(())
@@ -348,7 +398,7 @@ impl AppleTestRunListener for ScreenRecordingListener {
     fn test_run_failed<'a>(&'a self, _: &'a str, _: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             // The ended tests' videos go first, as when they were pulled inline; their failure waits for after_test_run.
-            let stopped = self.stop().await;
+            let stopped = self.stop_with_budget(false).await;
             self.pending.settle().await;
             let media = self.media();
             media.catch_transfer(

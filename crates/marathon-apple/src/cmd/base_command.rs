@@ -11,12 +11,13 @@ use marathon_error::FailureKind;
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
 
-/// Diagnostic detail only; the command result keeps its historical numeric status.
+/// Termination detail. The command result keeps its historical numeric status.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CommandTermination {
     Status(i32),
     Signal(String),
     NoStatus,
+    NotStarted,
     BatchTimeout,
 }
 #[derive(Clone)]

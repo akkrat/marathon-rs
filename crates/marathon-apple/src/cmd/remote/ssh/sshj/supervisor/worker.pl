@@ -56,7 +56,7 @@ sub control {
             $signal = $op if $op > $signal;
         } elsif ($op eq 'status') {
             return (undef, $started ? "running:$expiry" : 'unknown');
-        } elsif ($op =~ /\Arenew-([0-9]+)\z/ && $started && $expiry == $1 && $expiry > $now && !$signal) {
+        } elsif ($op =~ /\Arenew-([0-9]+)\z/ && $started && $expiry == $1 && $expiry > $now && $signal < 2) {
             # Retries must carry the same stamp. At most one queued renewal can
             # extend an expiry the controller actually observed.
             my $proposed = $now + $lease;
@@ -67,7 +67,7 @@ sub control {
 }
 
 sub run_owned {
-    my ($dir, $lease, @argv) = @_;
+    my ($dir, $lease, $announce, @argv) = @_;
     my $start;
     my $admission_deadline = clock_ms() + $lease;
     while (!defined $start && clock_ms() < $admission_deadline) {
@@ -92,6 +92,7 @@ sub run_owned {
     my $anchor = fork();
     defined($anchor) or die "fork anchor: $!";
     if ($anchor == 0) {
+        close $announce if $announce;
         close $_ for ($ready, $go_w, $status);
         my $group_permit;
         sysread($go, $group_permit, 1) == 1 && $group_permit eq 'P' or exit(125);
@@ -140,6 +141,10 @@ sub run_owned {
                 }
                 syswrite($go_w, 'G', 1) == 1 or last;
                 close $go_w;
+                if ($announce) {
+                    syswrite($announce, 'G', 1);
+                    close $announce;
+                }
             }
             if (!$starting && $wanted > $seen) {
                 kill($wanted == 1 ? 'INT' : 'TERM', -$anchor);
@@ -212,11 +217,30 @@ if ($mode eq 'rsync') {
     $token =~ /\A[a-f0-9]{32}\z/ && $program =~ /\A[A-Za-z0-9+\/=]+\z/
         && @ARGV >= 2 && $ARGV[0] eq '--server' && $ARGV[1] eq '--sender' or die "invalid rsync sender";
     require MIME::Base64;
-    exit_owned("$root/$token", $lease, '/bin/sh', '-c', MIME::Base64::decode_base64($program) . ' "$@"', 'rsync', @ARGV);
+    exit_owned("$root/$token", $lease, undef, '/bin/sh', '-c', MIME::Base64::decode_base64($program) . ' "$@"', 'rsync', @ARGV);
+}
+if ($mode eq 'detach') {
+    my $token = shift @ARGV;
+    $token =~ /\A[a-f0-9]{32}\z/ && @ARGV or die "invalid detached command";
+    pipe(my $reply, my $announce) or die "detach pipe: $!";
+    my $supervisor = fork();
+    defined($supervisor) or die "fork supervisor: $!";
+    if ($supervisor) {
+        close $announce;
+        my $started;
+        exit(sysread($reply, $started, 1) == 1 && $started eq 'G' ? 0 : 125);
+    }
+    close $reply;
+    require POSIX;
+    POSIX::setsid() > 0 or die "setsid: $!";
+    open STDIN, '<', '/dev/null' or die "detach stdin: $!";
+    open STDOUT, '>', '/dev/null' or die "detach stdout: $!";
+    open STDERR, '>&', STDOUT or die "detach stderr: $!";
+    exit_owned("$root/$token", $lease, $announce, @ARGV);
 }
 if ($mode eq 'run') {
     my $token = shift @ARGV;
     $token =~ /\A[a-f0-9]{32}\z/ && @ARGV or die "invalid run";
-    exit_owned("$root/$token", $lease, @ARGV);
+    exit_owned("$root/$token", $lease, undef, @ARGV);
 }
 die "invalid mode";

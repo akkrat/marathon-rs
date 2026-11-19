@@ -39,6 +39,110 @@ impl AppleSimulatorDevice {
         self.executor.worker_supervised().await
     }
 
+    pub(crate) async fn uses_legacy_recording(&self) -> VendorResult<bool> {
+        Ok(self.executor.has_worker_supervisor() && !self.executor.worker_supervised().await?)
+    }
+
+    pub(crate) async fn stop_legacy_recording_if_present(&self, context: &VendorContext) -> VendorResult<bool> {
+        let path = self.remote.remote_video_pidfile();
+        let pid = self.read_textfile(&path, context).await?;
+        let Some(pid) = pid.as_deref().map(str::trim).filter(|pid| !pid.is_empty()) else {
+            return Ok(false);
+        };
+        if !self.stop_legacy_recording(context).await? {
+            return Ok(false);
+        }
+        self.log(Level::DEBUG, format!("stopped video recording pid={pid}"), None);
+        Ok(true)
+    }
+
+    pub(super) fn start_legacy_recording<'a>(
+        &'a self,
+        path: &'a str,
+        context: &'a VendorContext,
+    ) -> VendorFuture<'a, Option<CommandResult>> {
+        Box::pin(async move {
+            let cfg = &self.services.vendor.screen_record_configuration.video_configuration;
+            self.bin
+                .xcrun
+                .simctl
+                .io
+                .record_video_nohup(
+                    &self.udid,
+                    path,
+                    cfg.codec,
+                    cfg.display,
+                    cfg.mask,
+                    &self.remote.remote_video_pidfile(),
+                    context,
+                )
+                .await
+        })
+    }
+    fn stop_legacy_recording<'a>(&'a self, context: &'a VendorContext) -> VendorFuture<'a, bool> {
+        Box::pin(async move {
+            let path = self.remote.remote_video_pidfile();
+            let result = self
+                .execute_worker_command(
+                    vec![
+                        "sh".into(),
+                        "-c".into(),
+                        format!("kill -s INT $(cat {path}) && lsof -p $(cat {path}) +r 1 &>/dev/null"),
+                    ],
+                    context,
+                )
+                .await?;
+            // D17: `lsof +r 1` exits 1 when the recorder is already gone at its first pass (it exits
+            // 6-31 ms after the INT, before lsof starts), so Kotlin reports failure, keeps the pidfile and the next
+            // recording is lost (A96). A failed stop counts as done only when `ps -p` finds no such pid; probing the
+            // pid rather than trusting the INT keeps a live recorder, a probe error and a reused pid on the
+            // warn-and-keep path.
+            let stopped = result.as_ref().is_some_and(CommandResult::successful) || {
+                let probe = self
+                    .execute_worker_command(
+                        vec!["sh".into(), "-c".into(), format!("ps -p $(cat {path}) -o pid=")],
+                        context,
+                    )
+                    .await;
+                match probe {
+                    // `ps` on an invalid pid also exits 1 with empty stdout, but it says so on stderr.
+                    Ok(probe) => probe.is_some_and(|r| {
+                        r.exit_code == Some(1)
+                            && r.combined_stdout().trim().is_empty()
+                            && r.combined_stderr().is_empty()
+                    }),
+                    Err(e @ VendorError::Cancelled(_)) => return Err(e),
+                    // A probe that could not run keeps the warn-and-keep path instead of aborting the listener.
+                    Err(_) => false,
+                }
+            };
+            if !stopped {
+                self.log(
+                    Level::WARN,
+                    format!(
+                        "error while killing recording process, stdout={} stderr={}, exitCode={}",
+                        result
+                            .as_ref()
+                            .map(|r| r.combined_stdout())
+                            .unwrap_or_else(|| "null".into()),
+                        result
+                            .as_ref()
+                            .map(|r| r.combined_stderr())
+                            .unwrap_or_else(|| "null".into()),
+                        result
+                            .as_ref()
+                            .and_then(|r| r.exit_code)
+                            .map(|v| v.to_string())
+                            .unwrap_or_else(|| "null".into())
+                    ),
+                    None,
+                );
+                return Ok(false);
+            }
+            self.remote.remove_remote_path(&path, context).await?;
+            Ok(true)
+        })
+    }
     pub async fn critical_listener_command(
         &self,
         command: Vec<String>,

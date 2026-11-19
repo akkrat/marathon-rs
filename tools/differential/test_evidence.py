@@ -999,6 +999,42 @@ class VendorEvidenceTests(unittest.TestCase):
                     actual[key] = invalid.copy()
                 t.d96_worker_sessions(actual, defaultdict(list))
 
+    def test_d96_detached_recording_requires_its_own_terminal_receipt_and_int(self):
+        import shlex
+        from collections import defaultdict
+        import vendor_transport as t
+        source = ROOT / 'crates/marathon-apple/src/cmd/remote/ssh/sshj/supervisor'
+        root = '/tmp/marathon-supervisor-abcdefghij'
+        token = 'a' * 32
+        def row(seq, argv, stdout=b''):
+            return dict(seq=seq, wire=shlex.join(argv), stdout=stdout, stderr=b'', stdin=b'', exit=0, end='completed')
+        def envelope(operation):
+            return ['/usr/bin/perl', root + '/supervisor.pl', operation, root, '79000']
+        device = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE'
+        video = f'xcrun simctl io {device} recordVideo --codec h264 --display internal --mask black --force /tmp/marathon/{device}/video.mp4'
+        install, capture, interrupt, terminal = (1, 1), (1, 2), (2, 1), (2, 2)
+        originals = {
+            install: row(0, ['/usr/bin/perl', '-MMIME::Base64', '-e', 'eval decode_base64 shift; die $@ if $@', '--',
+                            *(base64.b64encode((source / name).read_bytes()).decode()
+                              for name in ('bootstrap.pl', 'worker.pl'))], f'MARATHON_D96_1 {root}\n'.encode()),
+            capture: row(1, ['exec', *envelope('detach'), token, '/bin/sh', '-c', video]),
+            interrupt: row(2, [*envelope('control'), token + ':1'], f'{token} running:120000\n'.encode()),
+            terminal: row(3, [*envelope('control'), token + ':status'], f'{token} done:0\n'.encode()),
+        }
+        def compare(changes):
+            rows = {key: value.copy() for key, value in (originals | changes).items() if value is not None}
+            signals = defaultdict(list)
+            t.d96_worker_sessions(rows, signals)
+            return t.d96_recorder(rows, signals, False)
+        self.assertEqual(compare({}), ({capture}, [dict(wire=video, exit=0, end='completed')]))
+        for changes in ({terminal: None}, {interrupt: None},
+                        {terminal: dict(originals[terminal], stdout=f"{'b' * 32} done:0\n".encode())},
+                        {terminal: dict(originals[terminal], stdout=f'{token} done:143\n'.encode())},
+                        {capture: dict(originals[capture], exit=125)},
+                        {capture: row(1, ['exec', *envelope('detach'), token, '/bin/sh', '-c', 'echo fixture'])}):
+            with self.subTest(changes=changes), self.assertRaises(e.Invalid):
+                compare(changes)
+
     def test_d96_host_sender_tokens_match_the_worker(self):
         import vendor_transport as t
         root = '/tmp/marathon-supervisor-0123456789'

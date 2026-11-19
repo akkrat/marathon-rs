@@ -217,6 +217,89 @@ fn cancellation_before_launch_prevents_worker_payload_d96() -> Result<(), Box<dy
     Ok(())
 }
 
+#[tokio::test]
+async fn stock_perl_detaches_the_recorder_and_returns_its_own_exit_proof_d96() -> Result<(), Box<dyn std::error::Error>>
+{
+    use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
+    use std::{
+        os::unix::fs::PermissionsExt,
+        time::{Duration, Instant},
+    };
+    if !Path::new("/usr/bin/perl").is_file() {
+        eprintln!("worker witness requires stock Perl");
+        return Ok(());
+    }
+    let root = tempfile::Builder::new()
+        .prefix("marathon-supervisor-")
+        .rand_bytes(10)
+        .tempdir_in("/tmp")?;
+    std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700))?;
+    let supervisor = root.path().join("supervisor.pl");
+    std::fs::write(
+        &supervisor,
+        include_bytes!("../src/cmd/remote/ssh/sshj/supervisor/worker.pl"),
+    )?;
+    let marker = root.path().join("payload.pid");
+    let token = "0123456789abcdef0123456789abcdef";
+    let command = |mode: &str| {
+        let mut command = tokio::process::Command::new("/usr/bin/perl");
+        command.arg(&supervisor).arg(mode).arg(root.path()).arg("6000");
+        command.kill_on_drop(true);
+        command
+    };
+    let start = Instant::now();
+    let launcher = tokio::time::timeout(
+        Duration::from_secs(3),
+        command("detach")
+            .args([
+                token,
+                "/usr/bin/perl",
+                "-e",
+                r#"$SIG{INT} = sub { exit 0 }; open my $pid, '>', shift or die $!; print $pid "$$\n"; close $pid; sleep 60"#,
+            ])
+            .arg(&marker)
+            .output(),
+    )
+    .await??;
+    assert!(
+        launcher.status.success(),
+        "{}",
+        String::from_utf8_lossy(&launcher.stderr)
+    );
+    let detached = start.elapsed();
+    let pid = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if let Ok(text) = tokio::fs::read_to_string(&marker).await
+                && let Ok(pid) = text.trim().parse::<i32>()
+            {
+                break Pid::from_raw(pid);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    assert_eq!(kill(pid, None), Ok(()));
+    let status = command("control").arg(format!("{token}:1")).output().await?;
+    assert!(status.status.success());
+    assert!(status.stdout.starts_with(format!("{token} running:").as_bytes()));
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let receipt = command("control").arg(format!("{token}:status")).output().await?;
+            if receipt.stdout == format!("{token} done:0\n").as_bytes() {
+                return Ok::<_, std::io::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    println!(
+        "worker detached in {detached:?} and gave INT proof by {:?}",
+        start.elapsed()
+    );
+    assert_eq!(kill(pid, None), Err(Errno::ESRCH));
+    Ok(())
+}
+
 #[test]
 fn the_worker_sender_uses_the_original_server_arguments_d96() -> Result<(), Box<dyn std::error::Error>> {
     if !Path::new("/usr/bin/perl").is_file() {
@@ -269,6 +352,8 @@ fn the_worker_sender_uses_the_original_server_arguments_d96() -> Result<(), Box<
 struct SupervisorWorker {
     sibling_token: std::sync::Mutex<Option<String>>,
     resistant_token: std::sync::Mutex<Option<String>>,
+    recordings: std::sync::Mutex<std::collections::HashMap<String, bool>>,
+    batches: std::sync::Mutex<std::collections::HashSet<String>>,
 }
 
 impl fake_worker::router::Handler for SupervisorWorker {
@@ -293,6 +378,21 @@ impl fake_worker::router::Handler for SupervisorWorker {
                     if *directory == root && *program == format!("{root}/supervisor.pl") =>
                 {
                     let (token, operation) = control.split_once(':').unwrap();
+                    if let Some(recording) = self.recordings.lock().unwrap().get_mut(token) {
+                        let proof = if *recording {
+                            "done:0"
+                        } else if operation == "1" {
+                            *recording = true;
+                            "running:100000"
+                        } else {
+                            "running:100000"
+                        };
+                        return Ok(Some(Action::output(&format!("{token} {proof}\n"), 0)));
+                    }
+                    if self.batches.lock().unwrap().contains(token) {
+                        let proof = if operation == "3" { "done:137" } else { "running:100000" };
+                        return Ok(Some(Action::output(&format!("{token} {proof}\n"), 0)));
+                    }
                     let proof = if self.sibling_token.lock().unwrap().as_deref() == Some(token) {
                         "done:0"
                     } else if self.resistant_token.lock().unwrap().as_deref() == Some(token) {
@@ -338,10 +438,126 @@ impl fake_worker::router::Handler for SupervisorWorker {
                     }
                     Ok(Some(action))
                 }
+                [
+                    "exec",
+                    "/usr/bin/perl",
+                    program,
+                    mode @ ("detach" | "run"),
+                    directory,
+                    _,
+                    token,
+                    "/bin/sh",
+                    "-c",
+                    command,
+                ] if *directory == root
+                    && *program == format!("{root}/supervisor.pl")
+                    && command.starts_with("xcrun simctl io ")
+                    && command.contains(" recordVideo ") =>
+                {
+                    self.recordings.lock().unwrap().insert((*token).into(), false);
+                    Ok(Some(if *mode == "detach" {
+                        Action::output("", 0)
+                    } else {
+                        ssh::hang(vec![])
+                    }))
+                }
+                [
+                    "exec",
+                    "/usr/bin/perl",
+                    program,
+                    "run",
+                    directory,
+                    _,
+                    token,
+                    "/bin/sh",
+                    "-c",
+                    "echo batch",
+                ] if *directory == root && *program == format!("{root}/supervisor.pl") => {
+                    self.batches.lock().unwrap().insert((*token).into());
+                    Ok(Some(ssh::hang(vec![ssh::chunk("ready\n")])))
+                }
                 _ => Ok(None),
             }
         })
     }
+}
+
+#[tokio::test]
+async fn five_recording_simulators_share_a_ten_session_worker_d96() {
+    use marathon_apple::bin::{
+        Tools,
+        xcrun::simctl::{SimctlService, service::IoService},
+    };
+    use marathon_config::vendor::{AppleTimeoutParameters, Codec, Display, Mask, apple_timeout_configuration};
+    support::bounded(10, async {
+        let world = Arc::new(SupervisorWorker::default());
+        let fake = ssh::fake_with_handlers(ssh::script(vec![]), 10, |_| {}, vec![world.clone()]).await;
+        let (logging, _) = ssh::logging(false);
+        let executor = Arc::new(
+            ssh::factory(&logging)
+                .connect_worker("127.0.0.1", fake.port(), ssh::password(), None, false, Arc::default())
+                .await
+                .unwrap(),
+        );
+        let io = IoService::new(SimctlService::new(Tools {
+            executor: executor.clone(),
+            timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
+            runtime: Arc::new(support::Runtime),
+            logging,
+        }));
+        let mut batches = Vec::new();
+        let mut recordings = Vec::new();
+        let start = std::time::Instant::now();
+        for index in 0..5 {
+            let batch = executor
+                .execute(CommandRequest::new(["echo", "batch"], duration(60_000)), context())
+                .await
+                .unwrap();
+            assert_eq!(batch.base.stdout.receive().await.unwrap().as_deref(), Some("ready"));
+            batches.push(batch);
+            recordings.push(
+                io.record_video(
+                    &format!("fixture-{index}"),
+                    "/tmp/marathon/video.mp4",
+                    Codec::H264,
+                    Display::Internal,
+                    Mask::Black,
+                    &context(),
+                )
+                .await
+                .unwrap(),
+            );
+        }
+        fake.events_at_least("exec", 11).await;
+        assert_eq!(world.recordings.lock().unwrap().len(), 5);
+        let launch = start.elapsed();
+        for _ in 0..5 {
+            let healthcheck = executor
+                .critical_execute(CommandRequest::new(["echo", "sibling"], duration(1000)), context())
+                .await
+                .unwrap();
+            assert_eq!(healthcheck.stdout, ["sibling"]);
+        }
+        assert!(fake.events("session_rejected").await.is_empty());
+        for recording in &recordings {
+            recording.interrupt().unwrap();
+        }
+        for recording in recordings {
+            assert_eq!(recording.await_result(&context()).await.unwrap().exit_code, Some(0));
+            recording.close().await.unwrap();
+        }
+        println!(
+            "five batch and recorder pairs opened in {launch:?}; healthchecks and finalization by {:?}",
+            start.elapsed()
+        );
+        for batch in batches {
+            batch.kill().unwrap();
+            batch.close().await.unwrap();
+        }
+        executor.close().await.unwrap();
+        fake.worker.shutdown().await.unwrap();
+    })
+    .await;
 }
 
 #[tokio::test]

@@ -98,6 +98,7 @@ impl CommandException {
 
 #[derive(Clone, Debug)]
 pub struct CommandRequest {
+    pub(crate) detached_worker: bool,
     pub command: Vec<String>,
     pub timeout: Duration,
     pub idle_timeout: Duration,
@@ -108,6 +109,7 @@ pub struct CommandRequest {
 impl CommandRequest {
     pub fn new(command: impl IntoIterator<Item = impl Into<String>>, timeout: Duration) -> Self {
         Self {
+            detached_worker: false,
             command: command.into_iter().map(Into::into).collect(),
             timeout,
             idle_timeout: Durations::INFINITE,
@@ -123,6 +125,10 @@ pub trait CommandExecutor: Send + Sync {
     fn host(&self) -> &CommandHost;
     fn component(&self) -> &Component;
     fn connected(&self) -> bool;
+    #[doc(hidden)]
+    fn has_worker_supervisor(&self) -> bool {
+        false
+    }
     fn worker_supervised(&self) -> VendorFuture<'_, bool> {
         Box::pin(async { Ok(false) })
     }
@@ -208,7 +214,6 @@ pub trait CommandExecutor: Send + Sync {
             }
         })
     }
-    #[cfg(feature = "test-support")]
     fn safe_execute_nohup(
         &self,
         pidfile: &str,

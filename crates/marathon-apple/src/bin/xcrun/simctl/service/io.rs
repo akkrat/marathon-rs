@@ -68,7 +68,36 @@ impl IoService {
         mask: Mask,
         context: &VendorContext,
     ) -> VendorResult<CommandSession> {
-        let args = argv([
+        let args = Self::record_video_args(udid, remote_path, codec, display, mask);
+        // The recording's owner drives stop. An executor timeout would send TERM before INT.
+        self.service.open_recording(Durations::INFINITE, args, context).await
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub async fn record_video_nohup(
+        &self,
+        udid: &str,
+        remote_path: &str,
+        codec: Codec,
+        display: Display,
+        mask: Mask,
+        pidfile: &str,
+        context: &VendorContext,
+    ) -> VendorResult<Option<CommandResult>> {
+        let args = Self::record_video_args(udid, remote_path, codec, display, mask);
+        let timeout = self.service.timeouts().video;
+        let tools = &self.service.tools;
+        tools
+            .executor
+            .safe_execute_nohup(
+                pidfile,
+                tools.request(super::super::SimctlService::command(args), timeout),
+                context.clone(),
+            )
+            .await
+    }
+
+    fn record_video_args(udid: &str, remote_path: &str, codec: Codec, display: Display, mask: Mask) -> Vec<String> {
+        argv([
             "io",
             udid,
             "recordVideo",
@@ -80,8 +109,6 @@ impl IoService {
             mask.value(),
             "--force",
             remote_path,
-        ]);
-        // The recording's owner drives stop. An executor timeout would send TERM before INT.
-        self.service.open(Durations::INFINITE, args, context).await
+        ])
     }
 }

@@ -96,6 +96,7 @@ impl Supervisor {
         &self,
         connection: &Arc<SshConnection>,
         command: &str,
+        detached: bool,
     ) -> VendorResult<Option<Arc<Lease>>> {
         // An absolute command made solely of shell literals needs no extra
         // shell. All other commands retain the executor's shell semantics.
@@ -112,7 +113,7 @@ impl Supervisor {
         Ok(self
             .peer(connection)
             .await?
-            .map(|peer| Arc::new(Lease::new(peer, "run", argv))))
+            .map(|peer| Arc::new(Lease::new(peer, if detached { "detach" } else { "run" }, argv))))
     }
 
     pub(super) async fn prepare_rsync(
@@ -457,6 +458,7 @@ pub(super) struct Lease {
     token: String,
     wire: String,
     foreground: bool,
+    detached: bool,
     stop: Mutex<Stop>,
     changed: Notify,
     proof: watch::Sender<Option<Result<Proof, Failure>>>,
@@ -466,7 +468,8 @@ impl Lease {
     fn new(peer: Arc<Peer>, mode: &str, argv: String) -> Self {
         let token = format!("{:032x}", rand::random::<u128>());
         let foreground = mode == "run";
-        let prefix = if foreground { "exec " } else { "" };
+        let detached = mode == "detach";
+        let prefix = if foreground || detached { "exec " } else { "" };
         let wire = format!(
             "{prefix}/usr/bin/perl {}/supervisor.pl {mode} {} {} {token} {argv}",
             peer.root, peer.root, peer.timing.lease_ms
@@ -476,6 +479,7 @@ impl Lease {
             token,
             wire,
             foreground,
+            detached,
             stop: Mutex::default(),
             changed: Notify::new(),
             proof: watch::channel(None).0,
@@ -522,11 +526,20 @@ impl Lease {
         self.changed.notify_one();
     }
 
+    pub(super) fn is_detached(&self) -> bool {
+        self.detached
+    }
+
     pub(super) fn acknowledge(&self) {
-        self.stop.lock().unwrap_or_else(|error| error.into_inner()).acknowledged = true;
+        if !self.detached {
+            self.stop.lock().unwrap_or_else(|error| error.into_inner()).acknowledged = true;
+        }
     }
 
     pub(super) fn data_status(&self, status: i32) {
+        if self.detached && status == 0 {
+            self.stop.lock().unwrap_or_else(|error| error.into_inner()).acknowledged = true;
+        }
         if !self.foreground {
             return;
         }
@@ -542,11 +555,11 @@ impl Lease {
     }
 
     pub(super) fn channel_ended(&self) {
-        self.stop
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .channel_ended = true;
-        self.changed.notify_one();
+        let mut stop = self.stop.lock().unwrap_or_else(|error| error.into_inner());
+        if !self.detached || !stop.acknowledged {
+            stop.channel_ended = true;
+            self.changed.notify_one();
+        }
     }
 
     pub(super) async fn proof(&self) -> VendorResult<Proof> {
@@ -565,17 +578,21 @@ impl Lease {
     async fn watch(&self) -> VendorResult<Proof> {
         let mut stamp = None;
         let mut ending = None;
+        let mut next_renewal = tokio::time::Instant::now();
         let mut signalled = 0;
         let mut delay = self.peer.timing.interval;
         loop {
             tokio::select! {
                 _ = self.changed.notified() => {},
                 _ = self.peer.control_lost() => {},
+                _ = self.peer.data.shared.wait_dead(), if self.detached && self.peer.data.is_connected() => {},
                 _ = tokio::time::sleep(delay) => {},
             }
             let state = *self.stop.lock().unwrap_or_else(|error| error.into_inner());
             let now = tokio::time::Instant::now();
-            if (state.signal != 0 || state.channel_ended || state.finished) && ending.is_none() {
+            let disconnected = state.channel_ended || (self.detached && !self.peer.data.is_connected());
+            let finalizing = self.detached && state.signal == 1 && !disconnected;
+            if !finalizing && (state.signal != 0 || disconnected || state.finished) && ending.is_none() {
                 ending = Some(now);
             }
             let grace = if state.finished {
@@ -583,14 +600,14 @@ impl Lease {
             } else {
                 CLOSE_GRACE
             };
-            let wanted = if state.channel_ended || ending.is_some_and(|start| now - start >= grace) {
+            let wanted = if disconnected || ending.is_some_and(|start| now - start >= grace) {
                 3
             } else {
                 state.signal
             };
             let operation = if wanted > signalled {
                 wanted.to_string()
-            } else if wanted == 0
+            } else if (wanted == 0 || (finalizing && now >= next_renewal))
                 && !state.finished
                 && state.acknowledged
                 && let Some(stamp) = stamp
@@ -606,11 +623,14 @@ impl Lease {
                 }
                 Ok((Reply::Running(expiry), _)) => {
                     signalled = wanted;
+                    if operation.starts_with("renew-") {
+                        next_renewal = now + self.peer.timing.interval;
+                    }
                     let needs_renewal = stamp.is_none() && ending.is_none();
                     stamp = Some(expiry);
                     delay = if needs_renewal {
                         WallDuration::ZERO
-                    } else if ending.is_some() {
+                    } else if ending.is_some() || finalizing {
                         WallDuration::from_millis(100)
                     } else {
                         self.peer.timing.interval

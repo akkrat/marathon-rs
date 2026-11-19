@@ -6,7 +6,7 @@ use super::config::{PerformanceDefaultConfig, SshLogging};
 use super::error::{IO_EXCEPTION, SshFailure};
 use super::host::SshCommandHost;
 use super::session::session_control;
-use super::supervisor::{ControlDial, Supervisor, Warnings, WorkerRsync};
+use super::supervisor::{ControlDial, Proof, Supervisor, Warnings, WorkerRsync};
 use crate::cmd::{BaseCommand, CommandExecutor, CommandHost, CommandRequest, CommandSession, failure, millis};
 use crate::extensions::{
     poll_backoff::PollBackoff,
@@ -216,7 +216,7 @@ async fn execute(
     let command = exec_string(&request);
     let lease = match supervisor {
         Some(supervisor) => supervisor
-            .prepare(&connection, &command)
+            .prepare(&connection, &command, request.detached_worker)
             .await
             .map_err(|error| (error, true))?,
         None => None,
@@ -291,6 +291,22 @@ async fn execute(
         .with_interrupt(move || interrupt.signal(Sig::INT).map_err(SshFailure::into_vendor)))
 }
 
+async fn supervised_exit(channel: &ExecChannel) -> ExitWait {
+    let Some(lease) = channel.worker_lease().filter(|lease| lease.is_detached()) else {
+        return channel.data_exit().await.map_err(ExitWaitError::Failed);
+    };
+    // A detach acknowledgement releases the SSH session. Only the worker
+    // knows how the detached recording eventually ends.
+    match lease.proof().await {
+        Ok(Proof::Done(status)) => Ok(Some(status)),
+        Ok(Proof::NotStarted) => Ok(None),
+        Err(error) => Err(ExitWaitError::Failed(SshFailure::new(
+            IO_EXCEPTION,
+            error.failure().to_string(),
+        ))),
+    }
+}
+
 type ExitWait = Result<Option<i32>, ExitWaitError>;
 
 /// `async(job) { withTimeoutOrNull(timeout) { cmd.suspendFor() } … }`.
@@ -318,7 +334,7 @@ async fn exit_code(
                         let result = if command.worker_lease().is_some() {
                             tokio::select! {
                                 biased;
-                                result = command.data_exit() => result.map_err(ExitWaitError::Failed),
+                                result = supervised_exit(&command) => result,
                                 reason = child.cancelled() => Err(ExitWaitError::Cancelled(reason)),
                             }
                         } else {
@@ -342,8 +358,12 @@ async fn exit_code(
                 // following close() is a no-op on the closed channel.
                 Some(Ok(code)) => {
                     use crate::cmd::base_command::CommandTermination;
-                    let detail = if let Some(status) = channel.exit_status() {
+                    let detached = channel.worker_lease().is_some_and(|lease| lease.is_detached());
+                    let status = if detached { code } else { channel.exit_status() };
+                    let detail = if let Some(status) = status {
                         CommandTermination::Status(status)
+                    } else if detached {
+                        CommandTermination::NotStarted
                     } else if let Some(signal) = channel.exit_signal() {
                         CommandTermination::Signal(signal)
                     } else {
@@ -404,6 +424,9 @@ impl CommandExecutor for SshCommandExecutor {
     }
     fn set_provider_signal_deadline(&self, deadline: Arc<marathon_core::signal_finish::SignalDeadline>) {
         let _ = self.connection.shared.provider_signal.set(deadline);
+    }
+    fn has_worker_supervisor(&self) -> bool {
+        self.supervisor.is_some()
     }
     fn worker_supervised(&self) -> VendorFuture<'_, bool> {
         Box::pin(async move {

@@ -267,7 +267,7 @@ async fn unhealthy_batch_and_disposal_join_the_same_recording_stop_d96() -> Test
     disposed.map_err(|e| format!("{e:?}"))?;
     assert_eq!(
         l.stop().await.map_err(|e| format!("{e:?}"))?,
-        RecordingFinalization::Finalized
+        RecordingFinalization::NotStarted
     );
     assert_eq!(*signals.lock().unwrap(), ["INT"]);
     assert!(
@@ -316,7 +316,7 @@ async fn an_unresponsive_recording_escalates_and_requires_an_exit_report_d96() -
             RecordingFinalization::Unconfirmed
         };
         assert_eq!(left.map_err(|e| format!("{e:?}"))?, expected);
-        assert_eq!(right.map_err(|e| format!("{e:?}"))?, expected);
+        assert_eq!(right.map_err(|e| format!("{e:?}"))?, RecordingFinalization::NotStarted);
         d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
         assert_eq!(d.quarantined(), !acknowledged);
         assert_eq!(*signals.lock().unwrap(), ["INT", "TERM", "KILL"]);
@@ -324,6 +324,55 @@ async fn an_unresponsive_recording_escalates_and_requires_an_exit_report_d96() -
     }
     Ok(())
 }
+#[tokio::test(start_paused = true)]
+async fn healthy_recording_gets_the_configured_shell_time_to_finalize_d96() -> TestResult {
+    use marathon_core::executor::shared::SharedDeferred;
+    use marathon_ios::apple_simulator_device::recording::RecordingFinalization;
+    let h = harness(|vendor| vendor.timeout_configuration.shell = support::duration(30_000))?;
+    let d = h.device().await?;
+    let c = context(&h, d.clone());
+    let test = c.batch.tests[0].clone();
+    let listener = ScreenRecordingListener::new(c);
+    let opened = SharedDeferred::new();
+    let signals = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (open, seen) = (opened.clone(), signals.clone());
+    *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
+        if !cmd.iter().any(|arg| arg == "recordVideo") {
+            return Ok(None);
+        }
+        let seen = seen.clone();
+        let session = simulator_support::recorder_session(move |signal| {
+            seen.lock().unwrap().push(signal);
+            Box::pin(async move {
+                if signal == "INT" {
+                    tokio::time::sleep(std::time::Duration::from_secs(24)).await;
+                    Ok(Some(0))
+                } else {
+                    Ok(Some(137))
+                }
+            })
+        });
+        open.complete(Ok(()));
+        Ok(Some(session))
+    });
+    listener.test_started(&test).await.map_err(|e| format!("{e:?}"))?;
+    opened.wait().await.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        listener.stop().await.map_err(|e| format!("{e:?}"))?,
+        RecordingFinalization::Finalized
+    );
+    assert_eq!(*signals.lock().unwrap(), ["INT"]);
+    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    // The listener chain can still see an event after disposal has sealed admission.
+    listener.test_started(&test).await.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        listener.stop().await.map_err(|e| format!("{e:?}"))?,
+        RecordingFinalization::NotStarted
+    );
+    h.finish(&[d]).await;
+    Ok(())
+}
+
 #[tokio::test(start_paused = true)]
 async fn batch_failure_health_swallow_and_no_inflight_test() -> TestResult {
     for mode in 0..3 {
