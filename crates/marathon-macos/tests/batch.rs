@@ -814,3 +814,39 @@ async fn disposal_stops_and_waits_for_a_send_whose_caller_stopped_waiting_d93() 
     v(d.join_pending().await)?;
     Ok(())
 }
+
+/// D93 (review round 1, finding 6): the run's stop cancels a batch while xcodebuild still runs; the batch then sits in
+/// its cleanup, an inline xcresult pull that never returns, before its runner would stop the session. The Mac's stop
+/// knows the session as the batch's and stops it in the window's reserve: xcodebuild is closed at 65 s, before the
+/// window ends (before: only sessions already told to stop were forced, and this one was left running).
+#[tokio::test]
+async fn the_macs_stop_stops_a_batch_session_while_the_batch_is_stuck_in_its_pull_d93() -> R {
+    let mut h = Harness::new("")?;
+    Arc::make_mut(&mut h.options.vendor).xcresult.pulling_policy = marathon_config::vendor::PullingPolicy::Always;
+    h.options.session_close_timeout = runtime::duration(1_000_000);
+    let d = prepared(&h).await?;
+    let running = Running::install(&h, vec![]);
+    h.bridge.block_pull.store(true, std::sync::atomic::Ordering::SeqCst);
+    let (signal, task) = start(&h, d.clone(), &running).await?;
+    tokio::time::pause();
+    let stopped = tokio::time::Instant::now();
+    Device::seal_for_stop(&*d);
+    signal.cancel(cancelled("the run is stopping"));
+    h.bridge.pull_entered.notified().await;
+    let closed = tokio::time::timeout(Duration::from_secs(69), running.closing.notified()).await;
+    assert!(
+        closed.is_ok(),
+        "the batch's xcodebuild session was not stopped within the window"
+    );
+    let at = stopped.elapsed();
+    assert!(
+        (Duration::from_secs(65)..Duration::from_secs(70)).contains(&at),
+        "stopped at {at:?}"
+    );
+    running.release.notify_one();
+    h.bridge.pull_release.notify_one();
+    let _ = task.await?;
+    tokio::time::resume();
+    v(timeout(Duration::from_secs(60), d.join_pending()).await?)?;
+    Ok(())
+}

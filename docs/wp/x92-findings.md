@@ -142,3 +142,31 @@ None new (no U219). Noted, out of scope: the iOS provider's termination drains a
 60_000)`) before it disposes of the simulators, so a failing run's exit can still wait up to 360 s there (bounded, but
 outside D93's window; x93's barrier work is the place). `parity_matrix.py --check` reports rows "no longer found" against
 the Kotlin checkout on this machine, on the base too.
+
+## Review round 1 (Sol 6.2 xhigh, REQUEST_CHANGES: 6 P2, 1 P3; parity row 755 `n/a` agreed)
+
+Orchestrator decisions A–F, applied on top of 20002c62.
+
+| Finding | Change | Witness (fails on 20002c62) |
+|---|---|---|
+| 1 (A) disposal resampled the receipt: a send unconfirmed at 40 s, or a batch ending after 70 s, read as confirmed | One verdict per sealed device (`ShutdownWindow`, `crates/marathon-apple/src/cmd/device_commands.rs`): decided once, by one task spawned at the seal, on the receipt taken at the seal (batches, preparations, and every send not `Confirmed`, also one that ended `Unconfirmed` earlier, which `send_stop` now keeps), when all of it has ended or at the window's end. Every caller (cancelled call, `join_cancelled_work`, disposal, provider, recovery) stops the work and reads the latch. | `simulator_dispose.rs::a_send_unconfirmed_during_the_stop_keeps_the_simulator_from_its_lifecycle_d93` (lifecycle ran: 1); `work_that_ends_after_the_window_does_not_turn_the_verdict_confirmed_d93` (lifecycle ran: 1) |
+| 2 (B) local sends ignored the seal and dropped the receipt before copying | `JvmFileBridge::send_with`: a stop already given (seal, disposal, caller) starts nothing; the copy owns the `TransferStop` in its blocking task, so the receipt ends when the copy has ended; the copy checks the stop between files and every 1 MiB. | `a_local_send_after_the_seal_copies_nothing_d93` (destination written); `a_local_copy_in_progress_keeps_its_receipt_until_it_ends_d93` (FIFO source blocks the copy; not quarantined on the base) |
+| 3 (A) an error while confirming released the Mac's lease | An error or panic while deciding latches `Unconfirmed` (`ShutdownWindow::fail`); disposal quarantines and still returns the error (a fatal one still ends the run); a sealed batch call returns it too. A disposal that panics quarantines (iOS too). | `provider.rs::a_fatal_disposal_quarantines_the_lease_and_a_repeated_termination_releases_nothing_d93` (renamed from `a_fatal_disposal_still_releases_the_lease_…_d74`; releases: 1 on the base) |
+| 4 (C) the factory learned of a quarantine only at termination | `DeviceCommands::on_quarantine`: the provider gives each device its factory's quarantine (iOS at `register`, Mac at setup); `DeviceCommands::quarantine` applies it when disposal decides, once. The provider no longer releases a quarantined device's lease; siblings keep theirs (D90 witness from round 0). | `a_disposal_quarantines_the_lease_when_it_decides_to_d93` (needs the hook API, so not buildable on the base) |
+| 5 (D) a confirmed simulator's lifecycle (and the release wait) could run past 75 s | After the run's stop (`by_run_stop`), the on-dispose lifecycle runs within what is left of the window, with the reserve (5 s) as a floor; cut there, the simulator is quarantined with one WARN. The providers' wait for a release is held to what is left (the close goes on in the factory's task). D93 now states the worst case: 80 s from the stop, the iOS artifact drain (x93) aside. Disposal outside a stop is unchanged (its own commands' limits). | `the_on_dispose_lifecycle_after_the_runs_stop_is_held_to_the_window_d93` (80 s on the base, 75 s now) |
+| 6 (E) the Mac's reserve missed a batch session still running | A Mac batch's sessions are recorded on its `BatchJob` (a task-local set around the batch's run, read in `execute_test_request`; a parse's sessions are not); the receipt waits for them and the reserve stops them. | `batch.rs::the_macs_stop_stops_a_batch_session_while_the_batch_is_stuck_in_its_pull_d93` (session not stopped within 69 s on the base; at 65 s now) |
+| 7 (F) D74/D84 texts | D74: leases released at most once, quarantined when D93 says so. D84: the Mac's preparation is stopped and an unconfirmed lease quarantined. | docs |
+
+**Departure from D's preferred form.** Holding the lifecycle strictly to what is left of the window would quarantine a
+confirmed simulator whenever a sibling held the stop to the window's end (disposal only starts after the stop routine):
+the two-simulator witness's `a` would lose its lifecycle. The floor of one reserve (5 s) avoids that and keeps the bound
+honest (80 s). Outside a run's stop (recovery, removal, a healthy run's termination) the lifecycle and the release are
+not held to the window: a recovery harness with a 200 ms window cut every lifecycle
+(`simulator_preparation_episode.rs::an_old_recovery_out_of_time_…_d87` hung), and those paths are not covered by the
+published bound.
+
+Other changed tests (Rust-only): `provider.rs::a_replacement_whose_predecessor_fails_to_dispose_is_announced_and_its_lease_quarantined_a107_d93`
+(was `…_and_released_once_a107`).
+
+Not done: a provider-level iOS witness for the hook (a simulator removed by an update while stuck, and a later
+acquisition on the same worker); the device-level witness and the round-0 factory witness cover the two halves.

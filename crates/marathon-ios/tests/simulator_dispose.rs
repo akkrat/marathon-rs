@@ -876,3 +876,299 @@ async fn one_window_from_the_runs_stop_and_lifecycle_only_after_confirmed_termin
     h.finish(&[a, b]).await;
     Ok(())
 }
+
+// ---- D93 review round 1 ---------------------------------------------------------------------------------------------
+
+/// A bridge whose send, once stopped, keeps its transfer for 40 s and then lets go of it while panicking, so that the
+/// simulator's receipt ends `Unconfirmed`, as D91's bridge ends one whose cleanup it could not confirm.
+#[derive(Default)]
+struct UnconfirmedAfterStop {
+    entered: Arc<SharedDeferred<()>>,
+}
+impl marathon_apple::cmd::FileBridge for UnconfirmedAfterStop {
+    fn send<'a>(&'a self, _: &'a std::path::Path, _: &'a str) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        Box::pin(async { Ok(true) })
+    }
+    fn receive<'a>(&'a self, _: &'a str, _: &'a std::path::Path) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        Box::pin(async { Ok(true) })
+    }
+    fn send_with<'a>(
+        &'a self,
+        _: &'a std::path::Path,
+        _: &'a str,
+        mut stop: marathon_apple::cmd::TransferStop,
+    ) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        let entered = self.entered.clone();
+        let transfer = tokio::spawn(async move {
+            entered.complete(Ok(()));
+            let _ = stop.stopped().await;
+            tokio::time::sleep(std::time::Duration::from_secs(40)).await;
+            let _held = stop;
+            panic!("D93 probe: the transfer's cleanup could not be confirmed");
+        });
+        Box::pin(async move {
+            let _ = transfer.await;
+            Err(VendorError::Other(marathon_apple::cmd::failure(
+                marathon_error::FailureKind::IllegalState,
+                "the transfer ended unconfirmed",
+            )))
+        })
+    }
+}
+
+/// D93 (review round 1, finding 1): a send stopped by the run's stop ends at 40 s with its cleanup unconfirmed. The
+/// verdict latched then stands: the provider's disposal later runs no on-dispose lifecycle and quarantines the simulator
+/// (before: disposal looked again, no longer saw the ended send, and ran the lifecycle).
+#[tokio::test(start_paused = true)]
+async fn a_send_unconfirmed_during_the_stop_keeps_the_simulator_from_its_lifecycle_d93() -> TestResult {
+    let h = harness(70_000)?;
+    let bridge = Arc::new(UnconfirmedAfterStop::default());
+    let d = on_bridge(&h, bridge.clone()).await?;
+    let gate = PermissionGate::attach(&h);
+    let signal = Signal::new();
+    let send = {
+        let (d, context) = (
+            d.clone(),
+            VendorContext {
+                cancellation: signal.clone(),
+                ..h.services.context.clone()
+            },
+        );
+        tokio::spawn(async move {
+            use marathon_apple::apple_device::AppleDevice;
+            let dir = tempfile::tempdir().unwrap();
+            d.push_file(dir.path(), "/tmp/marathon/x", &context).await
+        })
+    };
+    bridge.entered.wait().await.unwrap();
+    Device::seal_for_stop(&*d);
+    signal.cancel(cancelled("the run is stopping"));
+    let _ = send.await;
+    Device::join_cancelled_work(&*d).await.unwrap();
+    d.dispose().await.unwrap();
+    assert_eq!(
+        gate.lifecycle.load(Ordering::SeqCst),
+        0,
+        "the lifecycle ran after an unconfirmed send"
+    );
+    assert!(d.quarantined());
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+/// D93 (review round 1, finding 1): the verdict is sticky. The batch is still running when the run's window ends at 70 s,
+/// and ends at 71 s; the provider's disposal at 72 s reads the verdict latched at 70 s and runs no lifecycle (before:
+/// it looked again, found the batch ended, and ran the lifecycle).
+#[tokio::test(start_paused = true)]
+async fn work_that_ends_after_the_window_does_not_turn_the_verdict_confirmed_d93() -> TestResult {
+    let h = harness(70_000)?;
+    let (d, _) = prepared(&h).await?;
+    let gate = PermissionGate::attach(&h);
+    let signal = Signal::new();
+    let batch = spawn_batch(
+        &h,
+        d.clone(),
+        VendorContext {
+            cancellation: signal.clone(),
+            ..h.services.context.clone()
+        },
+    );
+    gate.entered.wait().await.unwrap();
+    let stopped = tokio::time::Instant::now();
+    Device::seal_for_stop(&*d);
+    signal.cancel(cancelled("the run is stopping"));
+    let _ = batch.await?;
+    Device::join_cancelled_work(&*d).await.unwrap();
+    assert_eq!(stopped.elapsed(), std::time::Duration::from_secs(70));
+    tokio::time::sleep_until(stopped + std::time::Duration::from_secs(71)).await;
+    gate.release.complete(Ok(()));
+    tokio::time::sleep_until(stopped + std::time::Duration::from_secs(72)).await;
+    assert!(gate.finished.load(Ordering::SeqCst));
+    d.dispose().await.unwrap();
+    assert_eq!(
+        gate.lifecycle.load(Ordering::SeqCst),
+        0,
+        "a verdict turned confirmed after the window"
+    );
+    assert!(d.quarantined());
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+/// D93 (review round 1, finding 4): the disposal that cannot confirm the simulator's work quarantines its lease in the
+/// connection factory itself, through the hook its provider gave, at once: before the provider's termination, so that no
+/// simulator set up meanwhile is given that connection.
+#[tokio::test(start_paused = true)]
+async fn a_disposal_quarantines_the_lease_when_it_decides_to_d93() -> TestResult {
+    let h = harness(300)?;
+    let (d, _) = prepared(&h).await?;
+    let quarantined = Arc::new(AtomicUsize::new(0));
+    let count = quarantined.clone();
+    d.on_lease_quarantine(Arc::new(move |_| {
+        count.fetch_add(1, Ordering::SeqCst);
+    }));
+    let gate = PermissionGate::attach(&h);
+    let batch = spawn_batch(&h, d.clone(), h.services.context.clone());
+    gate.entered.wait().await.unwrap();
+    d.dispose().await.unwrap();
+    assert_eq!(
+        quarantined.load(Ordering::SeqCst),
+        1,
+        "the lease was not quarantined by the disposal"
+    );
+    d.dispose().await.unwrap();
+    assert_eq!(quarantined.load(Ordering::SeqCst), 1);
+    gate.release.complete(Ok(()));
+    let _ = batch.await?;
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+/// D93 (review round 1, finding 5): after the run's stop, the on-dispose lifecycle of a simulator whose work ended at 69 s
+/// shares the window, with its 5 s reserve as a floor: a lifecycle command that takes 10 s is cut at 75 s and the
+/// simulator quarantined, so its disposal ends within the published 75 s (before: 80 s).
+#[tokio::test(start_paused = true)]
+async fn the_on_dispose_lifecycle_after_the_runs_stop_is_held_to_the_window_d93() -> TestResult {
+    let h = harness(70_000)?;
+    let (d, _) = prepared(&h).await?;
+    let entered = SharedDeferred::new();
+    let release = SharedDeferred::new();
+    let (start, gate, boot) = (entered.clone(), release.clone(), h.boot.clone());
+    *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
+        let grant = cmd.get(2).is_some_and(|s| s == "privacy");
+        let lifecycle = cmd.get(2).is_some_and(|s| s.starts_with("ps aux"));
+        let (start, gate, reply) = (start.clone(), gate.clone(), boot.answer(&cmd));
+        Box::pin(async move {
+            if grant {
+                start.complete(Ok(()));
+                gate.wait().await?;
+            }
+            if lifecycle {
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            }
+            Ok(reply)
+        })
+    });
+    let signal = Signal::new();
+    let batch = spawn_batch(
+        &h,
+        d.clone(),
+        VendorContext {
+            cancellation: signal.clone(),
+            ..h.services.context.clone()
+        },
+    );
+    entered.wait().await.unwrap();
+    let stopped = tokio::time::Instant::now();
+    Device::seal_for_stop(&*d);
+    signal.cancel(cancelled("the run is stopping"));
+    let releasing = release.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep_until(stopped + std::time::Duration::from_secs(69)).await;
+        releasing.complete(Ok(()));
+    });
+    let _ = batch.await?;
+    Device::join_cancelled_work(&*d).await.unwrap();
+    tokio::time::sleep_until(stopped + std::time::Duration::from_secs(70)).await;
+    // As the SSH and local executors do (D30): a command whose call is cancelled ends.
+    h.worker.cancellable_before.store(true, Ordering::SeqCst);
+    d.dispose().await.unwrap();
+    assert_eq!(stopped.elapsed(), std::time::Duration::from_secs(75));
+    assert!(
+        d.quarantined(),
+        "a lifecycle cut by the window left the lease to be released"
+    );
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+/// D93 (review round 1, finding 2): the local bridge honours the seal. A send asked of a simulator the run's stop has
+/// sealed does not copy anything (before: the copy ran, its stop ignored).
+#[tokio::test(start_paused = true)]
+async fn a_local_send_after_the_seal_copies_nothing_d93() -> TestResult {
+    use marathon_apple::apple_device::AppleDevice;
+    let h = long_bound()?;
+    let d = on_bridge(
+        &h,
+        Arc::new(marathon_apple::cmd::local::jvm_file_bridge::JvmFileBridge::new(
+            h.services.runtime.clone(),
+            true,
+        )),
+    )
+    .await?;
+    let dir = tempfile::tempdir()?;
+    let src = dir.path().join("src");
+    std::fs::write(&src, b"bundle")?;
+    let dst = dir.path().join("dst");
+    Device::seal_for_stop(&*d);
+    let sent = d.push_file(&src, dst.to_str().unwrap(), &h.services.context).await;
+    assert!(matches!(sent, Err(VendorError::Cancelled(_))), "{sent:?}");
+    assert!(!dst.exists(), "a sealed simulator's local send copied its file");
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+/// D93 (review round 1, finding 2): a local copy in progress owns its receipt until it has really ended. Its source is a
+/// FIFO nobody writes to. The copy creates its destination's folder after its last look at its stop and right before it
+/// opens the source, where it blocks; once that folder exists the caller lets go of the send. The disposal's window ends
+/// with the copy still running, and the simulator is quarantined (before: the receipt ended when the bridge dropped the
+/// stop, before copying, and the disposal saw it confirmed). A writer then lets the copy end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_local_copy_in_progress_keeps_its_receipt_until_it_ends_d93() -> TestResult {
+    use marathon_apple::apple_device::AppleDevice;
+    let mut h = Harness::new(|_| {})?;
+    h.services.timeouts.cancelled_batch_millis = 300;
+    let d = on_bridge(
+        &h,
+        Arc::new(marathon_apple::cmd::local::jvm_file_bridge::JvmFileBridge::new(
+            h.services.runtime.clone(),
+            true,
+        )),
+    )
+    .await?;
+    let dir = tempfile::tempdir()?;
+    let fifo = dir.path().join("fifo");
+    let made = std::process::Command::new("mkfifo").arg(&fifo).status()?;
+    assert!(made.success());
+    let parent = dir.path().join("sub");
+    let dst = parent.join("dst");
+    // Whatever happens below, a writer is opened at the end, so that the copy blocked on the FIFO ends.
+    struct Unblock(std::path::PathBuf);
+    impl Drop for Unblock {
+        fn drop(&mut self) {
+            let fifo = self.0.clone();
+            let writer = std::thread::spawn(move || {
+                use std::io::Write;
+                if let Ok(mut w) = std::fs::OpenOptions::new().write(true).open(fifo) {
+                    let _ = w.write_all(b"x");
+                }
+            });
+            let _ = writer.join();
+        }
+    }
+    let unblock = Unblock(fifo.clone());
+    let send = {
+        let (d, fifo, dst, context) = (d.clone(), fifo.clone(), dst.clone(), h.services.context.clone());
+        tokio::spawn(async move { d.push_file(&fifo, dst.to_str().unwrap(), &context).await })
+    };
+    let started = std::time::Instant::now();
+    while !parent.is_dir() {
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(60),
+            "the copy never started"
+        );
+        tokio::task::yield_now().await;
+    }
+    send.abort();
+    let _ = send.await;
+    d.dispose().await.unwrap();
+    let quarantined = d.quarantined();
+    drop(unblock);
+    assert!(quarantined, "a copy still running was taken as ended");
+    tokio::time::timeout(std::time::Duration::from_secs(60), d.join_retained())
+        .await
+        .expect("the copy did not end")
+        .unwrap();
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
