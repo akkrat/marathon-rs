@@ -4,7 +4,10 @@ use super::{channel::Stream, client::SshConnection, config::SshLogging};
 use crate::cmd::{TransferCleanup, TransferReceipt, failure};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use jcompat::jtime::Duration;
-use marathon_core::error::{Failure, VendorError, VendorResult};
+use marathon_core::{
+    error::{Failure, VendorError, VendorResult},
+    executor::shared::SharedDeferred,
+};
 use marathon_error::FailureKind;
 use marathon_logging::Level;
 use std::{
@@ -16,7 +19,7 @@ use std::{
 };
 use tokio::{
     io::AsyncReadExt,
-    sync::{Notify, OnceCell, watch},
+    sync::{Notify, watch},
 };
 
 const TARGET: &str = "marathon_apple::cmd::remote::ssh::sshj::supervisor";
@@ -58,9 +61,16 @@ impl Timing {
     }
 }
 
+#[derive(Default)]
+enum Capability {
+    #[default]
+    Unknown,
+    Probing(Arc<SharedDeferred<Option<Arc<Peer>>>>),
+    Ready(Option<Arc<Peer>>),
+}
+
 pub(super) struct Supervisor {
-    capability: OnceCell<Option<String>>,
-    peer: OnceCell<Arc<Peer>>,
+    capability: Mutex<Capability>,
     dial: ControlDial,
     worker: (String, u16),
     warnings: Warnings,
@@ -78,8 +88,7 @@ impl Supervisor {
         dial: ControlDial,
     ) -> Self {
         Self {
-            capability: OnceCell::new(),
-            peer: OnceCell::new(),
+            capability: Mutex::default(),
             dial,
             worker,
             warnings,
@@ -88,12 +97,12 @@ impl Supervisor {
         }
     }
 
-    pub(super) async fn available(&self, connection: &Arc<SshConnection>) -> VendorResult<bool> {
+    pub(super) async fn available(self: &Arc<Self>, connection: &Arc<SshConnection>) -> VendorResult<bool> {
         Ok(self.peer(connection).await?.is_some())
     }
 
     pub(super) async fn prepare(
-        &self,
+        self: &Arc<Self>,
         connection: &Arc<SshConnection>,
         command: &str,
         detached: bool,
@@ -117,7 +126,7 @@ impl Supervisor {
     }
 
     pub(super) async fn prepare_rsync(
-        &self,
+        self: &Arc<Self>,
         connection: &Arc<SshConnection>,
         program: &str,
         auth: marathon_config::vendor::SshAuthentication,
@@ -132,8 +141,9 @@ impl Supervisor {
     }
 
     pub(super) async fn retire(&self) {
-        let Some(peer) = self.peer.get() else {
-            return;
+        let peer = match &*self.capability.lock().unwrap_or_else(|error| error.into_inner()) {
+            Capability::Ready(Some(peer)) => peer.clone(),
+            _ => return,
         };
         let result = tokio::time::timeout(CONTROL_TIMEOUT, peer.retire()).await;
         if !matches!(result, Ok(Ok(()))) {
@@ -147,48 +157,75 @@ impl Supervisor {
         }
     }
 
-    async fn peer(&self, connection: &Arc<SshConnection>) -> VendorResult<Option<Arc<Peer>>> {
-        let capability = self.capability.get_or_try_init(|| async {
-            let install = format!(
-                "/usr/bin/perl -MMIME::Base64 -e 'eval decode_base64 shift; die $@ if $@' -- {} {}",
-                STANDARD.encode(BOOTSTRAP),
-                STANDARD.encode(WORKER)
-            );
-            let (status, output) = exchange(connection, install, PROBE_TIMEOUT)
-                .await
-                .map_err(ExchangeError::into_vendor)?;
-            if status != 0 {
-                let first = self.warnings.lock().unwrap_or_else(|e| e.into_inner()).insert(self.worker.clone());
-                if first {
-                    let logger = self.logging.component(TARGET);
-                    self.logging.log(&logger, Level::WARN, || {
-                        format!("SSH worker {}:{} has no usable /usr/bin/perl with the required core modules. Leftover worker processes are not contained.", self.worker.0, self.worker.1)
-                    }, None);
+    async fn peer(self: &Arc<Self>, connection: &Arc<SshConnection>) -> VendorResult<Option<Arc<Peer>>> {
+        let (reply, launch) = {
+            let mut capability = self.capability.lock().unwrap_or_else(|error| error.into_inner());
+            match &*capability {
+                Capability::Ready(peer) => return Ok(peer.clone()),
+                Capability::Probing(reply) => (reply.clone(), false),
+                Capability::Unknown => {
+                    let reply = SharedDeferred::new();
+                    *capability = Capability::Probing(reply.clone());
+                    (reply, true)
                 }
-                return Ok(None);
             }
-            let root = output.trim().strip_prefix(&format!("{PROTOCOL} ")).filter(|root| valid_root(root));
-            let Some(root) = root.filter(|_| status == 0) else {
-                return Err(protocol_error("SSH worker returned an invalid supervisor bootstrap response"));
-            };
-            Ok(Some(root.to_owned()))
-        }).await?;
-        let Some(root) = capability.clone() else {
-            return Ok(None);
         };
-        let peer = self
-            .peer
-            .get_or_init(|| async {
-                Arc::new(Peer {
-                    data: connection.clone(),
-                    dial: self.dial.clone(),
-                    control: tokio::sync::Mutex::default(),
-                    root,
-                    timing: self.timing,
-                })
-            })
-            .await;
-        Ok(Some(peer.clone()))
+        if launch {
+            // The attempt belongs to the connection. A caller abandoning its
+            // wait cannot restart the probe for the other waiting commands.
+            let supervisor = self.clone();
+            let connection = connection.clone();
+            let runtime = connection.runtime.clone();
+            let completed = reply.clone();
+            runtime.spawn(Box::pin(async move {
+                let result = crate::cmd::retained_tasks::panic_as_error(supervisor.install(connection)).await;
+                let mut capability = supervisor.capability.lock().unwrap_or_else(|error| error.into_inner());
+                *capability = match &result {
+                    Ok(peer) => Capability::Ready(peer.clone()),
+                    Err(_) => Capability::Unknown,
+                };
+                completed.complete(result);
+                Ok(())
+            }));
+        }
+        reply.wait().await.map(|peer| (*peer).clone())
+    }
+
+    async fn install(&self, connection: Arc<SshConnection>) -> VendorResult<Option<Arc<Peer>>> {
+        let install = format!(
+            "/usr/bin/perl -MMIME::Base64 -e 'eval decode_base64 shift; die $@ if $@' -- {} {}",
+            STANDARD.encode(BOOTSTRAP),
+            STANDARD.encode(WORKER)
+        );
+        let (status, output) = exchange(&connection, install, PROBE_TIMEOUT)
+            .await
+            .map_err(ExchangeError::into_vendor)?;
+        if status != 0 {
+            let first = self
+                .warnings
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(self.worker.clone());
+            if first {
+                let logger = self.logging.component(TARGET);
+                self.logging.log(&logger, Level::WARN, || {
+                    format!("SSH worker {}:{} has no usable /usr/bin/perl with the required core modules. Leftover worker processes are not contained.", self.worker.0, self.worker.1)
+                }, None);
+            }
+            return Ok(None);
+        }
+        let root = output
+            .trim()
+            .strip_prefix(&format!("{PROTOCOL} "))
+            .filter(|root| valid_root(root))
+            .ok_or_else(|| protocol_error("SSH worker returned an invalid supervisor bootstrap response"))?;
+        Ok(Some(Arc::new(Peer {
+            data: connection,
+            dial: self.dial.clone(),
+            control: tokio::sync::Mutex::default(),
+            root: root.to_owned(),
+            timing: self.timing,
+        })))
     }
 }
 

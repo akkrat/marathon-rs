@@ -98,6 +98,57 @@ async fn a_probe_transport_error_or_malformed_success_is_retried_d96() {
 }
 
 #[tokio::test]
+async fn overlapping_commands_share_one_failed_worker_probe_d96() {
+    use fake_worker::script::{Action, Chunk};
+    const RELEASE: &str = "/tmp/marathon/probe-fixture-ready";
+    let replies = Arc::new(ProbeReplies {
+        first: Some(ssh::output(
+            vec![Chunk {
+                data: "invalid success\n".into(),
+                wait_for_file: Some(RELEASE.into()),
+                ..Default::default()
+            }],
+            0,
+        )),
+        fallback: Action::output("", 127),
+        attempts: Default::default(),
+    });
+    let fake = ssh::fake_with_handlers(ssh::script(vec![]), 3, |_| {}, vec![replies.clone()]).await;
+    let (logger, _) = ssh::logging(false);
+    let executor = Arc::new(
+        ssh::factory(&logger)
+            .connect_worker("127.0.0.1", fake.port(), ssh::password(), None, false, Arc::default())
+            .await
+            .unwrap(),
+    );
+    let pending: Vec<_> = (0..8)
+        .map(|_| {
+            let executor = executor.clone();
+            tokio::spawn(async move { executor.worker_supervised().await })
+        })
+        .collect();
+    assert_eq!(fake.events_at_least("exec", 1).await.len(), 1);
+    fake.worker.fs.write(RELEASE, vec![], 0o600).await.unwrap();
+    support::bounded(10, async {
+        for pending in pending {
+            let error = pending.await.unwrap().unwrap_err();
+            assert!(
+                error
+                    .failure()
+                    .to_string()
+                    .contains("invalid supervisor bootstrap response")
+            );
+        }
+    })
+    .await;
+    assert_eq!(replies.attempts.load(std::sync::atomic::Ordering::Relaxed), 1);
+    assert!(!executor.worker_supervised().await.unwrap());
+    assert_eq!(replies.attempts.load(std::sync::atomic::Ordering::Relaxed), 2);
+    executor.close().await.unwrap();
+    fake.worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn failed_worker_bootstraps_fall_back_d96() {
     for (diagnostic, status) in [
         ("command filtered", 1),
