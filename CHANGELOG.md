@@ -87,6 +87,16 @@ The section for a version becomes the text of its GitHub release, which carries 
   simulator down or terminates its app. If marathon cannot confirm that rsync and what it started have ended, it logs
   an ERROR with rsync's pid and the worker and sends nothing more to that destination in the run; a device that needs
   it leaves its pool. Healthy transfers are unchanged.
+- **A failing run's Apple devices stop within one window, and are disposed of only once their work has ended (D93):**
+  when a run stops after a failure, each iOS simulator and Mac gets one 70 s window, started for all of them at the
+  stop, for its cancelled batch, its preparations and its transfers to end; its disposal no longer waits another 70 s,
+  so the devices are done within 80 s of the stop (their work within 75 s) instead of up to 145 s. A simulator's on-dispose lifecycle runs, and a
+  device's worker connection is released, only if all of that work is confirmed to have ended. Otherwise one WARN names
+  the device, the lifecycle is skipped, the device sends nothing more, and its connection is kept open and out of use
+  until the run ends (other simulators sharing it keep using it; a simulator set up meanwhile gets another connection).
+  The decision is made once and holds for every later step. A Mac's preparation is now stopped when the Mac stops, its
+  transfers are waited for like an iOS simulator's, and a transfer to a worker on this host no longer starts once its
+  device is stopping. Healthy runs, results and exit codes are unchanged.
 
 ## 0.14.0
 

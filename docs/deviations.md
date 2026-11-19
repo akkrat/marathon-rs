@@ -1781,8 +1781,10 @@ simulator that is being disposed of starts no new preparation.
 **Connections (iOS and macOS).** Each Apple device holds a lease on its worker's SSH connection. Kotlin leaves some of them
 open until the process exits: an iOS simulator replaced after its worker was lost ([A90](known-kotlin-bugs.md)), any iOS
 simulator whose disposal failed at the end of the run ([A82](known-kotlin-bugs.md)), and on macOS a Mac whose setup failed and a
-Mac that was replaced ([A89](known-kotlin-bugs.md)). Native builds release every lease once, after the device's disposal,
-whether or not the disposal failed: on iOS at the end of the run, as before for the others; on macOS at once for a failed
+Mac that was replaced ([A89](known-kotlin-bugs.md)). Native builds release every lease at most once, after the device's disposal:
+whether or not the disposal failed (since [D93](#d93--an-apple-devices-stop-has-one-window-and-its-disposal-needs-proof-that-its-work-ended),
+a disposal that fails or cannot confirm the device's work ended quarantines the lease instead, keeping it open and out of
+use for the rest of the run): on iOS at the end of the run, as before for the others; on macOS at once for a failed
 setup, after its disposal for a replaced Mac, and at the end of the run for the rest. Each lease has one owner that
 releases it: when a new iOS simulator's registration fails because its predecessor's disposal failed, the setup that
 created it releases its lease and the end of the run does not (Kotlin releases it twice, and with `shareWorkerConnection`
@@ -1793,7 +1795,10 @@ release that fails is logged.
 
 **What changes for a run.** A preparation stopped by its simulator's disposal no longer sends the commands it had left, and
 those connections close when their device is done instead of at exit. Disposal can take up to 70 s longer when a stopped
-preparation is stuck in a command that does not end; a command on a worker ends on cancellation, so in practice this is the
+preparation is stuck in a command that does not end (within a stopping run, since
+[D93](#d93--an-apple-devices-stop-has-one-window-and-its-disposal-needs-proof-that-its-work-ended), the same 70 s as the
+run's stop, not another 70 s; and a disposal that cannot confirm the device's work ended skips the lifecycle and keeps
+the lease rather than releasing it); a command on a worker ends on cancellation, so in practice this is the
 time a session close takes ([D30](#d30--closing-an-ssh-session-has-a-limit)). A cancel still ends within
 [D52](#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit)'s 25 s. Result files, the Marathonfile and the CLI are
 unchanged, and no configuration field is added.
@@ -2290,8 +2295,10 @@ the run. Other unexpected ends still left the run hanging, or ended it without s
   vendor says a cancelled call can take, plus 5 s: 75 s by default on iOS and macOS (their 70 s cancelled-batch bound,
   which covers a preparation too), and 65 s by default on Android ([D92](#d92--android-device-cleanup-has-one-deadline)). A device still running after its bound is logged at
   ERROR and left; this is the only device work that can still run while the provider terminates. A macOS Mac's worker
-  lease is not released while its preparation still runs, within the same bound; past it, the wait is logged at WARN
-  and the lease released. Then every
+  lease is not released while its preparation still runs, within the same bound; past it, the wait was logged at WARN
+  and the lease released. Since [D93](#d93--an-apple-devices-stop-has-one-window-and-its-disposal-needs-proof-that-its-work-ended)
+  the Mac's stop also stops that preparation, and a lease whose Mac's work did not end in its window is quarantined, not
+  released. Then every
   pool, and then every queue, takes what was already delivered to it, so a result a device had reported before the
   failure, or had completed when it was cancelled, reaches the reports, in the failed pool's queue as in every other
   one. Only then are the pools and queues stopped, and the run finishes as any failed run: the reports hold every result
@@ -2341,12 +2348,11 @@ the run. Other unexpected ends still left the run hanging, or ended it without s
   way, and the run waits for that before it terminates the provider.
 - **Known limits.** On a signal (D52) the
   provider's termination now waits for a macOS preparation still running, so a signal exit that was quick can take up
-  to D52's deadline. An Apple device still running when its bound has passed is waited for once more, within the same bound,
-  when the provider's termination disposes of it: an iOS simulator's disposal waits for its stopped batch and
-  preparations before its on-dispose lifecycle, and a Mac's termination for its batch and its installation before it
-  releases the lease, as the Kotlin marathon's disposal waits again for a batch whose cancelled wait ran out (its
-  `AppleSimulatorDeviceDisposeTest` and `MacosDeviceBatchTest` pin it). A failing run can so take up to that bound
-  longer to exit, and only when a device's work outlives its first bound.
+  to D52's deadline. An Apple device still running when its bound has passed was waited for once more, within the same bound,
+  when the provider's termination disposed of it, so a failing run could take up to that bound longer to exit; since
+  [D93](#d93--an-apple-devices-stop-has-one-window-and-its-disposal-needs-proof-that-its-work-ended) an Apple device has
+  one window from the run's stop, which its disposal shares, and work that outlives it keeps the device's lifecycle from
+  running and its lease from being released.
 - **Vendor follow-ups (WP x86).** Two vendor shapes first left outside D84 are fixed ([U210](found-bugs.md),
   [U211](found-bugs.md)): a disposed Mac refuses a preparation, under the lock its disposal takes, so termination's wait
   for its preparation has missed none; an iOS preparation stopped while it sends the test bundle ends after that
@@ -2739,6 +2745,121 @@ continues to apply. If adb cannot acknowledge cleanup, the runner cannot confirm
 Approved 2026-11-18 (project owner's decision).
 
 No migration action is required.
+
+## D93 — An Apple device's stop has one window, and its disposal needs proof that its work ended
+
+When a run stops after a failure, the Kotlin marathon's iOS simulator waits for its cancelled batch within 70 s, and its
+disposal then waits for the same batch again, with a window of its own, before it runs the on-dispose lifecycle whatever
+that second wait found; a Mac's disposal does the same before its connection is released. The port added D84's wait for
+work a cancelled call leaves running (a preparation, D91's sends), again with its own window. One stuck operation could
+so hold a failing run for up to 75 + 70 = 145 s, and once the last window ran out the lifecycle ran, or the Mac's lease
+was released, under work that might still be running on the worker ([D84](#d84--an-unexpected-end-of-the-runs-own-machinery-ends-the-run-with-its-cause)'s
+known limit).
+
+**Native behaviour.**
+
+- **One window per device.** When the run stops, every iOS simulator and Mac in its pools is sealed before any device's
+  actor is cancelled: it starts no new batch, preparation or send from then on, and its one window for ending what it
+  runs starts (`cancelled_batch_millis` / the Mac's cancelled-batch bound, 70 s by default, on the run's clock). The
+  cancelled batch's call, D84's wait for its leftover work and the provider's disposal all end within what is left of
+  that window; none starts a window of its own. The run waits for all devices together, each within its 70 s and D84's
+  5 s margin, so a failing run's devices' work is done within 75 s of the stop, where it was up to 145 s. A device that was
+  not in a pool (one the provider kept, or replaced) is sealed by its first disposal, which then has the same single
+  window. A disposal or a cancelled call outside a stopping run (a direct caller, a recovery) keeps its own window, as
+  before. The last fourteenth of the window (5 s of 70) is a reserve in which everything is stopped again and an
+  xcodebuild session whose producer still runs is stopped, on a Mac also one its batch opened and has not yet told to
+  stop (a batch stuck in its xcresult pull, before its runner stops the session).
+- **One verdict.** What the device ran when it was sealed is its receipt, and its verdict is decided once, by one task:
+  when all of it has ended, or at the window's end, whichever comes first. The verdict is the outcome of that wait: work
+  not seen to end before the deadline is unconfirmed, whatever a later look would find, and a timeout or an error
+  anywhere in deciding can only give an unconfirmed verdict. The verdict is sticky: the cancelled call,
+  the run's wait, disposal, the provider's termination and a recovery all read it, and work that ends after the window
+  does not make it confirmed. A send whose cleanup was not confirmed earlier in the run (D91) stays in the receipt. A
+  failure or a panic while deciding is an unconfirmed verdict, and its error is still the disposal's (a fatal one still
+  ends the run). A local copy (a worker on this host) honours its stop as rsync does: one asked of a sealed device does
+  not start, and one in progress holds its registration until it has really ended, checking for its stop between files
+  and every 1 MiB.
+- **What has to end.** The window covers the device's batch, its preparations (a Mac's preparation, which a cancelled
+  caller leaves running, is now stopped when the Mac stops, as an iOS simulator's is), the sends registered with it
+  (D91; a Mac now registers its sends as an iOS simulator does) and any xcodebuild session that was told to stop. Its
+  work counts as ended only if all of these have ended, each send's cleanup confirmed and each session's command
+  opened and closed without a failure (a session whose exec failed is never confirmed: the worker may have started
+  xcodebuild without acknowledging it). A failure known to have started nothing does not count against it: over SSH, a
+  channel the worker refused or never opened, or an exec request it refused, before which no command reached a shell
+  (a transient `MaxSessions` refusal then leaves the simulator confirmed, its lifecycle run and its lease released, and
+  D44 sets it up again as before).
+- **Confirmed or not.** Only work confirmed to have ended lets an iOS simulator's on-dispose lifecycle run, or a Mac's
+  lease (and an iOS simulator's at the provider's termination) be released. Otherwise the disposal logs one WARN naming
+  the device and what had not ended (`Device <serial>'s work was not confirmed to have ended within 70 s (…); not
+  running its on-dispose lifecycle, sending it no further command and keeping its connection out of use`, or for a Mac
+  `Work on <serial> has not finished within 70 s, not waiting for it any longer (…); …`), runs no lifecycle, revokes the
+  device's commands (anything it would still send fails before it reaches the worker; a caller already cancelled hears
+  of its cancellation) and quarantines its lease, at that moment, in the connection factory: the connection is kept open
+  for the rest of the run, so it never closes under that work, and no acquisition is given it from then on (a simulator
+  set up while the run goes on gets another connection). With `shareWorkerConnection` the other simulators on
+  that connection keep using it and release their own uses as before ([D90](#d90--a-saturated-shared-ssh-connection-is-replaced));
+  the next acquisition opens a new connection.
+
+- **The bound after a stop.** Once the run's stop has sealed a device, its on-dispose lifecycle (a confirmed iOS
+  simulator's) runs within what is left of the window, and at least the 5 s reserve, so that a sibling that held the
+  stop to the window's end does not cost it its lifecycle. At that bound the disposal stops waiting for the lifecycle,
+  which runs on in a task of the simulator's own, cancelled: a command whose reply is pending is not dropped but gets its
+  executor's own bounded cleanup (D30's close; for an exec with no reply, U154's CLOSE after its 30 s), so that its
+  session slot is given back; and the simulator is quarantined (one WARN). The provider's wait for the release of a lease is held to what is left of the
+  window; a connection close that outlasts it goes on in the connection factory's own task. From the stop: device work
+  ends within 70 s, the Scheduler is done within 75 s, and each disposal within 5 s after that at most, so 80 s in the
+  worst case; on iOS the provider's termination first drains the artifact queue (up to 300 s and a 60 s grace, before
+  any disposal), which is outside this bound and is WP x93's. A disposal outside a run's stop runs the lifecycle and waits
+  for the release under their own commands' limits, as before.
+
+**Unchanged:** a healthy run (its lifecycle commands and lease releases are the same), the first cause of a failed run
+(U215, the run's cancellation) and D52's 24 s signal shutdown with exit 143. Result files, worker commands, the pinned
+progress and summary text and exit codes do not change. No configuration changes.
+
+**Limits.** A quarantined connection stays open until the process exits, and with `shareWorkerConnection` it keeps one
+of the worker's two connection slots (D90). Revoking a device's commands stops only what goes through the device; a
+process already started on the worker is the worker's. A session nobody asked to stop (a parse's) is its owner's and is
+not waited for. A direct disposal outside a stopping run (for example a recovery's) can now skip the lifecycle and keep
+the lease, where it ran the lifecycle after its window. A local copy stopped mid-file leaves a partial destination, as a
+stopped rsync does. A batch whose xcodebuild could not be opened, other than by a failure known to have started
+nothing, now makes its simulator's or Mac's disposal unconfirmed (no lifecycle, lease quarantined), also outside a
+run's stop; with a local worker every failed open counts so, since only the SSH executor reports what it started. A
+lifecycle command cut at the bound may still run on the worker until its cleanup ends; the quarantine keeps its
+connection open. The iOS provider's artifact drain before disposal is not within the bound (above).
+
+Evidence, each failing on 3d945010 where it can be built there:
+`crates/marathon-ios/tests/simulator_dispose.rs::one_window_from_the_runs_stop_and_lifecycle_only_after_confirmed_termination_d93`
+(virtual time; two simulators, the run's stop as the Scheduler drives it: `a`'s batch ends at 69 s, `b`'s is held past
+75 s; both joins end at 70 s and disposal adds nothing; only `a` runs its lifecycle; one WARN; `b` sends nothing more),
+`simulator_dispose.rs::disposal_that_cannot_confirm_the_batch_ended_skips_the_on_dispose_lifecycle_d93` (in place of the
+Kotlin `disposal stops waiting for a batch that has not finished in time`, whose parity row is now `n/a`),
+`crates/marathon-macos/tests/provider.rs::a_mac_whose_work_outlives_the_runs_one_window_keeps_its_lease_d93` and
+`a_healthy_mac_is_released_once_at_termination_d93`, `crates/marathon-macos/tests/batch.rs::disposal_stops_and_waits_for_a_send_whose_caller_stopped_waiting_d93`,
+`crates/marathon-apple/tests/connection_factory.rs::a_quarantined_lease_keeps_the_shared_connection_open_for_its_sibling_and_out_of_reuse_d93`,
+and `crates/marathon-core/tests/run_supervision.rs::the_stop_seals_every_device_before_it_cancels_any_d93` and
+`the_stop_waits_for_its_devices_together_d93`. Review round 1, each failing on 20002c62:
+`simulator_dispose.rs::a_send_unconfirmed_during_the_stop_keeps_the_simulator_from_its_lifecycle_d93` and
+`work_that_ends_after_the_window_does_not_turn_the_verdict_confirmed_d93` (the sticky verdict),
+`a_local_send_after_the_seal_copies_nothing_d93` and `a_local_copy_in_progress_keeps_its_receipt_until_it_ends_d93` (the
+local bridge), `a_disposal_quarantines_the_lease_when_it_decides_to_d93`,
+`the_on_dispose_lifecycle_after_the_runs_stop_is_held_to_the_window_d93` (a 10 s lifecycle command is cut at 75 s),
+`crates/marathon-macos/tests/provider.rs::a_fatal_disposal_quarantines_the_lease_and_a_repeated_termination_releases_nothing_d93`,
+and `crates/marathon-macos/tests/batch.rs::the_macs_stop_stops_a_batch_session_while_the_batch_is_stuck_in_its_pull_d93`.
+Review round 2, each failing on 58288ef2: `simulator_dispose.rs::a_wait_that_expired_is_unconfirmed_whatever_ends_after_it_d93`
+and `provider.rs::a_macs_wait_that_expired_is_unconfirmed_whatever_ends_after_it_d93` (the wait expires at 70 s, the
+work ends at 71 s, the decider resumes at 72 s), `a_lifecycle_command_deaf_to_its_cancellation_is_abandoned_at_the_bound_d93`
+(75 s, where it was 80 s), and `a_session_whose_open_failed_is_not_confirmed_closed_d93`. Review round 3, failing on
+661e4d88 where they can be built there: `crates/marathon-ios/tests/simulator_world.rs::a_session_refused_before_its_exec_is_confirmed_ended_over_ssh_d93`
+(the real SSH executor against the fake worker with both `MaxSessions` slots held),
+`simulator_dispose.rs::a_session_refused_before_its_exec_lets_the_disposal_confirm_d93`, and
+`a_lifecycle_command_cut_at_the_bound_is_left_to_its_own_cleanup_d93`.
+Amends D74 and D84.
+
+Approved 2026-11-18 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
+[x92 findings](wp/x92-findings.md).
+
+**Migration action:** none.
 
 ## Other accepted text differences
 
