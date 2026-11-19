@@ -1145,3 +1145,100 @@ async fn a_healthy_mac_is_released_once_at_termination_d93() -> R {
     v(device.join_pending().await)?;
     Ok(())
 }
+
+/// A vendor clock whose expired waits, once armed, hand their result back 2 s late, as a decider scheduled late does.
+struct LateTimeouts {
+    inner: Arc<dyn marathon_core::runtime::VendorClock>,
+    armed: Arc<std::sync::atomic::AtomicBool>,
+}
+impl marathon_core::runtime::VendorClock for LateTimeouts {
+    fn delay(
+        &self,
+        millis: i64,
+        cancellation: Arc<dyn marathon_core::runtime::CancellationSignal>,
+    ) -> marathon_core::runtime::VendorFuture<'_, ()> {
+        self.inner.delay(millis, cancellation)
+    }
+    fn now_millis(&self) -> i64 {
+        self.inner.now_millis()
+    }
+    fn with_timeout<'a>(
+        &'a self,
+        parent: Arc<dyn marathon_core::runtime::CancellationSignal>,
+        millis: i64,
+        body: marathon_core::runtime::VendorTimeoutBody<'a>,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        self.inner.with_timeout(parent, millis, body)
+    }
+    fn with_timeout_or_null<'a>(
+        &'a self,
+        parent: Arc<dyn marathon_core::runtime::CancellationSignal>,
+        millis: i64,
+        body: marathon_core::runtime::VendorTimeoutBody<'a>,
+    ) -> marathon_core::runtime::VendorFuture<'a, Option<()>> {
+        Box::pin(async move {
+            let waited = self.inner.with_timeout_or_null(parent, millis, body).await;
+            if self.armed.load(Ordering::SeqCst) && matches!(waited, Ok(None)) {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+            waited
+        })
+    }
+}
+
+/// D93 (review round 2, finding 1), on a Mac: the batch's xcodebuild session is still closing when the window's wait
+/// expires at 70 s; it closes at 71 s; the decider gets the expiry back at 72 s. The verdict is unconfirmed, and the
+/// provider's termination quarantines the lease (before: the decider looked again, confirmed, and the lease was released).
+#[tokio::test]
+async fn a_macs_wait_that_expired_is_unconfirmed_whatever_ends_after_it_d93() -> R {
+    let mut h = Harness::new("")?;
+    Arc::make_mut(&mut h.options.vendor).devices_file = None;
+    let armed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    h.options.dependencies.clock = Arc::new(LateTimeouts {
+        inner: h.options.dependencies.clock.clone(),
+        armed: armed.clone(),
+    });
+    std::fs::write(
+        h.root.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: host}]\n",
+    )?;
+    let (p, c) = h.provider();
+    v(p.initialize(h.context.clone()).await)?;
+    v(p.join_pending().await)?;
+    let device = p.snapshot().remove(0);
+    v(marathon_core::vendor::Device::prepare(
+        &*device,
+        h.options.dependencies.configuration.clone(),
+        h.context.clone(),
+    )
+    .await)?;
+    let running = Running::install(&h, vec![]);
+    let signal = marathon_core::executor::shared::Signal::new();
+    let mut context = h.context.clone();
+    context.cancellation = signal.clone();
+    let call = tokio::spawn(support::batch(device.clone(), context));
+    tokio::time::timeout(std::time::Duration::from_secs(60), running.opened.notified()).await?;
+    tokio::time::pause();
+    armed.store(true, Ordering::SeqCst);
+    let stopped = tokio::time::Instant::now();
+    marathon_core::vendor::Device::seal_for_stop(&*device);
+    signal.cancel(marathon_apple::cmd::cancelled("the run is stopping"));
+    let release = running.release.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep_until(stopped + std::time::Duration::from_secs(71)).await;
+        release.notify_one();
+    });
+    let _ = call.await?;
+    v(marathon_core::vendor::Device::join_cancelled_work(&*device).await)?;
+    armed.store(false, Ordering::SeqCst);
+    v(p.terminate().await)?;
+    assert_eq!(
+        c.releases.load(Ordering::SeqCst),
+        0,
+        "work that ended after the window was confirmed"
+    );
+    assert_eq!(c.quarantines.load(Ordering::SeqCst), 1);
+    tokio::time::resume();
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(60), device.join_pending()).await?;
+    Ok(())
+}

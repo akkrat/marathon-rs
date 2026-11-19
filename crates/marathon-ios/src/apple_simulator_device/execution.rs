@@ -395,7 +395,10 @@ impl AppleSimulatorDevice {
         let reserve =
             marathon_apple::cmd::device_commands::force_reserve_millis(self.services.timeouts.cancelled_batch_millis);
         let graceful = deadline.saturating_sub(reserve).saturating_sub(clock.now_millis());
-        if !self.wait_for(shutdown, graceful).await? {
+        // D93 (review round 2): the verdict is these waits' outcome. Work not seen ended before the deadline is unconfirmed,
+        // whatever a later look would find.
+        let in_time = self.wait_for(shutdown, graceful, deadline).await?;
+        let in_time = in_time || {
             self.stop_all(shutdown);
             let session = self.state().last_session.clone().filter(|s| s.ended().is_none());
             let left = deadline.saturating_sub(clock.now_millis()).max(0);
@@ -410,9 +413,9 @@ impl AppleSimulatorDevice {
                         .await;
                 }
             };
-            let (_, waited) = tokio::join!(forced, self.wait_for(shutdown, left));
-            waited?;
-        }
+            let (_, waited) = tokio::join!(forced, self.wait_for(shutdown, left, deadline));
+            waited?
+        };
         let mut left = Vec::new();
         if shutdown.batches.iter().any(|b| b.done.completed().is_none()) {
             left.push("its batch has not ended".to_owned());
@@ -436,6 +439,12 @@ impl AppleSimulatorDevice {
                 Some(false) => left.push("its xcodebuild session's command did not close".to_owned()),
                 Some(true) => {}
             }
+        }
+        if !in_time {
+            if left.is_empty() {
+                left.push("its work was not seen to end before its window ended".to_owned());
+            }
+            return Ok(Termination::Unconfirmed(left));
         }
         Ok(if left.is_empty() {
             Termination::Confirmed
@@ -473,7 +482,7 @@ impl AppleSimulatorDevice {
     }
     /// Waits up to `millis` for everything in the receipt, and then for the last xcodebuild session's producer (a batch
     /// opens its session itself); whether all of it ended. Nothing left: no wait, only a look.
-    async fn wait_for(&self, receipt: &Shutdown, millis: i64) -> VendorResult<bool> {
+    async fn wait_for(&self, receipt: &Shutdown, millis: i64, deadline: i64) -> VendorResult<bool> {
         let ended = |device: &Self| {
             receipt.batches.iter().all(|b| b.done.completed().is_some())
                 && receipt.preparations.iter().all(|p| p.done.completed().is_some())
@@ -485,7 +494,8 @@ impl AppleSimulatorDevice {
                     .is_none_or(|s| !s.stopping() || s.ended().is_some())
         };
         if ended(self) {
-            return Ok(true);
+            // A look after the deadline counts for nothing.
+            return Ok(self.services.context.clock.now_millis() <= deadline);
         }
         if millis <= 0 {
             return Ok(false);
@@ -601,23 +611,31 @@ impl AppleSimulatorDevice {
         let reserve =
             marathon_apple::cmd::device_commands::force_reserve_millis(self.services.timeouts.cancelled_batch_millis);
         let left = shutdown.window.deadline.saturating_sub(clock.now_millis()).max(reserve);
-        let ran = clock
-            .with_timeout_or_null(
-                Signal::new(),
-                left,
-                Box::new(move |signal| {
-                    Box::pin(async move {
-                        let context = VendorContext {
-                            cancellation: signal,
-                            ..self.services.context.clone()
-                        };
-                        self.handle_lifecycle(actions, &context).await
-                    })
-                }),
-            )
-            .await?;
-        if ran.is_none() {
-            lifecycle_cut(self, "did not end");
+        // D93 (review round 2): at the bound the lifecycle is cancelled and abandoned, not awaited: a command that does
+        // not end on its cancellation (an exec waiting for its reply) is left to the quarantine, as D30 abandons a session.
+        let signal = Signal::new();
+        let context = VendorContext {
+            cancellation: signal.clone(),
+            ..self.services.context.clone()
+        };
+        let ran = {
+            let lifecycle = self.handle_lifecycle(actions, &context);
+            let bound = clock.delay(left, Signal::new());
+            tokio::pin!(lifecycle, bound);
+            tokio::select! { biased;
+                ran = &mut lifecycle => Some(ran),
+                _ = &mut bound => None,
+            }
+        };
+        match ran {
+            Some(ran) => ran?,
+            None => {
+                signal.cancel(marathon_core::error::Cancellation::Requested(failure(
+                    FailureKind::JobCancelled,
+                    format!("Device {}'s on-dispose lifecycle ran out of its window", self.serial),
+                )));
+                lifecycle_cut(self, "did not end");
+            }
         }
         Ok(())
     }

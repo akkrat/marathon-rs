@@ -183,3 +183,18 @@ marathon-cli -p marathon-test-support --all-targets -- -D warnings`; `cargo test
 passed, 0 failed, 34 ignored, with `simulator_dispose` (whose first FIFO witness hung there) run on its own after the fix,
 22 passed, 20 times in a row. Not run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test
 --workspace`.
+
+## Review round 2 (Sol 6.2 xhigh re-check at 58288ef2: 2, 3, 4, 6, 7 closed; 1 and 5 open, one new)
+
+Owner decisions confirmed: the 5 s lifecycle floor stays; disposal outside a run's stop stays outside the bound. Rule
+applied throughout: a timeout or an error anywhere in confirming yields only `Unconfirmed`, and nothing after a deadline
+is awaited.
+
+| Finding | Change | Witness (fails on 58288ef2) |
+|---|---|---|
+| 1 (was 1) the decider discarded its final wait's timeout and looked again | `await_receipt` (iOS and Mac): the verdict is the waits' outcome; a wait that expired latches `Unconfirmed` with no further look, and `wait_for`'s own look counts only before the deadline. What was left is still listed for the WARN. | `simulator_dispose.rs::a_wait_that_expired_is_unconfirmed_whatever_ends_after_it_d93` (lifecycle ran: 1); `provider.rs::a_macs_wait_that_expired_is_unconfirmed_whatever_ends_after_it_d93` (lease released: 1). A clock hands an expired wait back 2 s late: expiry at 70 s, the work ends at 71 s, the decider resumes at 72 s. |
+| 2 (was 5) the lifecycle's timeout cancelled and then awaited a command deaf to cancellation | `run_on_dispose` races the lifecycle against the bound and drops it there (then cancels its signal and quarantines); no `with_timeout_or_null`, which joins its body. | `a_lifecycle_command_deaf_to_its_cancellation_is_abandoned_at_the_bound_d93` (80 s on the base, 75 s now) |
+| 3 (new) a failed exec read as a closed session | `XcodebuildSession` records an open failure (any error from the opener; a session cancelled before it opened anything has none); `ended()` is `Some(false)` with one, so the device's verdict is unconfirmed. `closed()` and `check_closed` are unchanged. | `a_session_whose_open_failed_is_not_confirmed_closed_d93` (lifecycle ran: 1). The reviewer's reproduction used the real SSH executor against the fake worker; this witness makes the fake worker's exec fail. |
+
+Behaviour to note: a batch whose xcodebuild could not be opened now makes the device's disposal unconfirmed (no
+lifecycle, lease quarantined), outside a run's stop too; recorded in D93's limits.

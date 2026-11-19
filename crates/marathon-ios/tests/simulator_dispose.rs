@@ -1172,3 +1172,159 @@ async fn a_local_copy_in_progress_keeps_its_receipt_until_it_ends_d93() -> TestR
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }
+
+// ---- D93 review round 2 ---------------------------------------------------------------------------------------------
+
+/// A vendor clock whose expired waits, once armed, hand their result back 2 s late, as a decider scheduled late does.
+struct LateTimeouts {
+    inner: Arc<dyn marathon_core::runtime::VendorClock>,
+    armed: Arc<AtomicBool>,
+}
+impl marathon_core::runtime::VendorClock for LateTimeouts {
+    fn delay(
+        &self,
+        millis: i64,
+        cancellation: Arc<dyn marathon_core::runtime::CancellationSignal>,
+    ) -> marathon_core::runtime::VendorFuture<'_, ()> {
+        self.inner.delay(millis, cancellation)
+    }
+    fn now_millis(&self) -> i64 {
+        self.inner.now_millis()
+    }
+    fn with_timeout<'a>(
+        &'a self,
+        parent: Arc<dyn marathon_core::runtime::CancellationSignal>,
+        millis: i64,
+        body: marathon_core::runtime::VendorTimeoutBody<'a>,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        self.inner.with_timeout(parent, millis, body)
+    }
+    fn with_timeout_or_null<'a>(
+        &'a self,
+        parent: Arc<dyn marathon_core::runtime::CancellationSignal>,
+        millis: i64,
+        body: marathon_core::runtime::VendorTimeoutBody<'a>,
+    ) -> marathon_core::runtime::VendorFuture<'a, Option<()>> {
+        Box::pin(async move {
+            let waited = self.inner.with_timeout_or_null(parent, millis, body).await;
+            if self.armed.load(Ordering::SeqCst) && matches!(waited, Ok(None)) {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+            waited
+        })
+    }
+}
+
+/// D93 (review round 2, finding 1): the verdict is the wait's outcome. The window's wait expires at 70 s with the batch
+/// still running; the batch ends at 71 s; the decider gets the expiry back at 72 s. The verdict is unconfirmed and the
+/// lifecycle does not run (before: the decider looked again at 72 s, found the batch ended, and confirmed it).
+#[tokio::test(start_paused = true)]
+async fn a_wait_that_expired_is_unconfirmed_whatever_ends_after_it_d93() -> TestResult {
+    let mut h = harness(70_000)?;
+    let armed = Arc::new(AtomicBool::new(false));
+    h.services.context.clock = Arc::new(LateTimeouts {
+        inner: h.services.context.clock.clone(),
+        armed: armed.clone(),
+    });
+    let (d, _) = prepared(&h).await?;
+    let gate = PermissionGate::attach(&h);
+    let signal = Signal::new();
+    let batch = spawn_batch(
+        &h,
+        d.clone(),
+        VendorContext {
+            cancellation: signal.clone(),
+            ..h.services.context.clone()
+        },
+    );
+    gate.entered.wait().await.unwrap();
+    armed.store(true, Ordering::SeqCst);
+    let stopped = tokio::time::Instant::now();
+    Device::seal_for_stop(&*d);
+    signal.cancel(cancelled("the run is stopping"));
+    let release = gate.release.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep_until(stopped + std::time::Duration::from_secs(71)).await;
+        release.complete(Ok(()));
+    });
+    let _ = batch.await?;
+    Device::join_cancelled_work(&*d).await.unwrap();
+    assert!(
+        gate.finished.load(Ordering::SeqCst),
+        "the batch was to end before the verdict came back"
+    );
+    armed.store(false, Ordering::SeqCst);
+    d.dispose().await.unwrap();
+    assert_eq!(
+        gate.lifecycle.load(Ordering::SeqCst),
+        0,
+        "work that ended after the window was confirmed"
+    );
+    assert!(d.quarantined());
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+/// D93 (review round 2, finding 2): a lifecycle command that does not end on its cancellation (an exec waiting for its
+/// reply) is abandoned at the lifecycle's bound, not awaited: the disposal after the run's stop ends at 75 s and the
+/// simulator is quarantined (before: the bound cancelled the command and then waited 10 s more for it, to 80 s).
+#[tokio::test(start_paused = true)]
+async fn a_lifecycle_command_deaf_to_its_cancellation_is_abandoned_at_the_bound_d93() -> TestResult {
+    let h = harness(70_000)?;
+    let (d, _) = prepared(&h).await?;
+    let boot = h.boot.clone();
+    *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
+        let lifecycle = cmd.get(2).is_some_and(|s| s.starts_with("ps aux"));
+        let reply = boot.answer(&cmd);
+        Box::pin(async move {
+            if lifecycle {
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            }
+            Ok(reply)
+        })
+    });
+    let stopped = tokio::time::Instant::now();
+    Device::seal_for_stop(&*d);
+    Device::join_cancelled_work(&*d).await.unwrap();
+    tokio::time::sleep_until(stopped + std::time::Duration::from_secs(70)).await;
+    d.dispose().await.unwrap();
+    assert_eq!(
+        stopped.elapsed(),
+        std::time::Duration::from_secs(75),
+        "the disposal waited for the command"
+    );
+    assert!(d.quarantined());
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+/// D93 (review round 2, finding 3): opening the batch's xcodebuild fails (the worker acknowledged neither the exec nor
+/// its close). Nothing confirms that xcodebuild is not running, so the session is not counted as closed: the disposal
+/// runs no lifecycle and quarantines the simulator (before: a session with no command handle read as closed).
+#[tokio::test(start_paused = true)]
+async fn a_session_whose_open_failed_is_not_confirmed_closed_d93() -> TestResult {
+    let h = harness(70_000)?;
+    let (d, _) = prepared(&h).await?;
+    let gate = PermissionGate::attach(&h);
+    gate.release.complete(Ok(()));
+    *h.worker.session.lock().unwrap() = Arc::new(|cmd| {
+        if cmd.iter().any(|part| part.contains("test-without-building")) {
+            return Err(VendorError::Other(marathon_apple::cmd::failure(
+                marathon_error::FailureKind::IllegalState,
+                "D93 probe: the worker acknowledged neither the exec nor its close",
+            )));
+        }
+        Ok(None)
+    });
+    let (outcome, _) = spawn_batch(&h, d.clone(), h.services.context.clone()).await?;
+    assert!(outcome.is_err(), "{outcome:?}");
+    d.dispose().await.unwrap();
+    assert_eq!(
+        gate.lifecycle.load(Ordering::SeqCst),
+        0,
+        "a session whose open failed was taken as closed"
+    );
+    assert!(d.quarantined());
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}

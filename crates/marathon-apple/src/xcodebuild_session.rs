@@ -167,6 +167,9 @@ struct State {
     finished: bool,
     abandoned: bool,
     close_failure: Option<Failure>,
+    /// D93 (review round 2): opening the command failed, so nothing confirms that what the worker started has ended (an
+    /// exec it never acknowledged may still run). Only a session cancelled before it opened anything has none.
+    open_failure: Option<Failure>,
     task: Option<Arc<dyn VendorTask>>,
     observation: Option<SessionObservation>,
 }
@@ -202,10 +205,11 @@ impl XcodebuildSession {
         s.stopped && (!s.started || s.finished) && s.close_failure.is_none()
     }
     /// D93: `None` while the session's producer runs; once it has ended (or if it never started), whether its command
-    /// was closed without a failure, so that nothing of the session is left on the worker as far as it can tell.
+    /// was opened and closed without a failure, so that nothing of the session is left on the worker as far as it can
+    /// tell. A failed open (exec) is never confirmed: the worker may have started the command without acknowledging it.
     pub fn ended(&self) -> Option<bool> {
         let s = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        (!s.started || s.finished).then(|| s.close_failure.is_none())
+        (!s.started || s.finished).then(|| s.close_failure.is_none() && s.open_failure.is_none())
     }
     /// D93: whether the session has been told to stop (its batch has ended, or someone stopped it). A stopping device
     /// waits only for these: one nobody has stopped, such as a parse's, is its owner's to end.
@@ -265,7 +269,11 @@ impl XcodebuildSession {
             let opened = if let Some(reason) = this.cancellation.reason() {
                 Err(VendorError::Cancelled(reason))
             } else {
-                panic_as_error(open(ctx.clone())).await
+                let opened = panic_as_error(open(ctx.clone())).await;
+                if let Err(error) = &opened {
+                    this.state.lock().unwrap_or_else(|e| e.into_inner()).open_failure = Some(error.failure().clone());
+                }
+                opened
             };
             let mut command = None;
             let result = match opened {

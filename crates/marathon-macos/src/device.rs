@@ -569,7 +569,10 @@ impl MacosDevice {
         let deadline = shutdown.window.deadline;
         let reserve = marathon_apple::cmd::device_commands::force_reserve_millis(self.window_millis()?);
         let graceful = deadline.saturating_sub(reserve).saturating_sub(clock.now_millis());
-        if !self.wait_for(shutdown, graceful, &context).await? {
+        // D93 (review round 2): the verdict is these waits' outcome. Work not seen ended before the deadline is unconfirmed,
+        // whatever a later look would find.
+        let in_time = self.wait_for(shutdown, graceful, deadline, &context).await?;
+        let in_time = in_time || {
             self.stop_all(shutdown);
             let left = deadline.saturating_sub(clock.now_millis()).max(0);
             let forced = self
@@ -586,10 +589,10 @@ impl MacosDevice {
                 });
             let (_, waited) = tokio::join!(
                 futures_util::future::join_all(forced),
-                self.wait_for(shutdown, left, &context)
+                self.wait_for(shutdown, left, deadline, &context)
             );
-            waited?;
-        }
+            waited?
+        };
         let mut left = Vec::new();
         if shutdown.batches.iter().any(|b| b.result.completed().is_none()) {
             left.push("its batch has not ended".to_owned());
@@ -614,6 +617,12 @@ impl MacosDevice {
                 Some(true) => {}
             }
         }
+        if !in_time {
+            if left.is_empty() {
+                left.push("its work was not seen to end before its window ended".to_owned());
+            }
+            return Ok(Termination::Unconfirmed(left));
+        }
         Ok(if left.is_empty() {
             Termination::Confirmed
         } else {
@@ -622,7 +631,13 @@ impl MacosDevice {
     }
     /// Waits up to `millis` for everything in the receipt, then for its sessions' producers (a batch opens its session
     /// itself); whether all of it ended. Nothing left: no wait, only a look.
-    async fn wait_for(&self, shutdown: &Shutdown, millis: i64, context: &VendorContext) -> VendorResult<bool> {
+    async fn wait_for(
+        &self,
+        shutdown: &Shutdown,
+        millis: i64,
+        deadline: i64,
+        context: &VendorContext,
+    ) -> VendorResult<bool> {
         let ended = |device: &Self| {
             shutdown.batches.iter().all(|b| b.result.completed().is_some())
                 && shutdown.preparation.as_ref().is_none_or(|p| p.completed().is_some())
@@ -630,7 +645,8 @@ impl MacosDevice {
                 && device.receipt_sessions(shutdown).iter().all(|s| s.ended().is_some())
         };
         if ended(self) {
-            return Ok(true);
+            // A look after the deadline counts for nothing.
+            return Ok(context.clock.now_millis() <= deadline);
         }
         if millis <= 0 {
             return Ok(false);
