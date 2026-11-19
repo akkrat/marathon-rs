@@ -281,7 +281,7 @@ still apply when upgrading from an older version.
   a Linux host, and the CI macOS build on this project's Mac with iOS 18.6 and 26.4 simulators and macOS tests, locally
   and over SSH to a second Mac as a real worker with stock Perl, key authentication and an `exec`-based forced command.
   Healthy runs gave the same per-test outcomes and report data as the earlier acceptance runs and 0.14.0's release
-  candidates. On Android, SIGTERM during a stalled 300 MiB pull exited 143 with no partial file and one undelivered
+  candidates, apart from the Android video references that D97 dropped for recordings that were not delivered. On Android, SIGTERM during a stalled 300 MiB pull exited 143 with no partial file and one undelivered
   record, where an earlier build had published a 1,703,936-byte truncation (D97); a device retired during a stalled pull
   and a held cleanup command ended within D92's limits while the other emulator finished its tests; a reboot and a
   snapshot rollback were set up again (D85); a held InfluxDB response did not stop the run (D86); a failing install left
@@ -294,8 +294,8 @@ still apply when upgrading from an older version.
 - On 7a486ea1, which has the x95e changes but not x95f's, the SSH runs to the second Mac were repeated: three healthy
   runs and one on the same simulators after a SIGKILL kept all six videos and xcresults and the same report data;
   recorders killed at lease expiry finalized their movies and the next recordings worked; and SIGTERM during a live
-  stalled xcresult pull exited 143 with nothing published. One healthy run took 121 s against about 40 s for the others,
-  all of it in a slow app launch inside the tests, whose cause was not found.
+  stalled xcresult pull exited 143 with nothing published. One healthy run took 121 s against 40 to 51 s for the others,
+  the difference in a slow app launch inside the tests, whose cause was not found.
 - Not exercised on real hosts: the password and askpass path, D90's connection rotation, network faults and delayed
   control replies on a worker (x95f's U248–U250), a terminal D88 monitor failure, and an induced queue or pool drain
   failure. Real-device runs of this release candidate's binary and the maintainer's private CI farm runs are pending
