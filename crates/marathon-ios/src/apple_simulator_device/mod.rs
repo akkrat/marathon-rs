@@ -10,6 +10,7 @@ pub use episode::PreparationEpisode;
 mod listeners;
 pub use listeners::{MinimalSimulatorListenerFactory, SimulatorListenerFactory, SimulatorListeners};
 mod prepare;
+pub mod recording;
 mod setup;
 mod worker;
 
@@ -142,6 +143,7 @@ struct State {
     /// once it has ended confirmed (`ended() == Some(true)`), so one whose exec or close could not be confirmed keeps the
     /// simulator's stop unconfirmed for the rest of the run, whatever replaces it as the last session.
     sessions: Vec<Arc<marathon_apple::xcodebuild_session::XcodebuildSession>>,
+    recordings: Vec<Arc<recording::Recording>>,
 }
 impl State {
     /// U179, D91, D93: why no new batch, preparation or send may start, if none may: disposal, or the run's stop.
@@ -257,6 +259,7 @@ impl AppleSimulatorDevice {
             quarantined: false,
             last_session: None,
             sessions: Vec::new(),
+            recordings: Vec::new(),
         };
         Arc::new_cyclic(move |me| Self {
             me: me.clone(),

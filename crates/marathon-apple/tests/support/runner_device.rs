@@ -151,7 +151,7 @@ impl AppleDevice for RunnerDevice {
     fn binary_environment(&self) -> &AppleBinaryEnvironment {
         self.inner.binary_environment()
     }
-    forward! {setup()->();execute_worker_command(command:Vec<String>)->Option<marathon_apple::cmd::CommandResult>;pull_file(src:&'a str,dst:&'a Path)->bool;push_folder(src:&'a Path,dst:&'a str)->bool;pull_folder(src:&'a str,dst:&'a Path)->bool;push_shared(src:&'a Path,dst:&'a str)->bool;install(path:&'a str)->bool;get_screenshot(timeout:Duration,dst:&'a Path)->bool;start_video_recording(path:&'a str)->Option<marathon_apple::cmd::CommandResult>;stop_video_recording()->bool;shutdown()->bool;erase()->bool;}
+    forward! {setup()->();execute_worker_command(command:Vec<String>)->Option<marathon_apple::cmd::CommandResult>;pull_file(src:&'a str,dst:&'a Path)->bool;push_folder(src:&'a Path,dst:&'a str)->bool;pull_folder(src:&'a str,dst:&'a Path)->bool;push_shared(src:&'a Path,dst:&'a str)->bool;install(path:&'a str)->bool;get_screenshot(timeout:Duration,dst:&'a Path)->bool;start_video_recording(path:&'a str)->marathon_apple::cmd::CommandSession;shutdown()->bool;erase()->bool;}
     fn push_file<'a>(&'a self, src: &'a Path, dst: &'a str, ctx: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             if dst.ends_with("libxctest-parser.dylib") {

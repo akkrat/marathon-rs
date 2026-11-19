@@ -5,7 +5,7 @@ pub mod model;
 pub mod service;
 
 use super::super::Tools;
-use crate::cmd::CommandResult;
+use crate::cmd::{CommandResult, CommandSession};
 use jcompat::jtime::Duration;
 use marathon_config::vendor::AppleTimeoutConfiguration;
 use marathon_core::{error::VendorResult, vendor::VendorContext};
@@ -50,19 +50,14 @@ impl SimctlService {
         command.extend(args);
         command
     }
-    /// nohup requires all streams redirected, otherwise the SSH transport hangs.
-    pub(crate) async fn safe_execute_nohup(
+    pub(crate) async fn open(
         &self,
-        pidfile: &str,
         timeout: Duration,
         args: Vec<String>,
         context: &VendorContext,
-    ) -> VendorResult<Option<CommandResult>> {
+    ) -> VendorResult<CommandSession> {
         let request = self.tools.request(Self::command(args), timeout);
-        self.tools
-            .executor
-            .safe_execute_nohup(pidfile, request, context.clone())
-            .await
+        self.tools.executor.execute(request, context.clone()).await
     }
     pub(crate) async fn critical_exec(
         &self,

@@ -1,41 +1,10 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/video/ScreenRecordingListener.kt
 use super::pending::PendingArtifacts;
 use super::*;
+use crate::apple_simulator_device::recording::{Recording, RecordingFinalization};
 use marathon_apple::logparser::parser::DeviceFailureReason;
 use marathon_config::vendor::{Codec, IosVideoConfiguration};
 
-/// P1: an empty pidfile is treated like an absent one, matching stop().
-pub async fn await_removal<'a>(
-    clock: &'a dyn VendorClock,
-    cancellation: Arc<dyn CancellationSignal>,
-    timeout: i64,
-    interval: i64,
-    on_waiting: impl FnOnce() + Send + 'a,
-    mut read: impl FnMut(Arc<dyn CancellationSignal>) -> VendorFuture<'a, Option<String>> + Send + 'a,
-) -> VendorResult<bool> {
-    Ok(clock
-        .with_timeout_or_null(
-            cancellation,
-            timeout,
-            Box::new(move |signal| {
-                Box::pin(async move {
-                    let present = |v: Option<String>| v.is_some_and(|s| !super::trim(&s).is_empty());
-                    if present(read(signal.clone()).await?) {
-                        on_waiting();
-                        loop {
-                            clock.delay(interval, signal.clone()).await?;
-                            if !present(read(signal.clone()).await?) {
-                                break;
-                            }
-                        }
-                    }
-                    Ok(())
-                })
-            }),
-        )
-        .await?
-        .is_some())
-}
 pub fn transcode_command(config: &IosVideoConfiguration, src: &str, temp: &str) -> Vec<String> {
     let size = config.transcoding.size.value();
     let optional = match config.codec {
@@ -54,15 +23,21 @@ pub fn transcode_command(config: &IosVideoConfiguration, src: &str, temp: &str) 
 pub struct ScreenRecordingListener {
     c: ListenerContext,
     logger: Component,
-    job: Mutex<Option<Arc<dyn VendorTask>>>,
-    last: Mutex<Option<String>>,
+    recordings: Mutex<RecordingSlots>,
     pub attachments: Arc<AttachmentProviderDelegate>,
-    /// The last ended test's stop (D80), which the next recording and every later stop wait for.
-    stopping: Mutex<Option<Arc<dyn VendorTask>>>,
     /// Each remote video's last queued transfer: a test that runs again in the batch records to the same file.
     collecting: Mutex<std::collections::HashMap<String, Arc<dyn VendorTask>>>,
     pending: Arc<PendingArtifacts>,
 }
+
+#[derive(Default)]
+struct RecordingSlots {
+    active: Option<Arc<Recording>>,
+    /// The last ended test's stop (D80), which the next recording and every later stop wait for.
+    stopping: Option<Arc<Recording>>,
+    last_path: Option<String>,
+}
+
 /// The transfer side of the listener, owned so that a test's video can be collected off the event path (D80).
 #[derive(Clone)]
 struct Media {
@@ -76,10 +51,8 @@ impl ScreenRecordingListener {
         Self {
             c,
             logger,
-            job: Mutex::new(None),
-            last: Mutex::new(None),
+            recordings: Mutex::default(),
             attachments: Arc::default(),
-            stopping: Mutex::new(None),
             collecting: Mutex::default(),
             pending: Arc::default(),
         }
@@ -100,39 +73,26 @@ impl ScreenRecordingListener {
             attachments: self.attachments.clone(),
         }
     }
-    async fn stop(&self) -> VendorResult<()> {
-        // A recording still waiting for the previous stop is ended first, so it cannot start once that stop is done.
-        let job = self.job.lock().unwrap_or_else(|e| e.into_inner()).take();
-        if let Some(job) = job {
-            job.cancel(marathon_apple::cmd::cancelled("Recording finished"));
-            let _ = job.join().await;
+    fn stop_current(&self) -> Option<Arc<Recording>> {
+        let mut slots = self.recordings.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(recording) = slots.active.take() {
+            recording.request_stop(self.c.context.clock.as_ref(), None);
+            slots.stopping = Some(recording);
         }
-        let stopping = self.stopping.lock().unwrap_or_else(|e| e.into_inner()).take();
-        if let Some(stopping) = stopping {
-            // Its failure is reported with its test's video.
-            let _ = stopping.join().await;
+        slots.stopping.clone()
+    }
+    /// Joins the protected stop even when the batch context has been cancelled.
+    pub async fn stop(&self) -> VendorResult<RecordingFinalization> {
+        match self.stop_current() {
+            Some(recording) => recording.finalization().await,
+            None => Ok(RecordingFinalization::NotStarted),
         }
-        stop_recording(&self.c, &self.logger, None).await
     }
     async fn ended(&self, test: &Test, failed: bool) -> VendorResult<()> {
-        // D80: the stop, transcode and pull run beside the next tests instead of holding back their events (U201).
-        // The test's own recording job is taken now, so its stop cannot reach the next test's.
-        let job = self.job.lock().unwrap_or_else(|e| e.into_inner()).take();
-        *self.last.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        // D80: stop, transcode and transfer stay off the test event path.
+        let stop = self.stop_current();
+        self.recordings.lock().unwrap_or_else(|e| e.into_inner()).last_path = None;
         let runtime = self.c.device.services().runtime.clone();
-        let stop = {
-            let mut stopping = self.stopping.lock().unwrap_or_else(|e| e.into_inner());
-            let previous = stopping.take();
-            let (c, logger) = (self.c.clone(), self.logger.clone());
-            let stop = runtime.spawn(Box::pin(async move {
-                if let Some(previous) = previous {
-                    let _ = previous.join().await;
-                }
-                stop_recording(&c, &logger, job).await
-            }));
-            *stopping = Some(stop.clone());
-            stop
-        };
         let media = self.media();
         let src = self
             .c
@@ -141,19 +101,12 @@ impl ScreenRecordingListener {
             .remote_video_for_test(test, &self.c.batch.id)
             .to_owned();
         let test = test.clone();
-        let source = src.clone();
         let collected = self.pending.submit(
             runtime.as_ref(),
             self.c.context.cancellation.clone(),
             Box::pin(async move {
-                if let Err(error) = stop.join().await {
-                    if media.c.policy(failed) {
-                        media.undelivered(&source, &error.failure().to_string());
-                    }
-                    return match error {
-                        VendorError::Transfer(_) => Ok(()),
-                        other => Err(other),
-                    };
+                if let Some(stop) = stop {
+                    stop.finalization().await?;
                 }
                 media.collect(&test, failed).await
             }),
@@ -165,53 +118,6 @@ impl ScreenRecordingListener {
         Ok(())
     }
 }
-fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
-    payload
-        .downcast_ref::<&str>()
-        .map(|s| (*s).to_owned())
-        .or_else(|| payload.downcast_ref::<String>().cloned())
-        .unwrap_or_else(|| "Rust task panicked".into())
-}
-/// A recording start's cancellation: its own (a stop) or its batch's.
-struct Linked {
-    own: Arc<dyn CancellationSignal>,
-    batch: Arc<dyn CancellationSignal>,
-}
-impl CancellationSignal for Linked {
-    fn reason(&self) -> Option<marathon_core::error::Cancellation> {
-        self.own.reason().or_else(|| self.batch.reason())
-    }
-    fn cancelled(
-        &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = marathon_core::error::Cancellation> + Send + '_>> {
-        Box::pin(async move {
-            tokio::select! { biased; reason = self.own.cancelled() => reason, reason = self.batch.cancelled() => reason }
-        })
-    }
-}
-/// Kotlin's stop(): ends `job`, the recording's start, then the recorder whose pid is in the pidfile.
-async fn stop_recording(c: &ListenerContext, logger: &Component, job: Option<Arc<dyn VendorTask>>) -> VendorResult<()> {
-    if let Some(job) = job {
-        // Cancel a recording that is still waiting to start first, so that it can't start after the pidfile check.
-        job.cancel(marathon_apple::cmd::cancelled("Recording finished"));
-        // Kotlin cancelAndJoin does not rethrow the joined child's failure.
-        let _ = job.join().await;
-    }
-    let path = c.device.remote_file_manager().remote_video_pidfile();
-    if let Some(pid) = c.device.read_textfile(&path, &c.context).await? {
-        let pid = super::trim(&pid);
-        if !pid.is_empty() {
-            if !c.device.stop_video_recording(&c.context).await? {
-                return Err(VendorError::Transfer(marathon_apple::cmd::failure(
-                    marathon_error::FailureKind::Transfer,
-                    "Video recorder did not finalize the movie",
-                )));
-            }
-            c.log(logger, Level::DEBUG, format!("stopped video recording pid={pid}"));
-        }
-    }
-    Ok(())
-}
 impl Media {
     async fn collect(&self, test: &Test, failed: bool) -> VendorResult<()> {
         self.catch_transfer(
@@ -219,66 +125,29 @@ impl Media {
                 let remote = self.c.device.remote_file_manager();
                 let src = remote.remote_video_for_test(test, &self.c.batch.id).to_owned();
                 if !remote.test(&src, &self.c.context).await? {
-                    if self.c.policy(failed) {
-                        self.undelivered(&src, "the movie is missing on the worker");
-                    }
                     return Ok(());
                 }
-                if !self.c.policy(failed) {
-                    return self.remove(&src).await;
+                if self.c.policy(failed) {
+                    if self.transcoding() {
+                        self.transcode(
+                            &src,
+                            &remote.remote_temp_video_for_test(test, &self.c.batch.id).to_owned(),
+                        )
+                        .await?;
+                    }
+                    self.pull(&src, Some(test)).await?;
                 }
-                let temp = remote.remote_temp_video_for_test(test, &self.c.batch.id);
-                self.deliver(&src, &temp, Some(test)).await
+                self.remove(&src).await
             }
             .await,
         )
     }
-    async fn deliver(&self, src: &str, temp: &str, test: Option<&Test>) -> VendorResult<()> {
-        let received = async {
-            let source = if self.transcoding() && !self.transcode(src, temp).await? {
-                temp
-            } else {
-                src
-            };
-            self.pull(source, test)
-                .await
-                .map(|delivered| delivered.then_some(source))
-        }
-        .await;
-        match received {
-            Ok(Some(source)) => self.remove(source).await,
-            Ok(None) => {
-                self.undelivered(src, "the receive did not complete");
-                Ok(())
-            }
-            Err(error) => {
-                self.undelivered(src, &error.failure().to_string());
-                match error {
-                    VendorError::Transfer(_) => Ok(()),
-                    other => Err(other),
-                }
-            }
-        }
-    }
-    fn undelivered(&self, src: &str, reason: &str) {
-        self.c.log(
-            &self.logger,
-            Level::ERROR,
-            format!("Video {src} was not delivered: {reason}"),
-        );
-    }
-    async fn transcode(&self, src: &str, temp: &str) -> VendorResult<bool> {
-        let moved = self
-            .c
+    async fn transcode(&self, src: &str, temp: &str) -> VendorResult<()> {
+        self.c
             .device
-            .execute_worker_command(vec!["mv".into(), "-f".into(), src.into(), temp.into()], &self.c.context)
+            .remote_file_manager()
+            .move_file(src, temp, &self.c.context)
             .await?;
-        if !moved.is_some_and(|result| result.successful()) {
-            return Err(VendorError::Transfer(marathon_apple::cmd::failure(
-                marathon_error::FailureKind::Transfer,
-                format!("Could not stage video {src} for transcoding"),
-            )));
-        }
         let start = self.c.millis("ios.ScreenRecordingListener.transcode")?;
         let config = &self
             .c
@@ -292,7 +161,6 @@ impl Media {
             .device
             .execute_worker_command(transcode_command(config, src, temp), &self.c.context)
             .await?;
-        let succeeded = result.as_ref().is_some_and(|result| result.successful());
         if let Some(result) = result.filter(|r| !r.successful()) {
             self.c.log(
                 &self.logger,
@@ -304,20 +172,19 @@ impl Media {
                 ),
             );
         }
-        let elapsed = self
-            .c
-            .millis("ios.ScreenRecordingListener.transcode")?
-            .wrapping_sub(start);
-        if succeeded {
-            self.c.log(
-                &self.logger,
-                Level::DEBUG,
-                format!("Transcoding finished in {elapsed}ms {src}"),
-            );
-        }
-        Ok(succeeded)
+        self.c.log(
+            &self.logger,
+            Level::DEBUG,
+            format!(
+                "Transcoding finished in {}ms {src}",
+                self.c
+                    .millis("ios.ScreenRecordingListener.transcode")?
+                    .wrapping_sub(start)
+            ),
+        );
+        Ok(())
     }
-    async fn pull(&self, src: &str, test: Option<&Test>) -> VendorResult<bool> {
+    async fn pull(&self, src: &str, test: Option<&Test>) -> VendorResult<()> {
         let local = self.c.file(FileType::Video, test).await?;
         let label = if test.is_some() {
             "ios.ScreenRecordingListener.pullTestVideo"
@@ -325,9 +192,7 @@ impl Media {
             "ios.ScreenRecordingListener.pullLastBatchVideo"
         };
         let start = self.c.millis(label)?;
-        if !self.c.device.pull_file(src, &local, &self.c.context).await? {
-            return Ok(false);
-        }
+        self.c.device.pull_file(src, &local, &self.c.context).await?;
         self.c.log(
             &self.logger,
             Level::DEBUG,
@@ -346,7 +211,7 @@ impl Media {
                 },
             )?;
         }
-        Ok(true)
+        Ok(())
     }
     async fn remove(&self, src: &str) -> VendorResult<()> {
         let start = self.c.millis("ios.ScreenRecordingListener.removeRemoteVideo")?;
@@ -426,115 +291,48 @@ impl ScreenRecordingListener {
 }
 impl AppleTestRunListener for ScreenRecordingListener {
     fn before_test_run(&self) -> VendorFuture<'_, ()> {
-        Box::pin(async move { self.media().catch_transfer(self.stop().await) })
+        Box::pin(async { self.stop().await.map(|_| ()) })
     }
     fn after_test_run(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
-            let stopped = self.media().catch_transfer(self.stop().await);
+            let stopped = self.stop().await.map(|_| ());
             self.settle().await.and(stopped)
         })
     }
     fn test_started<'a>(&'a self, test: &'a Test) -> VendorFuture<'a, ()> {
         Box::pin(async move {
-            self.c.cancel(&self.job).await?;
+            let previous = self.stop_current();
             let src = self
                 .c
                 .device
                 .remote_file_manager()
                 .remote_video_for_test(test, &self.c.batch.id)
                 .to_owned();
-            *self.last.lock().unwrap_or_else(|e| e.into_inner()) = Some(src.clone());
-            let c = self.c.clone();
-            let logger = self.logger.clone();
-            let stopping = self.stopping.lock().unwrap_or_else(|e| e.into_inner()).clone();
             let collecting = self
                 .collecting
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .get(&src)
                 .cloned();
-            let pending = self.pending.clone();
-            let job = c.device.services().runtime.clone().spawn_cancellable(Box::new(move |signal| {
-                let start = async move {
-                    let mut c = c;
-                    // D80: the start can wait for the previous test's stop, so it also ends with the batch: a batch
-                    // cancelled or disposed of while it waits starts no recording.
-                    c.context.cancellation = Arc::new(Linked {
-                        own: signal,
-                        batch: c.context.cancellation.clone(),
-                    });
-                    // D80: the previous test's recording is stopped off the event path; this one starts after it, as it
-                    // did when that stop ran before this callback. A test that ran before in this batch also waits for
-                    // its earlier video to be moved, pulled and removed, since both recordings use one remote file.
-                    for before in stopping.into_iter().chain(collecting) {
-                        tokio::select! {
-                            biased;
-                            reason = c.context.cancellation.cancelled() => return Err(VendorError::Cancelled(reason)),
-                            _ = before.join() => {}
-                        }
-                    }
-                    let pidfile = c.device.remote_file_manager().remote_video_pidfile();
-                    let done = await_removal(
-                        c.context.clock.as_ref(),
-                        c.context.cancellation.clone(),
-                        10_000,
-                        100,
-                        || {
-                            c.log(
-                                &logger,
-                                Level::WARN,
-                                "Previous video recording didn't finish yet. Current recording might be missing or cut from the start".into(),
-                            );
-                        },
-                        |signal| {
-                            let d = c.device.clone();
-                            let p = pidfile.clone();
-                            let mut context = c.context.clone();
-                            context.cancellation = signal;
-                            Box::pin(async move { d.read_textfile(&p, &context).await })
-                        },
-                    )
-                    .await?;
-                    if !done {
-                        c.log(
-                            &logger,
-                            Level::WARN,
-                            "Previous video recording didn't finish in 10s, starting a new one anyway".into(),
-                        );
-                    }
-                    if c.device
-                        .start_video_recording(&src, &c.context)
-                        .await?
-                        .is_some_and(|r| r.exit_code == Some(0))
-                    {
-                        let pid = c
-                            .device
-                            .read_textfile(&pidfile, &c.context)
-                            .await?
-                            .map(|p| super::trim(&p).to_owned())
-                            .unwrap_or_else(|| "null".into());
-                        c.log(&logger, Level::DEBUG, format!("started video recording pid={pid} to {src}"));
-                    }
-                    Ok(())
-                };
-                Box::pin(async move {
-                    use futures_util::FutureExt;
-                    match std::panic::AssertUnwindSafe(start).catch_unwind().await {
-                        Ok(started) => started,
-                        // Kotlin's cancelAndJoin drops the start's failure, and so does every join of this task. A
-                        // panic is no such failure: it fails the batch with the video work's failures (D80).
-                        Err(payload) => {
-                            let error = VendorError::Other(marathon_apple::cmd::failure(
-                                FailureKind::Runtime,
-                                panic_message(payload.as_ref()),
-                            ));
-                            pending.record(error.clone());
-                            Err(error)
-                        }
-                    }
-                })
-            }));
-            *self.job.lock().unwrap_or_else(|e| e.into_inner()) = Some(job);
+            // D80: a repeated test also waits for its previous transfer to finish using this path.
+            let ready = Box::pin(async move {
+                if let Some(previous) = previous
+                    && previous.finalization().await? == RecordingFinalization::Unconfirmed
+                {
+                    return Ok(false);
+                }
+                if let Some(collecting) = collecting {
+                    let _ = collecting.join().await;
+                }
+                Ok(true)
+            });
+            let mut slots = self.recordings.lock().unwrap_or_else(|e| e.into_inner());
+            let recording = self
+                .c
+                .device
+                .begin_recording(src.clone(), self.c.context.clone(), ready)?;
+            slots.last_path = Some(src);
+            slots.active = Some(recording);
             Ok(())
         })
     }
@@ -550,6 +348,7 @@ impl AppleTestRunListener for ScreenRecordingListener {
     fn test_run_failed<'a>(&'a self, _: &'a str, _: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             // The ended tests' videos go first, as when they were pulled inline; their failure waits for after_test_run.
+            let stopped = self.stop().await;
             self.pending.settle().await;
             let media = self.media();
             media.catch_transfer(
@@ -562,13 +361,22 @@ impl AppleTestRunListener for ScreenRecordingListener {
                         );
                         return Ok(());
                     }
-                    self.stop().await?;
-                    let src = self.last.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                    stopped?;
+                    let src = self
+                        .recordings
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .last_path
+                        .clone();
                     if let Some(src) = src {
                         if !self.c.device.remote_file_manager().test(&src, &self.c.context).await? {
                             return Ok(());
                         }
-                        media.deliver(&src, &format!("{src}.tmp"), None).await?;
+                        if media.transcoding() {
+                            media.transcode(&src, &format!("{src}.tmp")).await?;
+                        }
+                        media.pull(&src, None).await?;
+                        media.remove(&src).await?;
                     }
                     Ok(())
                 }

@@ -58,6 +58,10 @@ def golden(name):
 
 def compare_golden(name, actual, mismatch=None):
     expected = e.loads(gzip.decompress((ROOT / 'fixtures/contract/native-v1' / (name + '.json.gz')).read_bytes()))
+    if name == 'ios-media':
+        import vendor_transport
+        transcript = expected['transcript.jsonl']
+        transcript['content'] = vendor_transport.d96_native_golden(transcript['content'])
     actual_view = e.normalized(actual, contract(name), native=True)
     # Round-trip converts tuples used by XML and GIF normalization into lists.
     e.compare_native_views(expected, actual_view)

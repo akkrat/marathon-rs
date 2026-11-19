@@ -459,9 +459,11 @@ async fn run(case: &str, e: &AppleBinaryEnvironment, c: &VendorContext) -> Vendo
         ),
         "io.video" => sim
             .io
-            .record_video("U", R, Codec::Hevc, Display::Internal, Mask::Ignored, "/p id", c)
+            .record_video("U", R, Codec::Hevc, Display::Internal, Mask::Ignored, c)
             .await?
-            .map_or(Value::Null, result),
+            .await_result(c)
+            .await
+            .map(result)?,
         "media.add" => result(sim.media_service.add_media("U", R, c).await?),
         "privacy.grant" => result(sim.privacy.grant("U", IosPermission::LocationAlways, "b.id", c).await?),
         "privacy.revoke" => result(sim.privacy.revoke("U", IosPermission::PhotosAdd, "b.id", c).await?),
@@ -572,6 +574,36 @@ async fn run(case: &str, e: &AppleBinaryEnvironment, c: &VendorContext) -> Vendo
 
 /// The approved differences: Kotlin's measured value is replaced by the Rust one, with the reason.
 fn deviation(case: &str, kotlin: &Value) -> Option<Value> {
+    if case.starts_with("io.video/")
+        && kotlin["requests"][0]["argv"]
+            == json!([
+                "sh",
+                "-c",
+                "nohup xcrun simctl io U recordVideo --codec hevc --display internal --mask ignored --force /tmp/r p > /dev/null 2>&1 & echo $! > /p id"
+            ])
+    {
+        let mut value = kotlin.clone();
+        value["requests"][0]["argv"] = json!([
+            "xcrun",
+            "simctl",
+            "io",
+            "U",
+            "recordVideo",
+            "--codec",
+            "hevc",
+            "--display",
+            "internal",
+            "--mask",
+            "ignored",
+            "--force",
+            R
+        ]);
+        value["requests"][0]["timeout"] = json!("PT168H");
+        if case == "io.video/conn" {
+            value["outcome"] = json!({"error":{"class":"ssh.connection","message":"scripted","cause":null}});
+        }
+        return Some(value);
+    }
     let unavailable = |stdout: &str| {
         json!({"error": {"class": "apple.device-failure",
                          "message": format!("Error parsing simctl output on local: [{stdout}]"), "cause": null}})

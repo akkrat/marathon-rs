@@ -475,8 +475,7 @@ impl AppleDevice for Fake {
     unused!(push_folder(src: &'a Path, dst: &'a str) -> bool);
     unused!(pull_folder(src: &'a str, dst: &'a Path) -> bool);
     unused!(get_screenshot(timeout: Duration, dst: &'a Path) -> bool);
-    unused!(start_video_recording(path: &'a str) -> Option<CommandResult>);
-    unused!(stop_video_recording()->bool);
+    unused!(start_video_recording(path: &'a str) -> marathon_apple::cmd::CommandSession);
     unused!(shutdown()->bool);
     unused!(erase()->bool);
 }

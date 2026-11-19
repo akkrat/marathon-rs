@@ -32,7 +32,7 @@ async fn wrappers_send_these_exec_strings_over_ssh() {
         "xcrun simctl boot U",
         swift,
         "sqlite3 '/d b' 'select '\\''x'\\'''",
-        "sh -c 'nohup xcrun simctl io U recordVideo --codec hevc --display internal --mask ignored --force /tmp/v.mp4 > /dev/null 2>&1 & echo $! > /tmp/p'",
+        "xcrun simctl io U recordVideo --codec hevc --display internal --mask ignored --force /tmp/v.mp4",
         "xcrun xcresulttool merge --output-path '/r p' /a /b",
     ];
     let created = format!("No runtime specified, using 'iOS 18.0'\n{UDID}\n");
@@ -94,22 +94,12 @@ async fn wrappers_send_these_exec_strings_over_ssh() {
         vec!["Tests.testA", "Tests.testB"]
     );
     env.sqlite3.query("/d b", "select 'x'", true, c).await.unwrap();
-    assert!(
-        simctl
-            .io
-            .record_video(
-                "U",
-                "/tmp/v.mp4",
-                Codec::Hevc,
-                Display::Internal,
-                Mask::Ignored,
-                "/tmp/p",
-                c
-            )
-            .await
-            .unwrap()
-            .is_some_and(|r| r.successful())
-    );
+    let recorder = simctl
+        .io
+        .record_video("U", "/tmp/v.mp4", Codec::Hevc, Display::Internal, Mask::Ignored, c)
+        .await
+        .unwrap();
+    assert!(recorder.await_result(c).await.unwrap().successful());
     let merge = env
         .xcrun
         .xcresulttool

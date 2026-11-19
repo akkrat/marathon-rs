@@ -575,3 +575,40 @@ pub fn spawn_batch(
     })
 }
 pub mod artifacts;
+
+/// A foreground recorder whose signal handler chooses whether and when to exit.
+pub fn recorder_session(
+    signal: impl Fn(&'static str) -> marathon_core::runtime::VendorFuture<'static, Option<i32>> + Send + Sync + 'static,
+) -> marathon_apple::cmd::CommandSession {
+    use marathon_apple::cmd::{BaseCommand, CommandSession, SessionControl};
+    use marathon_core::runtime::VendorRuntime;
+    let runtime = Arc::new(Runtime);
+    let base = BaseCommand::new(4, runtime.clone());
+    let stdout = base.stdout.clone();
+    let stderr = base.stderr.clone();
+    let exit = base.exit_code.clone();
+    let send = Arc::new(move |name| {
+        let (stdout, stderr, exit, action) = (stdout.clone(), stderr.clone(), exit.clone(), signal(name));
+        runtime.spawn(Box::pin(async move {
+            if let Some(status) = action.await? {
+                stdout.close(None);
+                stderr.close(None);
+                exit.complete(Ok(Some(status)));
+            }
+            Ok(())
+        }));
+        Ok(())
+    });
+    let term = send.clone();
+    let kill = send.clone();
+    CommandSession::new(
+        base,
+        SessionControl {
+            is_alive: Box::new(|| true),
+            terminate: Box::new(move || term("TERM")),
+            kill: Box::new(move || kill("KILL")),
+            close: Box::new(|| Box::pin(async { Ok(()) })),
+        },
+    )
+    .with_interrupt(move || send("INT"))
+}

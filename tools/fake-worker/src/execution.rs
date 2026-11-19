@@ -125,6 +125,7 @@ async fn background(ctx: &Execution, pid: u64, action: Action, mut signals: mpsc
             files,
             started,
             on_signal,
+            ..
         } => (*output, files, started, on_signal),
         action => (action, vec![], vec![], None),
     };
@@ -228,14 +229,15 @@ async fn run_action(
     signals: &mut mpsc::Receiver<String>,
     stdin: &mut mpsc::Receiver<Vec<u8>>,
 ) -> Result<()> {
-    let (action, completed_files, started, on_signal) = match action {
+    let (action, completed_files, started, on_signal, normal_exit_on_signal) = match action {
         Action::Publish {
             output,
             files,
             started,
             on_signal,
-        } => (*output, files, started, on_signal),
-        action => (action, vec![], vec![], None),
+            normal_exit_on_signal,
+        } => (*output, files, started, on_signal, normal_exit_on_signal),
+        action => (action, vec![], vec![], None, false),
     };
     tokio::select! {biased; _=ctx.stop.cancelled()=>return Ok(()),result=publish_files(&ctx.fs, started)=>result?};
     match action {
@@ -272,6 +274,9 @@ async fn run_action(
             }
             if signal == on_signal {
                 tokio::select! {biased; _=ctx.stop.cancelled()=>return Ok(()),result=publish_files(&ctx.fs, completed_files)=>result?};
+                if normal_exit_on_signal {
+                    signal = None;
+                }
             }
             finish(ctx, status, signal, eof_before_exit, close_before_eof).await
         }

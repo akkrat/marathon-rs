@@ -1,7 +1,11 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/simctl/service/IoService.kt
 
 use super::SimctlService;
-use crate::{bin::argv, cmd::CommandResult};
+use crate::{
+    bin::argv,
+    cmd::{CommandResult, CommandSession},
+    extensions::Durations,
+};
 use marathon_config::vendor::{Codec, Display, Mask, ScreenshotType};
 use marathon_core::{error::VendorResult, vendor::VendorContext};
 use marathon_logging::{Component, Level};
@@ -55,8 +59,6 @@ impl IoService {
         );
         Ok(false)
     }
-    /// Recording needs SIGINT, which neither the JVM process API nor OpenSSH exec delivers, hence nohup.
-    #[allow(clippy::too_many_arguments)]
     pub async fn record_video(
         &self,
         udid: &str,
@@ -64,9 +66,8 @@ impl IoService {
         codec: Codec,
         display: Display,
         mask: Mask,
-        pidfile: &str,
         context: &VendorContext,
-    ) -> VendorResult<Option<CommandResult>> {
+    ) -> VendorResult<CommandSession> {
         let args = argv([
             "io",
             udid,
@@ -80,7 +81,7 @@ impl IoService {
             "--force",
             remote_path,
         ]);
-        let timeout = self.service.timeouts().video;
-        self.service.safe_execute_nohup(pidfile, timeout, args, context).await
+        // The recording's owner drives stop. An executor timeout would send TERM before INT.
+        self.service.open(Durations::INFINITE, args, context).await
     }
 }

@@ -269,6 +269,7 @@ impl CommandExecutor for WorldExecutor {
                 })));
             let term = signals.clone();
             let kill = signals;
+            let interrupt = kill.clone();
             Ok(CommandSession::new(
                 base,
                 SessionControl {
@@ -284,7 +285,8 @@ impl CommandExecutor for WorldExecutor {
                         })
                     }),
                 },
-            ))
+            )
+            .with_interrupt(move || interrupt.try_send("INT".into()).map_err(harness_error)))
         })
     }
     fn close(&self) -> VendorFuture<'_, ()> {

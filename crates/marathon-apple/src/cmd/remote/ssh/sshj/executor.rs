@@ -251,8 +251,10 @@ async fn execute(
         request.timeout,
         closing.clone(),
     ))));
+    let interrupt = channel.clone();
     let control = session_control(channel, base.scope.clone(), closing);
-    Ok(CommandSession::new(base, control))
+    Ok(CommandSession::new(base, control)
+        .with_interrupt(move || interrupt.signal(Sig::INT).map_err(SshFailure::into_vendor)))
 }
 
 type ExitWait = Result<Option<i32>, ExitWaitError>;

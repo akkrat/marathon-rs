@@ -453,6 +453,7 @@ impl World {
                     )],
                     started: vec![file(&device_barrier(id, &test.method), b"")],
                     on_signal: Some("INT".into()),
+                    normal_exit_on_signal: true,
                 }
             }
             [
@@ -522,6 +523,7 @@ impl World {
                     files: vec![file(path, b"2000-01-01 00:00:00 AppleWorld scripted device log\n")],
                     started: vec![],
                     on_signal: Some("INT".into()),
+                    normal_exit_on_signal: false,
                 }
             }
             _ => {
@@ -837,6 +839,7 @@ impl World {
             files: vec![file(&format!("{CONTROL}/session-{index}.finished"), b"")],
             started: vec![],
             on_signal: None,
+            normal_exit_on_signal: false,
         })
     }
 }

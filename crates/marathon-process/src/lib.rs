@@ -160,6 +160,10 @@ impl Child {
         self.signal(libc::SIGTERM)
     }
 
+    pub fn interrupt(&self) -> io::Result<()> {
+        self.signal(libc::SIGINT)
+    }
+
     pub fn start_kill(&self) -> io::Result<()> {
         self.signal(libc::SIGKILL)
     }
@@ -178,20 +182,10 @@ impl Child {
     }
 
     pub async fn wait(&mut self) -> io::Result<ExitStatus> {
-        self.finish(false).await
+        self.finish_with(confirm_group_exit).await
     }
 
-    /// Compatibility for the existing recorder start command. Its old pidfile stop owns the
-    /// detached recording until the recorder is migrated to its own handle.
-    pub async fn wait_for_legacy_recorder_start(&mut self) -> io::Result<ExitStatus> {
-        self.finish(true).await
-    }
-
-    async fn finish(&mut self, legacy_recorder_start: bool) -> io::Result<ExitStatus> {
-        self.finish_with(legacy_recorder_start, confirm_group_exit).await
-    }
-
-    async fn finish_with<F, Fut>(&mut self, legacy_recorder_start: bool, confirm: F) -> io::Result<ExitStatus>
+    async fn finish_with<F, Fut>(&mut self, confirm: F) -> io::Result<ExitStatus>
     where
         F: FnOnce(i32) -> Fut,
         Fut: Future<Output = io::Result<()>>,
@@ -208,7 +202,7 @@ impl Child {
             }
             changed.recv().await;
         };
-        let check_group = matches!(self.target, Target::Group(_)) && !(legacy_recorder_start && status.success());
+        let check_group = matches!(self.target, Target::Group(_));
         if check_group {
             // On macOS EPERM can also mean only our exited leader remains. Check
             // membership with its PID still pinned in either case.
@@ -361,7 +355,7 @@ fn observe_exit(pid: u32) -> io::Result<Option<ExitStatus>> {
             libc::CLD_EXITED => status << 8,
             libc::CLD_KILLED => status,
             libc::CLD_DUMPED => status | 0x80,
-            _ => return Err(io::Error::other("unexpected child exit status")),
+            _ => return Ok(None),
         };
         return Ok(Some(ExitStatus::from_raw(raw)));
     }
@@ -376,7 +370,7 @@ mod tests {
         for code in [0, 37] {
             let mut child = Command::new("/bin/sh").arg("-c").arg(format!("exit {code}")).spawn()?;
             let status = child
-                .finish_with(false, |_| async {
+                .finish_with(|_| async {
                     Err(io::Error::new(
                         io::ErrorKind::TimedOut,
                         "injected group confirmation timeout",

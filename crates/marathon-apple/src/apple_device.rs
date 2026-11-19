@@ -2,7 +2,7 @@
 
 use crate::{
     bin::AppleBinaryEnvironment,
-    cmd::CommandResult,
+    cmd::{CommandResult, CommandSession},
     model::{Arch, Sdk},
     remote_file_manager::RemoteFileManager,
 };
@@ -99,8 +99,7 @@ pub trait AppleDevice: Device + Screenshottable + LogProducer {
         &'a self,
         remote_path: &'a str,
         context: &'a VendorContext,
-    ) -> VendorFuture<'a, Option<CommandResult>>;
-    fn stop_video_recording<'a>(&'a self, context: &'a VendorContext) -> VendorFuture<'a, bool>;
+    ) -> VendorFuture<'a, CommandSession>;
     fn shutdown<'a>(&'a self, context: &'a VendorContext) -> VendorFuture<'a, bool>;
     fn erase<'a>(&'a self, context: &'a VendorContext) -> VendorFuture<'a, bool>;
 }

@@ -145,7 +145,6 @@ async fn execute(
     if let Some(reason) = context.cancellation.reason() {
         return Err(VendorError::Cancelled(reason));
     }
-    let legacy_recorder_start = request.legacy_recorder_start;
     let last_look = context.cancellation.clone();
     let (mut child, mut handed) = blocking(runtime.as_ref(), move || {
         let command = request.command.iter().map(|arg| strip_quotes(arg)).collect::<Vec<_>>();
@@ -203,13 +202,7 @@ async fn execute(
         let mut hard_stop = None;
         let result = loop {
             tokio::select! {
-                result = async {
-                    if legacy_recorder_start {
-                        child.wait_for_legacy_recorder_start().await
-                    } else {
-                        child.wait().await
-                    }
-                } => break result.map(|status| {
+                result = child.wait() => break result.map(|status| {
                     use std::os::unix::process::ExitStatusExt;
                     use crate::cmd::base_command::CommandTermination;
                     let termination = if let Some(code) = status.code() {
@@ -225,6 +218,7 @@ async fn execute(
                     if let Some((signal, ack)) = signal {
                         let result = match signal {
                             Signal::SIGKILL => child.start_kill(),
+                            Signal::SIGINT => child.interrupt(),
                             _ => {
                                 hard_stop.get_or_insert_with(|| tokio::time::Instant::now() + std::time::Duration::from_secs(5));
                                 child.terminate()
@@ -339,6 +333,7 @@ async fn execute(
     let _ = readers_tx.send([reader!(stdout, base.stdout), reader!(stderr, base.stderr)]);
     let term = signals.clone();
     let hard = signals.clone();
+    let interrupt = signals.clone();
     let alive_getter = alive.clone();
     Ok(CommandSession::new(
         base,
@@ -378,7 +373,11 @@ async fn execute(
                 })
             }),
         },
-    ))
+    )
+    .with_interrupt(move || {
+        let _ = interrupt.send((Signal::SIGINT, None));
+        Ok(())
+    }))
 }
 impl CommandExecutor for KotlinProcessCommandExecutor {
     fn host(&self) -> &CommandHost {

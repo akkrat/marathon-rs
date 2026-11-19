@@ -4,7 +4,6 @@ mod listener_support;
 mod simulator_support;
 mod support;
 use listener_support::{Bridge, context, device, harness};
-use marathon_apple::apple_device::AppleDevice;
 use marathon_apple::{cmd::CommandResult, listener::AppleTestRunListener, logparser::parser::DeviceFailureReason};
 use marathon_config::{schema::ScreenRecordingPolicy, vendor::*};
 use marathon_core::{artifacts::AttachmentCollector, error::VendorError, model::DeviceFeature};
@@ -100,7 +99,7 @@ fn transcode_and_log_command_strings_match_kotlin() -> TestResult {
     Ok(())
 }
 #[tokio::test(start_paused = true)]
-async fn video_policy_gates_pulls_and_false_never_attaches_or_deletes_d97() -> TestResult {
+async fn video_policy_matrix_and_ignored_pull_boolean_emit_attachment() -> TestResult {
     for policy in [ScreenRecordingPolicy::OnAny, ScreenRecordingPolicy::OnFailure] {
         for outcome in 0..3 {
             let mut h = harness(|_| {})?;
@@ -132,26 +131,13 @@ async fn video_policy_gates_pulls_and_false_never_attaches_or_deletes_d97() -> T
             }
             // D80: the pull runs after the callback, off the event path.
             l.settle().await.map_err(|e| format!("{e:?}"))?;
-            let selected = policy == ScreenRecordingPolicy::OnAny || outcome == 1;
-            assert!(collector.get(&test).is_none());
-            assert_eq!(bridge.pulls.lock().unwrap().len(), usize::from(selected));
+            let attach = policy == ScreenRecordingPolicy::OnAny || outcome == 1;
+            assert_eq!(collector.get(&test).is_some(), attach);
+            assert_eq!(bridge.pulls.lock().unwrap().len(), usize::from(attach));
             assert_eq!(
-                h.worker
-                    .commands
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .any(|c| c.first().is_some_and(|s| s == "rm")),
-                !selected,
+                h.worker.commands.lock().unwrap().last().unwrap(),
+                &["rm", "-rf", "/tmp/marathon/a/Tests-Suite-test1-batch.mp4"]
             );
-            let reported = h
-                .logs
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|r| r.2.contains("was not delivered"))
-                .count();
-            assert_eq!(reported, usize::from(selected));
             h.finish(&[d]).await;
         }
     }
@@ -184,14 +170,14 @@ async fn video_transfer_only_catch_and_missing_file_skip_removal() -> TestResult
         assert_eq!(result.is_err(), mode == 3);
         assert!(!h.worker.commands.lock().unwrap().iter().any(|c| c[0] == "rm"));
         if mode == 2 {
-            assert!(h.logs.lock().unwrap().iter().any(|r| r.2.contains("was not delivered")));
+            assert!(h.logs.lock().unwrap().iter().any(|r| r.2 == "Can't pull video"));
         }
         h.finish(&[d]).await;
     }
     Ok(())
 }
 #[tokio::test(start_paused = true)]
-async fn log_disabled_no_pid_and_failed_pull_reports_undelivered_d97() -> TestResult {
+async fn log_disabled_no_pid_and_ignored_kill_and_pull_results() -> TestResult {
     for pid in [None, Some("nonsense"), Some("  +0012  ")] {
         let h = harness(|v| v.device_log = pid.is_some())?;
         let bridge = Arc::new(Bridge::default());
@@ -223,7 +209,7 @@ async fn log_disabled_no_pid_and_failed_pull_reports_undelivered_d97() -> TestRe
                     .lock()
                     .unwrap()
                     .iter()
-                    .any(|r| r.2.starts_with("Device log ") && r.2.ends_with(" was not delivered"))
+                    .any(|r| r.2.starts_with("Pulling finished in ") && r.2.ends_with(" "))
             );
         }
         h.finish(&[d]).await;
@@ -244,337 +230,98 @@ async fn data_clear_disabled_avoids_identification_and_unlocated_test_fails() ->
     Ok(())
 }
 #[tokio::test(start_paused = true)]
-async fn stop_is_idempotent_and_blank_pidfile_is_ignored() -> TestResult {
-    for pid in [None, Some("\u{a0} "), Some("123")] {
-        let h = harness(|_| {})?;
-        let d = h.device().await.map_err(|e| format!("{e:?}"))?;
-        let l = ScreenRecordingListener::new(context(&h, d.clone()));
-        let value = Arc::new(std::sync::Mutex::new(pid.map(str::to_owned)));
-        *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
-            let value = value.clone();
-            Box::pin(async move {
-                Ok(Some(if cmd[0] == "cat" {
-                    value.lock().unwrap().clone().map(|v| ok([v])).unwrap_or_else(absent)
-                } else if cmd == ["rm", "-rf", "/tmp/marathon/a/a.pid"] {
-                    *value.lock().unwrap() = None;
-                    ok(Vec::<String>::new())
-                } else {
-                    ok(Vec::<String>::new())
-                }))
-            })
-        });
-        h.worker.commands.lock().unwrap().clear();
-        l.before_test_run().await.map_err(|e| format!("{e:?}"))?;
-        l.after_test_run().await.map_err(|e| format!("{e:?}"))?;
-        let cmds = h.worker.commands.lock().unwrap().clone();
-        assert_eq!(
-            cmds.iter()
-                .filter(|c| c.last().is_some_and(|s| s.starts_with("kill -s INT")))
-                .count(),
-            usize::from(pid == Some("123"))
-        );
-        h.finish(&[d]).await;
-    }
-    Ok(())
-}
-#[tokio::test(start_paused = true)]
-async fn waiting_start_warns_and_an_unconfirmed_stop_is_reported_d97() -> TestResult {
+async fn unhealthy_batch_and_disposal_join_the_same_recording_stop_d96() -> TestResult {
+    use marathon_core::executor::shared::SharedDeferred;
+    use marathon_ios::apple_simulator_device::recording::RecordingFinalization;
     let h = harness(|_| {})?;
     let d = h.device().await?;
-    let c = context(&h, d.clone());
+    let mut c = context(&h, d.clone());
+    let batch = marathon_core::executor::shared::Signal::new();
+    c.context.cancellation = batch.clone();
     let test = c.batch.tests[0].clone();
     let l = ScreenRecordingListener::new(c);
-    let started = marathon_core::executor::shared::SharedDeferred::new();
-    let event = started.clone();
-    *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
-        let event = event.clone();
-        Box::pin(async move {
-            Ok(Some(if cmd[0] == "cat" {
-                ok(["123"])
-            } else if cmd.last().is_some_and(|a| a.contains("nohup")) {
-                event.complete(Ok(()));
-                ok(Vec::<String>::new())
-            } else if cmd.last().is_some_and(|a| a.starts_with("ps -p")) {
-                // D17: the recorder is still alive, so the failed stop stays failed (A96).
-                ok(["123"])
-            } else {
-                absent()
-            }))
-        })
+    let opened = SharedDeferred::new();
+    let signals = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (open, seen) = (opened.clone(), signals.clone());
+    *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
+        if !cmd.iter().any(|arg| arg == "recordVideo") {
+            return Ok(None);
+        }
+        let seen = seen.clone();
+        let session = simulator_support::recorder_session(move |signal| {
+            seen.lock().unwrap().push(signal);
+            Box::pin(async move { Ok((signal == "INT").then_some(0)) })
+        });
+        open.complete(Ok(()));
+        Ok(Some(session))
     });
-    let start = h.clock.now();
+    *h.worker.before.lock().unwrap() = Arc::new(|_| Box::pin(async { Ok(Some(absent())) }));
     l.test_started(&test).await.map_err(|e| format!("{e:?}"))?;
-    started.wait().await.map_err(|e| format!("{e:?}"))?;
-    assert_eq!(h.clock.now() - start, 10_000);
-    l.after_test_run().await.map_err(|e| format!("{e:?}"))?;
-    let logs = h.logs.lock().unwrap().clone();
+    opened.wait().await.map_err(|e| format!("{e:?}"))?;
+    batch.cancel(marathon_apple::cmd::cancelled("Stop the batch"));
+    let (failure, disposed) = tokio::join!(
+        l.test_run_failed("failure", DeviceFailureReason::Unknown),
+        d.dispose_and_join(),
+    );
+    failure.map_err(|e| format!("{e:?}"))?;
+    disposed.map_err(|e| format!("{e:?}"))?;
     assert_eq!(
-        logs.iter()
-            .filter(|r| r.2.starts_with("Previous video recording didn't finish yet."))
-            .count(),
-        1
+        l.stop().await.map_err(|e| format!("{e:?}"))?,
+        RecordingFinalization::Finalized
     );
-    assert!(
-        logs.iter()
-            .any(|r| r.2 == "Previous video recording didn't finish in 10s, starting a new one anyway")
-    );
-    assert!(!logs.iter().any(|r| r.2 == "stopped video recording pid=123"));
-    assert!(logs.iter().any(|r| r.2 == "Can't pull video"));
-    h.finish(&[d]).await;
-    Ok(())
-}
-/// The worker models the recorder as a process that lives from its nohup start until the INT in the stop command.
-/// Real-host captures showed the second test of an ON_ANY run losing its video; nothing in the listener ends the
-/// recorder before that INT, so both recordings must start and both videos must be attached.
-#[tokio::test(start_paused = true)]
-async fn two_tests_keep_the_recorder_alive_until_stop_and_attach_both_videos() -> TestResult {
-    let mut h = harness(|_| {})?;
-    Arc::make_mut(&mut h.services.configuration).screen_recording_policy = ScreenRecordingPolicy::OnAny;
-    let bridge = Arc::new(Bridge::default());
-    let d = device(&h, bridge.clone()).await.map_err(|e| format!("{e:?}"))?;
-    let c = context(&h, d.clone());
-    let tests = c.batch.tests.clone();
-    let l = ScreenRecordingListener::new(c);
-    let collector =
-        AttachmentCollector::new(&[l.attachments.clone() as Arc<dyn marathon_core::listener::AttachmentProvider>])
-            .map_err(|e| format!("{e:?}"))?;
-    #[derive(Default)]
-    struct Recorder {
-        pid: Option<String>,
-        alive: bool,
-        starts: usize,
-        alive_at_stop: Vec<bool>,
-    }
-    let recorder = Arc::new(std::sync::Mutex::new(Recorder::default()));
-    let started: Arc<std::sync::Mutex<Vec<Arc<marathon_core::executor::shared::SharedDeferred<()>>>>> =
-        Arc::new(std::sync::Mutex::new(vec![
-            marathon_core::executor::shared::SharedDeferred::new(),
-            marathon_core::executor::shared::SharedDeferred::new(),
-        ]));
-    let (model, events) = (recorder.clone(), started.clone());
-    *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
-        let (model, events) = (model.clone(), events.clone());
-        Box::pin(async move {
-            let mut r = model.lock().unwrap();
-            Ok(Some(if cmd[0] == "cat" {
-                r.pid.clone().map(|p| ok([p])).unwrap_or_else(absent)
-            } else if cmd.last().is_some_and(|a| a.contains("nohup")) {
-                r.starts += 1;
-                r.alive = true;
-                r.pid = Some(format!("{}", 100 + r.starts));
-                events.lock().unwrap()[r.starts - 1].complete(Ok(()));
-                ok(Vec::<String>::new())
-            } else if cmd.last().is_some_and(|a| a.starts_with("kill -s INT")) {
-                // lsof waits for the recorder to finish, so a live recorder makes the stop succeed.
-                let alive = r.alive;
-                r.alive_at_stop.push(alive);
-                r.alive = false;
-                if alive { ok(Vec::<String>::new()) } else { absent() }
-            } else if cmd == ["rm", "-rf", "/tmp/marathon/a/a.pid"] {
-                r.pid = None;
-                ok(Vec::<String>::new())
-            } else {
-                ok(Vec::<String>::new())
-            }))
-        })
-    });
-    for (n, test) in tests.iter().enumerate() {
-        l.test_started(test).await.map_err(|e| format!("{e:?}"))?;
-        let event = started.lock().unwrap()[n].clone();
-        event.wait().await.map_err(|e| format!("{e:?}"))?;
-        l.test_passed(test, 0, 0).await.map_err(|e| format!("{e:?}"))?;
-    }
-    l.settle().await.map_err(|e| format!("{e:?}"))?;
-    {
-        let r = recorder.lock().unwrap();
-        assert_eq!(
-            (r.starts, r.alive_at_stop.clone(), r.pid.clone()),
-            (2, vec![true, true], None)
-        );
-    }
-    assert!(tests.iter().all(|t| collector.get(t).is_some()));
-    assert!(
-        !h.logs
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|r| r.2.starts_with("Previous video recording didn't finish"))
-    );
-    h.finish(&[d]).await;
-    Ok(())
-}
-/// D17: the recorder exits before lsof's first pass, so the stop command returns 1 although the INT was delivered.
-/// The recorder pid is gone, so the stop counts as done, the pidfile is removed and the next recording is not held up.
-#[tokio::test(start_paused = true)]
-async fn fast_recorder_exit_keeps_failed_stop_from_blocking_next_recording() -> TestResult {
-    let mut h = harness(|_| {})?;
-    Arc::make_mut(&mut h.services.configuration).screen_recording_policy = ScreenRecordingPolicy::OnAny;
-    let bridge = Arc::new(Bridge::default());
-    let d = device(&h, bridge.clone()).await.map_err(|e| format!("{e:?}"))?;
-    let c = context(&h, d.clone());
-    let tests = c.batch.tests.clone();
-    let l = ScreenRecordingListener::new(c);
-    let collector =
-        AttachmentCollector::new(&[l.attachments.clone() as Arc<dyn marathon_core::listener::AttachmentProvider>])
-            .map_err(|e| format!("{e:?}"))?;
-    let pid = Arc::new(std::sync::Mutex::new(None::<String>));
-    let started: Arc<std::sync::Mutex<Vec<Arc<marathon_core::executor::shared::SharedDeferred<()>>>>> =
-        Arc::new(std::sync::Mutex::new(vec![
-            marathon_core::executor::shared::SharedDeferred::new(),
-            marathon_core::executor::shared::SharedDeferred::new(),
-        ]));
-    let starts = Arc::new(AtomicUsize::new(0));
-    let (model, events, counter) = (pid.clone(), started.clone(), starts.clone());
-    *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
-        let (model, events, counter) = (model.clone(), events.clone(), counter.clone());
-        Box::pin(async move {
-            let mut pid = model.lock().unwrap();
-            Ok(Some(if cmd[0] == "cat" {
-                pid.clone().map(|p| ok([p])).unwrap_or_else(absent)
-            } else if cmd.last().is_some_and(|a| a.contains("nohup")) {
-                let n = counter.fetch_add(1, Ordering::SeqCst);
-                *pid = Some(format!("{}", 101 + n));
-                events.lock().unwrap()[n].complete(Ok(()));
-                ok(Vec::<String>::new())
-            } else if cmd
-                .last()
-                .is_some_and(|a| a.starts_with("kill -s INT") || a.starts_with("ps -p"))
-            {
-                // lsof lost the race with the recorder's exit, and the probe finds no such pid.
-                absent()
-            } else if cmd == ["rm", "-rf", "/tmp/marathon/a/a.pid"] {
-                *pid = None;
-                ok(Vec::<String>::new())
-            } else {
-                ok(Vec::<String>::new())
-            }))
-        })
-    });
-    h.worker.commands.lock().unwrap().clear();
-    let begin = h.clock.now();
-    for (n, test) in tests.iter().enumerate() {
-        l.test_started(test).await.map_err(|e| format!("{e:?}"))?;
-        let event = started.lock().unwrap()[n].clone();
-        event.wait().await.map_err(|e| format!("{e:?}"))?;
-        l.test_passed(test, 0, 0).await.map_err(|e| format!("{e:?}"))?;
-    }
-    l.settle().await.map_err(|e| format!("{e:?}"))?;
-    assert_eq!((starts.load(Ordering::SeqCst), pid.lock().unwrap().clone()), (2, None));
-    assert!(h.clock.now() - begin < 10_000);
-    let cmds = h.worker.commands.lock().unwrap().clone();
-    let count = |prefix: &str| {
-        cmds.iter()
-            .filter(|c| c.last().is_some_and(|s| s.starts_with(prefix)))
-            .count()
-    };
-    assert_eq!((count("kill -s INT"), count("ps -p")), (2, 2));
-    assert!(tests.iter().all(|t| collector.get(t).is_some()));
-    let logs = h.logs.lock().unwrap().clone();
-    assert!(
-        !logs
-            .iter()
-            .any(|r| r.2.starts_with("Previous video recording didn't finish"))
-    );
-    assert!(
-        !logs
-            .iter()
-            .any(|r| r.2.starts_with("error while killing recording process"))
-    );
-    h.finish(&[d]).await;
-    Ok(())
-}
-/// D17 keeps A96's warn-and-keep path for a stop that failed while the recorder pid still exists, and for a probe
-/// that could not run.
-#[tokio::test(start_paused = true)]
-async fn live_recorder_and_failed_stop_keep_pidfile_and_warn() -> TestResult {
-    // 0 alive pid, 1 exit code null, 2 `ps` rejecting the pid, 3 null result, 4 I/O error from the probe.
-    for probe in 0..5 {
-        let h = harness(|_| {})?;
-        let d = h.device().await.map_err(|e| format!("{e:?}"))?;
-        let l = ScreenRecordingListener::new(context(&h, d.clone()));
-        *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
-            Box::pin(async move {
-                Ok(Some(if cmd[0] == "cat" {
-                    ok(["123"])
-                } else if cmd.last().is_some_and(|a| a.starts_with("ps -p")) {
-                    match probe {
-                        0 => ok(["123"]),
-                        1 => CommandResult {
-                            stdout: vec![],
-                            stderr: vec![],
-                            exit_code: None,
-                        },
-                        2 => CommandResult {
-                            stdout: vec![],
-                            stderr: vec!["Invalid process id".into()],
-                            exit_code: Some(1),
-                        },
-                        3 => return Ok(None),
-                        _ => {
-                            return Err(VendorError::Other(marathon_core::error::Failure {
-                                kind: FailureKind::Io,
-                                message: Some("probe failed".into()),
-                                cause: None,
-                                stacktrace: None,
-                            }));
-                        }
-                    }
-                } else if cmd.last().is_some_and(|a| a.starts_with("kill -s INT")) {
-                    absent()
-                } else {
-                    ok(Vec::<String>::new())
-                }))
-            })
-        });
-        h.worker.commands.lock().unwrap().clear();
-        l.before_test_run().await.map_err(|e| format!("{e:?}"))?;
-        l.after_test_run().await.map_err(|e| format!("{e:?}"))?;
-        let cmds = h.worker.commands.lock().unwrap().clone();
-        assert!(!cmds.iter().any(|c| c.first().is_some_and(|a| a == "rm")), "{cmds:?}");
-        assert!(
-            h.logs
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|r| r.2.starts_with("error while killing recording process"))
-        );
-        h.finish(&[d]).await;
-    }
-    Ok(())
-}
-#[tokio::test(start_paused = true)]
-async fn stop_cancels_waiting_start_before_reading_pidfile() -> TestResult {
-    let h = harness(|_| {})?;
-    let d = h.device().await?;
-    let c = context(&h, d.clone());
-    let test = c.batch.tests[0].clone();
-    let l = ScreenRecordingListener::new(c);
-    let first_read = marathon_core::executor::shared::SharedDeferred::new();
-    let event = first_read.clone();
-    *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
-        let event = event.clone();
-        Box::pin(async move {
-            Ok(Some(if cmd[0] == "cat" {
-                event.complete(Ok(()));
-                ok(["123"])
-            } else {
-                absent()
-            }))
-        })
-    });
-    h.worker.commands.lock().unwrap().clear();
-    l.test_started(&test).await.map_err(|e| format!("{e:?}"))?;
-    first_read.wait().await.map_err(|e| format!("{e:?}"))?;
-    l.after_test_run().await.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(*signals.lock().unwrap(), ["INT"]);
     assert!(
         !h.worker
             .commands
             .lock()
             .unwrap()
             .iter()
-            .any(|c| c.last().is_some_and(|a| a.contains("nohup")))
+            .any(|cmd| cmd.iter().any(|arg| arg.ends_with(".pid")))
     );
     h.finish(&[d]).await;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_unresponsive_recording_escalates_and_requires_an_exit_report_d96() -> TestResult {
+    use marathon_core::executor::shared::SharedDeferred;
+    use marathon_ios::apple_simulator_device::recording::RecordingFinalization;
+    for acknowledged in [true, false] {
+        let h = harness(|_| {})?;
+        let d = h.device().await?;
+        let c = context(&h, d.clone());
+        let test = c.batch.tests[0].clone();
+        let l = ScreenRecordingListener::new(c);
+        let opened = SharedDeferred::new();
+        let signals = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (open, seen) = (opened.clone(), signals.clone());
+        *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
+            if !cmd.iter().any(|arg| arg == "recordVideo") {
+                return Ok(None);
+            }
+            let seen = seen.clone();
+            let session = simulator_support::recorder_session(move |signal| {
+                seen.lock().unwrap().push(signal);
+                Box::pin(async move { Ok((acknowledged && signal == "KILL").then_some(137)) })
+            });
+            open.complete(Ok(()));
+            Ok(Some(session))
+        });
+        l.test_started(&test).await.map_err(|e| format!("{e:?}"))?;
+        opened.wait().await.map_err(|e| format!("{e:?}"))?;
+        let (left, right) = tokio::join!(l.stop(), l.stop());
+        let expected = if acknowledged {
+            RecordingFinalization::Unfinalized
+        } else {
+            RecordingFinalization::Unconfirmed
+        };
+        assert_eq!(left.map_err(|e| format!("{e:?}"))?, expected);
+        assert_eq!(right.map_err(|e| format!("{e:?}"))?, expected);
+        d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+        assert_eq!(d.quarantined(), !acknowledged);
+        assert_eq!(*signals.lock().unwrap(), ["INT", "TERM", "KILL"]);
+        h.finish(&[d]).await;
+    }
     Ok(())
 }
 #[tokio::test(start_paused = true)]
@@ -602,7 +349,7 @@ async fn batch_failure_health_swallow_and_no_inflight_test() -> TestResult {
         l.test_run_failed("failure", DeviceFailureReason::Unknown)
             .await
             .map_err(|e| format!("{e:?}"))?;
-        assert_eq!(h.worker.commands.lock().unwrap().len(), if mode == 0 { 2 } else { 1 });
+        assert_eq!(h.worker.commands.lock().unwrap().len(), 1);
         assert_eq!(
             h.logs
                 .lock()
@@ -819,7 +566,7 @@ async fn non_transfer_failure_reaches_the_next_listener_and_fails_after_test_run
     Ok(())
 }
 #[tokio::test(start_paused = true)]
-async fn failed_or_null_transcode_requests_the_original_movie_d97() -> TestResult {
+async fn failed_or_null_transcode_still_pulls_and_only_failed_result_logs_error() -> TestResult {
     for null in [false, true] {
         let mut h = harness(|v| v.screen_record_configuration.video_configuration.transcoding.enabled = true)?;
         Arc::make_mut(&mut h.services.configuration).screen_recording_policy = ScreenRecordingPolicy::OnAny;
@@ -856,9 +603,8 @@ async fn failed_or_null_transcode_requests_the_original_movie_d97() -> TestResul
         });
         l.test_failed(&test, 0, 0, None).await.map_err(|e| format!("{e:?}"))?;
         l.settle().await.map_err(|e| format!("{e:?}"))?;
-        let backup = d.remote_file_manager().remote_temp_video_for_test(&test, "batch");
-        assert_eq!(bridge.pulls.lock().unwrap().as_slice(), &[backup]);
-        assert!(collector.get(&test).is_none());
+        assert_eq!(bridge.pulls.lock().unwrap().len(), 1);
+        assert!(collector.get(&test).is_some());
         assert_eq!(
             h.logs
                 .lock()
@@ -891,7 +637,7 @@ fn a_recording_start_that_panics_fails_after_test_run_d80() -> TestResult {
             *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
                 let starting = starting.clone();
                 Box::pin(async move {
-                    if cmd.last().is_some_and(|a| a.contains("nohup")) {
+                    if cmd.iter().any(|a| a == "recordVideo") {
                         starting.complete(Ok(()));
                         panic!("recording start panicked");
                     }

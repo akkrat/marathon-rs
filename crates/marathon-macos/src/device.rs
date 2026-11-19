@@ -1605,10 +1605,7 @@ impl AppleDevice for MacosDevice {
         &'a self,
         _: &'a str,
         _: &'a VendorContext,
-    ) -> VendorFuture<'a, Option<CommandResult>> {
-        Box::pin(async { unsupported() })
-    }
-    fn stop_video_recording<'a>(&'a self, _: &'a VendorContext) -> VendorFuture<'a, bool> {
+    ) -> VendorFuture<'a, marathon_apple::cmd::CommandSession> {
         Box::pin(async { unsupported() })
     }
     fn shutdown<'a>(&'a self, _: &'a VendorContext) -> VendorFuture<'a, bool> {

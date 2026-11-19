@@ -188,7 +188,6 @@ async fn direct_unsupported_operations_fail_with_the_kotlin_error() -> R {
             .ok_or("video")?
             .failure(),
     );
-    expected(d.stop_video_recording(&h.context).await.err().ok_or("stop")?.failure());
     expected(d.shutdown(&h.context).await.err().ok_or("shutdown")?.failure());
     expected(d.erase(&h.context).await.err().ok_or("erase")?.failure());
     assert_eq!(v(d.orientation())?, marathon_core::screenshot::Rotation::Rotation0);

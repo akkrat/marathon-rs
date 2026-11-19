@@ -41,6 +41,7 @@ pub(super) struct Shutdown {
     /// The xcodebuild sessions registered and not confirmed to have ended when it was sealed: one still running (a
     /// batch's, a parse's) and one whose exec or close could not be confirmed. No session registers after the seal.
     sessions: Vec<Arc<marathon_apple::xcodebuild_session::XcodebuildSession>>,
+    recordings: Vec<Arc<super::recording::Recording>>,
 }
 pub(super) struct BatchJob {
     signal: Arc<Signal>,
@@ -423,6 +424,12 @@ impl AppleSimulatorDevice {
                 .filter(|s| s.ended() != Some(true))
                 .cloned()
                 .collect(),
+            recordings: state
+                .recordings
+                .iter()
+                .filter(|r| r.ended() != Some(true))
+                .cloned()
+                .collect(),
         });
         state.shutdown = Some(shutdown.clone());
         let why = state.refusal(&self.serial).unwrap_or_default();
@@ -524,6 +531,13 @@ impl AppleSimulatorDevice {
                 Some(true) => {}
             }
         }
+        for recording in &shutdown.recordings {
+            match recording.ended() {
+                None => left.push("a recorder has not ended".to_owned()),
+                Some(false) => left.push("a recorder's exit was not confirmed".to_owned()),
+                Some(true) => {}
+            }
+        }
         // D93 (round 10): every command it handed to the worker before the seal (or its batch's after it).
         left.extend(self.commands.handed_left());
         if !in_time {
@@ -568,6 +582,9 @@ impl AppleSimulatorDevice {
         for session in &shutdown.sessions {
             session.refuse_unopened(shutdown.cause.refusal(disposed().failure().clone()));
         }
+        for recording in &shutdown.recordings {
+            recording.request_stop(self.services.context.clock.as_ref(), Some(shutdown.window.deadline));
+        }
     }
     /// D93: seals the simulator if it is not yet, stops what it runs and returns its one verdict, decided at most once,
     /// within its window. Every caller (the cancelled call, the run's stop, disposal) reads the same verdict.
@@ -593,6 +610,7 @@ impl AppleSimulatorDevice {
                 && receipt.preparations.iter().all(|p| p.done.completed().is_some())
                 && receipt.transfers.iter().all(|t| t.ended().is_some())
                 && receipt.sessions.iter().all(|s| s.ended().is_some())
+                && receipt.recordings.iter().all(|r| r.ended().is_some())
                 && self.commands.handed_ended()
         };
         let millis = until.saturating_sub(clock.now_millis());
@@ -611,6 +629,7 @@ impl AppleSimulatorDevice {
             .collect();
         let sends = receipt.transfers.clone();
         let sessions = receipt.sessions.clone();
+        let recordings = receipt.recordings.clone();
         let commands = self.commands.clone();
         // Joining observes completion, not the jobs' results; the timeout only bounds this wait.
         let timed = clock.with_timeout_or_null(
@@ -637,6 +656,12 @@ impl AppleSimulatorDevice {
                         tokio::select! { biased;
                             reason = signal.cancelled() => return Err(VendorError::Cancelled(reason)),
                             _ = session.wait_ended() => {}
+                        }
+                    }
+                    for recording in recordings {
+                        tokio::select! { biased;
+                            reason = signal.cancelled() => return Err(VendorError::Cancelled(reason)),
+                            _ = recording.finalization() => {}
                         }
                     }
                     commands.wait_handed(signal).await

@@ -83,6 +83,8 @@ pub enum Action {
         #[serde(default)]
         started: Vec<PublishedFile>,
         on_signal: Option<String>,
+        #[serde(default)]
+        normal_exit_on_signal: bool,
     },
     EchoStdin,
     Filesystem,

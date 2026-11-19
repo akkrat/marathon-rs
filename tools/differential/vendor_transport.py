@@ -153,7 +153,77 @@ def without_d46_probe(wire):
     return 'xcrun simctl spawn ' + probe[1] + ' ' + D46_OLD if probe else wire
 
 
-def ssh(data, name=None, before_d32=False):
+D96_VIDEO = re.compile(
+    r'xcrun simctl io ([A-F0-9-]{36}) recordVideo --codec h264 --display internal --mask black --force '
+    r'/tmp/marathon/\1/[^/ ]+\.mp4'
+)
+
+
+def d96_recorder(sessions, signals, legacy):
+    """Compare the one recording in ios-media and retain every unrelated command."""
+    wrapper = "sh -c 'nohup "
+    candidates = []
+    for key, session in sessions.items():
+        wire = session['wire']
+        direct = wire
+        if legacy and wire.startswith(wrapper):
+            direct = wire[len(wrapper):].split(' > /dev/null 2>&1 & echo $! > ', 1)[0]
+        if match := D96_VIDEO.fullmatch(direct):
+            pidfile = f'/tmp/marathon/{match[1]}/{match[1]}.pid'
+            expected = f"{wrapper}{direct} > /dev/null 2>&1 & echo $! > {pidfile}'" if legacy else direct
+            e.require(wire == expected, 'D96 unexpected recorder command')
+            candidates.append((key, direct, pidfile))
+    e.require(len(candidates) == 1, 'D96 expected one recorder')
+    key, direct, pidfile = candidates[0]
+    start = sessions[key]
+    e.require(_d96_recorder_reply(start, 0), 'D96 recorder did not report success')
+    removed = {key}
+    if legacy:
+        e.require(not signals[key], 'D96 unexpected signal on legacy recorder launcher')
+        stop = f"sh -c 'kill -s INT $(cat {pidfile}) && lsof -p $(cat {pidfile}) +r 1 &>/dev/null'"
+        observed = []
+        for candidate, session in sessions.items():
+            wire = session['wire']
+            if candidate == key:
+                observed.append('launch')
+            elif wire == f'cat {pidfile}':
+                if _d96_recorder_reply(session, 1, stderr=b'No such file\n'):
+                    observed.append('absent')
+                else:
+                    e.require(_d96_recorder_reply(session, 0, stdout=b'1001\n'), 'D96 unexpected recorder pid lookup')
+                    observed.append('pid')
+                removed.add(candidate)
+            elif wire in (stop, f'rm -rf {pidfile}'):
+                e.require(_d96_recorder_reply(session, 0), 'D96 legacy recorder stop failed')
+                observed.append('stop' if wire == stop else 'remove')
+                removed.add(candidate)
+        e.require(observed == ['absent', 'absent', 'launch', 'pid', 'pid', 'stop', 'remove', 'absent'],
+                  'D96 unexpected legacy recorder lifecycle')
+    else:
+        e.require(signals[key] == ['INT'], 'D96 expected one INT on the foreground recorder')
+    return removed, [dict(wire=direct, exit=0, end='completed')]
+
+
+def _d96_recorder_reply(session, status, stdout=b'', stderr=b''):
+    return (session['exit'], session['stdout'], session['stderr'], session['stdin'], session['end']) == (
+        status, stdout, stderr, b'', 'completed'
+    )
+
+
+def d96_native_golden(lanes):
+    """The pinned ios-media native view predates the foreground recorder."""
+    control = lanes['control']
+    sessions = {
+        index: dict(session, **{stream: base64.b64decode(session[stream], validate=True)
+                                for stream in ('stdout', 'stderr', 'stdin')})
+        for index, session in enumerate(control)
+        if 'wire' in session
+    }
+    removed, recorder = d96_recorder(sessions, defaultdict(list), True)
+    return dict(lanes, recorder=recorder, control=[s for index, s in enumerate(control) if index not in removed])
+
+
+def ssh(data, name=None, before_d32=False, *, d96_recorder_transport=False):
     rows = records(data)
     if before_d32:
         rows = with_d46_probe(rows)
@@ -163,6 +233,7 @@ def ssh(data, name=None, before_d32=False):
     if name is not None:
         e.require(all(row['run'] == name for row in rows),'SSH scenario identity differs')
     sessions, lanes = {}, defaultdict(list)
+    signals = defaultdict(list)
     for row in rows:
         event = row['event']; detail = row['detail']
         e.require(event not in ('warning','route_error'),'unmatched SSH command')
@@ -181,6 +252,8 @@ def ssh(data, name=None, before_d32=False):
             sessions[key]['exit'] = detail['status']
         elif event == 'channel_end' and key in sessions:
             sessions[key]['end'] = detail['outcome']
+        elif event == 'signal' and key in sessions:
+            signals[key].append(detail.get('signal'))
     e.require(sessions,'no SSH sessions')
     control = {key[0] for key,s in sessions.items() if not s['wire'].startswith('/usr/bin/rsync --server ') and s['wire'] != 'xcrun simctl list --json'}
     inventory = {key[0] for key,s in sessions.items() if s['wire'] == 'xcrun simctl list --json'}
@@ -191,6 +264,9 @@ def ssh(data, name=None, before_d32=False):
               'SSH transfer connection role collision')
     ended = {row['connection'] for row in rows if row['event'] == 'connection_end'}
     e.require({key[0] for key in sessions} <= ended,'unfinished SSH connection')
+    if name == 'ios-media' and d96_recorder_transport:
+        removed, lanes['recorder'] = d96_recorder(sessions, signals, before_d32)
+        sessions = {key: value for key, value in sessions.items() if key not in removed}
     preparing = False
     for session in sessions.values():
         wire = session['wire']

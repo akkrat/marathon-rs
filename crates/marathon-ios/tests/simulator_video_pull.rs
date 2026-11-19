@@ -14,7 +14,6 @@ use marathon_core::{
 };
 use marathon_error::FailureKind;
 use marathon_ios::apple_simulator_device::AppleSimulatorDevice;
-use marathon_test_support::apple::fake_simulator_worker::ok;
 use simulator_support::*;
 use std::{
     path::Path,
@@ -24,7 +23,6 @@ use std::{
     },
 };
 
-const PIDFILE: &str = "/tmp/marathon/a/a.pid";
 /// How long the second test runs on the worker, on the test's clock.
 const SECOND_TEST_MILLIS: u64 = 7_700;
 
@@ -55,11 +53,9 @@ impl FileBridge for SlowFirstPull {
     }
 }
 
-/// The worker's recorder: `nohup` starts it and writes the pidfile, a stop removes it. Records when each test's
-/// recording started and when each stop removed the pidfile. With `slow_stop`, the first stop's INT waits for it.
+/// Records each foreground recorder start and its INT completion.
 #[derive(Default)]
 struct Worker {
-    pid: Mutex<Option<String>>,
     recordings: Mutex<Vec<(String, i64)>>,
     stops: Mutex<Vec<Arc<SharedDeferred<()>>>>,
     stopped_at: Mutex<Vec<i64>>,
@@ -84,45 +80,10 @@ async fn setup() -> TestResult<Setup> {
         stops: Mutex::new(vec![SharedDeferred::new(), SharedDeferred::new()]),
         ..Worker::default()
     });
-    let (model, boot, clock) = (worker.clone(), h.boot.clone(), h.clock.clone());
+    let boot = h.boot.clone();
     *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
-        let mut gate = None;
-        let answer = if cmd == ["cat", PIDFILE] {
-            Some(model.pid.lock().unwrap().clone().map_or_else(failing, |pid| ok([pid])))
-        } else if let Some(nohup) = cmd.last().filter(|a| a.contains("nohup")) {
-            let test = ["test1", "test2"]
-                .into_iter()
-                .find(|t| nohup.contains(&format!("-{t}-")));
-            model
-                .recordings
-                .lock()
-                .unwrap()
-                .push((test.unwrap_or("?").into(), clock.now()));
-            *model.pid.lock().unwrap() = Some("100".into());
-            Some(ok(Vec::<String>::new()))
-        } else if cmd.last().is_some_and(|a| a.starts_with("kill -s INT")) {
-            gate = model.slow_stop.lock().unwrap().take();
-            if gate.is_some() {
-                model.stop_entered.complete(Ok(()));
-            }
-            Some(ok(Vec::<String>::new()))
-        } else if cmd == ["rm", "-rf", PIDFILE] {
-            *model.pid.lock().unwrap() = None;
-            model.stopped_at.lock().unwrap().push(clock.now());
-            let mut stops = model.stops.lock().unwrap();
-            if !stops.is_empty() {
-                stops.remove(0).complete(Ok(()));
-            }
-            Some(ok(Vec::<String>::new()))
-        } else {
-            boot.answer(&cmd)
-        };
-        Box::pin(async move {
-            if let Some(gate) = gate {
-                gate.wait().await?;
-            }
-            Ok(answer)
-        })
+        let answer = boot.answer(&cmd);
+        Box::pin(async move { Ok(answer) })
     });
     let bridge = Arc::new(SlowFirstPull::default());
     let d = h
@@ -141,6 +102,42 @@ async fn setup() -> TestResult<Setup> {
     h.prepare(&d).await.map_err(|e| format!("{e:?}"))?;
     let script = Arc::new(BatchScript::default());
     script.attach(&h.worker);
+    let (model, clock) = (worker.clone(), h.clock.clone());
+    let previous = h.worker.session.lock().unwrap().clone();
+    *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
+        if !cmd.iter().any(|arg| arg == "recordVideo") {
+            return previous(cmd);
+        }
+        let test = ["test1", "test2"]
+            .into_iter()
+            .find(|test| cmd.iter().any(|arg| arg.contains(&format!("-{test}-"))));
+        model
+            .recordings
+            .lock()
+            .unwrap()
+            .push((test.unwrap_or("?").into(), clock.now()));
+        let (model, clock) = (model.clone(), clock.clone());
+        Ok(Some(recorder_session(move |signal| {
+            let (model, clock) = (model.clone(), clock.clone());
+            Box::pin(async move {
+                if signal != "INT" {
+                    return Ok(Some(137));
+                }
+                let gate = model.slow_stop.lock().unwrap().take();
+                if let Some(gate) = gate {
+                    model.stop_entered.complete(Ok(()));
+                    gate.wait().await?;
+                }
+                model.stopped_at.lock().unwrap().push(clock.now());
+                let mut stops = model.stops.lock().unwrap();
+                if !stops.is_empty() {
+                    stops.remove(0).complete(Ok(()));
+                }
+                Ok(Some(0))
+            })
+        })))
+    });
+
     Ok(Setup {
         h,
         d,
@@ -434,7 +431,7 @@ async fn a_repeated_test_records_again_only_after_its_first_video_is_collected_d
     let starts: Vec<_> = commands
         .iter()
         .enumerate()
-        .filter(|(_, c)| c.last().is_some_and(|a| a.contains("nohup") && a.contains(video)))
+        .filter(|(_, c)| c.iter().any(|arg| arg == "recordVideo") && c.last().is_some_and(|a| a.starts_with(video)))
         .map(|(n, _)| n)
         .collect();
     let removals: Vec<_> = commands

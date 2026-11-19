@@ -932,6 +932,23 @@ class EvidenceTests(unittest.TestCase):
 
 
 class VendorEvidenceTests(unittest.TestCase):
+    def test_d96_foreground_recording_requires_its_own_int_and_success(self):
+        import vendor_transport as t
+        device = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE'
+        wire = f'xcrun simctl io {device} recordVideo --codec h264 --display internal --mask black --force /tmp/marathon/{device}/video.mp4'
+        record = dict(wire=wire, exit=0, end='completed', stdout=b'', stderr=b'', stdin=b'')
+        unrelated = dict(record, wire='cat /tmp/elsewhere.pid')
+        rows = {1: record, 2: unrelated}
+        removed, compared = t.d96_recorder(rows, {1: ['INT']}, False)
+        self.assertEqual(removed, {1})
+        self.assertEqual(compared, [dict(wire=wire, exit=0, end='completed')])
+        for incorrect in ([], ['TERM'], ['INT', 'KILL']):
+            with self.subTest(incorrect=incorrect), self.assertRaises(e.Invalid):
+                t.d96_recorder(rows, {1: incorrect, 2: ['INT']}, False)
+        for bad in (dict(record, exit=1), dict(record, end='abandoned'), dict(record, stderr=b'failure')):
+            with self.subTest(bad=bad), self.assertRaises(e.Invalid):
+                t.d96_recorder({1: bad}, {1: ['INT']}, False)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

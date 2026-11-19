@@ -104,7 +104,6 @@ pub struct CommandRequest {
     pub env: BTreeMap<String, String>,
     pub workdir: Option<String>,
     pub charset: String,
-    pub(crate) legacy_recorder_start: bool,
 }
 impl CommandRequest {
     pub fn new(command: impl IntoIterator<Item = impl Into<String>>, timeout: Duration) -> Self {
@@ -115,7 +114,6 @@ impl CommandRequest {
             env: BTreeMap::new(),
             workdir: None,
             charset: "UTF-8".into(),
-            legacy_recorder_start: false,
         }
     }
 }
@@ -200,13 +198,13 @@ pub trait CommandExecutor: Send + Sync {
             }
         })
     }
+    #[cfg(feature = "test-support")]
     fn safe_execute_nohup(
         &self,
         pidfile: &str,
         mut request: CommandRequest,
         context: VendorContext,
     ) -> VendorFuture<'_, Option<CommandResult>> {
-        request.legacy_recorder_start = true;
         request.command = vec![
             "sh".into(),
             "-c".into(),

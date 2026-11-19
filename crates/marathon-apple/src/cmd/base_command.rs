@@ -237,6 +237,7 @@ struct CloseSlot {
 pub struct CommandSession {
     pub base: Arc<BaseCommand>,
     control: Arc<SessionControl>,
+    interrupt: Option<Box<dyn Fn() -> VendorResult<()> + Send + Sync>>,
     close_task: Arc<Mutex<CloseSlot>>,
     fixed_result: Option<CommandResult>,
 }
@@ -245,6 +246,7 @@ impl CommandSession {
         Self {
             base: Arc::new(base),
             control: Arc::new(control),
+            interrupt: None,
             close_task: Arc::new(Mutex::new(CloseSlot::default())),
             fixed_result: None,
         }
@@ -270,6 +272,19 @@ impl CommandSession {
     }
     pub fn is_alive(&self) -> bool {
         (self.control.is_alive)()
+    }
+    pub fn with_interrupt(mut self, interrupt: impl Fn() -> VendorResult<()> + Send + Sync + 'static) -> Self {
+        self.interrupt = Some(Box::new(interrupt));
+        self
+    }
+    pub fn interrupt(&self) -> VendorResult<()> {
+        match &self.interrupt {
+            Some(interrupt) => interrupt(),
+            None => Err(VendorError::Other(failure(
+                FailureKind::IllegalState,
+                "Session cannot send INT",
+            ))),
+        }
     }
     pub fn terminate(&self) -> VendorResult<()> {
         (self.control.terminate)()
