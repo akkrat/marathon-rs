@@ -7,7 +7,7 @@ The section for a version becomes the text of its GitHub release, which carries 
 - **Controller process cleanup on exit (D96).** Marathon stops registered local tools on exit, including when the controller is killed. A hang-up runs the same bounded cleanup as a termination signal. ADB servers stay available.
 - **Reports include only complete artifacts (D97).** Failed or interrupted downloads leave earlier files intact and
   report the artifact as undelivered. A signal drains artifacts for up to 12 seconds and reserves time for device
-  cleanup and console output within 24 seconds. SIGINT exits 130 and SIGTERM exits 143.
+  cleanup and console output within 25 seconds. SIGINT exits 130, SIGTERM exits 143, and SIGHUP exits 129.
 
 - **Apple device setup and preparation survive analytics failures (U212).** If a timing read or tracker fails,
   the runner warns and the device can still join the run and take tests after successful setup and preparation.

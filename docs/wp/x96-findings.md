@@ -1,6 +1,6 @@
 # x96 artifact publication and signal finish
 
-Base `9ce312ff`. D97 and U235–U242.
+Originally based on `9ce312ff` and rebased onto `93c3cc4d` with D96 step 1. D97 and U235–U242.
 
 ## Design and invariants
 
@@ -70,9 +70,9 @@ golden diff was empty after the D97 allowance.
 ## Verification limits and incidental bugs
 
 The release acceptance reports were inspected. Real-device, network-filesystem and Linux verification, and integration
-with x95's process manager and finalized-recorder receipt, remain for integration. The standalone CLI signal witness
-checks reports, TERM, KILL and status. SSH signals target the command channel. Process-group containment and the
-exit sweep belong to x95. A filesystem operation already entered by the owner is completed under that owner's receipt.
+with the finalized-recorder receipt, remain pending. The CLI signal witness checks reports, TERM, KILL and status.
+SSH signals target the command channel. D96 independently sweeps local process groups at expiry and exit.
+A filesystem operation already entered by the owner is completed under that owner's receipt.
 The signal budget limits how long the runner can wait to observe the operating system's result. A hard kill can leave
 Apple `.marathon-artifact-*` directories or Android pull staging on disk.
 
@@ -81,7 +81,8 @@ Android's GIF listener can construct an attachment after a failed capture job. T
 consumers of vendor transfers and is outside the transfer and signal changes in this package.
 
 Two existing `simulator_world` tests replace the process-wide SSH outbound exec test hook. The parallel iOS rerun
-hit the 60-second watchdog in one of them. All seven tests in that target passed with one test thread.
+hit the 60-second watchdog in one of them. All seven tests in that target passed with one test thread. The rebase
+includes the upstream fix that serializes users of that hook.
 
 ## Round 1 review witnesses
 
@@ -103,3 +104,15 @@ hit the 60-second watchdog in one of them. All seven tests in that target passed
   SSH escalation, and restored the 23 s relay handoff. Each corresponding witness failed.
 - Five virtual timing witnesses and two real-signal CLI witnesses each passed 50 isolated runs and one further
   run under six busy CPU workers.
+
+## D96 rebase
+
+- The signal relay retains the D96 expiry hook and recognizes SIGHUP with status 129. D97 retains the 23 s device
+  bound and 24 s handoff. The CLI's D96 exit sweep and console allowance continue to run off core.
+- A successful rsync receive publishes when D96 cleans up a pipe holder in the managed group. A detached holder
+  keeps the receive unconfirmed and the staged bytes private. Both paths use the staged receive in the witness.
+- The connection factory shares the provider's deadline with its SSH connections as soon as they open. Channel
+  closes also observe any device admission deadline. A fake-worker witness starts a provisioning command without
+  device admission, waits for TERM to be ignored, and observes KILL when the provider's clock reaches the cutoff.
+  Removing the connection wiring in a scratch worktree left only TERM. The witness passed 50 isolated runs and
+  one further run under six busy CPU workers.

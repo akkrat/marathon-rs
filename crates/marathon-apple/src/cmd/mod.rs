@@ -133,6 +133,8 @@ pub trait CommandExecutor: Send + Sync {
     }
     fn execute(&self, request: CommandRequest, context: VendorContext) -> VendorFuture<'_, CommandSession>;
     fn close(&self) -> VendorFuture<'_, ()>;
+    /// The provider also owns commands that run before a device admits work on this connection.
+    fn set_provider_signal_deadline(&self, _deadline: Arc<marathon_core::signal_finish::SignalDeadline>) {}
     /// Force the transport closed when its graceful close runs out of time.
     fn abandon(&self) {}
     /// D90: a capacity refusal followed a D30 abandonment on this transport.

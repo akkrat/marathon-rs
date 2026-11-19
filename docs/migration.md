@@ -242,8 +242,8 @@ require a successful delivery. Android reports a download as undelivered if its 
 includes files that grow during transfer, such as live app files collected by file sync. An rsync receive that exits
 successfully with its output pipes still open is also undelivered. Marathon's rsync SSH command ignores ControlMaster
 and ControlPersist settings from SSH config.
-SIGINT and SIGTERM can drain eligible artifacts for up to 12 seconds and finish within 25 seconds, including console
-output. Read the undelivered-artifact diagnostics to identify missing files.
+SIGINT, SIGTERM and SIGHUP can drain eligible artifacts for up to 12 seconds and finish within 25 seconds, including
+console output. Read the undelivered-artifact diagnostics to identify missing files.
 
 [D87](deviations.md#d87--a-devices-preparation-has-one-deadline) bounds how long a device that cannot be prepared keeps its
 place: its preparation, the retries inside it and an iOS simulator's replacements after a failed boot share one deadline,

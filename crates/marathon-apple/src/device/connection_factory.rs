@@ -209,7 +209,7 @@ impl State {
 pub struct ConnectionFactory {
     runtime: Arc<dyn VendorRuntime>,
     clock: Arc<dyn VendorClock>,
-    signal_finish: marathon_core::signal_finish::SignalDeadline,
+    signal_finish: Arc<marathon_core::signal_finish::SignalDeadline>,
     logging: SshLogging,
     logger: Component,
     debug: bool,
@@ -524,6 +524,10 @@ impl ConnectionFactory {
             .await
             .map_err(|e| SshFailure::new(ILLEGAL_STATE_EXCEPTION, e.to_string()))?;
         match connect().await {
+            Ok(executor) => {
+                executor.set_provider_signal_deadline(self.signal_finish.clone());
+                Ok(executor)
+            }
             Err(ConnectionError::Ssh(error)) if error.is_io() => Err(unreachable(None, Some(error))),
             result => result,
         }

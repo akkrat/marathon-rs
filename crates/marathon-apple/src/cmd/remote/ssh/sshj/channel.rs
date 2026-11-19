@@ -433,7 +433,7 @@ impl ExecChannel {
                 }
                 s.command.clone()
             });
-            let wait = if self.signal_finish.get().and_then(|signal| signal.current()).is_some() {
+            let wait = if self.has_signal_deadline() {
                 "before the shutdown deadline"
             } else {
                 "in 30 s"
@@ -444,7 +444,7 @@ impl ExecChannel {
         } else if killed {
             // U183: a server may ignore both signals and still confirm the close, so the close alone proves nothing.
             let command = self.read(|s| s.command.clone());
-            let wait = if self.signal_finish.get().and_then(|signal| signal.current()).is_some() {
+            let wait = if self.has_signal_deadline() {
                 "before the shutdown escalation deadline"
             } else {
                 "within 20 s of TERM"
@@ -456,19 +456,29 @@ impl ExecChannel {
         self.close_outcome(closed)
     }
 
+    fn has_signal_deadline(&self) -> bool {
+        [self.signal_finish.get(), self.shared.provider_signal.get()]
+            .into_iter()
+            .flatten()
+            .any(|signal| signal.current().is_some())
+    }
+
     async fn bounded_close<T>(
         &self,
         millis: i64,
         cutoff: fn(SignalFinish) -> i64,
         work: impl Future<Output = T>,
     ) -> Option<T> {
-        let ordinary = self.bounded(millis, work);
-        let Some(signal) = self.signal_finish.get() else {
-            return ordinary.await;
-        };
+        async fn wait(signal: Option<&Arc<SignalDeadline>>, clock: &dyn VendorClock, cutoff: fn(SignalFinish) -> i64) {
+            match signal {
+                Some(signal) => signal.wait_for_signal(clock, cutoff).await,
+                None => std::future::pending().await,
+            }
+        }
         tokio::select! { biased;
-            result = ordinary => result,
-            _ = signal.wait_for_signal(self.clock.as_ref(), cutoff) => None,
+            result = self.bounded(millis, work) => result,
+            _ = wait(self.signal_finish.get(), self.clock.as_ref(), cutoff) => None,
+            _ = wait(self.shared.provider_signal.get(), self.clock.as_ref(), cutoff) => None,
         }
     }
     /// D30: a close has begun, so its TERM has been sent.

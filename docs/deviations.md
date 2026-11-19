@@ -411,9 +411,10 @@ and says that the process may still be running ([U183](found-bugs.md)). A close 
 that warning, also when it completed with an error, which then follows its usual error path as well; an abandoned close
 gives the error line instead.
 
-On SIGINT or SIGTERM, [D97](#d97--publish-complete-artifacts-and-reserve-time-for-signal-cleanup) shortens an SSH
-close already in progress as well as a new close. KILL is requested by 17 s from the first signal, leaving through
-18 s for the worker's close receipt. Routine command timeouts keep the 20 s TERM and 10 s CLOSE waits.
+For SIGINT, SIGTERM or SIGHUP, [D97](#d97--publish-complete-artifacts-and-reserve-time-for-signal-cleanup) shortens
+new and in-progress SSH command closes on device and provider connections. A close still waiting on TERM requests
+KILL by 17 s from the first signal, leaving through 18 s for the worker's close receipt. Routine command timeouts keep
+the 20 s TERM and 10 s CLOSE waits.
 
 **A process can survive this.** A signal over an SSH channel is a request that the server may ignore: some servers
 do, such as Tailscale SSH and old OpenSSH versions, and there KILL has no effect. The limit, not the KILL, is what keeps the
@@ -1083,7 +1084,8 @@ Native builds do the following on the first SIGINT, SIGTERM or SIGHUP (D96), in 
 4. **The process exits with 128 + the signal number:** 130 for SIGINT, 143 for SIGTERM, or 129 for SIGHUP.
 
 **At most 25 s.** That is 24 s for all of it, and 1 s for the last lines of the log if the console has stopped reading. Whatever
-is still running at 24 s is abandoned, with one error line. A CI's kill after SIGTERM often comes after 10 to 30 s. The reports
+is still running at 24 s is abandoned, with one error line, and D96 sweeps the remaining registered local groups.
+A CI's kill after SIGTERM often comes after 10 to 30 s. The reports
 come first. [D97](#d97--publish-complete-artifacts-and-reserve-time-for-signal-cleanup) reserves time for device verdicts,
 lifecycle and lease release and shortens D30's TERM-to-KILL wait on this path. Without a stuck worker, a cancel takes
 well under a second.
@@ -3077,9 +3079,9 @@ Android requires ADB DONE, an exact byte count from STAT and successful writer c
 Legacy STAT exposes only 32 size bits, so verification compares the received count modulo 2^32 on those devices.
 If a file grows between STAT and DONE and the received count differs from the STAT count, it is undelivered. This
 includes live app files collected by file sync. Rsync receives require successful exit and confirmed cleanup. A receive
-whose output pipes remain open fails even if rsync reports success. A persistent SSH master can hold those pipes open. Marathon's rsync
-SSH command uses `-F /dev/null`, which excludes user and system SSH configuration, including ControlMaster and
-ControlPersist. A local iOS or macOS copy must finish reading and writing
+whose output pipes remain open after D96 group cleanup fails even if rsync reports success. A persistent SSH master
+can hold those pipes open. Marathon's rsync SSH command uses `-F /dev/null`, which excludes user and system SSH
+configuration, including ControlMaster and ControlPersist. A local iOS or macOS copy must finish reading and writing
 all entries. Each receive owns a private area on the destination filesystem. A verified artifact becomes visible by
 atomic rename, and a failed, cancelled or timed-out receive leaves any previous output in place. Failures report
 non-delivery. The attachment, success log and remote deletion paths use the successful receipt. An xcresult is renamed
@@ -3092,10 +3094,11 @@ moves the prior tree to private backup and then publishes the complete replaceme
 absent. If publication fails, the runner restores the prior tree or retains it in a named backup if restoration
 also fails. A hard kill can leave `.marathon-artifact-*` or Android pull staging directories on disk.
 
-The first SIGINT or SIGTERM seals devices and starts reports. The initial console flush counts within the report head
-start. Provider and history finish start after the reports or at 10 s, whichever comes first. Eligible artifacts drain
-through 12 s. SSH command closes still on TERM send KILL by 17 s. Transfer cancellation and receipt collection end
-by 18 s. Device verdicts, lifecycle on confirmed devices and lease release get the time left through 23 s. Cleanup
-hands off to the exit path by 24 s, followed by up to 1 s for console output. Healthy work
-can advance immediately. A signal tightens waits that are already running. Routine completion keeps the 300 s drain
-and shared 60 s cancellation window. Internal failure keeps the 30 s drain and shared 40 s cancellation window.
+The first SIGINT, SIGTERM or SIGHUP seals devices and starts reports. The initial console flush counts within the
+report head start. Provider and history finish start after the reports or at 10 s, whichever comes first. Eligible
+artifacts drain through 12 s. SSH command closes on device and provider connections still waiting on TERM request
+KILL by 17 s. Transfer cancellation and receipt collection end by 18 s. Device verdicts, lifecycle on confirmed
+devices and lease release get the time left through 23 s. Cleanup hands off to the exit path by 24 s. D96 sweeps
+registered local groups at expiry and exit, with up to 1 s for console output. Healthy work can advance immediately.
+A signal tightens waits that are already running. Routine completion keeps the 300 s drain and shared 60 s cancellation
+window. Internal failure keeps the 30 s drain and shared 40 s cancellation window.

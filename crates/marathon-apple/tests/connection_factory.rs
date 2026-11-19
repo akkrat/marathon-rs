@@ -278,6 +278,123 @@ async fn signal_tightens_the_final_lease_close_already_in_progress_d97() {
     assert!(sibling.connected());
     factory.dispose(sibling).await.unwrap();
 }
+
+#[tokio::test]
+async fn a_provider_signal_tightens_an_ssh_command_without_device_admission_d97() {
+    use fake_worker::script::{Action, Script};
+    use marathon_core::{
+        runtime::{CancellationSignal, VendorClock, VendorTimeoutBody},
+        signal_finish::SignalFinish,
+    };
+
+    struct DrivenClock {
+        now: watch::Sender<i64>,
+        timeouts: Clock,
+    }
+    impl VendorClock for DrivenClock {
+        fn now_millis(&self) -> i64 {
+            *self.now.borrow()
+        }
+        fn delay(&self, millis: i64, stop: Arc<dyn CancellationSignal>) -> VendorFuture<'_, ()> {
+            let at = self.now_millis().saturating_add(millis);
+            let mut clock = self.now.subscribe();
+            Box::pin(async move {
+                tokio::select! { biased;
+                    why = stop.cancelled() => Err(VendorError::Cancelled(why)),
+                    result = clock.wait_for(|now| *now >= at) => { result.unwrap(); Ok(()) },
+                }
+            })
+        }
+        fn with_timeout<'a>(
+            &'a self,
+            parent: Arc<dyn CancellationSignal>,
+            millis: i64,
+            body: VendorTimeoutBody<'a>,
+        ) -> VendorFuture<'a, ()> {
+            self.timeouts.with_timeout(parent, millis, body)
+        }
+        fn with_timeout_or_null<'a>(
+            &'a self,
+            parent: Arc<dyn CancellationSignal>,
+            millis: i64,
+            body: VendorTimeoutBody<'a>,
+        ) -> VendorFuture<'a, Option<()>> {
+            self.timeouts.with_timeout_or_null(parent, millis, body)
+        }
+    }
+
+    let mut action = ssh::hang(vec![]);
+    if let Action::Output {
+        ref mut ignore_signals, ..
+    } = action
+    {
+        ignore_signals.push("TERM".to_owned());
+    }
+    let fake = ssh::fake(
+        Script {
+            rules: vec![ssh::exact("provision", action)],
+            ..Default::default()
+        },
+        4,
+    )
+    .await;
+    let (logging, _) = ssh::logging(false);
+    let mut ssh = config(false);
+    ssh.authentication = Some(SshAuthentication::Password {
+        username: "fixture".into(),
+        password: "fake-password".into(),
+    });
+    let (now, _) = watch::channel(0);
+    let factory = ConnectionFactory::new(
+        false,
+        ssh,
+        rsync(),
+        duration(60_000),
+        Arc::new(Runtime),
+        Arc::new(DrivenClock {
+            now: now.clone(),
+            timeouts: Clock::default(),
+        }),
+        logging,
+    )
+    .unwrap();
+    let executor = factory
+        .connect_worker(
+            Transport::Ssh {
+                addr: "127.0.0.1".into(),
+                port: i32::from(fake.port()),
+                authentication: None,
+                check_reachability: false,
+            },
+            support::context(),
+        )
+        .await
+        .unwrap();
+    let session = executor
+        .execute(CommandRequest::new(["provision"], duration(60_000)), support::context())
+        .await
+        .unwrap();
+    let close = tokio::spawn(async move { session.close().await });
+    let term = fake.events_at_least("signal_ignored", 1).await;
+    assert_eq!(term[0]["detail"]["signal"], "TERM");
+    factory.seal_for_signal(SignalFinish::from_start(1_000));
+    now.send_replace(18_000);
+    let signals = fake.events_at_least("signal", 2).await;
+    assert_eq!(
+        signals
+            .iter()
+            .map(|event| event["detail"]["signal"].as_str())
+            .collect::<Vec<_>>(),
+        [Some("TERM"), Some("KILL")]
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(60), close)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    factory.dispose(executor).await.unwrap();
+    factory.join_pending().await.unwrap();
+}
 struct TestConnector(Arc<Control>);
 impl Connector for TestConnector {
     fn prepare(&self, t: Transport) -> ConnectionFuture<'_, PreparedConnection> {

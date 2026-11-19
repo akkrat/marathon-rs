@@ -1055,7 +1055,7 @@ impl Marathon {
             Level::ERROR,
             format!(
                 "Signal {number}: stopping the tests, writing the reports and cleaning up for up to {} s. A second signal exits at once",
-                CANCEL_LIMIT_MILLIS / 1000
+                (CANCEL_LIMIT_MILLIS + CANCEL_FLUSH_MILLIS) / 1000
             ),
             None,
         );

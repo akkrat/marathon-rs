@@ -88,6 +88,7 @@ pub(crate) async fn within<T>(
 /// Transport state shared by the russh handler, the keep-alive and every channel.
 pub struct ConnectionShared {
     pub loggers: SshComponents,
+    pub(super) provider_signal: OnceLock<Arc<marathon_core::signal_finish::SignalDeadline>>,
     death: Mutex<Option<SshFailure>>,
     dead: watch::Sender<bool>,
     received_disconnect: AtomicBool,
@@ -114,6 +115,7 @@ impl ConnectionShared {
     pub(super) fn new(loggers: SshComponents) -> Arc<Self> {
         Arc::new(Self {
             loggers,
+            provider_signal: OnceLock::new(),
             death: Mutex::new(None),
             dead: watch::channel(false).0,
             received_disconnect: AtomicBool::new(false),

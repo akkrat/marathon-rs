@@ -343,6 +343,9 @@ impl CommandExecutor for SshCommandExecutor {
     fn connected(&self) -> bool {
         self.connection.is_connected()
     }
+    fn set_provider_signal_deadline(&self, deadline: Arc<marathon_core::signal_finish::SignalDeadline>) {
+        let _ = self.connection.shared.provider_signal.set(deadline);
+    }
     fn shared_ssh_is_saturated(&self) -> bool {
         self.connection.shared.saturated.load(Ordering::SeqCst)
     }
