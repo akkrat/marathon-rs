@@ -284,6 +284,25 @@ impl ProviderHarness {
         );
         Ok(())
     }
+
+    pub async fn start_termination(&self) -> tokio::task::JoinHandle<marathon_core::error::VendorResult<()>> {
+        self.h.services.logging.registry.lock().unwrap().set_level(
+            "marathon_ios::device::simulator_provider",
+            marathon_logging::Level::DEBUG,
+        );
+        let provider = self.provider.clone();
+        let closing = tokio::spawn(async move { provider.terminate().await });
+        eventually(|| {
+            self.h
+                .logs
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(_, _, line, _)| line == "Terminating AppleSimulatorProvider")
+        })
+        .await;
+        closing
+    }
 }
 pub fn targets(ids: &[&str]) -> Vec<AppleTarget> {
     ids.iter()

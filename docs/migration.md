@@ -587,8 +587,11 @@ See [D51](deviations.md#d51--metrics-and-cleanup-failures-do-not-stop-a-run) and
 
 [D95](deviations.md#d95--finish-deadlines-for-providers-connections-and-history) applies the same 30 s allowance to
 history analytics close, after the existing 3 s refresh join. Android provider termination shares 65 s by default.
-iOS provider termination shares 70 s, including time spent draining artifacts. Unconfirmed simulators skip on-dispose
-commands and keep their worker lease quarantined. The last Apple worker lease has at most 40 s for disconnect.
+The iOS provider has 70 s for its own teardown after artifact finalization. The D94 artifact windows are 300 s
+plus 60 s on routine termination, including failed assertions, and 30 s plus 40 s after interruption.
+On interruption the provider applies that artifact window to pulls still running from replaced simulators.
+Unconfirmed simulators skip on-dispose commands and keep their worker lease quarantined. The last Apple worker
+lease has at most 40 s for disconnect.
 Report generation logs the active reporter after one minute and repeats the warning at most once a minute until it finishes.
 
 ## Cancelling a run

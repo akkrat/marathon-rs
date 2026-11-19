@@ -3009,12 +3009,14 @@ Approved 2026-11-18 (project owner's decision). WP x94. See [finish wait audit](
 - **Android shutdown.** One provider deadline covers devices, monitor and setup tasks, staging cleanup and the
   provider-owned ADB restart wait. It uses D92's allowance plus the core's 5 s margin, normally 65 s. The shared
   factory stays available through device cleanup inside that deadline.
-- **iOS shutdown.** One 70 s provider deadline covers lifecycle locking, monitoring, setup, recovery, artifacts,
-  disposal and release. Artifacts retain up to 40 s of cancellation time after an interrupted run and up to 60 s on
-  routine termination, within the remaining window. A simulator needs confirmed work termination to run its on-dispose
-  lifecycle. A standalone disposal also gives its lifecycle the remaining time in the device's 70 s window.
+- **iOS shutdown.** After D94 artifact finalization, one 70 s provider deadline covers lifecycle locking, monitoring,
+  setup, recovery, disposal and lease release. Routine artifact finalization has 300 s to drain and one shared 60 s
+  cancellation allowance, including when tests finish with failed assertions. After an internal failure or owner
+  cancellation it has 30 s to drain and 40 s for cancellation. A simulator needs confirmed work termination to run
+  its on-dispose lifecycle. A standalone disposal uses the remaining time in the device's 70 s window.
 - **Apple pulls.** A device sealed at run stop gives current and later pulls the same finish deadline. It reserves
-  the last 40 s for D91 cleanup. Transfer duration on running devices is still governed by progress.
+  the last 40 s for D91 cleanup. Replaced simulators get the interrupted artifact window at provider termination.
+  During a routine run, their existing pulls can continue into the routine artifact drain.
 - **Reports and drains.** Reporters still run to completion and preserve their output. A slow report logs its current
   reporter after 60 s, with at least 60 s between subsequent notices. The scheduler releases the common D94 timer
   once all barriers answer.

@@ -33,13 +33,13 @@ use support::*;
 const RETRY_MILLIS: i64 = 50;
 const INFLUX_BATCH_TIMER_MILLIS: i64 = 1_000;
 const CLOSE_BOUND_MILLIS: i64 = 3_000;
+const HISTORY_CLOSE_MILLIS: i64 = 30_000;
 /// The default duration of [`defaults`], which answers until a refresh lands.
 const DEFAULT_MILLIS: f64 = 300000.0;
 
 /// A first query's retries pass at once, and a refresh delay lasts until the test advances the
 /// clock past it. The InfluxDB client's batch timer never fires, since nothing here is written.
-/// Nor does `close`'s bound: the test sees an answer as soon as it is published, so `close` can
-/// find the refresh still ending, and these clients always stop within it.
+/// The refresh join and history close timers stay pending while these clients shut down.
 struct Clock {
     refresh_delays: Mutex<Vec<i64>>,
     advances: tokio::sync::Semaphore,
@@ -63,7 +63,7 @@ impl VendorClock for Clock {
         Box::pin(async move {
             match millis {
                 RETRY_MILLIS => return Ok(()),
-                INFLUX_BATCH_TIMER_MILLIS | CLOSE_BOUND_MILLIS => {
+                INFLUX_BATCH_TIMER_MILLIS | CLOSE_BOUND_MILLIS | HISTORY_CLOSE_MILLIS => {
                     return Err(VendorError::Cancelled(cancellation.cancelled().await));
                 }
                 _ => self.refresh_delays.lock().unwrap().push(millis),
@@ -250,7 +250,10 @@ fn graphite_comes_back_through_the_refresh_after_dropped_connections() {
 struct RealBound(Arc<dyn VendorClock>);
 impl VendorClock for RealBound {
     fn delay(&self, millis: i64, cancellation: Arc<dyn CancellationSignal>) -> VendorFuture<'_, ()> {
-        let millis = if millis == CLOSE_BOUND_MILLIS { millis } else { 0 };
+        let millis = match millis {
+            CLOSE_BOUND_MILLIS | HISTORY_CLOSE_MILLIS => millis,
+            _ => 0,
+        };
         self.0.delay(millis, cancellation)
     }
     fn with_timeout<'a>(

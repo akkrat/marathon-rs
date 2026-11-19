@@ -667,9 +667,18 @@ impl MetricsProvider for MetricsProviderImpl {
     fn close(&self) -> ServiceFuture<'_, ()> {
         Box::pin(async move {
             self.shared.stop_refresh().await;
-            match tokio::time::timeout(self.limits.send, self.shared.source.close()).await {
-                Ok(result) => result,
-                Err(_) => {
+            // The clock works in whole milliseconds and reserves i64::MAX for an endless wait.
+            let millis = self
+                .limits
+                .send
+                .as_nanos()
+                .div_ceil(1_000_000)
+                .min((i64::MAX - 1) as u128) as i64;
+            let bound = self.shared.context.clock.delay(millis, Signal::new());
+            match race(self.shared.source.close(), bound).await {
+                Either::Left(result) => result,
+                Either::Right(result) => {
+                    result.map_err(|error| error.failure().clone())?;
                     self.shared.context.log(
                         "marathon_core::analytics::provider",
                         Level::WARN,
@@ -689,7 +698,11 @@ impl MetricsProvider for MetricsProviderImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{executor::hooks::RuntimeHooks, logging::LogQueue};
+    use crate::{
+        executor::{CoreExecutor, hooks::RuntimeHooks},
+        logging::LogQueue,
+        time::ReplayDriver,
+    };
     use std::{future::pending, time::Duration};
 
     struct ClosingSource {
@@ -717,52 +730,77 @@ mod tests {
         }
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn history_close_drops_a_stalled_backend_at_the_delivery_allowance_d95() {
-        for (stall, allowance, expected) in [(true, 30, 30), (true, 8, 8), (false, 30, 0)] {
-            let log = LogQueue::default();
-            let dropped = Arc::new(AtomicBool::new(false));
-            let provider = MetricsProviderImpl::new(
-                Arc::new(ClosingSource {
-                    stall,
-                    dropped: dropped.clone(),
-                }),
-                Defaults {
-                    duration: jcompat::jtime::Duration::of_seconds(30),
-                    success_rate: 1.0,
-                    observed_duration_min_tests: None,
-                },
-                MetricsContext {
-                    clock: crate::executor::RuntimeClock::new(false).vendor(),
-                    vendor: Arc::new(crate::executor::vendor_on_current_runtime()),
-                    monotonic: RuntimeHooks::live(),
-                    cancellation: Signal::new(),
-                    registry: Arc::default(),
-                    logs: log.sender(),
-                    stamp: Arc::new(|| (0, 0)),
-                },
-            )
-            .unwrap()
-            .with_limits(BackendLimits {
-                send: Duration::from_secs(allowance),
-                ..BackendLimits::default()
-            });
-            let started = tokio::time::Instant::now();
-            tokio::time::timeout(Duration::from_secs(60), MetricsProvider::close(&provider))
-                .await
-                .unwrap()
-                .unwrap();
-            assert_eq!(started.elapsed().as_secs(), expected);
-            assert!(dropped.load(Ordering::Acquire));
-            assert_eq!(
-                log.records()
-                    .iter()
-                    .filter(|record| {
-                        record.level == Level::WARN && record.message.contains("History analytics close timed out")
-                    })
-                    .count(),
-                usize::from(stall)
-            );
-        }
+    #[test]
+    fn history_close_drops_a_stalled_backend_at_the_delivery_allowance_d95() {
+        CoreExecutor::run_virtual(|core, replay| {
+            Box::pin(async move {
+                let clock = core.clock().vendor();
+                for (stall, allowance, expected_millis) in [
+                    (true, Duration::from_secs(30), 30_000),
+                    (true, Duration::from_secs(8), 8_000),
+                    (true, Duration::from_micros(1_500), 2),
+                    (false, Duration::from_secs(30), 0),
+                ] {
+                    let log = LogQueue::default();
+                    let dropped = Arc::new(AtomicBool::new(false));
+                    let provider = MetricsProviderImpl::new(
+                        Arc::new(ClosingSource {
+                            stall,
+                            dropped: dropped.clone(),
+                        }),
+                        Defaults {
+                            duration: jcompat::jtime::Duration::of_seconds(30),
+                            success_rate: 1.0,
+                            observed_duration_min_tests: None,
+                        },
+                        MetricsContext {
+                            clock: clock.clone(),
+                            vendor: core.vendor(),
+                            monotonic: RuntimeHooks::live(),
+                            cancellation: Signal::new(),
+                            registry: Arc::default(),
+                            logs: log.sender(),
+                            stamp: Arc::new(|| (0, 0)),
+                        },
+                    )?
+                    .with_limits(BackendLimits {
+                        send: allowance,
+                        ..BackendLimits::default()
+                    });
+                    let mut close = MetricsProvider::close(&provider);
+                    if stall {
+                        let expires = clock.now_millis() + expected_millis;
+                        assert!(futures_util::poll!(&mut close).is_pending());
+                        assert_eq!(
+                            replay.pending_timers(),
+                            1,
+                            "the history close must use the replay clock"
+                        );
+                        replay.advance_to(expires - 1).await.unwrap();
+                        assert!(futures_util::poll!(&mut close).is_pending());
+                        assert!(!dropped.load(Ordering::Acquire));
+                        replay.advance_to(expires).await.unwrap();
+                    }
+                    assert!(matches!(
+                        futures_util::poll!(&mut close),
+                        std::task::Poll::Ready(Ok(()))
+                    ));
+                    assert!(dropped.load(Ordering::Acquire));
+                    assert_eq!(replay.pending_timers(), 0);
+                    assert_eq!(
+                        log.records()
+                            .iter()
+                            .filter(|record| {
+                                record.level == Level::WARN
+                                    && record.message.contains("History analytics close timed out")
+                            })
+                            .count(),
+                        usize::from(stall)
+                    );
+                }
+                Ok(())
+            })
+        })
+        .unwrap();
     }
 }

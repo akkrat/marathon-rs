@@ -1252,25 +1252,38 @@ impl AppleSimulatorProvider {
         self.log(Level::DEBUG, || "Terminating AppleSimulatorProvider".into(), None);
         self.monitor_cancel.cancel(requested("Provider terminated"));
         let clock = &self.services.context.clock;
+        if interrupted {
+            // Replaced simulators no longer have actors to seal their pulls at run stop.
+            // Give them the remaining artifact drain and cleanup window, independent of
+            // their old disposal. Active simulators keep any earlier run-stop deadline.
+            let deadline = clock
+                .now_millis()
+                .saturating_add(drain_millis.saturating_add(cancel_millis));
+            let state = self.state();
+            for simulator in &state.replaced {
+                simulator.limit_pulls_for_provider_shutdown(deadline);
+            }
+            for device in state.devices.values() {
+                device.handle.limit_pulls_for_provider_shutdown(deadline);
+            }
+        }
+        // Termination already closed registration. Artifact workers still need
+        // their devices and leases throughout D94's finalization window.
+        let context = VendorContext {
+            cancellation: Signal::new(),
+            ..self.services.context.clone()
+        };
+        let artifacts = self
+            .services
+            .artifacts
+            .close_and_join(drain_millis, cancel_millis, &context)
+            .await;
         let deadline = clock
             .now_millis()
             .saturating_add(SimulatorTimeouts::default().cancelled_batch_millis);
         self.services
             .connections
             .seal_for_termination(deadline, self.services.context.clone());
-        {
-            let state = self.state();
-            // Removed simulators may still have pulls with the disposal cause.
-            // A run stop must reach them even after their device actors have left.
-            for simulator in &state.replaced {
-                simulator.limit_pulls_for_provider_shutdown(deadline);
-            }
-            if interrupted {
-                for device in state.devices.values() {
-                    device.handle.limit_pulls_for_provider_shutdown(deadline);
-                }
-            }
-        }
         let left = || deadline.saturating_sub(clock.now_millis()).max(0);
         let mut tasks = JoiningTasks(self.update_tasks.take());
         tasks.0.extend(self.state().monitoring.take());
@@ -1312,14 +1325,7 @@ impl AppleSimulatorProvider {
             );
         }
         self.channel.close(None);
-        let context = VendorContext {
-            cancellation: Signal::new(),
-            ..self.services.context.clone()
-        };
-        self.services
-            .artifacts
-            .close_and_join_before(drain_millis, cancel_millis, deadline, &context)
-            .await?;
+        artifacts?;
         let handed_back = std::mem::take(&mut self.state().handed_back);
         let ours = |handle: &Simulator| !handed_back.iter().any(|h| Arc::ptr_eq(h, handle));
         join_all(self.devices().into_iter().map(|device| async move {
@@ -1422,7 +1428,7 @@ impl DeviceProvider for AppleSimulatorProvider {
         self.terminate_with_artifact_budget(DRAIN_TIMEOUT_MILLIS, CANCEL_TIMEOUT_MILLIS, false)
     }
     fn terminate_after_stop(&self) -> VendorFuture<'_, ()> {
-        // Preserve D94's drain and cancellation split inside the common provider deadline.
+        // Preserve D94's drain and cancellation split before provider teardown.
         let window = SimulatorTimeouts::default().cancelled_batch_millis;
         self.terminate_with_artifact_budget(window.saturating_sub(STOP_CLEANUP_MILLIS), STOP_CLEANUP_MILLIS, true)
     }

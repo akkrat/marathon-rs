@@ -358,12 +358,7 @@ impl AppleSimulatorDevice {
         self.seal_locked(&mut state, SealCause::Termination, Some(deadline));
     }
     pub(crate) fn limit_pulls_for_provider_shutdown(&self, deadline: i64) {
-        let mut state = self.state();
-        let deadline = state
-            .shutdown
-            .as_ref()
-            .map_or(deadline, |s| s.window.deadline.min(deadline));
-        state.pulls.limit_to(deadline);
+        self.state().pulls.limit_to(deadline);
     }
     pub(crate) fn quarantine_after_provider_timeout(&self, deadline: i64) -> bool {
         let mut state = self.state();

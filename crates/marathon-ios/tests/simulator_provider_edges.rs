@@ -555,9 +555,7 @@ async fn cancelled_waiter_does_not_abort_protected_termination() -> TestResult {
         .await
         .map_err(test_error)?;
     started.wait().await.map_err(test_error)?;
-    let provider = p.provider.clone();
-    let close = tokio::spawn(async move { provider.terminate().await });
-    eventually(|| p.provider.subscribe().state().closed_for_send).await;
+    let close = p.start_termination().await;
     close.abort();
     assert!(close.await.unwrap_err().is_cancelled());
     release.complete(Ok(()));

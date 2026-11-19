@@ -2062,6 +2062,66 @@ impl marathon_core::wiring::Tracker for HeldTrack {
 }
 
 #[test]
+fn answering_the_barriers_cancels_the_drain_timer_d95() {
+    scheduling_test(|h| {
+        Box::pin(async move {
+            let tracked = Gate::default();
+            let run = Run::new_with_tracker(
+                &h,
+                waiting(),
+                Arc::new(HeldTrack(h.tracker.clone(), tracked.clone(), Default::default())),
+            );
+            h.run_current().await;
+            run.connect(&device("serial-A", "test", 100, false));
+            advance(&h, 300).await;
+            let (_, pool) = run.scheduler.pools().remove(0);
+            // The queue can answer its barrier while this child completes protected work.
+            let finishing = Gate::default();
+            let child = h.core.spawn(
+                pool.queue.job(),
+                Box::new({
+                    let finishing = finishing.clone();
+                    move |_| {
+                        Box::pin(async move {
+                            finishing.wait().await;
+                            Ok(())
+                        })
+                    }
+                }),
+            );
+            h.run_current().await;
+            let cause = ise("device events failed");
+            run.provider.channel.close(Some(cause.clone()));
+            h.run_current().await;
+            let stop = run
+                .scheduler
+                .stopping()
+                .expect("the channel failure starts the Scheduler stop");
+            assert_eq!(h.driver.pending_timers(), 1, "the queue is still tracking a result");
+            tracked.open();
+            h.run_current().await;
+            assert!(
+                child.cancellation_signal().reason().is_some(),
+                "the barriers have answered"
+            );
+            assert!(
+                !matches!(stop.state(), JobState::Completed(_)),
+                "the stop must join the queue"
+            );
+            assert_eq!(h.driver.pending_timers(), 0, "the drain timer survived its barriers");
+            finishing.open();
+            h.run_current().await;
+            assert!(matches!(stop.state(), JobState::Completed(_)));
+            assert!(
+                matches!(run.result.borrow().as_ref(), Some((300, Err(VendorError::Other(actual)))) if *actual == cause)
+            );
+            assert_eq!(logged(&h, "Drain timed out"), 0);
+            run.finish(&h).await;
+        })
+    });
+}
+
+#[test]
 fn a_pool_waiting_for_its_stalled_queue_does_not_spend_a_second_drain_window_d94() {
     scheduling_test(|h| {
         Box::pin(async move {
