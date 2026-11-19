@@ -260,3 +260,9 @@ and the harness's lease balance is acquired = released + quarantined.
 
 Follow-ups left as the audit lists them (non-blocking): a full D44/D90 recovery witness; reconciling iOS's latched-error
 propagation with D93.
+
+**Closing-audit verification.** Each of the five witnesses fails on 3c36e19c (scratch worktree, new tests copied in).
+Stress, each alone: the five witnesses and the rewritten recovery test, 50/50 each and 20/20 each with 12 busy processes.
+`cargo fmt --check`; `cargo clippy` of core, apple, ios, macos, android, cli and test-support with `-D warnings`; `cargo
+test --no-fail-fast` of those crates: 2,471 passed, 0 failed, 34 ignored, among them the D52 and signal tests (35). Not
+run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test --workspace`.
