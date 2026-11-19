@@ -495,7 +495,7 @@ impl AppleSimulatorDevice {
             };
             tokio::select! { biased;
                 result = all => result?,
-                _ = self.signal_finish.wait(clock.as_ref(), deadline, |finish| finish.receipts) => false,
+                _ = self.signal_finish.wait_for_signal(clock.as_ref(), |finish| finish.receipts) => false,
             }
         };
         let mut left = Vec::new();
@@ -583,6 +583,9 @@ impl AppleSimulatorDevice {
         cutoff: fn(marathon_core::signal_finish::SignalFinish) -> i64,
     ) -> VendorResult<bool> {
         let clock = &self.services.context.clock;
+        let deadline = self
+            .signal_finish
+            .limit(receipt.window.deadline, |finish| finish.receipts);
         let ended = || {
             receipt.batches.iter().all(|b| b.done.completed().is_some())
                 && receipt.preparations.iter().all(|p| p.done.completed().is_some())
@@ -590,37 +593,63 @@ impl AppleSimulatorDevice {
                 && receipt.sessions.iter().all(|s| s.ended().is_some())
                 && self.commands.handed_ended()
         };
-        let deadline = || {
-            self.signal_finish
-                .limit(receipt.window.deadline, |finish| finish.receipts)
-        };
+        let millis = until.saturating_sub(clock.now_millis());
         if ended() {
-            return Ok(clock.now_millis() <= deadline());
+            // A look after the deadline counts for nothing.
+            return Ok(clock.now_millis() <= deadline);
         }
-        if clock.now_millis() >= self.signal_finish.limit(until, cutoff) {
+        if millis <= 0 {
             return Ok(false);
         }
-        let all = async {
-            for done in receipt
-                .batches
-                .iter()
-                .map(|b| &b.done)
-                .chain(receipt.preparations.iter().map(|p| &p.done))
-            {
-                let _ = done.wait().await;
-            }
-            for send in &receipt.transfers {
-                send.wait_in(Signal::new()).await?;
-            }
-            for session in &receipt.sessions {
-                session.wait_ended().await;
-            }
-            self.commands.wait_handed(Signal::new()).await
+        let cells: Vec<_> = receipt
+            .batches
+            .iter()
+            .map(|b| b.done.clone())
+            .chain(receipt.preparations.iter().map(|p| p.done.clone()))
+            .collect();
+        let sends = receipt.transfers.clone();
+        let sessions = receipt.sessions.clone();
+        let commands = self.commands.clone();
+        // Joining observes completion, not the jobs' results; the timeout only bounds this wait.
+        let timed = clock.with_timeout_or_null(
+            Signal::new(),
+            millis,
+            Box::new(move |signal| {
+                Box::pin(async move {
+                    for done in cells {
+                        match done.wait_in(signal.clone()).await {
+                            Err(VendorError::Cancelled(reason)) if done.completed().is_none() => {
+                                return Err(VendorError::Cancelled(reason));
+                            }
+                            _ => {}
+                        }
+                    }
+                    for send in sends {
+                        if let Err(VendorError::Cancelled(reason)) = send.wait_in(signal.clone()).await
+                            && send.ended().is_none()
+                        {
+                            return Err(VendorError::Cancelled(reason));
+                        }
+                    }
+                    for session in sessions {
+                        tokio::select! { biased;
+                            reason = signal.cancelled() => return Err(VendorError::Cancelled(reason)),
+                            _ = session.wait_ended() => {}
+                        }
+                    }
+                    commands.wait_handed(signal).await
+                })
+            }),
+        );
+        let finished = tokio::select! { biased;
+            result = timed => result?.is_some(),
+            _ = self.signal_finish.wait_for_signal(clock.as_ref(), cutoff) => false,
         };
-        tokio::select! { biased;
-            result = all => { result?; Ok(ended() && clock.now_millis() <= deadline()) },
-            _ = self.signal_finish.wait(clock.as_ref(), until, cutoff) => Ok(false),
-        }
+        let received_in_time = self
+            .signal_finish
+            .current()
+            .is_none_or(|finish| clock.now_millis() <= finish.receipts);
+        Ok(finished && received_in_time && ended())
     }
     /// D93: the simulator's lifecycle and lease are no longer safe: once, one WARN (`warning`), its commands revoked with
     /// `why`, its lease quarantined in its connection factory now, and the simulator retired.

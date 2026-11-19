@@ -3069,7 +3069,7 @@ bytes and the transfer log described it as delivered. In two iOS runs with a sta
 expired inside artifact finalization, before the provider recorded a device verdict or ran lifecycle and lease cleanup.
 
 Android requires ADB DONE, an exact byte count from STAT and successful writer completion, including for empty files.
-Apple rsync receives require successful exit and confirmed cleanup. A local Apple copy must finish reading and writing
+Rsync receives require successful exit and confirmed cleanup. A local iOS or macOS copy must finish reading and writing
 all entries. Each receive owns a private area on the destination filesystem. A verified artifact becomes visible by
 atomic rename, and a failed, cancelled or timed-out receive leaves any previous output in place. Failures report
 non-delivery. The attachment, success log and remote deletion paths use the successful receipt. An xcresult is renamed

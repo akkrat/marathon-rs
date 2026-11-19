@@ -646,7 +646,7 @@ impl MacosDevice {
             };
             tokio::select! { biased;
                 result = all => result?,
-                _ = self.signal_finish.wait(clock.as_ref(), deadline, |finish| finish.receipts) => false,
+                _ = self.signal_finish.wait_for_signal(clock.as_ref(), |finish| finish.receipts) => false,
             }
         };
         let mut left = Vec::new();
@@ -695,45 +695,68 @@ impl MacosDevice {
         until: i64,
         cutoff: fn(marathon_core::signal_finish::SignalFinish) -> i64,
     ) -> VendorResult<bool> {
-        let clock = &self.options.dependencies.clock;
-        let ended = || {
+        let context = self.context();
+        let clock = &context.clock;
+        let deadline = self
+            .signal_finish
+            .limit(shutdown.window.deadline, |finish| finish.receipts);
+        let ended = |device: &Self| {
             shutdown.batches.iter().all(|b| b.result.completed().is_some())
                 && shutdown.preparation.as_ref().is_none_or(|p| p.completed().is_some())
                 && shutdown.transfers.iter().all(|t| t.ended().is_some())
-                && self.receipt_sessions(shutdown).iter().all(|s| s.ended().is_some())
-                && self.device_commands.handed_ended()
+                && device.receipt_sessions(shutdown).iter().all(|s| s.ended().is_some())
+                && device.device_commands.handed_ended()
         };
-        let deadline = || {
-            self.signal_finish
-                .limit(shutdown.window.deadline, |finish| finish.receipts)
-        };
-        if ended() {
-            return Ok(clock.now_millis() <= deadline());
+        let millis = until.saturating_sub(clock.now_millis());
+        if ended(self) {
+            // A look after the deadline counts for nothing.
+            return Ok(clock.now_millis() <= deadline);
         }
-        if clock.now_millis() >= self.signal_finish.limit(until, cutoff) {
+        if millis <= 0 {
             return Ok(false);
         }
-        let all = async {
-            let cells = shutdown
-                .batches
-                .iter()
-                .map(|b| &b.result)
-                .chain(shutdown.preparation.iter());
-            for done in cells {
-                let _ = done.wait().await;
-            }
-            for send in &shutdown.transfers {
-                send.wait_in(Signal::new()).await?;
-            }
-            for session in self.receipt_sessions(shutdown) {
-                session.wait_ended().await;
-            }
-            self.device_commands.wait_handed(Signal::new()).await
+        let timed = clock.with_timeout_or_null(
+            Signal::new(),
+            millis,
+            Box::new(move |signal| {
+                Box::pin(async move {
+                    let cells = shutdown
+                        .batches
+                        .iter()
+                        .map(|b| b.result.clone())
+                        .chain(shutdown.preparation.clone());
+                    for done in cells {
+                        tokio::select! { biased;
+                            reason = signal.cancelled() => return Err(VendorError::Cancelled(reason)),
+                            _ = done.wait() => {}
+                        }
+                    }
+                    for send in &shutdown.transfers {
+                        if let Err(VendorError::Cancelled(reason)) = send.wait_in(signal.clone()).await
+                            && send.ended().is_none()
+                        {
+                            return Err(VendorError::Cancelled(reason));
+                        }
+                    }
+                    for session in self.receipt_sessions(shutdown) {
+                        tokio::select! { biased;
+                            reason = signal.cancelled() => return Err(VendorError::Cancelled(reason)),
+                            _ = session.wait_ended() => {}
+                        }
+                    }
+                    self.device_commands.wait_handed(signal).await
+                })
+            }),
+        );
+        let finished = tokio::select! { biased;
+            result = timed => result?.is_some(),
+            _ = self.signal_finish.wait_for_signal(clock.as_ref(), cutoff) => false,
         };
-        tokio::select! { biased;
-            result = all => { result?; Ok(ended() && clock.now_millis() <= deadline()) },
-            _ = self.signal_finish.wait(clock.as_ref(), until, cutoff) => Ok(false),
-        }
+        let received_in_time = self
+            .signal_finish
+            .current()
+            .is_none_or(|finish| clock.now_millis() <= finish.receipts);
+        Ok(finished && received_in_time && ended(self))
     }
     /// D93: the disposal could not confirm that the Mac's work had ended: once, one WARN naming it and what was left, no
     /// further command from it, and its lease quarantined in its connection factory now rather than released.

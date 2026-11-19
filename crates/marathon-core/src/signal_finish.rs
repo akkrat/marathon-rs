@@ -47,6 +47,20 @@ impl SignalDeadline {
         self.current().map_or(deadline, |finish| deadline.min(cutoff(finish)))
     }
 
+    /// Leave the ordinary waiter in charge until a signal supplies a new limit.
+    pub async fn wait_for_signal(&self, clock: &dyn VendorClock, cutoff: fn(SignalFinish) -> i64) {
+        let mut changes = self.0.subscribe();
+        loop {
+            let finish = *changes.borrow_and_update();
+            if let Some(finish) = finish {
+                let left = cutoff(finish).saturating_sub(clock.now_millis());
+                let _ = clock.delay(left.max(0), Signal::new()).await;
+                return;
+            }
+            let _ = changes.changed().await;
+        }
+    }
+
     pub async fn wait(&self, clock: &dyn VendorClock, deadline: i64, cutoff: fn(SignalFinish) -> i64) {
         let mut changes = self.0.subscribe();
         loop {

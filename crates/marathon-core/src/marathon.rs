@@ -36,9 +36,7 @@ pub const TIMINGS: &str = "marathon_core::timing";
 const NO_DEVICES: FailureKind = FailureKind::NoDevices;
 const NO_TESTS: FailureKind = FailureKind::NoTests;
 
-/// D52: what a cancelled run gets before it exits, whatever is still running. A CI's grace between SIGTERM and SIGKILL is
-/// often 10 to 30 s. Reports come first, so a shorter grace costs cleanup and not results, and this stays under the
-/// longer one. It leaves room for D30's TERM, its 20 s and the KILL of a session the cancellation closed at the start.
+/// D52 and D97: the time from the first signal through the exit path, including the final console allowance.
 pub const CANCEL_LIMIT_MILLIS: i64 = 24_000;
 /// D97: the final second of the signal's budget belongs to the console.
 pub const CANCEL_FLUSH_MILLIS: i64 = 1_000;

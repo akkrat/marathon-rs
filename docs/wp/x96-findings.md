@@ -8,7 +8,7 @@ Base `9ce312ff`. D97 and U235–U242.
   exactly the STAT count, and writer closure. Cancellation before rename leaves the previous destination intact.
   A timeout that races a commit already admitted by the owner can still return its successful receipt. Failed pulls
   produce one named non-delivery diagnostic, even when the timeout prevents the pull from starting.
-- Apple receives own a private destination directory through copy or rsync and publication. Rsync must exit successfully
+- iOS and macOS receives own a private destination directory through copy or rsync and publication. Rsync must exit successfully
   with confirmed cleanup. A success status with inherited pipes still open is insufficient. Local copies complete
   traversal before publication. An xcresult commits directly under its batch name with exclusive rename. A failure
   retains the worker's source. D54 still lets an owned receive continue after its waiter leaves.
@@ -52,17 +52,25 @@ witness expected a one-byte file at the report path. Its replacement expects the
 For xcresult failures, a diagnostic names non-delivery and the retained source with `local copy: none`. Successful
 manifest names and payloads are covered by the existing artifact and differential suites. The JVM recordings were
 left intact. The changed Kotlin command or diagnostic expectations are marked `n/a` in the parity matrix.
-The D97 differential allowance removes the private directory component only from a native xcresult receive's final
-host argv entry. The worker source, all flags, and public result paths and payloads remain covered by the stored views.
+The D97 differential allowance removes the private directory component only from a native xcresult, video or
+device-log receive's final host argv entry. The worker source, all flags, and public result paths and payloads remain covered by the stored views.
 The first live comparison caught an extra source directory nested by openrsync. Receiving into an existing
 private directory and renaming its named child restores the expected result tree on both rsync variants.
+
+## Local verification
+
+Formatting and targeted Clippy passed. The changed-crate suites and the CLI vendor differential were
+run locally. The iOS and macOS disposal suites were rerun after restoring the routine receipt wait's
+original timeout ownership. The CLI's real-signal harness covered both debug modes. Plan graph,
+source inventory, parity matrix, differential registry, and 111 evidence tests passed. The native
+golden diff was empty after the D97 allowance.
 
 ## Verification limits and incidental bugs
 
 The release acceptance reports were inspected. Real-device and Linux verification, and integration with x95's
 process manager and finalized-recorder receipt, remain for integration. The standalone CLI signal witness checks the
 worker's TERM attempt, reports, and status. The shortened device wait can finish before the original D30 escalation.
-Process exit and containment at that point are covered by the x95 integration rather than the artifact receipt. A filesystem operation already entered
+The x95 integration supplies process exit and containment at that point. A filesystem operation already entered
 by the owner is completed under that owner's receipt. The signal budget limits how long the runner can wait to
 observe the operating system's result.
 

@@ -395,9 +395,7 @@ impl TransferStop {
 pub fn send_stop(executor: &dyn CommandExecutor, context: &VendorContext) -> TransferStop {
     TransferStop::new(context.cancellation.clone()).or_lost(connection_loss(executor))
 }
-/// D54: the stop for a receive from that device: only the loss of its connection. Every receive collects an artifact, and
-/// its callers are cancelled on purpose while it runs, as the artifact queue is 300 s after a run, before a 60 s grace to
-/// finish. Kotlin's receive finishes then, and so does this one.
+/// D54: a receive's owner can outlive its waiter. Connection loss and the device's transfer receipt stop the owner.
 pub fn receive_stop(executor: &dyn CommandExecutor) -> TransferStop {
     TransferStop::never().or_lost(connection_loss(executor))
 }

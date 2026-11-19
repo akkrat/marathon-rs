@@ -1174,15 +1174,15 @@ class VendorEvidenceTests(unittest.TestCase):
         values = dict(sandbox='/sandbox',safe_serial='serial',port='1')
         return lambda before: t.host_argv(data,values,before)
 
-    def test_d97_only_normalizes_a_native_xcresult_receive_directory(self):
+    def test_d97_only_normalizes_a_native_artifact_receive_directory(self):
         import vendor_transport as t
         values = dict(sandbox='/sandbox', safe_serial='serial', port='1')
         source = ('127.0.0.1:/tmp/marathon/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE/'
                   'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE.00000000-0000-0000-0000-000000000001.xcresult')
         public = '/sandbox/in/report/device-files/pool/serial/xcresult/'
         private = public + '.marathon-artifact-A0b1C2/'
-        def normalized(src, dst, *, native=True, flag='--links', program='rsync'):
-            row = dict(event='host_argv', program=program, argv=[flag, src, dst])
+        def normalized(src, dst, *, native=True, flag='--links'):
+            row = dict(event='host_argv', program='rsync', argv=[flag, src, dst])
             data = json.dumps(row).encode() + b'\n'
             return t.host_argv(data, values, d97_native_staging=native)
         old = normalized(source, public)
@@ -1194,6 +1194,15 @@ class VendorEvidenceTests(unittest.TestCase):
         self.assertNotEqual(old, normalized(source, private.replace('A0b1C2', 'A0b1C23')))
         self.assertNotEqual(old, normalized(source, private + 'extra/'))
         self.assertNotEqual(old, normalized(private, source))
+        worker = source.rsplit('/', 1)[0] + '/'
+        for artifact, role, filename in [('test.mp4', 'video', 'test.mp4'),
+                                         ('device.log', 'device-logs', 'batch.log')]:
+            base = '/sandbox/in/report/' + role + '/pool/serial/'
+            visible = normalized(worker + artifact, base + filename)
+            staged = base + '.marathon-artifact-A0b1C2/' + filename
+            self.assertEqual(visible, normalized(worker + artifact, staged))
+            self.assertNotEqual(visible, normalized(worker + artifact, staged + '.part'))
+            self.assertNotEqual(visible, normalized(worker + 'other.bin', staged))
 
     def test_d31_d43_a_transfer_of_an_older_record_gets_exactly_the_flag(self):
         send = lambda *flag: ['--recursive','--times',*flag,'--rsh','ssh -p 1 ','--delete','/src','127.0.0.1:/tmp/marathon/x']
