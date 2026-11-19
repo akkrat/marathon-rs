@@ -455,6 +455,16 @@ The rebased loopback used a one-slot data connection, three warmups and
 
 Ordinary close took 0.09 ms plain and 16.57 ms with worker retirement.
 
+### Linux D30 witness
+
+The Linux trace showed TERM on the independent control connection. The fake
+worker had recorded channel end while the reply was still in flight. Advancing
+Tokio by 21 s expired the four-second control exchange and put the reconnect
+into backoff. KILL then used the data connection, which failed the witness.
+The test now releases only the D30 grace delay and keeps both independent
+transport assertions. The corrected witness passed 50 runs and one loaded
+run on each platform.
+
 ## Incidental bugs
 
 No additional bug outside x95 was pursued.

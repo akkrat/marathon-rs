@@ -815,6 +815,8 @@ async fn a_sealed_device_stops_a_token_when_the_exec_reply_is_missing_d96() {
 
 #[tokio::test]
 async fn d30_escalation_joins_worker_proof_without_a_data_close_d96() {
+    use marathon_apple::cmd::remote::ssh::sshj::SshjCommandExecutorFactory;
+
     let fake = ssh::fake_with_handlers(
         ssh::script(vec![]),
         3,
@@ -823,7 +825,9 @@ async fn d30_escalation_joins_worker_proof_without_a_data_close_d96() {
     )
     .await;
     let (logging, _) = ssh::logging(false);
-    let executor = ssh::factory(&logging)
+    let expire_grace = Arc::new(tokio::sync::Notify::new());
+    let clock = support::Clock::with_gated_delay(20_000, expire_grace.clone());
+    let executor = SshjCommandExecutorFactory::new(logging, Arc::new(support::Runtime), Arc::new(clock))
         .connect_worker("127.0.0.1", fake.port(), ssh::password(), None, false, Arc::default())
         .await
         .unwrap();
@@ -862,9 +866,9 @@ async fn d30_escalation_joins_worker_proof_without_a_data_close_d96() {
     })
     .await;
 
-    tokio::time::pause();
-    tokio::time::advance(std::time::Duration::from_secs(21)).await;
-    tokio::time::resume();
+    // The worker's channel_end record can precede receipt of the TERM reply.
+    // Expire only the D30 grace so an in-flight control exchange stays live.
+    expire_grace.notify_one();
     tokio::time::timeout(std::time::Duration::from_secs(5), closing)
         .await
         .unwrap()

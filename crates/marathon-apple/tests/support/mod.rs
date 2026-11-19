@@ -19,7 +19,7 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicU64, Ordering},
 };
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 
 pub fn duration(millis: i64) -> Duration {
     duration_of(millis.div_euclid(1000), millis.rem_euclid(1000) * 1_000_000).unwrap()
@@ -68,15 +68,24 @@ impl VendorRuntime for Runtime {
 }
 pub struct Clock {
     start: tokio::time::Instant,
+    gated_delay: Option<(i64, Arc<Notify>)>,
 }
 impl Default for Clock {
     fn default() -> Self {
         Self {
             start: tokio::time::Instant::now(),
+            gated_delay: None,
         }
     }
 }
 impl Clock {
+    pub fn with_gated_delay(millis: i64, release: Arc<Notify>) -> Self {
+        Self {
+            gated_delay: Some((millis, release)),
+            ..Self::default()
+        }
+    }
+
     pub fn now(&self) -> i64 {
         self.start.elapsed().as_millis() as i64
     }
@@ -94,9 +103,15 @@ impl VendorClock for Clock {
             if millis <= 0 {
                 return Ok(());
             }
+            let elapsed = async {
+                match &self.gated_delay {
+                    Some((gated, release)) if *gated == millis => release.notified().await,
+                    _ => tokio::time::sleep(std::time::Duration::from_millis(millis as u64)).await,
+                }
+            };
             tokio::select! { biased;
                 reason = cancellation.cancelled() => Err(VendorError::Cancelled(reason)),
-                _ = tokio::time::sleep(std::time::Duration::from_millis(millis as u64)) => Ok(()),
+                _ = elapsed => Ok(()),
             }
         })
     }
