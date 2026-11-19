@@ -77,3 +77,6 @@ observe the operating system's result.
 Generated GIF encoders and report writers have separate production paths from vendor file receipt. In particular,
 Android's GIF listener can construct an attachment after a failed capture job. This was found while auditing the
 consumers of vendor transfers and is outside the transfer and signal changes in this package.
+
+Two existing `simulator_world` tests replace the process-wide SSH outbound exec test hook. The parallel iOS rerun
+hit the 60-second watchdog in one of them. All seven tests in that target passed with one test thread.
