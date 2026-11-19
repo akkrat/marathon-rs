@@ -3058,3 +3058,27 @@ tries to read a password or key passphrase on `/dev/tty` can also stop.
 in the same process group has finished. Configure SSH to authenticate without an interactive
 terminal prompt, and redirect terminal output for tools that inherit it if `stty tostop` is set.
 Sending a cancellation signal to Marathon's process group still works for registered tools.
+
+## D97 — Publish complete artifacts and reserve time for signal cleanup
+
+Approved 2026-11-19 (project owner's decision). WP x96. Amends D43, D52, D92, D94 and D95.
+See [x96 findings](wp/x96-findings.md).
+
+In a released-version Android acceptance run, SIGTERM interrupted a 300 MiB pull. The final file contained 1,703,936
+bytes and the transfer log described it as delivered. In two iOS runs with a stalled xcresult receive, the signal limit
+expired inside artifact finalization, before the provider recorded a device verdict or ran lifecycle and lease cleanup.
+
+Android requires ADB DONE, an exact byte count from STAT and successful writer completion, including for empty files.
+Apple rsync receives require successful exit and confirmed cleanup. A local Apple copy must finish reading and writing
+all entries. Each receive owns a private area on the destination filesystem. A verified artifact becomes visible by
+atomic rename, and a failed, cancelled or timed-out receive leaves any previous output in place. Failures report
+non-delivery. The attachment, success log and remote deletion paths use the successful receipt. An xcresult is renamed
+as a whole tree under its batch name. A failed pull leaves its remote artifact available for inspection. Android
+APP_DATA file sync removes application data after its copied files have been delivered.
+
+The first SIGINT or SIGTERM seals devices and starts reports. The initial console flush counts within the report head
+start. Provider and history finish start after the reports or at 10 s, whichever comes first. Eligible artifacts drain
+through 12 s. Transfer cancellation and receipt collection end by 18 s. Device verdicts, lifecycle on confirmed devices
+and lease release get the time left through 23 s. The exit path has the final second for console output. Healthy work
+can advance immediately. A signal tightens waits that are already running. Routine completion keeps the 300 s drain
+and shared 60 s cancellation window. Internal failure keeps the 30 s drain and shared 40 s cancellation window.

@@ -271,6 +271,14 @@ impl ComplexRequest for ListFileRequest {
     }
 }
 
+/// A strict receive has a receipt only after DONE, a matching count and writer close.
+#[derive(Clone, Default)]
+pub struct PullVerification(std::sync::Arc<std::sync::atomic::AtomicBool>);
+impl PullVerification {
+    pub fn complete(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Acquire)
+    }
+}
 pub struct PullFileRequest {
     pub remote_path: String,
     pub supported_features: Vec<Feature>,
@@ -279,6 +287,7 @@ pub struct PullFileRequest {
     writer: AsyncFileWriter,
     pub total_bytes: i64,
     pub current_position: i64,
+    verified: Option<PullVerification>,
 }
 impl PullFileRequest {
     pub fn new(path: impl Into<String>, local: PathBuf, size: Option<i64>) -> Self {
@@ -290,6 +299,7 @@ impl PullFileRequest {
             writer: AsyncFileWriter::new(local),
             total_bytes: -1,
             current_position: 0,
+            verified: None,
         }
     }
     pub fn v2(path: impl Into<String>, local: PathBuf, features: Vec<Feature>, size: Option<i64>) -> Self {
@@ -324,7 +334,7 @@ impl Request for PullFileRequest {
                 .await?
                 .size() as i64,
         };
-        if self.total_bytes > 0 {
+        if self.total_bytes > 0 || self.verified.is_some() {
             self.writer.start().await?;
         }
         if self.v2 {
@@ -342,12 +352,24 @@ impl AsyncChannelRequest for PullFileRequest {
         match &b[..4] {
             b"DONE" => {
                 self.writer.close().await?;
+                if let Some(verified) = &self.verified {
+                    if self.current_position != self.total_bytes {
+                        return Err(AdbError::PullFailed(format!(
+                            "Received {} of {} bytes for {}",
+                            self.current_position, self.total_bytes, self.remote_path
+                        )));
+                    }
+                    verified.0.store(true, std::sync::atomic::Ordering::Release);
+                }
                 Ok(true)
             }
             b"DATA" => {
                 let data = record(socket, u32_at(&b, 4) as usize).await?;
                 self.writer.write(&data).await?;
-                self.current_position += data.len() as i64;
+                self.current_position = self
+                    .current_position
+                    .checked_add(data.len() as i64)
+                    .ok_or_else(|| AdbError::PullFailed("Received byte count overflowed".into()))?;
                 send.push_back(self.current_position as f64 / self.total_bytes as f64);
                 Ok(false)
             }
@@ -573,6 +595,10 @@ impl CompatPullFileRequest {
     pub fn require_existing_local_parent(mut self) -> Self {
         self.0.writer.require_existing_parent();
         self
+    }
+    /// Set only after an exact receive ends with DONE and the writer closes.
+    pub fn verification(&mut self) -> PullVerification {
+        self.0.verified.get_or_insert_with(Default::default).clone()
     }
     pub fn execute(
         self,

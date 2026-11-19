@@ -206,6 +206,10 @@ pub enum RecvCut {
     Hang,
     /// Keep sending DATA without DONE until the client closes its connection.
     Trickle,
+    /// Finish with DONE after omitting part of the payload.
+    ShortDone,
+    /// Close after the entire payload, before sending DONE.
+    MissingDone,
 }
 
 #[derive(Debug, Clone, Deserialize)]

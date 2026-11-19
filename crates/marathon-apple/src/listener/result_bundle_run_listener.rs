@@ -12,19 +12,16 @@ use crate::{
 use jcompat::file_manager::{FileManager, FolderType};
 use marathon_config::vendor::{PullingPolicy, XcresultConfiguration};
 use marathon_core::{
-    error::{Failure, VendorError, VendorResult},
+    error::{VendorError, VendorResult},
     executor::shared::failure,
     model::{BatchRef, DevicePoolId, Test},
     runtime::VendorFuture,
     vendor::VendorContext,
 };
 use marathon_error::FailureKind;
-use std::{
-    path::{Path, PathBuf},
-    sync::{
-        Arc, Mutex, OnceLock, Weak,
-        atomic::{AtomicBool, Ordering},
-    },
+use std::sync::{
+    Arc, OnceLock, Weak,
+    atomic::{AtomicBool, Ordering},
 };
 
 /// Listener callbacks, including the synchronous macOS path, run on vendor I/O.
@@ -44,7 +41,7 @@ struct Bundle {
     logging: SshLogging,
     logger: Component,
     failed: AtomicBool,
-    local_copy: Mutex<Option<PathBuf>>,
+    delivered: AtomicBool,
     remote_path: OnceLock<String>,
 }
 impl ResultBundleRunListener {
@@ -72,7 +69,7 @@ impl ResultBundleRunListener {
                 logging,
                 logger,
                 failed: AtomicBool::new(false),
-                local_copy: Mutex::new(None),
+                delivered: AtomicBool::new(false),
                 remote_path: OnceLock::new(),
             }),
             processor,
@@ -166,25 +163,22 @@ impl Bundle {
                 })
                 .map_err(|e| io_failure(e, ""))?
                 .join("xcresult");
-            // File.mkdirs ignores its Boolean result; the pull/move supplies the failure.
-            let _ = std::fs::create_dir_all(&local);
-            let remote = self.remote().to_owned();
-            let copy = local.join(remote.rsplit('/').next().unwrap_or(&remote));
-            *self.local_copy.lock().unwrap_or_else(|e| e.into_inner()) = Some(copy.clone());
-            let pulled = self.device.pull_folder(&remote, &local, context).await?;
-            let elapsed = self.now("apple.ResultBundleRunListener.deliver")?.wrapping_sub(start) / 1_000_000;
-            self.log(
-                Level::DEBUG,
-                format!("xcresult pull for batch {} took {elapsed} ms", self.batch.id.to_owned())
-                    .as_str()
-                    .into(),
-            );
-            if !pulled {
-                return Ok(Some(String::from("pull failed")));
+            std::fs::create_dir_all(&local).map_err(|e| io_failure(e, &local.to_string_lossy()))?;
+            let destination = local.join(format!("{}.xcresult", self.batch.id));
+            let pulled = self.device.pull_bundle(self.remote(), &destination, context).await?;
+            if pulled {
+                self.delivered.store(true, Ordering::Release);
             }
-            let destination = local.join(format!("{}.xcresult", self.batch.id.to_owned()));
-            move_without_replace(&copy, &destination).map_err(VendorError::Other)?;
-            Ok(None)
+            let elapsed = self.now("apple.ResultBundleRunListener.deliver")?.wrapping_sub(start) / 1_000_000;
+            if pulled {
+                self.log(
+                    Level::DEBUG,
+                    format!("xcresult pull for batch {} took {elapsed} ms", self.batch.id.to_owned())
+                        .as_str()
+                        .into(),
+                );
+            }
+            Ok((!pulled).then_some(String::from("pull failed")))
         }
         .await;
         match outcome {
@@ -193,7 +187,12 @@ impl Bundle {
                 self.undelivered(&reason);
                 Ok(false)
             }
-            Err(error @ VendorError::Cancelled(_)) => Err(error),
+            Err(error @ VendorError::Cancelled(_)) => {
+                if self.processor().is_none() {
+                    self.undelivered(&error.failure().to_string());
+                }
+                Err(error)
+            }
             Err(error) => {
                 self.undelivered(&error.failure().to_string());
                 Ok(false)
@@ -201,11 +200,9 @@ impl Bundle {
         }
     }
     fn undelivered(&self, reason: &str) {
-        let copy = self.local_copy.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let local = copy
-            .filter(|p| p.exists())
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "none".into());
+        if self.delivered.load(Ordering::Acquire) {
+            return;
+        }
         let mut diagnostic = String::from("xcresult bundle of batch ");
         diagnostic.push_str(&self.batch.id.clone());
         diagnostic.push_str(" was not delivered (");
@@ -216,8 +213,7 @@ impl Bundle {
         diagnostic.push_str(&self.owner());
         diagnostic.push_str(") at ");
         diagnostic.push_str(self.remote());
-        diagnostic.push_str("; local copy: ");
-        diagnostic.push_str(&local);
+        diagnostic.push_str("; local copy: none");
         if self
             .processor()
             .is_some_and(|p| !p.report_undelivered(&self.owner(), Some(self.remote()), diagnostic.clone()))
@@ -235,25 +231,6 @@ fn io_failure(error: std::io::Error, path: &str) -> VendorError {
         _ => FailureKind::FileSystem,
     };
     VendorError::Other(failure(class, path))
-}
-fn move_without_replace(source: &Path, destination: &Path) -> Result<(), Failure> {
-    // UnixCopyFile.move checks the source before the destination, then renames.
-    std::fs::symlink_metadata(source).map_err(|e| io_failure(e, &source.to_string_lossy()).failure().clone())?;
-    match std::fs::symlink_metadata(destination) {
-        Ok(_) => {
-            return Err(failure(FailureKind::FileAlreadyExists, &destination.to_string_lossy()));
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(io_failure(e, &destination.to_string_lossy()).failure().clone()),
-    }
-    std::fs::rename(source, destination).map_err(|e| {
-        io_failure(
-            e,
-            &format!("{} -> {}", source.to_string_lossy(), destination.to_string_lossy()),
-        )
-        .failure()
-        .clone()
-    })
 }
 impl AppleTestRunListener for ResultBundleRunListener {
     fn before_test_run(&self) -> VendorFuture<'_, ()> {

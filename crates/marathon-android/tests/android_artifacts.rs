@@ -330,7 +330,7 @@ mod file_sync_test_run_listener_test {
                         "/data/local/tmp"
                     };
                     if *name == "fixture4" {
-                        let cmd = "mkdir -p /data/local/tmp/fixture4 && run-as com.example sh -c 'cd /data/data/com.example/fixture4 && tar cf - .' | tar xvf - -C /data/local/tmp/fixture4 && run-as com.example rm -R /data/data/com.example/fixture4";
+                        let cmd = "set -o pipefail && mkdir -p /data/local/tmp/fixture4 && run-as com.example sh -c 'cd /data/data/com.example/fixture4 && tar cf - .' | tar xvf - -C /data/local/tmp/fixture4";
                         shell(&mut script, cmd, "");
                         expected.push(cmd.into());
                     }
@@ -345,6 +345,11 @@ mod file_sync_test_run_listener_test {
                         },
                     );
                     expected.push(cmd);
+                    if *name == "fixture4" {
+                        let remove = "run-as com.example rm -R /data/data/com.example/fixture4";
+                        shell(&mut script, remove, "");
+                        expected.push(remove.into());
+                    }
                 }
                 if empty {
                     script["devices"][0]["files"] = json!([{"path":"/sdcard/fixture/empty_file","content":""}]);
@@ -390,7 +395,7 @@ fn file_sync_with_two_instrumentations_prepares_and_pulls_once_d28() {
             let _temp = temp;
             let tar = |package: &str| {
                 format!(
-                    "mkdir -p /data/local/tmp/fixture4 && run-as {package} sh -c 'cd /data/data/{package}/fixture4 && tar cf - .' | tar xvf - -C /data/local/tmp/fixture4 && run-as {package} rm -R /data/data/{package}/fixture4"
+                    "set -o pipefail && mkdir -p /data/local/tmp/fixture4 && run-as {package} sh -c 'cd /data/data/{package}/fixture4 && tar cf - .' | tar xvf - -C /data/local/tmp/fixture4"
                 )
             };
             let expected = vec![
@@ -406,6 +411,8 @@ fn file_sync_with_two_instrumentations_prepares_and_pulls_once_d28() {
                 tar("com.example"),
                 tar("other.app"),
                 "ls -l /data/local/tmp/fixture4".to_owned(),
+                "run-as com.example rm -R /data/data/com.example/fixture4".to_owned(),
+                "run-as other.app rm -R /data/data/other.app/fixture4".to_owned(),
             ];
             let mut script = base_script(27, vec![]);
             for command in &expected {
@@ -648,7 +655,7 @@ mod screen_capturer_test_run_listener_test {
     }
 }
 #[test]
-fn adam_extensions_and_missing_file_still_attach() {
+fn adam_extensions_require_a_delivered_file_to_attach_d97() {
     let mut c = configuration();
     let temp = output(&mut c);
     run(c, move |runtime, context| {
@@ -673,7 +680,6 @@ fn adam_extensions_and_missing_file_still_attach() {
                 values.iter().map(|a| a.kind).collect::<Vec<_>>(),
                 [
                     AttachmentType::ScreenshotJpeg,
-                    AttachmentType::ScreenshotJpeg,
                     AttachmentType::ScreenshotPng,
                     AttachmentType::ScreenshotWebp,
                     AttachmentType::ScreenshotGif
@@ -682,12 +688,8 @@ fn adam_extensions_and_missing_file_still_attach() {
             assert!(values.iter().all(|a| a.name == Some(js("screen"))));
             for (i, a) in values.iter().enumerate() {
                 let file = a.file.clone();
-                if i == 1 {
-                    assert!(!file.exists());
-                } else {
-                    assert_eq!(checked(tokio::fs::read(&file).await), b"image");
-                }
-                assert_eq!(file.extension().unwrap(), if i == 2 { "png" } else { "jpg" });
+                assert_eq!(checked(tokio::fs::read(&file).await), b"image");
+                assert_eq!(file.extension().unwrap(), if i == 1 { "png" } else { "jpg" });
             }
             finish(server, device).await;
             Ok(())
@@ -1385,7 +1387,7 @@ type ScenarioListeners = (
 );
 
 #[test]
-fn missing_and_timed_out_pulls_still_emit_video_capture_and_trace_attachments() {
+fn missing_and_timed_out_pulls_publish_no_video_capture_or_trace_attachments_d97() {
     for timeout in [false, true] {
         let mut c = configuration();
         let temp = output(&mut c);
@@ -1425,9 +1427,8 @@ fn missing_and_timed_out_pulls_still_emit_video_capture_and_trace_attachments() 
                     .on_event_in(&E::TestEnded { id: id(), metrics }, context.clone())
                     .await?;
                 trace.on_event_in(&end(), context).await?;
-                let values = collected.get(&test()).unwrap();
-                assert_eq!(values.len(), 3);
-                assert!(values.iter().all(|a| !a.file.clone().exists()));
+                assert!(collected.get(&test()).is_none());
+                assert!(!commands(&server).iter().any(|c| c.starts_with("rm ")));
                 let sync = server.transcript().iter().filter(|r| r["type"] == "sync").count();
                 assert_eq!(sync, if timeout { 0 } else { 3 });
                 finish(server, device).await;

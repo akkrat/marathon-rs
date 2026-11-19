@@ -4,6 +4,7 @@ mod listener_support;
 mod simulator_support;
 mod support;
 use listener_support::{Bridge, context, device, harness};
+use marathon_apple::apple_device::AppleDevice;
 use marathon_apple::{cmd::CommandResult, listener::AppleTestRunListener, logparser::parser::DeviceFailureReason};
 use marathon_config::{schema::ScreenRecordingPolicy, vendor::*};
 use marathon_core::{artifacts::AttachmentCollector, error::VendorError, model::DeviceFeature};
@@ -99,7 +100,7 @@ fn transcode_and_log_command_strings_match_kotlin() -> TestResult {
     Ok(())
 }
 #[tokio::test(start_paused = true)]
-async fn video_policy_matrix_and_ignored_pull_boolean_emit_attachment() -> TestResult {
+async fn video_policy_gates_pulls_and_false_never_attaches_or_deletes_d97() -> TestResult {
     for policy in [ScreenRecordingPolicy::OnAny, ScreenRecordingPolicy::OnFailure] {
         for outcome in 0..3 {
             let mut h = harness(|_| {})?;
@@ -131,13 +132,26 @@ async fn video_policy_matrix_and_ignored_pull_boolean_emit_attachment() -> TestR
             }
             // D80: the pull runs after the callback, off the event path.
             l.settle().await.map_err(|e| format!("{e:?}"))?;
-            let attach = policy == ScreenRecordingPolicy::OnAny || outcome == 1;
-            assert_eq!(collector.get(&test).is_some(), attach);
-            assert_eq!(bridge.pulls.lock().unwrap().len(), usize::from(attach));
+            let selected = policy == ScreenRecordingPolicy::OnAny || outcome == 1;
+            assert!(collector.get(&test).is_none());
+            assert_eq!(bridge.pulls.lock().unwrap().len(), usize::from(selected));
             assert_eq!(
-                h.worker.commands.lock().unwrap().last().unwrap(),
-                &["rm", "-rf", "/tmp/marathon/a/Tests-Suite-test1-batch.mp4"]
+                h.worker
+                    .commands
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|c| c.first().is_some_and(|s| s == "rm")),
+                !selected,
             );
+            let reported = h
+                .logs
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|r| r.2.contains("was not delivered"))
+                .count();
+            assert_eq!(reported, usize::from(selected));
             h.finish(&[d]).await;
         }
     }
@@ -170,14 +184,14 @@ async fn video_transfer_only_catch_and_missing_file_skip_removal() -> TestResult
         assert_eq!(result.is_err(), mode == 3);
         assert!(!h.worker.commands.lock().unwrap().iter().any(|c| c[0] == "rm"));
         if mode == 2 {
-            assert!(h.logs.lock().unwrap().iter().any(|r| r.2 == "Can't pull video"));
+            assert!(h.logs.lock().unwrap().iter().any(|r| r.2.contains("was not delivered")));
         }
         h.finish(&[d]).await;
     }
     Ok(())
 }
 #[tokio::test(start_paused = true)]
-async fn log_disabled_no_pid_and_ignored_kill_and_pull_results() -> TestResult {
+async fn log_disabled_no_pid_and_failed_pull_reports_undelivered_d97() -> TestResult {
     for pid in [None, Some("nonsense"), Some("  +0012  ")] {
         let h = harness(|v| v.device_log = pid.is_some())?;
         let bridge = Arc::new(Bridge::default());
@@ -209,7 +223,7 @@ async fn log_disabled_no_pid_and_ignored_kill_and_pull_results() -> TestResult {
                     .lock()
                     .unwrap()
                     .iter()
-                    .any(|r| r.2.starts_with("Pulling finished in ") && r.2.ends_with(" "))
+                    .any(|r| r.2.starts_with("Device log ") && r.2.ends_with(" was not delivered"))
             );
         }
         h.finish(&[d]).await;
@@ -264,7 +278,7 @@ async fn stop_is_idempotent_and_blank_pidfile_is_ignored() -> TestResult {
     Ok(())
 }
 #[tokio::test(start_paused = true)]
-async fn waiting_start_warns_once_starts_anyway_and_failed_stop_still_logs() -> TestResult {
+async fn waiting_start_warns_and_an_unconfirmed_stop_is_reported_d97() -> TestResult {
     let h = harness(|_| {})?;
     let d = h.device().await?;
     let c = context(&h, d.clone());
@@ -304,7 +318,8 @@ async fn waiting_start_warns_once_starts_anyway_and_failed_stop_still_logs() -> 
         logs.iter()
             .any(|r| r.2 == "Previous video recording didn't finish in 10s, starting a new one anyway")
     );
-    assert!(logs.iter().any(|r| r.2 == "stopped video recording pid=123"));
+    assert!(!logs.iter().any(|r| r.2 == "stopped video recording pid=123"));
+    assert!(logs.iter().any(|r| r.2 == "Can't pull video"));
     h.finish(&[d]).await;
     Ok(())
 }
@@ -804,7 +819,7 @@ async fn non_transfer_failure_reaches_the_next_listener_and_fails_after_test_run
     Ok(())
 }
 #[tokio::test(start_paused = true)]
-async fn failed_or_null_transcode_still_pulls_and_only_failed_result_logs_error() -> TestResult {
+async fn failed_or_null_transcode_requests_the_original_movie_d97() -> TestResult {
     for null in [false, true] {
         let mut h = harness(|v| v.screen_record_configuration.video_configuration.transcoding.enabled = true)?;
         Arc::make_mut(&mut h.services.configuration).screen_recording_policy = ScreenRecordingPolicy::OnAny;
@@ -841,8 +856,9 @@ async fn failed_or_null_transcode_still_pulls_and_only_failed_result_logs_error(
         });
         l.test_failed(&test, 0, 0, None).await.map_err(|e| format!("{e:?}"))?;
         l.settle().await.map_err(|e| format!("{e:?}"))?;
-        assert_eq!(bridge.pulls.lock().unwrap().len(), 1);
-        assert!(collector.get(&test).is_some());
+        let backup = d.remote_file_manager().remote_temp_video_for_test(&test, "batch");
+        assert_eq!(bridge.pulls.lock().unwrap().as_slice(), &[backup]);
+        assert!(collector.get(&test).is_none());
         assert_eq!(
             h.logs
                 .lock()

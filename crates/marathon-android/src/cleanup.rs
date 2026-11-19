@@ -38,6 +38,7 @@ pub(crate) struct DeviceWork {
     deadline: AtomicI64,
     active: Arc<Active>,
     pub(crate) force: Arc<Signal>,
+    pub(crate) signal_finish: marathon_core::signal_finish::SignalDeadline,
     pub(crate) cleanup: Mutex<Option<Arc<dyn VendorTask>>>,
 }
 
@@ -64,6 +65,7 @@ impl DeviceWork {
             deadline: AtomicI64::new(RUNNING),
             active: Arc::default(),
             force: Signal::new(),
+            signal_finish: Default::default(),
             cleanup: Mutex::default(),
         }
     }

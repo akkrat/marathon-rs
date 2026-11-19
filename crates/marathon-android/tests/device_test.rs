@@ -8,7 +8,7 @@ use serde_json::json;
 use support::*;
 
 #[test]
-fn a_healthy_pull_timeout_still_leaves_the_partial_file_d92() {
+fn a_timed_out_pull_preserves_the_previous_artifact_d97() {
     use std::{os::unix::fs::MetadataExt, time::Duration};
 
     let mut config = configuration();
@@ -22,14 +22,18 @@ fn a_healthy_pull_timeout_still_leaves_the_partial_file_d92() {
                 json!([{"path":"/partial","content":"Partial artifact","recv_cut":"trickle"}]);
             let mut server = server(script).await;
             let destination = output.path().join("artifact");
+            checked(std::fs::write(&destination, b"previous"));
             let staging = output.path().join(".marathon-staging");
             assert!(!staging.exists());
             let pulling = device(&server, runtime.clone());
             let path = destination.clone();
             let pull = runtime.dependencies.io.spawn(Box::pin(async move {
-                pulling
-                    .safe_pull_file("/partial", &path.to_string_lossy(), context)
-                    .await
+                assert!(
+                    !pulling
+                        .safe_pull_file("/partial", &path.to_string_lossy(), context)
+                        .await?
+                );
+                Ok(())
             }));
             let metadata = checked(
                 tokio::time::timeout(Duration::from_secs(60), async {
@@ -53,12 +57,10 @@ fn a_healthy_pull_timeout_still_leaves_the_partial_file_d92() {
                 .await,
             );
             assert_eq!(metadata.dev(), checked(output.path().metadata()).dev());
-            assert!(!destination.exists());
+            assert_eq!(checked(std::fs::read(&destination)), b"previous");
             clock.advance_to(1_000).await;
             pull.join().await?;
-            assert_eq!(checked(std::fs::read(&destination)), b"P");
-            let published = checked(destination.metadata());
-            assert_eq!((published.dev(), published.ino()), (metadata.dev(), metadata.ino()));
+            assert_eq!(checked(std::fs::read(&destination)), b"previous");
             assert_eq!(checked(std::fs::read_dir(&staging)).count(), 0);
             checked(server.shutdown().await);
             Ok(())
@@ -67,7 +69,7 @@ fn a_healthy_pull_timeout_still_leaves_the_partial_file_d92() {
 }
 
 #[test]
-fn unavailable_pull_staging_writes_directly_and_warns_once_d92() {
+fn unavailable_pull_staging_reports_each_artifact_once_d97() {
     use std::sync::{Arc, Mutex};
     let mut config = configuration();
     let output = checked(tempfile::tempdir());
@@ -76,10 +78,10 @@ fn unavailable_pull_staging_writes_directly_and_warns_once_d92() {
         Box::pin(async move {
             let staged = output.path().join(".marathon-staging");
             checked(std::fs::write(&staged, b"obstruction"));
-            let warnings = Arc::new(Mutex::new(Vec::new()));
-            let log = warnings.clone();
+            let errors = Arc::new(Mutex::new(Vec::new()));
+            let log = errors.clone();
             Arc::get_mut(&mut runtime).unwrap().log = Arc::new(move |_, level, message, _| {
-                if level == marathon_logging::Level::WARN {
+                if level == marathon_logging::Level::ERROR {
                     log.lock().unwrap().push(message.to_owned());
                 }
             });
@@ -89,15 +91,54 @@ fn unavailable_pull_staging_writes_directly_and_warns_once_d92() {
             let device = device(&server, runtime);
             for name in ["first", "second"] {
                 let destination = output.path().join(name).join("out");
-                device
-                    .pull_file("/file", &destination.to_string_lossy(), context.clone())
-                    .await?;
-                assert_eq!(checked(std::fs::read(destination)), b"artifact");
+                assert!(
+                    !device
+                        .safe_pull_file("/file", &destination.to_string_lossy(), context.clone())
+                        .await?
+                );
+                assert!(!destination.exists());
             }
-            let warnings = warnings.lock().unwrap().clone();
-            assert_eq!(warnings.len(), 1, "{warnings:?}");
-            assert!(warnings[0].contains("Writing directly to the destination"));
+            let errors = errors.lock().unwrap().clone();
+            assert_eq!(errors.len(), 2, "{errors:?}");
+            assert!(errors.iter().all(|line| line.contains("was not delivered")));
             assert_eq!(checked(std::fs::read(staged)), b"obstruction");
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
+#[test]
+fn a_pull_needs_done_and_the_exact_stat_size_including_empty_files_d97() {
+    let mut config = configuration();
+    let output = checked(tempfile::tempdir());
+    config.output_dir = output.path().to_owned();
+    run(config, move |runtime, context| {
+        Box::pin(async move {
+            let mut script = base_script(27, vec![]);
+            script["devices"][0]["files"] = json!([
+                {"path":"/short", "content":"artifact", "recv_cut":"short_done"},
+                {"path":"/no-done", "content":"artifact", "recv_cut":"missing_done"},
+                {"path":"/empty-no-done", "content":"", "recv_cut":"missing_done"},
+                {"path":"/empty", "content":""}
+            ]);
+            let mut server = server(script).await;
+            let device = device(&server, runtime);
+            let destination = output.path().join("artifact");
+            checked(std::fs::write(&destination, b"previous"));
+            for remote in ["/short", "/no-done", "/empty-no-done"] {
+                assert!(
+                    device
+                        .pull_file(remote, &destination.to_string_lossy(), context.clone())
+                        .await
+                        .is_err()
+                );
+                assert_eq!(checked(std::fs::read(&destination)), b"previous");
+            }
+            device
+                .pull_file("/empty", &destination.to_string_lossy(), context)
+                .await?;
+            assert_eq!(checked(std::fs::read(&destination)), b"");
             checked(server.shutdown().await);
             Ok(())
         })

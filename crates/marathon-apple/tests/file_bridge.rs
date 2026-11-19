@@ -84,3 +84,34 @@ async fn copy_uses_new_file_permissions_instead_of_preserving_executable_bits() 
     assert!(bridge.send(&src, dst.to_str().unwrap()).await.unwrap());
     assert_eq!(std::fs::metadata(dst).unwrap().permissions().mode() & 0o111, 0);
 }
+
+#[tokio::test]
+async fn a_failed_local_tree_receive_preserves_previous_output_d97() {
+    use marathon_apple::cmd::TransferStop;
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source.xcresult");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::write(source.join("Info.plist"), b"new metadata").unwrap();
+    std::os::unix::fs::symlink(source.join("missing"), source.join("broken")).unwrap();
+    let prior = root.path().join("prior.xcresult");
+    std::fs::create_dir(&prior).unwrap();
+    std::fs::write(prior.join("Info.plist"), b"prior metadata").unwrap();
+
+    let bridge = JvmFileBridge::new(Arc::new(Runtime), true);
+    assert!(
+        bridge
+            .receive_bundle(&source.to_string_lossy(), &prior, TransferStop::never())
+            .await
+            .is_err()
+    );
+    assert_eq!(std::fs::read(prior.join("Info.plist")).unwrap(), b"prior metadata");
+    let fresh = root.path().join("fresh.xcresult");
+    assert!(
+        bridge
+            .receive_bundle(&source.to_string_lossy(), &fresh, TransferStop::never())
+            .await
+            .is_err()
+    );
+    assert!(!fresh.exists());
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 2);
+}

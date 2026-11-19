@@ -350,12 +350,23 @@ impl AppleSimulatorDevice {
         let mut state = self.state();
         self.seal_locked(&mut state, SealCause::RunStop, None)
     }
+    pub(crate) fn signal_seal(&self, finish: marathon_core::signal_finish::SignalFinish) {
+        self.signal_finish.set(finish);
+        let mut state = self.state();
+        state.pulls.limit_for_signal(finish);
+        let shutdown = self.seal_locked(&mut state, SealCause::RunStop, None);
+        self.stop_all(&shutdown);
+    }
     /// D93 (round 8): the provider's termination at the run's end, just before it disposes of the simulator: a refusal after
     /// it is an orderly cancellation; the disposal keeps its own limits (not a run's stop).
     pub(crate) fn seal_for_termination(&self, deadline: i64) {
         let mut state = self.state();
         state.provider_deadline = Some(deadline);
         self.seal_locked(&mut state, SealCause::Termination, Some(deadline));
+    }
+    pub(crate) fn limit_pulls_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
+        self.signal_finish.set(finish);
+        self.state().pulls.limit_for_signal(finish);
     }
     pub(crate) fn limit_pulls_for_provider_shutdown(&self, deadline: i64) {
         self.state().pulls.limit_to(deadline);
@@ -375,7 +386,9 @@ impl AppleSimulatorDevice {
     pub(super) fn seal_for_run_stop(&self) {
         let mut state = self.state();
         let shutdown = self.seal_locked(&mut state, SealCause::RunStop, None);
-        state.pulls.limit_to(shutdown.window.deadline);
+        if self.signal_finish.current().is_none() {
+            state.pulls.limit_to(shutdown.window.deadline);
+        }
     }
     /// D93 (round 7): records the seal with its cause, closes the device's command gate in the same critical section, and
     /// stops at once what the device registered before it (`stop_all`): nothing registered before the seal starts after it.
@@ -446,13 +459,17 @@ impl AppleSimulatorDevice {
         let deadline = shutdown.window.deadline;
         let reserve =
             marathon_apple::cmd::device_commands::force_reserve_millis(self.services.timeouts.cancelled_batch_millis);
-        let graceful = deadline.saturating_sub(reserve).saturating_sub(clock.now_millis());
+        let graceful = deadline.saturating_sub(reserve);
         // D93 (review round 2): the verdict is these waits' outcome. Work not seen ended before the deadline is unconfirmed,
         // whatever a later look would find.
-        let in_time = self.wait_for(shutdown, graceful, deadline).await?;
+        let in_time = self.wait_for(shutdown, graceful, |finish| finish.drain).await?;
         let in_time = in_time || {
             self.stop_all(shutdown);
-            let left = deadline.saturating_sub(clock.now_millis()).max(0);
+            let left = self
+                .signal_finish
+                .limit(deadline, |finish| finish.receipts)
+                .saturating_sub(clock.now_millis())
+                .max(0);
             let protected = VendorContext {
                 cancellation: Signal::new(),
                 ..self.services.context.clone()
@@ -469,11 +486,17 @@ impl AppleSimulatorDevice {
                         .await;
                 }
             });
-            let (_, waited) = tokio::join!(
-                futures_util::future::join_all(forced),
-                self.wait_for(shutdown, left, deadline)
-            );
-            waited?
+            let all = async {
+                let (_, waited) = tokio::join!(
+                    futures_util::future::join_all(forced),
+                    self.wait_for(shutdown, deadline, |finish| finish.receipts)
+                );
+                waited
+            };
+            tokio::select! { biased;
+                result = all => result?,
+                _ = self.signal_finish.wait(clock.as_ref(), deadline, |finish| finish.receipts) => false,
+            }
         };
         let mut left = Vec::new();
         if shutdown.batches.iter().any(|b| b.done.completed().is_none()) {
@@ -531,7 +554,13 @@ impl AppleSimulatorDevice {
             preparation.signal.cancel(disposed());
         }
         for transfer in &shutdown.transfers {
-            transfer.stop(disposed(), Some(shutdown.window.deadline));
+            transfer.stop(
+                disposed(),
+                Some(
+                    self.signal_finish
+                        .limit(shutdown.window.deadline, |finish| finish.receipts),
+                ),
+            );
         }
         // A session registered before the seal that has not begun to open never will.
         for session in &shutdown.sessions {
@@ -547,7 +576,13 @@ impl AppleSimulatorDevice {
     }
     /// Waits up to `millis` for everything in the receipt, and then for the last xcodebuild session's producer (a batch
     /// opens its session itself); whether all of it ended. Nothing left: no wait, only a look.
-    async fn wait_for(&self, receipt: &Shutdown, millis: i64, deadline: i64) -> VendorResult<bool> {
+    async fn wait_for(
+        &self,
+        receipt: &Shutdown,
+        until: i64,
+        cutoff: fn(marathon_core::signal_finish::SignalFinish) -> i64,
+    ) -> VendorResult<bool> {
+        let clock = &self.services.context.clock;
         let ended = || {
             receipt.batches.iter().all(|b| b.done.completed().is_some())
                 && receipt.preparations.iter().all(|p| p.done.completed().is_some())
@@ -555,66 +590,48 @@ impl AppleSimulatorDevice {
                 && receipt.sessions.iter().all(|s| s.ended().is_some())
                 && self.commands.handed_ended()
         };
+        let deadline = || {
+            self.signal_finish
+                .limit(receipt.window.deadline, |finish| finish.receipts)
+        };
         if ended() {
-            // A look after the deadline counts for nothing.
-            return Ok(self.services.context.clock.now_millis() <= deadline);
+            return Ok(clock.now_millis() <= deadline());
         }
-        if millis <= 0 {
+        if clock.now_millis() >= self.signal_finish.limit(until, cutoff) {
             return Ok(false);
         }
-        let cells: Vec<_> = receipt
-            .batches
-            .iter()
-            .map(|b| b.done.clone())
-            .chain(receipt.preparations.iter().map(|p| p.done.clone()))
-            .collect();
-        let sends = receipt.transfers.clone();
-        let sessions = receipt.sessions.clone();
-        let commands = self.commands.clone();
-        // Joining observes completion, not the jobs' results; the timeout only bounds this wait.
-        let finished = self
-            .services
-            .context
-            .clock
-            .with_timeout_or_null(
-                Signal::new(),
-                millis,
-                Box::new(move |signal| {
-                    Box::pin(async move {
-                        for done in cells {
-                            match done.wait_in(signal.clone()).await {
-                                Err(VendorError::Cancelled(reason)) if done.completed().is_none() => {
-                                    return Err(VendorError::Cancelled(reason));
-                                }
-                                _ => {}
-                            }
-                        }
-                        for send in sends {
-                            if let Err(VendorError::Cancelled(reason)) = send.wait_in(signal.clone()).await
-                                && send.ended().is_none()
-                            {
-                                return Err(VendorError::Cancelled(reason));
-                            }
-                        }
-                        for session in sessions {
-                            tokio::select! { biased;
-                                reason = signal.cancelled() => return Err(VendorError::Cancelled(reason)),
-                                _ = session.wait_ended() => {}
-                            }
-                        }
-                        commands.wait_handed(signal).await
-                    })
-                }),
-            )
-            .await?
-            .is_some();
-        Ok(finished && ended())
+        let all = async {
+            for done in receipt
+                .batches
+                .iter()
+                .map(|b| &b.done)
+                .chain(receipt.preparations.iter().map(|p| &p.done))
+            {
+                let _ = done.wait().await;
+            }
+            for send in &receipt.transfers {
+                send.wait_in(Signal::new()).await?;
+            }
+            for session in &receipt.sessions {
+                session.wait_ended().await;
+            }
+            self.commands.wait_handed(Signal::new()).await
+        };
+        tokio::select! { biased;
+            result = all => { result?; Ok(ended() && clock.now_millis() <= deadline()) },
+            _ = self.signal_finish.wait(clock.as_ref(), until, cutoff) => Ok(false),
+        }
     }
     /// D93: the simulator's lifecycle and lease are no longer safe: once, one WARN (`warning`), its commands revoked with
     /// `why`, its lease quarantined in its connection factory now, and the simulator retired.
     fn quarantine(&self, warning: String, why: String) {
         if self.mark_quarantined(&why) {
-            self.log(Level::WARN, warning, None);
+            let level = if self.signal_finish.current().is_some() {
+                Level::ERROR
+            } else {
+                Level::WARN
+            };
+            self.log(level, warning, None);
         }
     }
     fn mark_quarantined(&self, why: &str) -> bool {
@@ -673,7 +690,10 @@ impl AppleSimulatorDevice {
         let left = shutdown.window.deadline.saturating_sub(now);
         let left = if shutdown.by_run_stop { left.max(reserve) } else { left };
         let left = left.min(self.state().provider_deadline.unwrap_or(i64::MAX).saturating_sub(now));
-        if left <= 0 {
+        let deadline = self
+            .signal_finish
+            .limit(now.saturating_add(left), |finish| finish.devices);
+        if deadline <= now {
             lifecycle_cut(self, "had no time left to run");
             return Ok(Ok(()));
         }
@@ -701,7 +721,7 @@ impl AppleSimulatorDevice {
         };
         let ended = tokio::select! { biased;
             ended = ran.wait() => Some(ended),
-            _ = clock.delay(left, Signal::new()) => None,
+            _ = self.signal_finish.wait(clock.as_ref(), deadline, |finish| finish.devices) => None,
         };
         match ended {
             Some(ended) => {
@@ -729,7 +749,11 @@ impl AppleSimulatorDevice {
             .as_ref()
             .filter(|s| s.by_run_stop)
             .map(|s| s.window.deadline);
-        run_stop.into_iter().chain(state.provider_deadline).min()
+        run_stop
+            .into_iter()
+            .chain(state.provider_deadline)
+            .chain(self.signal_finish.current().map(|finish| finish.devices))
+            .min()
     }
     /// Cancels the batch, the preparations and the sends given and waits for all of them within one bound, the cancelled
     /// batch's. U179: it waits on their completion cells, not on the retained tasks, which also hold disposal itself.
@@ -889,6 +913,14 @@ impl AppleSimulatorDevice {
                         ));
                         state.pulls.snapshot()
                     };
+                    if let Some(finish) = device.signal_finish.current() {
+                        marathon_apple::cmd::device_commands::wait_for_pulls(
+                            &pulls,
+                            device.services.context.clock.as_ref(),
+                            finish.receipts,
+                        )
+                        .await;
+                    }
                     let pulls_left = marathon_apple::cmd::device_commands::settle_pulls(
                         &pulls,
                         &device.serial,

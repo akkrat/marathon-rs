@@ -699,7 +699,9 @@ def normalized(directory, contract, native=False):
                         console = vendor_console.normalize(data,record['identities'],record['implementation'],name,facts)
                     content = base64.b64encode(console).decode()
                 elif name == 'host-argv.jsonl':
-                    content = vendor_transport.host_argv(data,record['identities'],may_withhold(directory,record))
+                    content = vendor_transport.host_argv(
+                        data, record['identities'], may_withhold(directory,record),
+                        d97_native_staging=record['implementation'] == 'native')
                 elif contract['transport'] == 'ssh':
                     content = vendor_transport.ssh(data,contract['vendor'],may_withhold(directory,record))
                 else:

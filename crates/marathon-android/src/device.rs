@@ -1286,6 +1286,13 @@ impl AndroidDevice {
             .work
             .seal(now.saturating_add(cleanup::allowance(self.timeouts())));
     }
+    pub(crate) fn signal_seal(&self, finish: marathon_core::signal_finish::SignalFinish) {
+        self.inner.work.signal_finish.set(finish);
+        self.seal();
+        if let Some(task) = lock(&self.inner.logcat).as_ref() {
+            task.cancel(requested("device stopping after a signal"));
+        }
+    }
     pub(crate) async fn dispose_inner(&self, remove_reverse: bool) -> VendorResult<()> {
         self.start_cleanup(remove_reverse).join().await
     }
@@ -1307,14 +1314,13 @@ impl AndroidDevice {
         if let Some(task) = lock(&self.inner.logcat).take() {
             task.cancel(requested("device disposed"));
         }
-        let grace = deadline
-            .saturating_sub(cleanup::FORCE_RESERVE_MILLIS)
-            .saturating_sub(context.clock.now_millis());
-        let forced = if grace > 0 {
+        let signal_finish = &self.inner.work.signal_finish;
+        let grace = deadline.saturating_sub(cleanup::FORCE_RESERVE_MILLIS);
+        let forced = if grace > context.clock.now_millis() {
             tokio::select! {
                 biased;
                 _ = self.inner.work.idle() => false,
-                _ = context.clock.delay(grace, context.cancellation.clone()) => true,
+                _ = signal_finish.wait(context.clock.as_ref(), grace, |finish| finish.drain) => true,
             }
         } else {
             true
@@ -1329,29 +1335,53 @@ impl AndroidDevice {
         lock(&self.inner.line_listeners).clear();
         lock(&self.inner.logcat_listeners).clear();
 
-        let left = deadline.saturating_sub(context.clock.now_millis());
-        let joined = async {
-            tokio::join!(
-                self.inner.work.idle(),
-                self.cleanup_remote(remove_reverse, deadline, context.clone())
-            );
+        let device_deadline = || signal_finish.limit(deadline, |finish| finish.devices);
+        let idle = async {
+            tokio::select! { biased;
+                _ = self.inner.work.idle() => Ok(()),
+                _ = signal_finish.wait(context.clock.as_ref(), deadline, |finish| finish.receipts) => Err(()),
+            }
         };
-        let expired = if left > 0 {
+        let remote = async {
+            self.cleanup_remote(remove_reverse, device_deadline(), context.clone())
+                .await;
+            Ok(())
+        };
+        let joined = async {
+            let result = if signal_finish.current().is_some() {
+                // A signal finish starts remote cleanup only once the local producers have ended.
+                async {
+                    idle.await?;
+                    remote.await
+                }
+                .await
+            } else {
+                // If a signal arrives here during routine cleanup, the idle receipt still tightens.
+                tokio::try_join!(idle, remote).map(|_| ())
+            };
+            result.is_err()
+        };
+        let expired = if device_deadline() > context.clock.now_millis() {
             tokio::select! {
                 biased;
-                _ = context.clock.delay(left, context.cancellation.clone()) => true,
-                _ = joined => false,
+                _ = signal_finish.wait(context.clock.as_ref(), deadline, |finish| finish.devices) => true,
+                expired = joined => expired,
             }
         } else {
             true
         };
         self.inner.cleanup_client.close();
-        if expired || context.clock.now_millis() >= deadline {
+        if expired || context.clock.now_millis() >= device_deadline() {
             let error = other(
                 FailureKind::Timeout,
                 format!("Android cleanup could not be confirmed for {}", self.serial_number()),
             );
-            self.log(Level::WARN, "Android cleanup deadline reached", Some(error.failure()));
+            let level = if signal_finish.current().is_some() {
+                Level::ERROR
+            } else {
+                Level::WARN
+            };
+            self.log(level, "Android cleanup deadline reached", Some(error.failure()));
             return Err(error);
         }
         Ok(())
@@ -1641,6 +1671,12 @@ impl Device for AndroidDevice {
             Signal::new(),
             move |_| Box::pin(async move { device.dispose_inner(true).await }),
         ))
+    }
+    fn seal_for_stop(&self) {
+        self.seal();
+    }
+    fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
+        self.signal_seal(finish);
     }
     fn begin_stop(&self) -> Option<VendorFuture<'static, ()>> {
         self.seal();

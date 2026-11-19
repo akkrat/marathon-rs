@@ -588,21 +588,20 @@ fn file_transfer_finally_and_folder_success_use_tapes_and_integer_kilobytes() {
                 *messages.lock().unwrap(),
                 [
                     "Transferred small to/from serial. 0.00 KB/s (999 bytes in 1.0000)",
-                    "Transferred small to/from serial. 0.00 KB/s (999 bytes in 1.0000)",
                     "Transferred folder with 2 dirs and 1 files to/from serial. 1.00 KB/s (1500 bytes in 1.0000)"
                 ]
             );
+            // D97 omits the Kotlin log for the failed receive. Both successful transfers still match.
             let expected = oracle("transfer");
             let actual = messages.lock().unwrap();
-            assert_eq!(actual.len(), expected["messages"].as_array().unwrap().len());
-            for (i, message) in actual.iter().enumerate().take(2) {
-                assert_eq!(
-                    message.split(" bytes in ").next(),
-                    expected["messages"][i].as_str().unwrap().split(" bytes in ").next()
-                );
-            }
+            let recorded = expected["messages"].as_array().unwrap();
+            assert_eq!(actual.len() + 1, recorded.len());
+            assert_eq!(
+                actual[0].split(" bytes in ").next(),
+                recorded[0].as_str().unwrap().split(" bytes in ").next()
+            );
             assert!(
-                expected["messages"][2]
+                recorded[2]
                     .as_str()
                     .unwrap()
                     .starts_with("Transferred folder with 2 dirs and 1 files to/from serial. ")

@@ -182,6 +182,7 @@ pub struct AppleSimulatorDevice {
     timing: ProvisioningTiming,
     logger: Component,
     state: Mutex<State>,
+    signal_finish: marathon_core::signal_finish::SignalDeadline,
     retained: RetainedTasks,
     lines: Arc<LineListeners>,
 }
@@ -274,6 +275,7 @@ impl AppleSimulatorDevice {
             timing,
             logger,
             state: Mutex::new(state),
+            signal_finish: Default::default(),
             retained: RetainedTasks::default(),
             lines: Arc::default(),
         })
@@ -416,6 +418,9 @@ impl Device for AppleSimulatorDevice {
     }
     fn seal_for_stop(&self) {
         self.seal_for_run_stop();
+    }
+    fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
+        self.signal_seal(finish);
     }
     fn info(&self) -> DeviceInfo {
         self.state().info.clone()

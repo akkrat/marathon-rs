@@ -81,6 +81,9 @@ async fn release(
     }
 }
 impl ProvisioningConnections for DetachedConnections {
+    fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
+        self.inner.seal_for_signal(finish);
+    }
     fn seal_for_termination(&self, deadline: i64, context: VendorContext) {
         self.termination
             .lock()
@@ -134,6 +137,9 @@ impl ProvisioningConnections for DetachedConnections {
 /// `createOrThrow`, so authentication is not flattened into a missing executor.
 pub struct ProviderConnections(pub Arc<ConnectionFactory>);
 impl ProvisioningConnections for ProviderConnections {
+    fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
+        self.0.seal_for_signal(finish);
+    }
     fn transport_log_text(&self, transport: &Transport, local: &str) -> String {
         self.0.transport_log_text(transport, local)
     }

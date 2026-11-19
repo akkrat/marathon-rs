@@ -409,6 +409,93 @@ impl marathon_apple::cmd::FileBridge for PullsUntilStopped {
     }
 }
 
+#[tokio::test(start_paused = true)]
+async fn signal_tightens_an_already_running_artifact_drain_and_leaves_time_to_dispose_d97() -> TestResult {
+    use marathon_core::signal_finish::SignalFinish;
+    let p = ProviderHarness::with_device_window(
+        |v| {
+            v.lifecycle_configuration.on_dispose = vec![marathon_config::vendor::LifecycleAction::Shutdown];
+        },
+        70_000,
+    )?;
+    let bridge = Arc::new(PullsUntilStopped::default());
+    *p.connections.bridge.lock().unwrap() = Some(bridge.clone());
+    p.update(&["a"]).await.map_err(test_error)?;
+    let device = p.connected(1).await.remove(0);
+    let context = p.h.services.context.clone();
+    let release = SharedDeferred::new();
+    let returned = SharedDeferred::new();
+    let callbacks = Arc::new(AtomicUsize::new(0));
+    let pull = device.clone();
+    let (gate, done, calls) = (release.clone(), returned.clone(), callbacks.clone());
+    p.h.services
+        .artifacts
+        .submit(
+            "a@local".into(),
+            "held bundle".into(),
+            "local".into(),
+            Some(Arc::new(move |_| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })),
+            Arc::new(move |_| {
+                let (device, gate, done, context) = (pull.clone(), gate.clone(), done.clone(), context.clone());
+                Box::pin(async move {
+                    let result = device
+                        .pull_folder("/artifact.xcresult", &std::env::temp_dir(), &context)
+                        .await;
+                    gate.wait().await?;
+                    done.complete(Ok(()));
+                    result.map(|_| ())
+                })
+            }),
+            p.h.services.context.clone(),
+        )
+        .await
+        .map_err(test_error)?;
+    bridge.started.wait().await.map_err(test_error)?;
+    let closing = p.start_termination().await;
+    assert_eq!(
+        p.recovery.stopped.load(Ordering::SeqCst),
+        1,
+        "recovery stops before a routine drain"
+    );
+    assert_eq!(p.recovery.joins.load(Ordering::SeqCst), 0);
+    assert!(!device.disposed());
+    p.h.boot.state.store(3, Ordering::SeqCst);
+    let at = tokio::time::Instant::now();
+    let finish = SignalFinish::from_start(p.h.clock.now_millis());
+    p.provider.seal_for_signal(finish);
+    closing.await?.map_err(test_error)?;
+    assert_eq!(
+        bridge.ended_at.lock().unwrap().unwrap() - at,
+        std::time::Duration::from_secs(12)
+    );
+    assert_eq!(at.elapsed(), std::time::Duration::from_secs(18));
+    assert_eq!(callbacks.load(Ordering::SeqCst), 1);
+    assert_eq!(p.recovery.joins.load(Ordering::SeqCst), 1);
+    assert!(device.disposed());
+    assert!(!device.quarantined());
+    assert_eq!(count(&p.h.worker, &["xcrun", "simctl", "shutdown", "a"]), 1);
+    release.complete(Ok(()));
+    returned.wait().await.map_err(test_error)?;
+    p.finish().await
+}
+
+#[tokio::test(start_paused = true)]
+async fn signal_with_no_artifacts_disposes_and_releases_without_waiting_for_a_cutoff_d97() -> TestResult {
+    let p = ProviderHarness::new(|_| {})?;
+    p.update(&["a"]).await.map_err(test_error)?;
+    let device = p.connected(1).await.remove(0);
+    let start = p.h.clock.now_millis();
+    p.provider
+        .seal_for_signal(marathon_core::signal_finish::SignalFinish::from_start(start));
+    p.finish().await?;
+    assert_eq!(p.h.clock.now_millis(), start);
+    assert!(device.disposed());
+    Ok(())
+}
+
 /// An artifact job's pull still runs when the routine 360 s artifact window ends. The simulator's disposal finds it
 /// among its pulls: no on-dispose lifecycle runs beside it, the simulator's lease is quarantined, and the pull ends within
 /// D91's 40 s bound for a stopped transfer. Before, pulls were not the device's to know of: the lifecycle (here `simctl
@@ -592,7 +679,7 @@ async fn a_pull_asked_for_after_the_disposals_look_at_the_pulls_is_refused_d93()
             .any(|r| r.1 == marathon_logging::Level::WARN && r.2.starts_with("Not receiving ")),
         "no WARN for the refused pull"
     );
-    Ok(())
+    p.finish().await
 }
 #[tokio::test(start_paused = true)]
 async fn a_stopped_run_disposes_simulators_within_one_artifact_window_d94() -> TestResult {

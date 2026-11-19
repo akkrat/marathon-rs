@@ -57,10 +57,14 @@ impl AndroidTestRunListener for AdamScreenCaptureTestRunListener {
                             Ok(absolute.to_string_lossy().into_owned())
                         })
                         .await?;
-                        self.artifacts
+                        if !self
+                            .artifacts
                             .device
                             .safe_pull_file(&path, &local, context.clone())
-                            .await?;
+                            .await?
+                        {
+                            return Ok(());
+                        }
                         self.artifacts.device.log_named(
                             logger,
                             Level::DEBUG,

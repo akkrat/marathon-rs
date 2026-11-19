@@ -259,14 +259,14 @@ impl Scheduler {
     }
     /// D93: seals every device of the run's pools (`Device::seal_for_stop`), as the Scheduler's own stop does, for a stop
     /// that cancels the Scheduler's job directly (D52's signal), before it does. No I/O, no blocking; idempotent.
-    pub fn seal_devices(&self) {
+    pub fn seal_devices(&self, finish: crate::signal_finish::SignalFinish) {
         let pools: Vec<DevicePool> = match self.inner.pools.try_borrow() {
             Ok(pools) => pools.values().cloned().collect(),
             Err(_) => return,
         };
         for pool in &pools {
             for (_, device) in pool.devices() {
-                device.0.seal_for_stop();
+                device.0.seal_for_signal(finish);
             }
         }
     }

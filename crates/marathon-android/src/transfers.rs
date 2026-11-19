@@ -36,9 +36,29 @@ impl AndroidDevice {
         }
     }
     pub async fn pull_file(&self, remote: &str, local: &str, context: VendorContext) -> VendorResult<()> {
+        let result = self.receive_file(remote, local, context).await;
+        if let Err(error) = &result {
+            self.undelivered(remote, local, Some(error.failure()));
+        }
+        result
+    }
+
+    fn undelivered(&self, remote: &str, local: &str, failure: Option<&Failure>) {
+        let suffix = if failure.is_none() { ": pull timed out" } else { "" };
+        self.log(
+            Level::ERROR,
+            &format!("Artifact {remote} was not delivered to {local}{suffix}"),
+            failure,
+        );
+    }
+
+    async fn receive_file(&self, remote: &str, local: &str, context: VendorContext) -> VendorResult<()> {
         let _work = self.admit()?;
+        let owner = marathon_core::executor::shared::Signal::new();
+        let _owner = PullOwner(owner.clone());
+        let cancellation = self.force_with(context.cancellation);
         let context = VendorContext {
-            cancellation: self.force_with(context.cancellation),
+            cancellation: Arc::new(crate::cleanup::ChildSignal(owner, cancellation)),
             ..context
         };
         let blips = self.grace_periods();
@@ -55,81 +75,50 @@ impl AndroidDevice {
                     })
                     .await?;
                     if !stat.exists() {
-                        return Err(transfer(
-                            format!(
-                                "Couldn't pull file {remote} from device {} because it doesn't exist",
-                                self.serial_number().to_owned()
-                            )
-                            .as_str(),
-                        ));
+                        return Err(transfer(format!(
+                            "Couldn't pull file {remote} from device {} because it doesn't exist",
+                            self.serial_number()
+                        )));
                     }
-                    if stat.size() == 0 {
-                        let path = local.to_owned();
-                        blocking(
-                            self.runtime().dependencies.io.as_ref(),
-                            move || match std::fs::OpenOptions::new().write(true).create_new(true).open(path) {
-                                Ok(_) => Ok(()),
-                                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
-                                Err(e) => Err(io(e)),
-                            },
-                        )
-                        .await?;
-                        return Ok(());
-                    }
+                    let size = i64::try_from(stat.size()).map_err(|_| transfer("ADB file size overflows i64"))?;
                     let destination = PathBuf::from(local);
                     let runtime = self.runtime();
-                    let staged = runtime.pull_staging.allocate(runtime, destination.clone()).await?;
-                    let request = CompatPullFileRequest::new(
-                        remote,
-                        staged.as_ref().unwrap_or(&destination).clone(),
-                        self.supported_features(),
-                        Some(stat.size() as i64),
-                    );
-                    let request = if staged.is_some() {
-                        // A late sync writer must not recreate the run's directory after teardown.
-                        request.require_existing_local_parent()
-                    } else {
-                        request
-                    };
+                    let staged = runtime
+                        .pull_staging
+                        .allocate(runtime, destination.clone())
+                        .await
+                        .map_err(publication_error)?;
+                    let mut request =
+                        CompatPullFileRequest::new(remote, staged.path.clone(), self.supported_features(), Some(size))
+                            .require_existing_local_parent();
+                    let verified = request.verification();
                     let completion = request.0.completion();
-                    let result = async {
+                    let received = async {
                         let mut stream = request
                             .execute(self.bounded_client(), Some(self.adb_serial()))
                             .map_err(adb_error)?;
-                        let mut progress = 0.0;
-                        while let Some(update) = cancellable(context.cancellation.clone(), async {
+                        while cancellable(context.cancellation.clone(), async {
                             stream.next().await.transpose().map_err(adb_error)
                         })
                         .await?
-                        {
-                            progress = update;
-                        }
-                        if progress != 1.0 {
-                            return Err(transfer(
-                                format!(
-                                    "Couldn't pull file {remote} from device {}",
-                                    self.serial_number().to_owned()
-                                )
-                                .as_str(),
-                            ));
+                        .is_some()
+                        {}
+                        if !verified.complete() {
+                            return Err(transfer(format!("ADB receive of {remote} ended without DONE")));
                         }
                         Ok(())
                     }
                     .await;
                     let closed = completion.close().await.map_err(adb_error);
-                    // A regular pull timeout still leaves the bytes already written, as the
-                    // recorder can publish an attachment even when safe_pull_file reports a timeout.
-                    if let Some(staged) = staged {
-                        if !self.stopping() || (result.is_ok() && closed.is_ok()) {
-                            if let Err(error) = publish_pull(&staged, &destination).await {
-                                let _ = tokio::fs::remove_file(staged).await;
-                                return Err(error);
-                            }
-                        } else {
-                            let _ = tokio::fs::remove_file(staged).await;
-                        }
+                    let result = match received.and(closed) {
+                        Ok(()) => publish_pull(&staged.path, destination, &context, runtime.dependencies.io.as_ref())
+                            .await
+                            .map_err(publication_error),
+                        Err(error) => Err(error),
+                    };
+                    if result.is_err() {
+                        let _ = tokio::fs::remove_file(&staged.path).await;
                     }
-                    closed?;
                     result
                 }),
             )
@@ -275,33 +264,53 @@ impl AndroidDevice {
         self.log(Level::DEBUG, &format!("{remote} synced in {elapsed}ms"), None);
         Ok(())
     }
-    pub async fn safe_pull_file(&self, remote: &str, local: &str, context: VendorContext) -> VendorResult<()> {
+    pub async fn safe_pull_file(&self, remote: &str, local: &str, context: VendorContext) -> VendorResult<bool> {
+        match self.pull_with_timeout(remote, local, context).await {
+            Ok(result) => Ok(result.is_some()),
+            Err(VendorError::Transfer(_)) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
+    pub(crate) async fn pull_with_timeout(
+        &self,
+        remote: &str,
+        local: &str,
+        context: VendorContext,
+    ) -> VendorResult<Option<()>> {
+        // The clock joins its cancelled body. A commit already won if that body successfully returned a receipt.
+        let delivered = std::sync::Mutex::new(false);
         let result = timed(
             &context,
             millis(self.runtime().configuration.timeout_configuration.pull_file)?,
             |signal| {
-                Box::pin(self.pull_file(
-                    remote,
-                    local,
-                    VendorContext {
-                        cancellation: signal,
-                        ..context.clone()
-                    },
-                ))
+                Box::pin(async {
+                    self.receive_file(
+                        remote,
+                        local,
+                        VendorContext {
+                            cancellation: signal,
+                            ..context.clone()
+                        },
+                    )
+                    .await?;
+                    *lock(&delivered) = true;
+                    Ok(())
+                })
             },
         )
         .await;
-        match result {
-            Ok(None) => self.log(Level::WARN, &format!("Pulling {remote} timed out. Ignoring"), None),
-            Err(VendorError::Transfer(f)) => {
-                self.log(Level::WARN, &format!("Pulling {remote} failed. Ignoring"), Some(&f))
-            }
-            Err(e) => return Err(e),
-            _ => {}
+        if *lock(&delivered) {
+            return Ok(Some(()));
         }
-        Ok(())
+        match &result {
+            Ok(None) => self.undelivered(remote, local, None),
+            Err(error) => self.undelivered(remote, local, Some(error.failure())),
+            Ok(Some(())) => {}
+        }
+        result
     }
-    pub async fn pull_folder(&self, remote: &str, local: &str, context: VendorContext) -> VendorResult<()> {
+    pub async fn pull_folder(&self, remote: &str, local: &str, context: VendorContext) -> VendorResult<bool> {
         let _work = self.admit()?;
         let context = VendorContext {
             cancellation: self.force_with(context.cancellation),
@@ -312,6 +321,7 @@ impl AndroidDevice {
                 format!("Destination {local} is not a directory").as_str().to_owned(),
             ));
         }
+        let mut delivered = true;
         let mut dirs = vec![remote.to_owned()];
         let mut files = Vec::new();
         while !dirs.is_empty() {
@@ -332,11 +342,14 @@ impl AndroidDevice {
                 )
                 .await?;
                 match response {
-                    None => self.log(
-                        Level::WARN,
-                        &format!("Listing {dir} timed out. Ignoring the rest"),
-                        None,
-                    ),
+                    None => {
+                        delivered = false;
+                        self.log(
+                            Level::ERROR,
+                            &format!("Artifact folder {dir} was not delivered: listing timed out"),
+                            None,
+                        );
+                    }
                     Some(entries) => {
                         for file in entries {
                             if file.file_type == AndroidFileType::Directory {
@@ -362,35 +375,20 @@ impl AndroidDevice {
             tokio::fs::create_dir_all(&target).await.map_err(io)?;
             let source = format!("{directory}/{name}");
             let target = format!("{target}{name}");
-            if timed(
-                &context,
-                millis(self.runtime().configuration.timeout_configuration.pull_file)?,
-                |signal| {
-                    Box::pin(self.pull_file(
-                        &source,
-                        &target,
-                        VendorContext {
-                            cancellation: signal,
-                            ..context.clone()
-                        },
-                    ))
-                },
-            )
-            .await?
-            .is_none()
-            {
-                self.log(Level::WARN, &format!("Pulling {source} timed out. Ignoring"), None);
-            }
+            delivered &= self.safe_pull_file(&source, &target, context.clone()).await?;
         }
-        Ok(())
+        Ok(delivered)
     }
-    pub async fn safe_pull_folder(&self, remote: &str, local: &str, context: VendorContext) -> VendorResult<()> {
+    pub async fn safe_pull_folder(&self, remote: &str, local: &str, context: VendorContext) -> VendorResult<bool> {
         match self.pull_folder(remote, local, context).await {
-            Err(VendorError::Transfer(f)) => {
-                self.log(Level::WARN, &format!("Pulling {remote} failed. Ignoring"), Some(&f));
-                Ok(())
+            Err(error) => {
+                self.undelivered(remote, local, Some(error.failure()));
+                match error {
+                    VendorError::Transfer(_) => Ok(false),
+                    other => Err(other),
+                }
             }
-            r => r,
+            result => result,
         }
     }
     pub async fn push_folder(&self, local: &str, remote: &str, context: VendorContext) -> VendorResult<()> {
@@ -687,16 +685,42 @@ impl AndroidDevice {
         }
     }
 }
-async fn publish_pull(staged: &Path, destination: &Path) -> VendorResult<()> {
-    if !tokio::fs::try_exists(staged).await.map_err(io)? {
-        return Ok(());
+struct PullOwner(Arc<marathon_core::executor::shared::Signal>);
+
+impl Drop for PullOwner {
+    fn drop(&mut self) {
+        self.0
+            .cancel(marathon_core::executor::shared::requested("Android pull owner ended"));
     }
-    // The original sync writer creates parents only after opening the receive stream. A
-    // failed handshake never creates a destination or its parent.
-    if let Some(parent) = destination.parent().filter(|path| !path.as_os_str().is_empty()) {
-        tokio::fs::create_dir_all(parent).await.map_err(io)?;
+}
+
+async fn publish_pull(
+    staged: &Path,
+    destination: PathBuf,
+    context: &VendorContext,
+    runtime: &dyn VendorRuntime,
+) -> VendorResult<()> {
+    let staged = staged.to_owned();
+    let cancellation = context.cancellation.clone();
+    blocking(runtime, move || {
+        // A failed handshake never creates a destination parent.
+        if let Some(parent) = destination.parent().filter(|path| !path.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent).map_err(io)?;
+        }
+        // Check on the blocking thread, after any wait for it. Once admitted the owner
+        // waits for rename and returns its receipt even if a timeout arrives during it.
+        if let Some(reason) = cancellation.reason() {
+            return Err(VendorError::Cancelled(reason));
+        }
+        std::fs::rename(staged, destination).map_err(io)
+    })
+    .await
+}
+fn publication_error(error: VendorError) -> VendorError {
+    match error {
+        VendorError::Other(failure) if failure.kind == FailureKind::Io => VendorError::Transfer(failure),
+        other => other,
     }
-    tokio::fs::rename(staged, destination).await.map_err(io)
 }
 fn with_cause(mut error: VendorError, cause: VendorError) -> VendorError {
     match &mut error {

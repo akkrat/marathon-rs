@@ -289,9 +289,10 @@ impl AppleDevice for AppleSimulatorDevice {
     fn push_file<'a>(&'a self, src: &'a Path, dst: &'a str, context: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             self.measurement()
-                .measure_file_transfer(
+                .measure_delivery(
                     jcompat::file_manager::file_path(src.to_string_lossy().as_ref()),
                     self.bridge.send_with(src, dst, self.send_stop(context)),
+                    false,
                 )
                 .await
                 .map_err(|error| self.leaving_send(error))
@@ -301,9 +302,10 @@ impl AppleDevice for AppleSimulatorDevice {
         Box::pin(async move {
             let received = self
                 .measurement()
-                .measure_file_transfer(
+                .measure_delivery(
                     jcompat::file_manager::file_path(dst.to_string_lossy().as_ref()),
                     self.bridge.receive_with(src, dst, self.receive_stop()),
+                    false,
                 )
                 .await;
             self.gated_pull(received, src)
@@ -312,9 +314,10 @@ impl AppleDevice for AppleSimulatorDevice {
     fn push_folder<'a>(&'a self, src: &'a Path, dst: &'a str, context: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             self.measurement()
-                .measure_folder_transfer(
+                .measure_delivery(
                     jcompat::file_manager::file_path(src.to_string_lossy().as_ref()),
                     self.bridge.send_with(src, dst, self.send_stop(context)),
+                    true,
                 )
                 .await
                 .map_err(|error| self.leaving_send(error))
@@ -324,9 +327,23 @@ impl AppleDevice for AppleSimulatorDevice {
         Box::pin(async move {
             let received = self
                 .measurement()
-                .measure_folder_transfer(
+                .measure_delivery(
                     jcompat::file_manager::file_path(dst.to_string_lossy().as_ref()),
                     self.bridge.receive_with(src, dst, self.receive_stop()),
+                    true,
+                )
+                .await;
+            self.gated_pull(received, src)
+        })
+    }
+    fn pull_bundle<'a>(&'a self, src: &'a str, dst: &'a Path, _: &'a VendorContext) -> VendorFuture<'a, bool> {
+        Box::pin(async move {
+            let received = self
+                .measurement()
+                .measure_delivery(
+                    jcompat::file_manager::file_path(dst.to_string_lossy().as_ref()),
+                    self.bridge.receive_bundle(src, dst, self.receive_stop()),
+                    true,
                 )
                 .await;
             self.gated_pull(received, src)

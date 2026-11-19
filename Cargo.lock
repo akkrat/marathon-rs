@@ -1630,6 +1630,7 @@ dependencies = [
  "quick-xml",
  "rand",
  "russh",
+ "rustix",
  "serde",
  "serde_json",
  "sha1",

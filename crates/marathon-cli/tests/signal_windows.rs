@@ -579,7 +579,7 @@ fn a_signal_terminates_the_provider_whatever_debug_says_d52() {
 
 /// D52: a provider that never ends can't keep the process from exiting, at the limit and with the signal's status.
 #[test]
-fn a_stuck_provider_holds_a_cancel_only_up_to_the_limit_d52() {
+fn a_stuck_provider_hands_off_at_the_signal_cleanup_cutoff_d97() {
     if inherited_ignored(Signal::SIGTERM) {
         return;
     }
@@ -590,7 +590,8 @@ fn a_stuck_provider_holds_a_cancel_only_up_to_the_limit_d52() {
     let status = signalled_wait(&mut child, Duration::from_secs(120));
     let waited = signalled_at.elapsed();
     assert_eq!(status.and_then(|s| s.code()), Some(143), "{status:?}");
-    let limit = u64::try_from(marathon_core::marathon::CANCEL_LIMIT_MILLIS).unwrap();
+    let cutoff = marathon_core::marathon::CANCEL_LIMIT_MILLIS - marathon_core::marathon::CANCEL_FLUSH_MILLIS;
+    let limit = u64::try_from(cutoff).unwrap();
     assert!(waited >= Duration::from_millis(limit), "it gave up early: {waited:?}");
 }
 

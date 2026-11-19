@@ -82,6 +82,11 @@ pub trait AppleDevice: Device + Screenshottable + LogProducer {
     }
     fn push_folder<'a>(&'a self, src: &'a Path, dst: &'a str, context: &'a VendorContext) -> VendorFuture<'a, bool>;
     fn pull_folder<'a>(&'a self, src: &'a str, dst: &'a Path, context: &'a VendorContext) -> VendorFuture<'a, bool>;
+    /// Publish this bundle under its final report name.
+    fn pull_bundle<'a>(&'a self, src: &'a str, dst: &'a Path, context: &'a VendorContext) -> VendorFuture<'a, bool> {
+        self.pull_folder(src, dst, context)
+    }
+
     fn push_shared<'a>(&'a self, src: &'a Path, dst: &'a str, context: &'a VendorContext) -> VendorFuture<'a, bool>;
     fn install<'a>(&'a self, remote_path: &'a str, context: &'a VendorContext) -> VendorFuture<'a, bool>;
     fn get_screenshot<'a>(

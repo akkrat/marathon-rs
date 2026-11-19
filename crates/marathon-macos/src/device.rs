@@ -167,6 +167,7 @@ pub struct MacosDevice {
     pub(crate) timing_log: DeviceTimingLog,
     facts: Mutex<Facts>,
     execution: Mutex<Execution>,
+    signal_finish: marathon_core::signal_finish::SignalDeadline,
     listeners: Arc<LineListeners>,
     sessions: Mutex<Vec<Arc<XcodebuildSession>>>,
     tasks: RetainedTasks,
@@ -223,6 +224,7 @@ impl MacosDevice {
                 bundle: None,
             }),
             serial,
+            signal_finish: Default::default(),
             execution: Mutex::default(),
             listeners: Arc::default(),
             sessions: Mutex::default(),
@@ -581,7 +583,13 @@ impl MacosDevice {
             signal.cancel(stop());
         }
         for transfer in &shutdown.transfers {
-            transfer.stop(stop(), Some(shutdown.window.deadline));
+            transfer.stop(
+                stop(),
+                Some(
+                    self.signal_finish
+                        .limit(shutdown.window.deadline, |finish| finish.receipts),
+                ),
+            );
         }
         // A session registered before the seal that has not begun to open never will.
         for session in &shutdown.sessions {
@@ -602,13 +610,17 @@ impl MacosDevice {
         let clock = context.clock.clone();
         let deadline = shutdown.window.deadline;
         let reserve = marathon_apple::cmd::device_commands::force_reserve_millis(self.window_millis()?);
-        let graceful = deadline.saturating_sub(reserve).saturating_sub(clock.now_millis());
+        let graceful = deadline.saturating_sub(reserve);
         // D93 (review round 2): the verdict is these waits' outcome. Work not seen ended before the deadline is unconfirmed,
         // whatever a later look would find.
-        let in_time = self.wait_for(shutdown, graceful, deadline, &context).await?;
+        let in_time = self.wait_for(shutdown, graceful, |finish| finish.drain).await?;
         let in_time = in_time || {
             self.stop_all(shutdown);
-            let left = deadline.saturating_sub(clock.now_millis()).max(0);
+            let left = self
+                .signal_finish
+                .limit(deadline, |finish| finish.receipts)
+                .saturating_sub(clock.now_millis())
+                .max(0);
             let forced = self
                 .receipt_sessions(shutdown)
                 .into_iter()
@@ -625,11 +637,17 @@ impl MacosDevice {
                             .await;
                     }
                 });
-            let (_, waited) = tokio::join!(
-                futures_util::future::join_all(forced),
-                self.wait_for(shutdown, left, deadline, &context)
-            );
-            waited?
+            let all = async {
+                let (_, waited) = tokio::join!(
+                    futures_util::future::join_all(forced),
+                    self.wait_for(shutdown, deadline, |finish| finish.receipts)
+                );
+                waited
+            };
+            tokio::select! { biased;
+                result = all => result?,
+                _ = self.signal_finish.wait(clock.as_ref(), deadline, |finish| finish.receipts) => false,
+            }
         };
         let mut left = Vec::new();
         if shutdown.batches.iter().any(|b| b.result.completed().is_none()) {
@@ -674,62 +692,48 @@ impl MacosDevice {
     async fn wait_for(
         &self,
         shutdown: &Shutdown,
-        millis: i64,
-        deadline: i64,
-        context: &VendorContext,
+        until: i64,
+        cutoff: fn(marathon_core::signal_finish::SignalFinish) -> i64,
     ) -> VendorResult<bool> {
-        let ended = |device: &Self| {
+        let clock = &self.options.dependencies.clock;
+        let ended = || {
             shutdown.batches.iter().all(|b| b.result.completed().is_some())
                 && shutdown.preparation.as_ref().is_none_or(|p| p.completed().is_some())
                 && shutdown.transfers.iter().all(|t| t.ended().is_some())
-                && device.receipt_sessions(shutdown).iter().all(|s| s.ended().is_some())
-                && device.device_commands.handed_ended()
+                && self.receipt_sessions(shutdown).iter().all(|s| s.ended().is_some())
+                && self.device_commands.handed_ended()
         };
-        if ended(self) {
-            // A look after the deadline counts for nothing.
-            return Ok(context.clock.now_millis() <= deadline);
+        let deadline = || {
+            self.signal_finish
+                .limit(shutdown.window.deadline, |finish| finish.receipts)
+        };
+        if ended() {
+            return Ok(clock.now_millis() <= deadline());
         }
-        if millis <= 0 {
+        if clock.now_millis() >= self.signal_finish.limit(until, cutoff) {
             return Ok(false);
         }
-        let finished = context
-            .clock
-            .with_timeout_or_null(
-                Signal::new(),
-                millis,
-                Box::new(move |signal| {
-                    Box::pin(async move {
-                        let cells = shutdown
-                            .batches
-                            .iter()
-                            .map(|b| b.result.clone())
-                            .chain(shutdown.preparation.clone());
-                        for done in cells {
-                            tokio::select! { biased;
-                                reason = signal.cancelled() => return Err(VendorError::Cancelled(reason)),
-                                _ = done.wait() => {}
-                            }
-                        }
-                        for send in &shutdown.transfers {
-                            if let Err(VendorError::Cancelled(reason)) = send.wait_in(signal.clone()).await
-                                && send.ended().is_none()
-                            {
-                                return Err(VendorError::Cancelled(reason));
-                            }
-                        }
-                        for session in self.receipt_sessions(shutdown) {
-                            tokio::select! { biased;
-                                reason = signal.cancelled() => return Err(VendorError::Cancelled(reason)),
-                                _ = session.wait_ended() => {}
-                            }
-                        }
-                        self.device_commands.wait_handed(signal).await
-                    })
-                }),
-            )
-            .await?
-            .is_some();
-        Ok(finished && ended(self))
+        let all = async {
+            let cells = shutdown
+                .batches
+                .iter()
+                .map(|b| &b.result)
+                .chain(shutdown.preparation.iter());
+            for done in cells {
+                let _ = done.wait().await;
+            }
+            for send in &shutdown.transfers {
+                send.wait_in(Signal::new()).await?;
+            }
+            for session in self.receipt_sessions(shutdown) {
+                session.wait_ended().await;
+            }
+            self.device_commands.wait_handed(Signal::new()).await
+        };
+        tokio::select! { biased;
+            result = all => { result?; Ok(ended() && clock.now_millis() <= deadline()) },
+            _ = self.signal_finish.wait(clock.as_ref(), until, cutoff) => Ok(false),
+        }
     }
     /// D93: the disposal could not confirm that the Mac's work had ended: once, one WARN naming it and what was left, no
     /// further command from it, and its lease quarantined in its connection factory now rather than released.
@@ -749,8 +753,13 @@ impl MacosDevice {
                 left.join(", ")
             ),
         ));
+        let level = if self.signal_finish.current().is_some() {
+            Level::ERROR
+        } else {
+            Level::WARN
+        };
         self.log(
-            Level::WARN,
+            level,
             format!(
                 "Work on {} has not finished within {}, not waiting for it any longer ({}); sending it no further command and keeping its connection out of use",
                 self.serial.to_owned(),
@@ -876,6 +885,14 @@ impl MacosDevice {
                         let cause = execution.shutdown.as_ref().map_or(SealCause::Disposal, |s| s.cause);
                         (execution.pulls.snapshot(), cause)
                     };
+                    if let Some(finish) = device.signal_finish.current() {
+                        marathon_apple::cmd::device_commands::wait_for_pulls(
+                            &pulls,
+                            device.options.dependencies.clock.as_ref(),
+                            finish.receipts,
+                        )
+                        .await;
+                    }
                     let pulls_left =
                         marathon_apple::cmd::device_commands::settle_pulls(&pulls, &device.serial, cause.stops_pulls());
                     match verdict {
@@ -1137,7 +1154,16 @@ impl Device for MacosDevice {
     fn seal_for_stop(&self) {
         let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
         let shutdown = self.seal_locked(&mut execution, SealCause::RunStop);
-        execution.pulls.limit_to(shutdown.window.deadline);
+        if self.signal_finish.current().is_none() {
+            execution.pulls.limit_to(shutdown.window.deadline);
+        }
+    }
+    fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
+        self.signal_finish.set(finish);
+        let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
+        execution.pulls.limit_for_signal(finish);
+        let shutdown = self.seal_locked(&mut execution, SealCause::RunStop);
+        self.stop_all(&shutdown);
     }
     fn info(&self) -> DeviceInfo {
         self.facts.lock().unwrap_or_else(|e| e.into_inner()).info.clone()
@@ -1464,9 +1490,10 @@ impl AppleDevice for MacosDevice {
     fn push_file<'a>(&'a self, src: &'a Path, dst: &'a str, context: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             self.measurement()
-                .measure_file_transfer(
+                .measure_delivery(
                     PathBuf::from(src.to_string_lossy().into_owned()),
                     self.bridge.send_with(src, dst, self.send_stop(context)),
+                    false,
                 )
                 .await
                 .map_err(|error| self.leaving_send(error))
@@ -1476,9 +1503,10 @@ impl AppleDevice for MacosDevice {
         Box::pin(async move {
             let received = self
                 .measurement()
-                .measure_file_transfer(
+                .measure_delivery(
                     PathBuf::from(dst.to_string_lossy().into_owned()),
                     self.bridge.receive_with(src, dst, self.receive_stop()),
+                    false,
                 )
                 .await;
             self.gated_pull(received, src)
@@ -1487,9 +1515,10 @@ impl AppleDevice for MacosDevice {
     fn push_folder<'a>(&'a self, src: &'a Path, dst: &'a str, context: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             self.measurement()
-                .measure_folder_transfer(
+                .measure_delivery(
                     PathBuf::from(src.to_string_lossy().into_owned()),
                     self.bridge.send_with(src, dst, self.send_stop(context)),
+                    true,
                 )
                 .await
                 .map_err(|error| self.leaving_send(error))
@@ -1499,9 +1528,23 @@ impl AppleDevice for MacosDevice {
         Box::pin(async move {
             let received = self
                 .measurement()
-                .measure_folder_transfer(
+                .measure_delivery(
                     PathBuf::from(dst.to_string_lossy().into_owned()),
                     self.bridge.receive_with(src, dst, self.receive_stop()),
+                    true,
+                )
+                .await;
+            self.gated_pull(received, src)
+        })
+    }
+    fn pull_bundle<'a>(&'a self, src: &'a str, dst: &'a Path, _context: &'a VendorContext) -> VendorFuture<'a, bool> {
+        Box::pin(async move {
+            let received = self
+                .measurement()
+                .measure_delivery(
+                    PathBuf::from(dst.to_string_lossy().into_owned()),
+                    self.bridge.receive_bundle(src, dst, self.receive_stop()),
+                    true,
                 )
                 .await;
             self.gated_pull(received, src)

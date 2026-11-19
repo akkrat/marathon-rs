@@ -161,6 +161,29 @@ impl AppleDevice for Fake {
         self.pulls.lock().unwrap().push(src.into());
         (self.pull)(src.into(), dst.into(), context.clone())
     }
+    fn pull_bundle<'a>(&'a self, src: &'a str, dst: &'a Path, context: &'a VendorContext) -> VendorFuture<'a, bool> {
+        Box::pin(async move {
+            use marathon_apple::cmd::{FileBridge, TransferStop, local::JvmFileBridge};
+            let stage = tempfile::tempdir_in(dst.parent().unwrap()).map_err(io)?;
+            if !self.pull_folder(src, stage.path(), context).await? {
+                return Ok(false);
+            }
+            let copy = stage.path().join(src.rsplit('/').next().unwrap());
+            if !copy.exists() {
+                return Err(VendorError::Other(failure(
+                    FailureKind::NoSuchFile,
+                    &dst.to_string_lossy(),
+                )));
+            }
+            JvmFileBridge::new(Arc::new(support::Runtime), false)
+                .receive_bundle(
+                    &copy.to_string_lossy(),
+                    dst,
+                    TransferStop::new(context.cancellation.clone()),
+                )
+                .await
+        })
+    }
     unused!(setup()->());
     unused!(execute_worker_command(command: Vec<String>) -> Option<CommandResult>);
     unused!(push_file(src: &'a Path, dst: &'a str) -> bool);
@@ -338,7 +361,8 @@ async fn failed_pulls_keep_remote_bundles_and_are_reported_at_finalization_witho
                 Box::pin(async move {
                     if src.contains("failed") {
                         let copy = dst.join(src.rsplit('/').next().unwrap());
-                        std::fs::create_dir_all(copy).map_err(io)?;
+                        std::fs::create_dir_all(&copy).map_err(io)?;
+                        std::fs::write(copy.join("partial"), b"partial bundle").map_err(io)?;
                         if throws {
                             Err(VendorError::Other(failure(FailureKind::Io, "transport closed")))
                         } else {
@@ -364,6 +388,13 @@ async fn failed_pulls_keep_remote_bundles_and_are_reported_at_finalization_witho
         assert!(d.contains(if throws { "transport closed" } else { "pull failed" }));
         assert_eq!(h.p.kept_sources("udid@worker"), vec![h.remote("failed")]);
         assert!(h.local("next").exists());
+        assert!(!h.local("failed").exists());
+        assert_eq!(
+            std::fs::read_dir(h.local("next").parent().unwrap())
+                .map_err(io)?
+                .count(),
+            1
+        );
         assert_eq!(
             h.calls.lock().unwrap().as_slice(),
             &[vec!["rm".to_owned(), "-rf".into(), h.remote("next").to_owned()]]
@@ -397,11 +428,14 @@ async fn failed_local_finalization_keeps_the_remote_bundle_and_never_replaces_an
         let retained = h.close().await?;
         assert_eq!(retained.len(), 1);
         let diagnostic = retained[0].to_owned();
-        assert!(diagnostic.contains(if case == "missing pulled bundle" {
-            "no such file or directory"
-        } else {
-            "file already exists"
-        }));
+        assert!(
+            diagnostic.contains(if case == "missing pulled bundle" {
+                "no such file or directory"
+            } else {
+                "file already exists"
+            }),
+            "{diagnostic}"
+        );
         let oracle = include_str!("../../../fixtures/oracle/artifact-queue/events.jsonl")
             .lines()
             .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
@@ -423,18 +457,14 @@ async fn failed_local_finalization_keeps_the_remote_bundle_and_never_replaces_an
                     })
             })
             .unwrap();
-        let expected = oracle["message"].as_str().unwrap();
-        let id = expected.split_whitespace().nth(4).unwrap();
-        let expected = expected
-            .replace(id, "batch")
-            .replace("<tmp>", &h.tmp.path().join("output").to_string_lossy());
-        let (prefix, rest) = expected.split_once(" was not delivered (").unwrap();
-        let (failure, suffix) = rest.split_once("); remote bundle kept").unwrap();
-        let expected = format!(
-            "{prefix} was not delivered ({}); remote bundle kept{suffix}",
-            marathon_test_support::recorded_errors::rendered(failure).unwrap()
+        assert!(
+            oracle["message"]
+                .as_str()
+                .unwrap()
+                .contains("remote bundle kept on worker")
         );
-        assert_eq!(diagnostic, expected);
+        assert!(diagnostic.contains("remote bundle kept on worker local"));
+        assert!(diagnostic.ends_with("local copy: none"));
         assert!(h.calls.lock().unwrap().is_empty());
         if case == "unrelated file" {
             assert_eq!(std::fs::read_to_string(local).map_err(io)?, "unrelated");

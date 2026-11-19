@@ -262,6 +262,18 @@ async fn real_rsync_child() {
     );
     assert_eq!(std::fs::read_link(dst.join("link")).unwrap(), Path::new("sub/hello"));
     assert_eq!(std::fs::read(dst.join("sub/hello")).unwrap(), b"hello\n");
+    let bundle = root.join("renamed.xcresult");
+    assert!(
+        b.receive_bundle(
+            "/tmp/marathon/tree",
+            &bundle,
+            marathon_apple::cmd::TransferStop::never()
+        )
+        .await
+        .unwrap()
+    );
+    assert_eq!(std::fs::read(bundle.join("sub/hello")).unwrap(), b"hello\n");
+    assert!(!bundle.join("tree").exists());
     assert!(b.send(&src.join("blob"), "/tmp/marathon/file").await.unwrap());
     let file = root.join("file");
     assert!(b.receive("/tmp/marathon/file", &file).await.unwrap());
@@ -280,11 +292,21 @@ fn send_serialization_unbounded_receives_and_no_total_limit_on_a_receive_d43() {
     let script = root.join("tools/oracle/connection-probes/gated-rsync");
     for mode in ["gates", "deadlines"] {
         let dir = tempfile::tempdir().unwrap();
+        let wrapper = dir.path().join("rsync");
+        self::script(
+            &wrapper,
+            r#"#!/bin/sh
+"$MRS43_GATE_ORACLE" "$@" || exit $?
+for destination do :; done
+case "$destination" in /*) printf payload > "$destination";; esac
+"#,
+        );
         let result = std::process::Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "process_gates_child", "--nocapture"])
             .env("MRS43_PROCESS_CHILD", mode)
             .env("MRS43_GATE_ROOT", dir.path())
-            .env("RSYNC4J_RSYNC", &script)
+            .env("MRS43_GATE_ORACLE", &script)
+            .env("RSYNC4J_RSYNC", &wrapper)
             .output()
             .unwrap();
         assert!(
@@ -436,7 +458,8 @@ async fn process_failure_child() {
     let (log, events) = ssh::logging(true);
     let b = bridge(Some(key("/fixture/key")), false, false, 0, 22, log).await;
     let send = b.send(Path::new("/unused"), "/tmp/marathon/dst").await;
-    let receive = b.receive("/tmp/marathon/src", Path::new("/unused")).await;
+    let output = tempfile::tempdir().unwrap();
+    let receive = b.receive("/tmp/marathon/src", &output.path().join("unused")).await;
     if profile == "nonzero" || profile == "badutf8" {
         assert_eq!(send, Ok(false));
         assert_eq!(receive, Ok(false));
@@ -500,7 +523,10 @@ impl marathon_core::runtime::VendorClock for FailingDelay {
 fn finished_transfers_are_pruned_and_a_receive_has_no_use_for_the_clock_d43() {
     let dir = tempfile::tempdir().unwrap();
     let program = dir.path().join("rsync");
-    std::fs::write(&program, b"#!/bin/sh\nsleep 0.3\necho exited >> \"$MRS43_EXITS\"\n").unwrap();
+    std::fs::write(
+        &program,
+        b"#!/bin/sh\nsleep 0.3\necho exited >> \"$MRS43_EXITS\"\nfor destination do :; done\ncase \"$destination\" in /*) printf payload > \"$destination\";; esac\n",
+    ).unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
     let result = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "early_error_child", "--nocapture"])
@@ -555,7 +581,9 @@ async fn early_error_child() {
     .unwrap();
     // D43: a receive that reports no stall asks the clock for nothing, so a clock that fails doesn't reach it.
     assert_eq!(
-        failing.receive("/tmp/marathon/src", Path::new("/unused")).await,
+        failing
+            .receive("/tmp/marathon/src", &Path::new(&exits).with_file_name("received"))
+            .await,
         Ok(true)
     );
     assert_eq!(exited(), 4);
@@ -702,7 +730,14 @@ fn silent_receive(root: &Path, moving: u32, then: &str, mode: &str) {
     script(
         &program,
         &format!(
-            "#!/bin/bash\necho $$ > \"$MRS_D31_ROOT/pid\"\nmkdir -p \"$MRS_D31_ROOT/.rsync-partial\"\nfor i in $(seq 1 {}); do echo x >> \"$MRS_D31_ROOT/.rsync-partial/back\"; /bin/sleep 0.2; done\n{then}\n",
+            r#"#!/bin/bash
+target="${{!#}}"
+partial="$(dirname "$target")/.rsync-partial/$(basename "$target")"
+echo $$ > "$MRS_D31_ROOT/pid"
+mkdir -p "$(dirname "$partial")"
+for i in $(seq 1 {}); do echo x >> "$partial"; /bin/sleep 0.2; done
+{then}
+"#,
             moving * 5
         ),
     );
@@ -720,7 +755,7 @@ fn a_silent_receive_that_stops_moving_is_stopped_d43() {
 #[test]
 fn a_silent_receive_that_keeps_moving_past_the_limit_finishes_d43() {
     let dir = tempfile::tempdir().unwrap();
-    silent_receive(dir.path(), 15, "exit 0", "moving");
+    silent_receive(dir.path(), 15, "mv \"$partial\" \"$target\"", "moving");
 }
 #[test]
 fn a_stalled_receive_is_stopped_while_another_into_the_same_folder_keeps_writing_d43() {
@@ -730,17 +765,24 @@ fn a_stalled_receive_is_stopped_while_another_into_the_same_folder_keeps_writing
     script(
         &program,
         r#"#!/bin/bash
+target="${!#}"
+if [[ "$target" == */ ]]; then
+  if [[ "$*" == *127.0.0.1:/tmp/marathon/front* ]]; then target="${target}front"; else target="${target}back"; fi
+fi
+parent="$(dirname "$target")"
+name="$(basename "$target")"
+temp="$parent/.$name.a1B2c3"
 case "$*" in
   *127.0.0.1:/tmp/marathon/front*)
-    mkdir -p "$MRS_D31_ROOT/.rsync-partial"
+    mkdir -p "$parent/.rsync-partial"
     until [ -e "$MRS_D31_ROOT/release" ]; do
-      echo x >> "$MRS_D31_ROOT/.front.a1B2c3"; echo x >> "$MRS_D31_ROOT/.rsync-partial/front"; /bin/sleep 0.2
+      echo x >> "$temp"; echo x >> "$parent/.rsync-partial/$name"; /bin/sleep 0.2
     done
-    mv "$MRS_D31_ROOT/.front.a1B2c3" "$MRS_D31_ROOT/front"
+    mv "$temp" "$target"
     exit 0;;
 esac
 echo $$ > "$MRS_D31_ROOT/pid"
-for i in 1 2 3; do echo x >> "$MRS_D31_ROOT/.back.a1B2c3"; /bin/sleep 0.2; done
+for i in 1 2 3; do echo x >> "$temp"; /bin/sleep 0.2; done
 exec /bin/sleep 100037
 "#,
     );
@@ -1008,6 +1050,48 @@ fn rsync_under_sshpass_gets_its_step_after_term_d31() {
         "finished\n"
     );
 }
+fn failed_receive_child() {
+    let Some((root, _)) = d91_child() else { return };
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let (logging, _) = ssh::logging(false);
+        let bridge = d91_bridge(logging, Arc::new(Runtime), Arc::new(ssh::ScaledClock::new(1))).await;
+        let prior = root.join("artifact.xcresult");
+        std::fs::create_dir(&prior).unwrap();
+        std::fs::write(prior.join("Info.plist"), b"complete").unwrap();
+        assert_eq!(
+            bridge
+                .receive_bundle(
+                    "/tmp/marathon/artifact.xcresult",
+                    &prior,
+                    marathon_apple::cmd::TransferStop::never()
+                )
+                .await,
+            Ok(false)
+        );
+        assert_eq!(std::fs::read(prior.join("Info.plist")).unwrap(), b"complete");
+        assert!(!prior.join("partial").exists());
+        assert!(
+            !std::fs::read_dir(root)
+                .unwrap()
+                .flatten()
+                .any(|entry| entry.file_name().to_string_lossy().starts_with(".marathon-artifact-"))
+        );
+    });
+}
+#[test]
+fn a_failed_rsync_cannot_expose_a_partial_tree_d97() {
+    d91_round_1(
+        "failed_receive_runs_d97",
+        "#!/bin/bash\ntarget=\"${!#}\"\nmkdir -p \"$target/artifact.xcresult\"\nprintf partial > \"$target/artifact.xcresult/partial\"\nexit 23\n",
+        None,
+    );
+}
+#[test]
+fn failed_receive_runs_d97() {
+    failed_receive_child();
+}
+
 /// A tool on this host's `PATH` or in `/usr/bin`, which is where the real-tool tests take it from.
 fn real_tool(name: &str) -> Option<std::path::PathBuf> {
     let path = std::env::var("PATH").unwrap_or_default();
@@ -1122,31 +1206,43 @@ fn stalled_receive(root: &Path, body: &str, sshpass: Option<&str>, extra_path: O
         ..StalledSend::new("hung", &program, root)
     });
 }
-/// A receive whose stand-in for rsync ends by itself and leaves a child holding its pipes, as a hung ssh would. Factor 1, because
-/// the bound on the pipes is real time and the receive must come back well before its real 30 s.
-fn receive_with_its_pipes_held(root: &Path, status: i32) {
+/// Job control gives the detached pipe holder its own process group, outside D96's managed group.
+fn receive_with_its_pipes_held(root: &Path, status: i32, detached: bool) {
     let program = root.join("rsync");
+    let job_control = if detached { "set -m\n" } else { "" };
     script(
         &program,
         &format!(
-            "#!/bin/bash\necho $$ > \"$MRS_D31_ROOT/pid\"\n/bin/sleep 100037 &\necho $! > \"$MRS_D31_ROOT/held\"\necho 'what rsync said' >&2\nexit {status}\n"
+            "#!/bin/bash\necho $$ > \"$MRS_D31_ROOT/pid\"\n{job_control}/bin/sleep 100037 &\necho $! > \"$MRS_D31_ROOT/held\"\necho 'what rsync said' >&2\nfor destination do :; done\nprintf payload > \"$destination\"\nexit {status}\n"
         ),
     );
+    let mode = if detached {
+        "held-detached"
+    } else if status == 0 {
+        "held-ok"
+    } else {
+        "held-failed"
+    };
     run_stalled_send(StalledSend {
-        factor: 1,
+        factor: if detached { 10 } else { 1 },
         child: "early_exit_receive_runs",
-        ..StalledSend::new(if status == 0 { "held-ok" } else { "held-failed" }, &program, root)
+        ..StalledSend::new(mode, &program, root)
     });
 }
 #[test]
 fn a_receive_that_fails_while_a_child_holds_its_pipes_returns_with_its_text_u158() {
     let dir = tempfile::tempdir().unwrap();
-    receive_with_its_pipes_held(dir.path(), 23);
+    receive_with_its_pipes_held(dir.path(), 23, false);
 }
 #[test]
-fn a_receive_that_succeeds_while_a_child_holds_its_pipes_returns_u158() {
+fn a_receive_with_success_status_and_unconfirmed_cleanup_does_not_publish_d97() {
     let dir = tempfile::tempdir().unwrap();
-    receive_with_its_pipes_held(dir.path(), 0);
+    receive_with_its_pipes_held(dir.path(), 0, true);
+}
+#[test]
+fn a_successful_receive_publishes_after_group_cleanup_closes_its_pipes_d96_d97() {
+    let dir = tempfile::tempdir().unwrap();
+    receive_with_its_pipes_held(dir.path(), 0, false);
 }
 #[test]
 fn the_real_ssh_holding_the_pipes_of_a_killed_rsync_does_not_hold_up_a_receive_u158() {
@@ -1386,22 +1482,33 @@ async fn early_exit_receive_runs() {
     }
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(90),
-        bridge.receive("/tmp/marathon/stuck", &root.join("back")),
+        bridge.receive_with(
+            "/tmp/marathon/stuck",
+            &root.join("back"),
+            marathon_apple::cmd::TransferStop::never(),
+        ),
     )
     .await
     .unwrap();
     assert_eq!(result, Ok(mode == "held-ok"));
-    // D96: group cleanup ends the process that held the inherited pipes.
+    if mode == "held-ok" {
+        assert_eq!(std::fs::read(root.join("back")).unwrap(), b"payload");
+    } else {
+        assert!(!root.join("back").exists());
+    }
+    // D96 ends an in-group holder. A detached holder still blocks delivery.
     let holder = if mode == "hung" { "ssh-pid" } else { "held" };
     let holder: i32 = std::fs::read_to_string(root.join(holder))
         .unwrap()
         .trim()
         .parse()
         .unwrap();
-    assert_eq!(
-        nix::sys::signal::kill(nix::unistd::Pid::from_raw(holder), None),
-        Err(nix::errno::Errno::ESRCH)
-    );
+    let alive = nix::sys::signal::kill(nix::unistd::Pid::from_raw(holder), None);
+    if mode == "held-detached" {
+        assert_eq!(alive, Ok(()));
+    } else {
+        assert_eq!(alive, Err(nix::errno::Errno::ESRCH));
+    }
     if mode == "held-failed" {
         let lines = ssh::lines(&events);
         assert!(
@@ -1679,11 +1786,11 @@ fn a_pull_longer_than_the_old_deadline_finishes_under_sshpass_while_it_moves_d43
 /// exits after 2 s failed too soon to stall.
 const STALLED_PULL_TIMEOUT: u32 = 20;
 #[test]
-fn a_pull_that_stops_moving_is_stopped_and_leaves_its_partial_file_d43() {
+fn a_stalled_pull_does_not_expose_its_partial_file_d97() {
     real_pull(false, Some(STALLED_PULL_TIMEOUT));
 }
 #[test]
-fn a_pull_that_stops_moving_under_sshpass_is_stopped_and_leaves_its_partial_file_d43() {
+fn a_stalled_pull_under_sshpass_does_not_expose_its_partial_file_d97() {
     real_pull(true, Some(STALLED_PULL_TIMEOUT));
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1803,11 +1910,7 @@ async fn real_pull_child() {
             "{lines:?}"
         );
         assert!(!destination.exists());
-        // rsync 3 saves its partial file on TERM. On this clock KILL can get there first, as it can't with the real 5 s.
-        assert!(
-            !cfg!(target_os = "macos") || root.join(".rsync-partial").is_dir(),
-            "{lines:?}"
-        );
+        assert!(!root.join(".rsync-partial").exists());
         // rsync is gone: the child under `bin/rsync` keeps its pid through the `exec`s. An orphan under `sshpass` is reaped soon.
         let pid: i32 = std::fs::read_to_string(root.join("pid"))
             .unwrap()
@@ -2853,7 +2956,7 @@ impl Wedge {
 }
 /// A stand-in for rsync: a transfer to or from `.../next` succeeds at once; any other records its pid, says `ready` and
 /// waits, ending on TERM.
-const D91_R2_RSYNC: &str = "#!/bin/bash\ncase \"$*\" in *127.0.0.1:/tmp/marathon/next*) exit 0;; esac\necho $$ > \"$MRS_D31_ROOT/pid\"\necho > \"$MRS_D31_ROOT/ready\"\nexec /bin/sleep 100056\n";
+const D91_R2_RSYNC: &str = "#!/bin/bash\ncase \"$*\" in *127.0.0.1:/tmp/marathon/next*) for destination do :; done; case \"$destination\" in /*) printf payload > \"$destination\";; esac; exit 0;; esac\necho $$ > \"$MRS_D31_ROOT/pid\"\necho > \"$MRS_D31_ROOT/ready\"\nexec /bin/sleep 100056\n";
 
 /// Review round 2, finding 1: the start of rsync hangs (the hook holds it, as a mount that no longer answers would hold the
 /// lookup of `RSYNC4J_RSYNC`). Another simulator's transfer on the same bridge, to another destination, starts and ends

@@ -1117,12 +1117,15 @@ impl ProviderRecovery for SimulatorRecovery {
             Ok(())
         })
     }
+    fn stop_producers(&self) {
+        self.recover_cancel.cancel(requested("Provider terminated"));
+        self.retry_cancel.cancel(requested("Provider terminated"));
+    }
     fn terminate(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
             let tasks = {
                 let _admission = self.task_admission.lock().unwrap_or_else(|e| e.into_inner());
-                self.recover_cancel.cancel(requested("Provider terminated"));
-                self.retry_cancel.cancel(requested("Provider terminated"));
+                self.stop_producers();
                 let mut tasks = self.recoveries.take();
                 tasks.extend(self.retries.take());
                 tasks

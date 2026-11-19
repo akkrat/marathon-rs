@@ -170,7 +170,7 @@ impl ScreenRecorderTestBatchListener {
         test: Option<&Test>,
         chunk: Option<String>,
         context: VendorContext,
-    ) -> VendorResult<PathBuf> {
+    ) -> VendorResult<Option<PathBuf>> {
         let local = self.artifacts.file(FileType::Video, test, None, chunk).await?;
         let label = if test.is_some() {
             "android.ScreenRecorderTestBatchListener.pullTestVideoFile"
@@ -178,10 +178,14 @@ impl ScreenRecorderTestBatchListener {
             "android.ScreenRecorderTestBatchListener.pullLastBatchVideo"
         };
         let start = self.artifacts.now(label)?;
-        self.artifacts
+        if !self
+            .artifacts
             .device
             .safe_pull_file(remote, &local.to_string_lossy(), context)
-            .await?;
+            .await?
+        {
+            return Ok(None);
+        }
         let end = self.artifacts.now(label)?;
         self.artifacts.device.log_named(
             "ScreenRecorderTestBatchListener",
@@ -193,7 +197,7 @@ impl ScreenRecorderTestBatchListener {
             ),
             None,
         );
-        Ok(local)
+        Ok(Some(local))
     }
     async fn remove(&self, remote: &str, context: VendorContext) -> VendorResult<()> {
         let start = self
@@ -221,16 +225,21 @@ impl ScreenRecorderTestBatchListener {
             let state = lock(&self.state);
             (state.failed, *state.chunks.get(test).unwrap_or(&0))
         };
-        if self.policy == ScreenRecordingPolicy::OnAny || failed {
-            for i in 0..=count {
-                let file = self
+        let mut removable = Vec::new();
+        for i in 0..=count {
+            let remote = self.remote(test, i)?;
+            if self.policy == ScreenRecordingPolicy::OnAny || failed {
+                let Some(file) = self
                     .pull(
-                        &self.remote(test, i)?,
+                        &remote,
                         Some(test),
                         self.chunked.then(|| i.to_string().as_str().to_owned()),
                         context.clone(),
                     )
-                    .await?;
+                    .await?
+                else {
+                    continue;
+                };
                 let name = if self.chunked {
                     format!("screen-{i}")
                 } else {
@@ -238,9 +247,10 @@ impl ScreenRecorderTestBatchListener {
                 };
                 self.attachments.emit(test, file, AttachmentType::Video, &name)?;
             }
+            removable.push(remote);
         }
-        for i in 0..=count {
-            self.remove(&self.remote(test, i)?, context.clone()).await?;
+        for remote in removable {
+            self.remove(&remote, context.clone()).await?;
         }
         Ok(())
     }
@@ -384,12 +394,18 @@ impl AndroidTestRunListener for ScreenRecorderTestBatchListener {
                         if healthy {
                             self.stop(context.clone()).await?;
                             let remotes = lock(&self.state).last.clone();
+                            let mut removable = Vec::new();
                             for (i, remote) in remotes.iter().enumerate() {
-                                self.pull(remote, None, Some(i.to_string().as_str().to_owned()), context.clone())
-                                    .await?;
+                                if self
+                                    .pull(remote, None, Some(i.to_string().as_str().to_owned()), context.clone())
+                                    .await?
+                                    .is_some()
+                                {
+                                    removable.push(remote);
+                                }
                             }
-                            for remote in remotes {
-                                self.remove(&remote, context.clone()).await?;
+                            for remote in removable {
+                                self.remove(remote, context.clone()).await?;
                             }
                         }
                         Ok(())

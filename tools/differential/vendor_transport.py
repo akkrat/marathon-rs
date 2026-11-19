@@ -266,7 +266,24 @@ def with_d43_flag(program, args):
     return args
 
 
-def host_argv(data, values, before_d31=False):
+# D97: the native xcresult receive uses an existing private directory below
+# its report folder. Keep the source, all flags, and the destination's report scope.
+D97_XCRESULT_SOURCE = re.compile(
+    r'127\.0\.0\.1:/tmp/marathon/(?P<device>[A-Fa-f0-9-]{36})/(?P=device)\.[A-Fa-f0-9-]{36}\.xcresult'
+)
+D97_XCRESULT_DESTINATION = re.compile(
+    r'(\{sandbox\}/in/report/device-files/[^/]+/\{safe_serial\}/xcresult/)\.marathon-artifact-[A-Za-z0-9]{6}/'
+)
+
+
+def d97_xcresult_destination(args):
+    if len(args) >= 2 and D97_XCRESULT_SOURCE.fullmatch(args[-2]):
+        stage = D97_XCRESULT_DESTINATION.fullmatch(args[-1])
+        if stage:
+            args[-1] = stage[1]
+
+
+def host_argv(data, values, before_d31=False, d97_native_staging=False):
     lanes = defaultdict(list)
     for row in records(data):
         e.require(row['event'] == 'host_argv' and row['program'] in ('rsync','ssh'),'unknown host argv')
@@ -292,6 +309,8 @@ def host_argv(data, values, before_d31=False):
             remote = args[index:]
             e.require(remote[1] == '--server' and remote[-2] == '.', 'unknown host rsync framing')
             args = args[:index+1] + ['--server'] + (['--sender'] if '--sender' in remote else []) + ['{protocol-options}', '.', remote[-1]]
+        if d97_native_staging and row['program'] == 'rsync':
+            d97_xcresult_destination(args)
         row['argv'] = args
         # Each send/receive has its own host process and no shared total order.
         # The explicit destination identifies its transfer lane; repeated uses

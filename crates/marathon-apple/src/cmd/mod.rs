@@ -3,6 +3,7 @@
 use marathon_logging::Component;
 
 use marathon_error::{AppleKind, FailureKind};
+mod artifact_stage;
 pub mod base_command;
 pub mod channel;
 pub mod command_session_output;
@@ -220,6 +221,10 @@ pub trait CommandExecutor: Send + Sync {
 pub trait FileBridge: Send + Sync {
     fn send<'a>(&'a self, src: &'a Path, dst: &'a str) -> VendorFuture<'a, bool>;
     fn receive<'a>(&'a self, src: &'a str, dst: &'a Path) -> VendorFuture<'a, bool>;
+    /// Receive a whole tree under its report name, preserving any existing entry.
+    fn receive_bundle<'a>(&'a self, src: &'a str, dst: &'a Path, stop: TransferStop) -> VendorFuture<'a, bool> {
+        self.receive_with(src, dst, stop)
+    }
     /// D54: `send`, ended early by `stop`. A bridge that cannot stop a transfer, such as a local copy, ignores it, as
     /// Kotlin's every bridge does.
     fn send_with<'a>(&'a self, src: &'a Path, dst: &'a str, stop: TransferStop) -> VendorFuture<'a, bool> {
@@ -293,7 +298,7 @@ impl TransferStop {
         self
     }
     /// D93 (round 8): what refuses the transfer as it starts: its admission, then a stop.
-    pub(crate) fn start_check(&self) -> impl Fn() -> Option<Cancellation> + Send + 'static {
+    pub(crate) fn start_check(&self) -> impl Fn() -> Option<Cancellation> + Send + Sync + 'static {
         let admission = self.admission.clone();
         let stopped = self.cancellation_check();
         move || admission.as_ref().and_then(|a| a.reason()).or_else(&stopped)
@@ -316,7 +321,7 @@ impl TransferStop {
     }
     /// D91: the cancellation that has come, from the caller or the device, without waiting; checked again as the process
     /// starts, where `now` cannot be (it polls the loss).
-    pub(crate) fn cancellation_check(&self) -> impl Fn() -> Option<Cancellation> + Send + 'static {
+    pub(crate) fn cancellation_check(&self) -> impl Fn() -> Option<Cancellation> + Send + Sync + 'static {
         let cancellation = self.cancellation.clone();
         let receipt = self.receipt.clone();
         move || {
@@ -339,6 +344,9 @@ impl TransferStop {
         if let Some(reason) = self.start_check()() {
             return Some(TransferStopped::Cancelled(reason));
         }
+        self.connection_stop()
+    }
+    pub(crate) fn connection_stop(&mut self) -> Option<TransferStopped> {
         if self.lost_with.is_none()
             && let Some(lost) = &mut self.lost
             && let std::task::Poll::Ready(failure) = lost

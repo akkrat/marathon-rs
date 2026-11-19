@@ -40,8 +40,7 @@ const NO_TESTS: FailureKind = FailureKind::NoTests;
 /// often 10 to 30 s. Reports come first, so a shorter grace costs cleanup and not results, and this stays under the
 /// longer one. It leaves room for D30's TERM, its 20 s and the KILL of a session the cancellation closed at the start.
 pub const CANCEL_LIMIT_MILLIS: i64 = 24_000;
-/// D52: how long one flush may hold a cancelled run, for a console that has stopped reading. The last flush comes after
-/// the limit above, so 25 s in all.
+/// D97: the final second of the signal's budget belongs to the console.
 pub const CANCEL_FLUSH_MILLIS: i64 = 1_000;
 /// D52: how long a cancelled run's cleanup waits for the reports. They keep going after this, but a stuck backend's close,
 /// which comes after the report files, must not use up the time for the provider.
@@ -131,6 +130,7 @@ pub fn signal_ignored(number: i32) -> bool {
 /// that came in between.
 pub struct SignalRelay {
     signal: Arc<SharedDeferred<i32>>,
+    received_at: Arc<std::sync::OnceLock<i64>>,
     source: Option<Arc<dyn VendorRuntime>>,
     hooks: SignalHooks,
     listener: RefCell<Option<Arc<dyn VendorTask>>>,
@@ -144,6 +144,7 @@ impl SignalRelay {
     pub fn os(vendor: Arc<dyn VendorRuntime>, exit: Arc<dyn Fn(i32) + Send + Sync>, hooks: SignalHooks) -> Rc<Self> {
         Rc::new(Self {
             signal: SharedDeferred::<i32>::new(),
+            received_at: Arc::default(),
             source: Some(vendor),
             hooks,
             listener: RefCell::new(None),
@@ -154,6 +155,7 @@ impl SignalRelay {
     pub fn manual(signal: Arc<SharedDeferred<i32>>, exit: Arc<dyn Fn(i32) + Send + Sync>) -> Rc<Self> {
         Rc::new(Self {
             signal,
+            received_at: Arc::default(),
             source: None,
             hooks: SignalHooks::default(),
             listener: RefCell::new(None),
@@ -161,9 +163,10 @@ impl SignalRelay {
         })
     }
     #[cfg(unix)]
-    fn listen(&self) {
+    fn listen(&self, clock: Arc<dyn crate::runtime::VendorClock>) {
         let Some(vendor) = &self.source else { return };
         let output = self.signal.clone();
+        let received_at = self.received_at.clone();
         let registration = self
             .hooks
             .registration
@@ -198,6 +201,7 @@ impl SignalRelay {
                     },
                     _ = cancelled.cancelled() => return Ok(()),
                 };
+                let _ = received_at.set(clock.now_millis());
                 output.complete(Ok(number));
                 let next = futures_util::StreamExt::next(&mut deliveries);
                 tokio::select! {
@@ -210,7 +214,7 @@ impl SignalRelay {
         *self.listener.borrow_mut() = Some(listener);
     }
     #[cfg(not(unix))]
-    fn listen(&self) {}
+    fn listen(&self, _: Arc<dyn crate::runtime::VendorClock>) {}
     fn stop(&self) {
         if let Some(listener) = self.listener.borrow_mut().take() {
             listener.cancel(requested("run finished"));
@@ -1020,13 +1024,14 @@ impl Marathon {
     /// out tests to a closed adb client, whose batches end at once and quietly (N19), in a loop that takes no time and
     /// adds INCOMPLETE results to the reports. With the queue gone, a test in flight can't be recorded behind the
     /// reports' back either (A99). Cancelling also starts closing what the batches in flight have open.
-    fn stop_execution(&self, reason: &str) {
+    fn stop_execution(&self, reason: &str, finish: crate::signal_finish::SignalFinish) {
         // D93: every Apple device starts its one window before any actor is cancelled, as the Scheduler's own stop seals
         // them, so that the provider's disposal after the reports reads that window's verdict instead of starting one.
         let scheduler = self.diagnostic_scheduler.borrow().clone();
         if let Some(scheduler) = scheduler {
-            scheduler.seal_devices();
+            scheduler.seal_devices(finish);
         }
+        self.deps.provider.seal_for_signal(finish);
         // Out of the cells first: a cancel can complete a job, and run what it left behind, right here.
         let jobs = [self.scheduler_job.borrow().clone(), self.run_job.borrow().clone()];
         for job in jobs.into_iter().flatten() {
@@ -1040,31 +1045,45 @@ impl Marathon {
     ///
     /// Reports wait for a run that has wiped its output directory. Before that there are no results, and the directory
     /// still holds the last run's reports, which empty ones would overwrite. Kotlin's hook overwrites them.
-    async fn finish_cancelled(self: &Rc<Self>, number: i32, task: &TaskContext) {
+    async fn finish_cancelled(
+        self: &Rc<Self>,
+        number: i32,
+        task: &TaskContext,
+        finish: crate::signal_finish::SignalFinish,
+    ) {
         // At ERROR because this logger shows nothing below that without `debug: true`, and the line must reach a CI log.
         self.log(
             LOGGER,
             Level::ERROR,
             format!(
                 "Signal {number}: stopping the tests, writing the reports and cleaning up for up to {} s. A second signal exits at once",
-                (CANCEL_LIMIT_MILLIS + CANCEL_FLUSH_MILLIS) / 1000
+                CANCEL_LIMIT_MILLIS / 1000
             ),
             None,
         );
         self.cleaned_up.set(true);
         self.signalled.set(true);
         self.cancellation.request(requested("Cancelled by a signal"));
-        self.stop_execution("Cancelled by a signal");
-        let _ = race(
-            self.flush(Signal::new()),
-            task.clock.delay(CANCEL_FLUSH_MILLIS, task.job.clone()),
-        )
-        .await;
+        self.stop_execution("Cancelled by a signal", finish);
         let reports = self.output_ready.get().then(|| self.spawn_step(FinishStep::Reports));
+        let initial_flush = {
+            let marathon = self.clone();
+            self.services.core.spawn_cleanup(Box::new(move |task| {
+                Box::pin(async move {
+                    let _ = race(
+                        marathon.flush(Signal::new()),
+                        task.clock.delay(CANCEL_FLUSH_MILLIS, task.job.clone()),
+                    )
+                    .await;
+                    Ok(())
+                })
+            }))
+        };
         if let Some(reports) = &reports {
             let _ = race(
                 reports.join(),
-                task.clock.delay(CANCEL_REPORTS_HEAD_START_MILLIS, task.job.clone()),
+                task.clock
+                    .delay(finish.reports.saturating_sub(task.clock.now_millis()), task.job.clone()),
             )
             .await;
         }
@@ -1073,7 +1092,7 @@ impl Marathon {
             self.spawn_step(FinishStep::Analytics),
             self.spawn_step(FinishStep::Usage),
         ];
-        for job in rest.iter().chain(&reports) {
+        for job in rest.iter().chain(&reports).chain(std::iter::once(&initial_flush)) {
             let _ = job.join().await;
         }
     }
@@ -1350,7 +1369,7 @@ impl Marathon {
         let job = core.job(JobKind::Ordinary, Some(root.clone()));
         let marathon = self.clone();
         let waiting = relay.clone();
-        relay.listen();
+        relay.listen(self.deps.vendor.clock.clone());
         let hook = core.spawn(
             job.clone(),
             Box::new(move |task: TaskContext| {
@@ -1360,10 +1379,17 @@ impl Marathon {
                         Err(VendorError::Cancelled(reason)) => return Err(reason.into()),
                         Err(other) => return Err(other.failure().clone().into()),
                     };
+                    let at = waiting
+                        .received_at
+                        .get()
+                        .copied()
+                        .unwrap_or_else(|| task.clock.now_millis());
+                    let finish = crate::signal_finish::SignalFinish::from_start(at);
                     if marathon.hook_installed.get() {
                         let finished = race(
-                            marathon.finish_cancelled(number, &task),
-                            task.clock.delay(CANCEL_LIMIT_MILLIS, task.job.clone()),
+                            marathon.finish_cancelled(number, &task, finish),
+                            task.clock
+                                .delay(finish.devices.saturating_sub(task.clock.now_millis()), task.job.clone()),
                         )
                         .await;
                         if let futures_util::future::Either::Right(_) = finished {
@@ -1373,16 +1399,20 @@ impl Marathon {
                             marathon.log(
                                 LOGGER,
                                 Level::ERROR,
-                                format!("Cleanup did not finish in {CANCEL_LIMIT_MILLIS} ms; exiting anyway"),
+                                "Cleanup ran out of time; exiting anyway".into(),
                                 None,
                             );
                         }
                     }
-                    let _ = race(
-                        marathon.flush(Signal::new()),
-                        task.clock.delay(CANCEL_FLUSH_MILLIS, task.job.clone()),
-                    )
-                    .await;
+                    // The live CLI drains the shared output tail in its exit callback, within its one-second watchdog.
+                    // A manual relay owns no console watchdog.
+                    if !marathon.services.live_output {
+                        let left = finish
+                            .exit
+                            .saturating_sub(task.clock.now_millis())
+                            .min(CANCEL_FLUSH_MILLIS);
+                        let _ = race(marathon.flush(Signal::new()), task.clock.delay(left, task.job.clone())).await;
+                    }
                     (waiting.exit)(128 + number);
                     // `exit` owns the process's end from here: it queues the final
                     // flush and the process exits from the console's writer/watchdog

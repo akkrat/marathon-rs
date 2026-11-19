@@ -89,6 +89,7 @@ pub trait ProviderRecovery: Send + Sync {
     fn setup_failed(&self, transport: Transport, targets: Vec<AppleTarget>, started: i64) -> VendorFuture<'_, ()>;
     /// D33: a snapshot removed this simulator, so a retry waiting for it is void.
     fn forget_setup(&self, id: &str);
+    fn stop_producers(&self) {}
     fn terminate(&self) -> VendorFuture<'_, ()>;
 }
 /// Which of the provider's setup cycles is running, for its timing line.
@@ -237,6 +238,7 @@ pub struct AppleSimulatorProvider {
     channel: Arc<SharedChannel<DeviceEvent>>,
     outbox: Arc<Outbox<DeviceEvent>>,
     monitor_cancel: Arc<Signal>,
+    signal_finish: marathon_core::signal_finish::SignalDeadline,
     events: RetainedTasks,
     operations: RetainedTasks,
 }
@@ -295,6 +297,7 @@ impl AppleSimulatorProvider {
             channel: SharedChannel::new(),
             outbox: Arc::default(),
             monitor_cancel: Signal::new(),
+            signal_finish: Default::default(),
             events: RetainedTasks::default(),
             operations: RetainedTasks::default(),
         });
@@ -396,7 +399,7 @@ impl AppleSimulatorProvider {
         let serial = device.handle.serial().to_owned();
         let previous = {
             let mut state = self.state();
-            if state.termination.is_some() {
+            if state.termination.is_some() || self.signal_finish.current().is_some() {
                 return Err(VendorError::Cancelled(requested("Provider terminated")).into());
             }
             let previous = state.devices.get(&id).cloned();
@@ -1120,7 +1123,7 @@ impl AppleSimulatorProvider {
         // D84: published even if processing panics, since nothing else ends this wait.
         {
             let state = self.state();
-            if state.termination.is_some() {
+            if state.termination.is_some() || self.signal_finish.current().is_some() {
                 return Err(VendorError::Cancelled(requested("Provider terminated")));
             }
             self.update_tasks
@@ -1153,7 +1156,7 @@ impl AppleSimulatorProvider {
         );
         {
             let mut state = self.state();
-            if state.initialized || state.termination.is_some() {
+            if state.initialized || state.termination.is_some() || self.signal_finish.current().is_some() {
                 return Err(other(
                     FailureKind::IllegalState,
                     "AppleSimulatorProvider is already initialized or terminated",
@@ -1186,7 +1189,7 @@ impl AppleSimulatorProvider {
             ..self.services.context.clone()
         };
         let mut state = self.state();
-        if state.termination.is_some() {
+        if state.termination.is_some() || self.signal_finish.current().is_some() {
             return Err(VendorError::Cancelled(requested("Provider terminated")));
         }
         let task = self.services.runtime.spawn_interruptible(Box::pin(async move {
@@ -1251,8 +1254,9 @@ impl AppleSimulatorProvider {
     async fn terminate_inner(&self, drain_millis: i64, cancel_millis: i64, interrupted: bool) -> VendorResult<()> {
         self.log(Level::DEBUG, || "Terminating AppleSimulatorProvider".into(), None);
         self.monitor_cancel.cancel(requested("Provider terminated"));
+        self.services.recovery.stop_producers();
         let clock = &self.services.context.clock;
-        if interrupted {
+        if interrupted && self.signal_finish.current().is_none() {
             // Replaced simulators no longer have actors to seal their pulls at run stop.
             // Give them the remaining artifact drain and cleanup window, independent of
             // their old disposal. Active simulators keep any earlier run-stop deadline.
@@ -1284,7 +1288,15 @@ impl AppleSimulatorProvider {
         self.services
             .connections
             .seal_for_termination(deadline, self.services.context.clone());
-        let left = || deadline.saturating_sub(clock.now_millis()).max(0);
+        let device_deadline = || {
+            self.signal_finish
+                .wait(clock.as_ref(), deadline, |finish| finish.devices)
+        };
+        // Leave the device phase available even if provider producers do not respond.
+        let producers_deadline = || {
+            self.signal_finish
+                .wait(clock.as_ref(), deadline, |finish| finish.receipts)
+        };
         let mut tasks = JoiningTasks(self.update_tasks.take());
         tasks.0.extend(self.state().monitoring.take());
         let joined = tokio::select! { biased;
@@ -1292,11 +1304,11 @@ impl AppleSimulatorProvider {
                 let _lifecycle = self.lifecycle.lock().await;
                 tasks.join().await;
             } => true,
-            _ = clock.delay(left(), Signal::new()) => false,
+            _ = producers_deadline() => false,
         };
         let recovery = tokio::select! { biased;
             result = self.services.recovery.terminate() => Some(result),
-            _ = clock.delay(left(), Signal::new()) => None,
+            _ = producers_deadline() => None,
         };
         let mut abandoned = match (joined, &recovery) {
             (false, _) => Some("lifecycle locking, device monitoring or setup and recovery"),
@@ -1313,7 +1325,7 @@ impl AppleSimulatorProvider {
         // A disconnect a recovery raised has its publishing task; it goes out before the channel closes.
         tokio::select! { biased;
             _ = JoiningTasks(self.events.take()).join() => {},
-            _ = clock.delay(left(), Signal::new()) => {
+            _ = producers_deadline() => {
                 abandoned.get_or_insert("device event publishing");
             },
         }
@@ -1325,10 +1337,9 @@ impl AppleSimulatorProvider {
             );
         }
         self.channel.close(None);
-        artifacts?;
         let handed_back = std::mem::take(&mut self.state().handed_back);
         let ours = |handle: &Simulator| !handed_back.iter().any(|h| Arc::ptr_eq(h, handle));
-        join_all(self.devices().into_iter().map(|device| async move {
+        let active = join_all(self.devices().into_iter().map(|device| async move {
             let lease = ours(&device.handle).then(|| device.handle.executor());
             // D93 (round 8): the run's end, not a removal: a refusal after it is an orderly cancellation.
             device.handle.seal_for_termination(deadline);
@@ -1350,30 +1361,46 @@ impl AppleSimulatorProvider {
                     None,
                 );
             }
-        }))
-        .await;
-        let replaced = {
-            let mut state = self.state();
-            state.devices.clear();
-            std::mem::take(&mut state.replaced)
-        };
-        join_all(replaced.into_iter().filter(|d| ours(d)).map(|device| async move {
-            device.seal_for_termination(deadline);
-            if abandoned.is_some() && !device.disposed() {
-                device.quarantine_after_provider_timeout(deadline);
-            }
-            let _ = self.release_lease(&device, device.executor()).await;
-        }))
-        .await;
+        }));
+        if self.signal_finish.current().is_none() {
+            active.await;
+            self.release_replaced(&handed_back, deadline, abandoned.is_some()).await;
+        } else {
+            tokio::join!(
+                active,
+                self.release_replaced(&handed_back, deadline, abandoned.is_some())
+            );
+        }
+
         tokio::select! { biased;
             _ = JoiningTasks(self.events.take()).join() => {},
-            _ = clock.delay(left(), Signal::new()) => {
+            _ = device_deadline() => {
                 if abandoned.is_none() {
                     self.log(Level::WARN, || "iOS provider shutdown timed out. Abandoning device event publishing.".into(), None);
                 }
             },
         }
-        Ok(())
+        artifacts.map(|_| ())
+    }
+    async fn release_replaced(&self, handed_back: &[Simulator], deadline: i64, abandoned: bool) {
+        let replaced = {
+            let mut state = self.state();
+            state.devices.clear();
+            std::mem::take(&mut state.replaced)
+        };
+        join_all(
+            replaced
+                .into_iter()
+                .filter(|d| !handed_back.iter().any(|h| Arc::ptr_eq(h, d)))
+                .map(|device| async move {
+                    device.seal_for_termination(deadline);
+                    if abandoned && !device.disposed() {
+                        device.quarantine_after_provider_timeout(deadline);
+                    }
+                    let _ = self.release_lease(&device, device.executor()).await;
+                }),
+        )
+        .await;
     }
 }
 impl DeviceProvider for AppleSimulatorProvider {
@@ -1423,6 +1450,23 @@ impl DeviceProvider for AppleSimulatorProvider {
     }
     fn subscribe(&self) -> Arc<dyn EventChannel<DeviceEvent>> {
         self.channel.clone()
+    }
+    fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
+        // Registration examines the same state lock before publishing a device.
+        {
+            let state = self.state();
+            self.signal_finish.set(finish);
+            for simulator in &state.replaced {
+                simulator.limit_pulls_for_signal(finish);
+            }
+            for device in state.devices.values() {
+                device.handle.signal_seal(finish);
+            }
+        }
+        self.monitor_cancel.cancel(requested("Provider terminated"));
+        self.services.recovery.stop_producers();
+        self.services.artifacts.seal_for_signal(finish);
+        self.services.connections.seal_for_signal(finish);
     }
     fn terminate(&self) -> VendorFuture<'_, ()> {
         self.terminate_with_artifact_budget(DRAIN_TIMEOUT_MILLIS, CANCEL_TIMEOUT_MILLIS, false)

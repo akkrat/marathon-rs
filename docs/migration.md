@@ -236,6 +236,11 @@ handlers and continues with committed results. An internal run failure or owner 
 full 300 s drain and shares 60 s across its cancellation waits. The artifact log names bundles that could not
 be retrieved.
 
+[D97](deviations.md#d97--publish-complete-artifacts-and-reserve-time-for-signal-cleanup) needs no configuration change.
+A download that fails or times out leaves the final path absent or preserves the previous file. Report attachments
+require a successful delivery. SIGINT and SIGTERM can drain eligible artifacts for up to 12 seconds and finish
+within 24 seconds, including console output. Read the undelivered-artifact diagnostics to identify missing files.
+
 [D87](deviations.md#d87--a-devices-preparation-has-one-deadline) bounds how long a device that cannot be prepared keeps its
 place: its preparation, the retries inside it and an iOS simulator's replacements after a failed boot share one deadline,
 the greater of `deviceInitializationTimeoutMillis` and what one preparation can take with its retries at their limits. No

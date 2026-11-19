@@ -27,6 +27,7 @@ mod artifact_io;
 pub mod artifacts;
 pub mod ci;
 pub mod report;
+pub mod signal_finish;
 pub mod transfer;
 
 pub use artifact_io::ServiceLog;

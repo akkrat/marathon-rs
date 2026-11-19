@@ -34,6 +34,7 @@ use tokio::sync::Semaphore;
 pub const DEFAULT_CONCURRENCY: i32 = 2;
 pub trait ProvisioningConnections: Send + Sync {
     fn seal_for_termination(&self, _deadline: i64, _context: VendorContext) {}
+    fn seal_for_signal(&self, _finish: marathon_core::signal_finish::SignalFinish) {}
     fn transport_log_text(&self, transport: &Transport, local: &str) -> String {
         transport_text(transport, local)
     }
@@ -100,6 +101,9 @@ impl Drop for PendingLease<'_> {
     }
 }
 impl ProvisioningConnections for Arc<ConnectionFactory> {
+    fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
+        ConnectionFactory::seal_for_signal(self, finish);
+    }
     fn transport_log_text(&self, transport: &Transport, local: &str) -> String {
         ConnectionFactory::transport_log_text(self, transport, local)
     }

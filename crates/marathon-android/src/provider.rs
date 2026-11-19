@@ -58,6 +58,7 @@ struct Inner {
     trackers: MultiServerDeviceStateTracker,
     provider: Mutex<Option<Arc<dyn VendorTask>>>,
     shutdown: tokio::sync::Mutex<bool>,
+    signal_finish: marathon_core::signal_finish::SignalDeadline,
     /// D88: why device monitoring ended, if it did other than at termination; the device channel fails with the same.
     monitor_failure: Mutex<Option<Failure>>,
 }
@@ -81,6 +82,7 @@ impl AdamDeviceProvider {
                 trackers: MultiServerDeviceStateTracker::default(),
                 provider: Mutex::default(),
                 shutdown: tokio::sync::Mutex::new(false),
+                signal_finish: Default::default(),
                 monitor_failure: Mutex::default(),
             }),
         })
@@ -1079,7 +1081,13 @@ impl AdamDeviceProvider {
         let allowance =
             crate::cleanup::allowance(&runtime.configuration.timeout_configuration).saturating_add(STOP_MARGIN_MILLIS);
         let deadline = clock.now_millis().saturating_add(allowance);
-        let left = || deadline.saturating_sub(clock.now_millis());
+        let signal = &self.inner.signal_finish;
+        let ended = || signal.wait(clock.as_ref(), deadline, |finish| finish.devices);
+        let left = || {
+            signal
+                .limit(deadline, |finish| finish.devices)
+                .saturating_sub(clock.now_millis())
+        };
         let provider = {
             let mut monitor = lock(&self.inner.provider);
             let provider = monitor.take();
@@ -1114,7 +1122,7 @@ impl AdamDeviceProvider {
         };
         let drained = tokio::select! { biased;
             _ = async { tokio::join!(devices_done, provider_done); } => true,
-            _ = clock.delay(left(), Signal::new()) => false,
+            _ = ended() => false,
         };
         self.inner.factory.close();
         let staging_stop = Signal::new();
@@ -1122,7 +1130,7 @@ impl AdamDeviceProvider {
         let staged = if left() > 0 {
             tokio::select! { biased;
                 result = runtime.pull_staging.close(runtime, staging_stop.clone()) => Some(result),
-                _ = clock.delay(left(), Signal::new()) => None,
+                _ = ended() => None,
             }
         } else {
             None
@@ -1229,6 +1237,19 @@ impl DeviceProvider for AdamDeviceProvider {
                 }
             }
         })
+    }
+    fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
+        self.inner.signal_finish.set(finish);
+        self.inner.channel.close(None);
+        if let Some(monitor) = lock(&self.inner.provider).as_ref() {
+            monitor.cancel(requested("provider terminated"));
+        }
+        for setup in &*lock(&self.inner.setups) {
+            setup.cancel(requested("provider terminated"));
+        }
+        for (_, device) in &*lock(&self.inner.all_devices) {
+            device.signal_seal(finish);
+        }
     }
     fn terminate(&self) -> VendorFuture<'_, ()> {
         let this = self.clone();

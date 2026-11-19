@@ -228,10 +228,14 @@ impl AndroidTestRunListener for ProfilingRunListener {
                             .remote_profiling_for_test(&test, &self.artifacts.batch.id)?;
                         let file = self.artifacts.file(FileType::Tracing, Some(&test), None, None).await?;
                         let start = self.artifacts.now("android.ProfilingRunListener.pullTracing")?;
-                        self.artifacts
+                        if !self
+                            .artifacts
                             .device
-                            .safe_pull_file(&remote.to_owned(), &file.to_string_lossy(), context.clone())
-                            .await?;
+                            .safe_pull_file(&remote, &file.to_string_lossy(), context.clone())
+                            .await?
+                        {
+                            return Ok(());
+                        }
                         let end = self.artifacts.now("android.ProfilingRunListener.pullTracing")?;
                         self.log(
                             Level::TRACE,

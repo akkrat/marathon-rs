@@ -829,6 +829,9 @@ struct ObservedClock {
 }
 impl marathon_core::runtime::VendorClock for ObservedClock {
     fn delay(&self, m: i64, s: Arc<dyn CancellationSignal>) -> VendorFuture<'_, ()> {
+        if self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 1 {
+            self.second_wait.complete(Ok(()));
+        }
         self.inner.delay(m, s)
     }
     fn with_timeout<'a>(
@@ -845,9 +848,6 @@ impl marathon_core::runtime::VendorClock for ObservedClock {
         m: i64,
         b: marathon_core::runtime::VendorTimeoutBody<'a>,
     ) -> VendorFuture<'a, Option<()>> {
-        if self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 2 {
-            self.second_wait.complete(Ok(()));
-        }
         self.inner.with_timeout_or_null(s, m, b)
     }
 }

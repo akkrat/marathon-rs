@@ -85,7 +85,15 @@ impl AppleTestRunListener for DeviceLogListener {
                 let local = self.c.file(FileType::DeviceLog, None).await?;
                 let remote = self.c.device.remote_file_manager().remote_log();
                 let start = self.c.millis("ios.DeviceLogListener.pullLogfile")?;
-                self.c.device.pull_file(&remote, &local, &self.c.context).await?;
+                let pulled = self.c.device.pull_file(&remote, &local, &self.c.context).await;
+                if !matches!(pulled, Ok(true)) {
+                    self.c.log(
+                        &self.logger,
+                        Level::ERROR,
+                        format!("Device log {remote} was not delivered"),
+                    );
+                    return pulled.map(|_| ());
+                }
                 self.c.log(
                     &self.logger,
                     Level::DEBUG,

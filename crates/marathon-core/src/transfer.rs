@@ -21,20 +21,30 @@ impl TransferMeasurement {
         file: PathBuf,
         body: VendorFuture<'a, T>,
     ) -> VendorResult<T> {
-        self.measure(file, body, false).await
+        self.measure(file, body, false, |_| true).await
     }
     pub async fn measure_folder_transfer<'a, T: Send + 'a>(
         &self,
         file: PathBuf,
         body: VendorFuture<'a, T>,
     ) -> VendorResult<T> {
-        self.measure(file, body, true).await
+        self.measure(file, body, true, |_| true).await
     }
+    pub async fn measure_delivery(
+        &self,
+        file: PathBuf,
+        body: VendorFuture<'_, bool>,
+        folder: bool,
+    ) -> VendorResult<bool> {
+        self.measure(file, body, folder, |delivered| *delivered).await
+    }
+
     async fn measure<'a, T: Send + 'a>(
         &self,
         file: PathBuf,
         body: VendorFuture<'a, T>,
         folder: bool,
+        delivered: impl FnOnce(&T) -> bool + Send,
     ) -> VendorResult<T> {
         let label = if folder {
             "core.FileTransferExtensions.measureFolderTransfer"
@@ -59,6 +69,9 @@ impl TransferMeasurement {
         )
         .await?
         .wrapping_sub(start);
+        if !result.as_ref().is_ok_and(delivered) {
+            return result;
+        }
         let this = self.clone();
         blocking(self.io.as_ref(), move || {
             this.emit(file, elapsed, folder);

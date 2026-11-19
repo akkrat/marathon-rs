@@ -1077,7 +1077,7 @@ fn a_provider_that_never_ends_cannot_hold_a_cancel_past_its_limit_d52() {
     // so in this harness the run only ends at scenario teardown.
     assert_eq!(
         r.exit_at,
-        [marathon_core::marathon::CANCEL_LIMIT_MILLIS],
+        [marathon_core::marathon::CANCEL_LIMIT_MILLIS - marathon_core::marathon::CANCEL_FLUSH_MILLIS],
         "the exit fires at the limit, not when the provider eventually ends"
     );
 }
@@ -1124,7 +1124,7 @@ fn a_signal_before_the_output_directory_is_wiped_writes_no_reports_d52() {
 }
 
 #[test]
-fn scheduler_cancellation_still_exits_at_24000_d52() {
+fn scheduler_cancellation_hands_off_to_console_by_23000_d97() {
     for reports_hang in [false, true] {
         let r = run(
             Options {
@@ -1139,7 +1139,7 @@ fn scheduler_cancellation_still_exits_at_24000_d52() {
         );
         assert_eq!(r.exits.len(), 1);
         assert_eq!(r.exits[0].0, 143);
-        assert_eq!(r.exit_at, [24_000]);
-        eprintln!("D52 reports_hang={reports_hang}: exit_at={:?}", r.exit_at);
+        assert_eq!(r.exit_at, [23_000]);
+        eprintln!("D97 reports_hang={reports_hang}: exit_at={:?}", r.exit_at);
     }
 }

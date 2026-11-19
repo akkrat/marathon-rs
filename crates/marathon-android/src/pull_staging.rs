@@ -6,11 +6,10 @@ use marathon_core::{
     executor::shared::{Signal, requested},
     runtime::CancellationSignal,
 };
-use marathon_logging::Level;
 use std::{
     fs,
     io::ErrorKind,
-    os::unix::fs::{DirBuilderExt, MetadataExt},
+    os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
@@ -28,10 +27,14 @@ enum State {
     Closed,
 }
 
+pub(crate) struct StagedPull {
+    pub(crate) path: PathBuf,
+    _private_dir: Option<tempfile::TempDir>,
+}
+
 pub(crate) struct PullStaging {
     path: PathBuf,
     state: Mutex<State>,
-    warned: AtomicBool,
     sealed: AtomicBool,
 }
 
@@ -40,7 +43,6 @@ impl PullStaging {
         Self {
             path: output.join(DIRECTORY),
             state: Mutex::default(),
-            warned: AtomicBool::new(false),
             sealed: AtomicBool::new(false),
         }
     }
@@ -49,26 +51,12 @@ impl PullStaging {
         self: &Arc<Self>,
         runtime: &AndroidRuntime,
         destination: PathBuf,
-    ) -> VendorResult<Option<PathBuf>> {
+    ) -> VendorResult<StagedPull> {
         let staging = self.clone();
-        match blocking(runtime.dependencies.io.as_ref(), move || staging.reserve(&destination)).await {
-            Ok(path) => Ok(Some(path)),
-            Err(error @ VendorError::Cancelled(_)) => Err(error),
-            Err(error) => {
-                if !self.warned.swap(true, Ordering::Relaxed) {
-                    runtime.emit(
-                        &runtime.component(module_path!()),
-                        Level::WARN,
-                        "Unable to stage Android pulls in the output directory. Writing directly to the destination.",
-                        Some(error.failure()),
-                    );
-                }
-                Ok(None)
-            }
-        }
+        blocking(runtime.dependencies.io.as_ref(), move || staging.reserve(&destination)).await
     }
 
-    fn reserve(&self, destination: &Path) -> VendorResult<PathBuf> {
+    fn reserve(&self, destination: &Path) -> VendorResult<StagedPull> {
         let mut state = lock(&self.state);
         if self.sealed.load(Ordering::Acquire) {
             return Err(VendorError::Cancelled(requested("Android pull staging is closed")));
@@ -85,8 +73,17 @@ impl PullStaging {
                 fs::metadata(output).map_err(io)?.dev()
             }
         };
-        if !on_filesystem(destination, filesystem).map_err(io)? {
-            return Err(cross_device());
+        let (ancestor, destination_filesystem) = destination_filesystem(destination).map_err(io)?;
+        if destination_filesystem != filesystem {
+            let dir = tempfile::Builder::new()
+                .prefix(".marathon-artifact-")
+                .permissions(fs::Permissions::from_mode(0o700))
+                .tempdir_in(ancestor)
+                .map_err(io)?;
+            return Ok(StagedPull {
+                path: dir.path().join("download"),
+                _private_dir: Some(dir),
+            });
         }
         if matches!(*state, State::Unused) {
             // The core wipes the output before execution. Keep ownership of a directory
@@ -94,7 +91,10 @@ impl PullStaging {
             fs::DirBuilder::new().mode(0o700).create(&self.path).map_err(io)?;
             *state = State::Ready(filesystem);
         }
-        Ok(self.path.join(uuid::Uuid::new_v4().to_string()))
+        Ok(StagedPull {
+            path: self.path.join(uuid::Uuid::new_v4().to_string()),
+            _private_dir: None,
+        })
     }
 
     pub(crate) fn seal(&self) {
@@ -121,28 +121,19 @@ impl PullStaging {
     }
 }
 
-fn cross_device() -> VendorError {
-    io(std::io::Error::new(
-        ErrorKind::CrossesDevices,
-        "the destination is on a different filesystem from Android pull staging",
-    ))
-}
-
-fn on_filesystem(destination: &Path, filesystem: u64) -> std::io::Result<bool> {
+fn destination_filesystem(destination: &Path) -> std::io::Result<(&Path, u64)> {
     match fs::symlink_metadata(destination) {
-        // Direct writes retain the original handling of symlinks and special files.
         Ok(metadata) if !metadata.is_file() => {
             return Err(std::io::Error::new(
                 ErrorKind::InvalidInput,
                 "the pull destination is not a regular file",
             ));
         }
-        Ok(metadata) if metadata.dev() != filesystem => return Ok(false),
         Ok(_) => {}
         Err(error) if error.kind() == ErrorKind::NotFound => {}
         Err(error) => return Err(error),
     }
-    // Check only existing ancestors. A rejected ADB handshake must leave a missing parent absent.
+    // A rejected ADB handshake must leave a missing parent absent.
     for ancestor in destination.ancestors().skip(1) {
         let ancestor = if ancestor.as_os_str().is_empty() {
             Path::new(".")
@@ -150,10 +141,10 @@ fn on_filesystem(destination: &Path, filesystem: u64) -> std::io::Result<bool> {
             ancestor
         };
         match fs::metadata(ancestor) {
-            Ok(metadata) => return Ok(metadata.dev() == filesystem),
+            Ok(metadata) => return Ok((ancestor, metadata.dev())),
             Err(error) if error.kind() == ErrorKind::NotFound => {}
             Err(error) => return Err(error),
         }
     }
-    fs::metadata(".").map(|metadata| metadata.dev() == filesystem)
+    fs::metadata(".").map(|metadata| (Path::new("."), metadata.dev()))
 }

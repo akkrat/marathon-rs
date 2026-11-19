@@ -210,11 +210,27 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                     None,
                 );
                 let remote = self.path(entry.path_root, &relative);
+                let mut copied = Vec::new();
                 if entry.path_root == PathRoot::AppData {
                     if !packages.is_empty() {
                         for package in &packages {
                             let from = join(&format!("/data/data/{package}"), &relative);
-                            device.safe_execute_shell_command(&format!("mkdir -p {remote} && run-as {package} sh -c 'cd {from} && tar cf - .' | tar xvf - -C {remote} && run-as {package} rm -R {from}"),"",context.clone()).await?;
+                            let extracted = device
+                                .safe_execute_shell_command(
+                                    &format!("set -o pipefail && mkdir -p {remote} && run-as {package} sh -c 'cd {from} && tar cf - .' | tar xvf - -C {remote}"),
+                                    "", context.clone(),
+                                )
+                                .await?;
+                            if extracted.is_some_and(|result| result.exit_code == 0) {
+                                copied.push((package, from));
+                            } else {
+                                device.log_named(
+                                    "FileSyncTestRunListener",
+                                    Level::WARN,
+                                    &format!("Artifact folder {from} was not delivered: archive extraction failed"),
+                                    None,
+                                );
+                            }
                         }
                     } else {
                         let aggregation = match entry.aggregation_mode {
@@ -227,7 +243,13 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                         continue;
                     }
                 }
-                device.safe_pull_folder(&remote, &local, context.clone()).await?;
+                if device.safe_pull_folder(&remote, &local, context.clone()).await? {
+                    for (package, from) in copied {
+                        device
+                            .safe_execute_shell_command(&format!("run-as {package} rm -R {from}"), "", context.clone())
+                            .await?;
+                    }
+                }
             }
             for entry in &device.runtime().file_sync.push {
                 if entry.path_root != PathRoot::AppData {

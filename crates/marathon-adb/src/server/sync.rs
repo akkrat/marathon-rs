@@ -334,7 +334,7 @@ pub(crate) async fn serve(
                             }
                         }
                     }
-                    Ok(c) if cut.is_some() => {
+                    Ok(c) if matches!(cut, Some(RecvCut::Close | RecvCut::Hang)) => {
                         let mut out = b"DATA".to_vec();
                         out.extend((c.len().min(DATA_MAX) as u32).to_le_bytes());
                         wr.write_all(&out).await?;
@@ -343,12 +343,19 @@ pub(crate) async fn serve(
                         }
                         return super::device::close(rd, wr).await;
                     }
-                    Ok(c) => {
+                    Ok(mut c) => {
+                        if cut == Some(RecvCut::ShortDone) {
+                            c.truncate(c.len().saturating_sub(1));
+                        }
                         let mut out = Vec::with_capacity(c.len() + c.len() / DATA_MAX * 8 + 16);
                         for chunk in c.chunks(DATA_MAX) {
                             out.extend(b"DATA");
                             out.extend((chunk.len() as u32).to_le_bytes());
                             out.extend(chunk);
+                        }
+                        if cut == Some(RecvCut::MissingDone) {
+                            wr.write_all(&out).await?;
+                            return super::device::close(rd, wr).await;
                         }
                         out.extend(b"DONE");
                         out.extend([0u8; 4]);

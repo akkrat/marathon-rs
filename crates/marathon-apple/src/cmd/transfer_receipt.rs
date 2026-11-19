@@ -31,6 +31,7 @@ pub struct TransferReceipt {
     pull_clock: Option<Arc<dyn VendorClock>>,
     /// An earlier end than the bridge's own for its cleanup, on the vendor clock; `i64::MAX` for none.
     by: AtomicI64,
+    pull_at: AtomicI64,
     /// Told of every stop and deadline, so that a step of the cleanup already running sees an earlier deadline.
     changed: tokio::sync::Notify,
     ended: Arc<SharedDeferred<TransferCleanup>>,
@@ -44,6 +45,7 @@ impl TransferReceipt {
             stop: Signal::new(),
             pull_clock,
             by: AtomicI64::new(i64::MAX),
+            pull_at: AtomicI64::new(i64::MAX),
             changed: tokio::sync::Notify::new(),
             ended: SharedDeferred::new(),
         })
@@ -59,7 +61,14 @@ impl TransferReceipt {
         self.changed.notify_waiters();
     }
     fn limit_to(&self, deadline: i64) {
+        self.limit_pull(
+            deadline.saturating_sub(super::remote::rsync::rsync_file_bridge::STOP_CLEANUP_MILLIS),
+            deadline,
+        );
+    }
+    fn limit_pull(&self, pull_at: i64, deadline: i64) {
         self.by.fetch_min(deadline.min(i64::MAX - 1), Ordering::AcqRel);
+        self.pull_at.fetch_min(pull_at, Ordering::AcqRel);
         self.changed.notify_waiters();
     }
     /// How it ended, once it has.
@@ -75,8 +84,7 @@ impl TransferReceipt {
     }
     fn pull_stop_at(&self) -> Option<i64> {
         self.pull_clock.as_ref()?;
-        self.deadline()
-            .map(|by| by.saturating_sub(super::remote::rsync::rsync_file_bridge::STOP_CLEANUP_MILLIS))
+        Some(self.pull_at.load(Ordering::Acquire)).filter(|at| *at != i64::MAX)
     }
     pub(crate) fn pull_deadline_reason() -> Cancellation {
         super::cancelled("Device shutdown window has no time left for the artifact pull")
@@ -129,6 +137,7 @@ impl TransferReceipt {
 pub struct DevicePulls {
     receipts: Vec<Arc<TransferReceipt>>,
     deadline: Option<i64>,
+    signal: Option<marathon_core::signal_finish::SignalFinish>,
 }
 impl DevicePulls {
     pub fn register(&mut self, clock: Arc<dyn VendorClock>) -> Arc<TransferReceipt> {
@@ -136,6 +145,9 @@ impl DevicePulls {
         let receipt = TransferReceipt::with_clock(Some(clock));
         if let Some(by) = self.deadline {
             receipt.limit_to(by);
+        }
+        if let Some(finish) = self.signal {
+            receipt.limit_pull(finish.drain, finish.receipts);
         }
         self.receipts.push(receipt.clone());
         receipt
@@ -147,6 +159,12 @@ impl DevicePulls {
             for receipt in &self.receipts {
                 receipt.limit_to(by);
             }
+        }
+    }
+    pub fn limit_for_signal(&mut self, finish: marathon_core::signal_finish::SignalFinish) {
+        self.signal.get_or_insert(finish);
+        for receipt in &self.receipts {
+            receipt.limit_pull(finish.drain, finish.receipts);
         }
     }
     pub fn snapshot(&self) -> Vec<Arc<TransferReceipt>> {

@@ -141,6 +141,11 @@ struct Admission {
     /// Each rsync start under way, by its destination.
     starting: Vec<(String, Arc<SpawnTicket>)>,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReceiveName {
+    Source,
+    Bundle,
+}
 impl RsyncFileBridge {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
@@ -205,6 +210,24 @@ impl RsyncFileBridge {
         task.join().await?;
         rx.await
             .map_err(|e| VendorError::Other(failure(FailureKind::IllegalState, e.to_string())))?
+    }
+    fn receive_staged<'a>(
+        &'a self,
+        src: &'a str,
+        dst: &'a Path,
+        stop: TransferStop,
+        name: ReceiveName,
+    ) -> VendorFuture<'a, bool> {
+        let src = if name == ReceiveName::Bundle {
+            src.trim_end_matches('/')
+        } else {
+            src
+        };
+        let (inner, src, dst) = (self.0.clone(), src.to_owned(), dst.to_owned());
+        Box::pin(async move {
+            self.owned(async move { inner.transfer(dst, src, Some(name), stop).await })
+                .await
+        })
     }
     /// Joins work retained after an awaiter was dropped. No process cleanup is hidden in Drop.
     pub async fn join_pending(&self) -> VendorResult<()> {
@@ -581,6 +604,7 @@ impl Inner {
             Ok(())
         }));
         // Errors are held until the child is reaped and both readers are joined.
+        let receiving = arriving.is_some();
         let progress = AtomicI64::new(started);
         let mut nothing_arrived = false;
         let unbounded = Bound {
@@ -649,6 +673,14 @@ impl Inner {
         }
         if joined.is_none() {
             doubts.push("its output was still being read".to_owned());
+        } else if receiving
+            && windows > 0
+            && left.is_none()
+            && status
+                .as_ref()
+                .is_some_and(|result| result.as_ref().is_ok_and(ExitStatus::success))
+        {
+            doubts.push("its output pipes did not close with the receive".to_owned());
         }
         let dropped = |e: tokio::sync::oneshot::error::TryRecvError| {
             VendorError::Other(failure(FailureKind::IllegalState, e.to_string()))
@@ -831,9 +863,11 @@ impl Inner {
         &self,
         local: PathBuf,
         remote: String,
-        receive: bool,
-        stop: &mut TransferStop,
+        publication: Option<ReceiveName>,
+        mut stop: TransferStop,
     ) -> VendorResult<bool> {
+        let receive = publication.is_some();
+        let mut stage = None;
         let stopping = Stopping::new(stop.receipt());
         // D93 (round 8): as rsync starts, its admission too (a device's closed pulls).
         let cancelled = stop.start_check();
@@ -859,7 +893,15 @@ impl Inner {
                 stopping.stop(why, clock.now_millis());
                 std::future::pending::<()>().await
             };
-            let steps = self.transfer_steps(local, remote, receive, &stopping, Box::new(cancelled), &mut unconfirmed);
+            let steps = self.transfer_steps(
+                local,
+                remote,
+                publication,
+                &stopping,
+                Box::new(cancelled),
+                &mut unconfirmed,
+                &mut stage,
+            );
             tokio::select! {
                 biased;
                 _ = watching => unreachable!("watching never ends"),
@@ -869,17 +911,37 @@ impl Inner {
         if let Some(why) = unconfirmed {
             stop.unconfirmed(why);
         }
-        result
+        let Some(stage) = stage else { return result };
+        if !matches!(result, Ok(true)) {
+            return blocking(self.runtime.as_ref(), move || {
+                stage.discard();
+                result
+            })
+            .await;
+        }
+        let check = stop.cancellation_check();
+        blocking(self.runtime.as_ref(), move || {
+            if stop.connection_stop().is_some() {
+                stage.discard();
+                return Ok(false);
+            }
+            stage.publish(check)?;
+            Ok(true)
+        })
+        .await
     }
+    #[allow(clippy::too_many_arguments)]
     async fn transfer_steps(
         &self,
         local: PathBuf,
         remote: String,
-        receive: bool,
+        publication: Option<ReceiveName>,
         stopping: &Arc<Stopping>,
-        cancelled: Box<dyn Fn() -> Option<Cancellation> + Send>,
+        cancelled: Box<dyn Fn() -> Option<Cancellation> + Send + Sync>,
         unconfirmed: &mut Option<Failure>,
+        stage: &mut Option<crate::cmd::artifact_stage::ArtifactStage>,
     ) -> VendorResult<bool> {
+        let receive = publication.is_some();
         let bound = Bound {
             clock: self.clock.as_ref(),
             stopping: Some(stopping),
@@ -889,32 +951,64 @@ impl Inner {
         let remote_path = remote.clone();
         let remote = format!("{}:{remote}", self.target.addr.to_owned());
         // D91: a source on a mount that no longer answers can hold this for ever; a stop ends the wait.
-        let local = match bound
+        let source_path = remote_path.clone();
+        let cancelled: Arc<dyn Fn() -> Option<Cancellation> + Send + Sync> = Arc::from(cancelled);
+        let stage_stop = cancelled.clone();
+        let resolved = bound
             .run(
                 None,
                 None,
                 true,
-                blocking(self.runtime.as_ref(), move || {
-                    let cwd = std::env::current_dir().map_err(io_error)?;
-                    let path = absolute_file_path(&local.to_string_lossy(), &cwd.to_string_lossy());
-                    let mut text = path.to_string_lossy().into_owned();
-                    if local.is_dir() {
-                        text = format!("{}/", text.trim_end_matches('/'));
+                blocking(self.runtime.as_ref(), {
+                    move || {
+                        let cwd = std::env::current_dir().map_err(io_error)?;
+                        let original = absolute_file_path(&local.to_string_lossy(), &cwd.to_string_lossy());
+                        let place = original.to_string_lossy().into_owned();
+                        let (path, stage) = if let Some(name) = publication {
+                            let bundle = name == ReceiveName::Bundle;
+                            let into_directory = local.is_dir() && !source_path.ends_with('/');
+                            let source = Path::new(&source_path);
+                            let destination = if into_directory && !bundle {
+                                original.join(source.file_name().ok_or_else(|| {
+                                    VendorError::Other(failure(FailureKind::FileSystem, &source_path))
+                                })?)
+                            } else {
+                                original
+                            };
+                            let mut stage = crate::cmd::artifact_stage::ArtifactStage::new(destination, bundle)?;
+                            let path = if bundle || into_directory {
+                                stage.rsync_directory(source)?
+                            } else {
+                                if source_path.ends_with('/') {
+                                    stage.seed_directory(stage_stop.as_ref())?;
+                                }
+                                stage.content().to_owned()
+                            };
+                            (path, Some(stage))
+                        } else {
+                            (original, None)
+                        };
+                        let mut text = path.to_string_lossy().into_owned();
+                        if path.is_dir() {
+                            text = format!("{}/", text.trim_end_matches('/'));
+                        }
+                        Ok((text, place, stage))
                     }
-                    Ok(text)
                 }),
             )
-            .await
-        {
+            .await;
+        let (local, publish_place, prepared) = match resolved {
             Step::Done(local) => local?,
             Step::Stopped | Step::Expired => return self.stopped(stopping.stopped(), receive, &remote),
         };
+        *stage = prepared;
         if let Some(stopped) = stopping.stopped() {
             return self.stopped(Some(stopped), receive, &remote);
         }
         let arriving = receive.then(|| Arriving::new(&local, &remote_path));
         let (source, destination) = if receive { (remote, local) } else { (local, remote) };
-        let place = destination.trim_end_matches('/').to_owned();
+        let place = if receive { publish_place } else { destination.clone() };
+        let place = place.trim_end_matches('/').to_owned();
         // D91: an earlier transfer into this destination may still be writing there. Checked again as rsync starts.
         if self
             .admission
@@ -931,7 +1025,7 @@ impl Inner {
                 arriving,
                 matches!(self.auth, Some(SshAuthentication::Password { .. })),
                 stopping,
-                Some(cancelled),
+                Some(Box::new(move || cancelled())),
                 Some(place.clone()),
                 unconfirmed,
             )
@@ -1699,17 +1793,16 @@ impl FileBridge for RsyncFileBridge {
                     );
                     return Err(error);
                 }
-                inner.transfer(src, dst, false, &mut stop).await
+                inner.transfer(src, dst, None, stop).await
             })
             .await
         })
     }
-    fn receive_with<'a>(&'a self, src: &'a str, dst: &'a Path, mut stop: TransferStop) -> VendorFuture<'a, bool> {
-        let (inner, src, dst) = (self.0.clone(), src.to_owned(), dst.to_owned());
-        Box::pin(async move {
-            self.owned(async move { inner.transfer(dst, src, true, &mut stop).await })
-                .await
-        })
+    fn receive_with<'a>(&'a self, src: &'a str, dst: &'a Path, stop: TransferStop) -> VendorFuture<'a, bool> {
+        self.receive_staged(src, dst, stop, ReceiveName::Source)
+    }
+    fn receive_bundle<'a>(&'a self, src: &'a str, dst: &'a Path, stop: TransferStop) -> VendorFuture<'a, bool> {
+        self.receive_staged(src, dst, stop, ReceiveName::Bundle)
     }
 }
 

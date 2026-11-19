@@ -33,14 +33,16 @@ fn copy_recursively(src: &Path, dst: &Path, overwrite: bool, stopped: Stopped<'_
             src.to_string_lossy(),
         )));
     }
-    if dst.exists() && !(src.is_dir() && dst.is_dir()) {
+    let existing = std::fs::symlink_metadata(dst);
+    let destination_is_dir = existing.as_ref().is_ok_and(|metadata| metadata.is_dir());
+    if existing.is_ok() && !(src.is_dir() && destination_is_dir) {
         if !overwrite {
             return Err(VendorError::Other(failure(
                 FailureKind::CopyDestinationExists,
                 dst.to_string_lossy(),
             )));
         }
-        if dst.is_dir() {
+        if destination_is_dir {
             std::fs::remove_dir_all(dst).map_err(io_error)?;
         } else {
             std::fs::remove_file(dst).map_err(io_error)?;
@@ -75,6 +77,60 @@ fn copy_recursively(src: &Path, dst: &Path, overwrite: bool, stopped: Stopped<'_
     }
     Ok(true)
 }
+fn receive(src: &Path, dst: PathBuf, overwrite: bool, bundle: bool, stop: TransferStop) -> VendorResult<bool> {
+    let admit = stop.start_check();
+    if let Some(reason) = admit() {
+        return Err(VendorError::Cancelled(reason));
+    }
+    if !src.try_exists().map_err(io_error)? {
+        return Ok(false);
+    }
+    if !bundle && !overwrite && dst.exists() && !(src.is_dir() && dst.is_dir()) {
+        return Err(VendorError::Other(failure(
+            FailureKind::CopyDestinationExists,
+            dst.to_string_lossy(),
+        )));
+    }
+    if let Some(parent) = dst.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).map_err(io_error)?;
+    }
+    let merge = !bundle && src.is_dir() && dst.is_dir();
+    let stage = super::super::artifact_stage::ArtifactStage::new(dst, bundle || (!overwrite && !merge))?;
+    let check = stop.cancellation_check();
+    if merge {
+        stage.seed_directory(&check)?;
+    }
+    copy_recursively(src, stage.content(), overwrite, &check)?;
+    stage.publish(check)?;
+    Ok(true)
+}
+
+impl JvmFileBridge {
+    fn receive_staged<'a>(
+        &'a self,
+        src: &'a str,
+        dst: &'a Path,
+        stop: TransferStop,
+        bundle: bool,
+    ) -> VendorFuture<'a, bool> {
+        let filename = src.split('/').next_back().unwrap_or_default().to_owned();
+        let src = PathBuf::from(src);
+        let dst = dst.to_owned();
+        let overwrite = self.overwrite;
+        Box::pin(async move {
+            blocking(self.runtime.as_ref(), move || {
+                let destination = if !bundle && dst.is_dir() {
+                    dst.join(filename)
+                } else {
+                    dst
+                };
+                receive(&src, destination, overwrite, bundle, stop)
+            })
+            .await
+        })
+    }
+}
+
 impl FileBridge for JvmFileBridge {
     fn send<'a>(&'a self, src: &'a Path, dst: &'a str) -> VendorFuture<'a, bool> {
         let src = src.to_owned();
@@ -106,49 +162,13 @@ impl FileBridge for JvmFileBridge {
             .await
         })
     }
-    /// D93 (round 8): a local copy honours a receive's stop as a send's: one already stopped (the device's pulls closed)
-    /// does not start, and one in progress ends at the next chunk; the copy owns the stop to its end.
-    fn receive_with<'a>(&'a self, src: &'a str, dst: &'a Path, mut stop: TransferStop) -> VendorFuture<'a, bool> {
-        if let Some(stopped) = stop.now() {
-            return Box::pin(async move { Err(stopped.into_error()) });
-        }
-        let filename = src.split('/').next_back().unwrap_or_default().to_owned();
-        let src = PathBuf::from(src);
-        let dst = dst.to_owned();
-        let overwrite = self.overwrite;
-        let check = stop.cancellation_check();
-        let admit = stop.start_check();
-        Box::pin(async move {
-            blocking(self.runtime.as_ref(), move || {
-                let _owner = stop;
-                // D93 (round 9): the last look before the copy starts, on its blocking thread: the device's pulls may have
-                // closed while this waited for one.
-                if let Some(reason) = admit() {
-                    return Err(VendorError::Cancelled(reason));
-                }
-                let destination = if dst.is_dir() { dst.join(filename) } else { dst };
-                if !src.exists() {
-                    return Ok(false);
-                }
-                copy_recursively(&src, &destination, overwrite, &check)
-            })
-            .await
-        })
+    fn receive_with<'a>(&'a self, src: &'a str, dst: &'a Path, stop: TransferStop) -> VendorFuture<'a, bool> {
+        self.receive_staged(src, dst, stop, false)
+    }
+    fn receive_bundle<'a>(&'a self, src: &'a str, dst: &'a Path, stop: TransferStop) -> VendorFuture<'a, bool> {
+        self.receive_staged(src, dst, stop, true)
     }
     fn receive<'a>(&'a self, src: &'a str, dst: &'a Path) -> VendorFuture<'a, bool> {
-        let filename = src.split('/').next_back().unwrap_or_default().to_owned();
-        let src = PathBuf::from(src);
-        let dst = dst.to_owned();
-        let overwrite = self.overwrite;
-        Box::pin(async move {
-            blocking(self.runtime.as_ref(), move || {
-                let destination = if dst.is_dir() { dst.join(filename) } else { dst };
-                if !src.exists() {
-                    return Ok(false);
-                }
-                copy_recursively(&src, &destination, overwrite, &|| None)
-            })
-            .await
-        })
+        self.receive_with(src, dst, TransferStop::never())
     }
 }

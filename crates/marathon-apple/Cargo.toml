@@ -23,6 +23,7 @@ marathon-core = { path = "../marathon-core" }
 # The prefix-separator guard and the temp-prefix oracle rely on 3.27.0 naming.
 tempfile = "=3.27.0"
 tokio = { version = "=1.53.2", features = ["process", "io-util", "sync", "rt", "macros", "net", "fs"] }
+rustix = { version = "1.1", features = ["fs"] }
 nix = { version = "0.30", features = ["signal", "fs", "socket", "net", "poll"] }
 # Binary reading only; XML reading is plist::reader (the crate's XML reader drops
 # CDATA) and the byte-exact XML writer is our own (plist::writer, PLAN §4.2).

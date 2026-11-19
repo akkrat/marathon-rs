@@ -32,6 +32,8 @@ use std::sync::{
 pub struct Recovery {
     pub fail_termination: std::sync::atomic::AtomicBool,
     pub ticks: AtomicUsize,
+    pub stopped: AtomicUsize,
+    pub joins: AtomicUsize,
     pub missing: Mutex<Vec<Vec<AppleTarget>>>,
     pub failed: Mutex<Vec<Vec<AppleTarget>>>,
     /// Returned once by the next `reconnect`, which the provider's monitor calls after each update (D84 witnesses).
@@ -81,8 +83,12 @@ impl ProviderRecovery for Recovery {
         Box::pin(async { Ok(()) })
     }
     fn forget_setup(&self, _: &str) {}
+    fn stop_producers(&self) {
+        self.stopped.fetch_add(1, Ordering::SeqCst);
+    }
     fn terminate(&self) -> VendorFuture<'_, ()> {
         Box::pin(async {
+            self.joins.fetch_add(1, Ordering::SeqCst);
             if self.fail_termination.load(Ordering::SeqCst) {
                 return Err(marathon_core::error::VendorError::Other(marathon_apple::cmd::failure(
                     FailureKind::IllegalState,

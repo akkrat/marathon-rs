@@ -209,6 +209,7 @@ impl State {
 pub struct ConnectionFactory {
     runtime: Arc<dyn VendorRuntime>,
     clock: Arc<dyn VendorClock>,
+    signal_finish: marathon_core::signal_finish::SignalDeadline,
     logging: SshLogging,
     logger: Component,
     debug: bool,
@@ -279,6 +280,7 @@ impl ConnectionFactory {
         Ok(Arc::new(Self {
             runtime,
             clock,
+            signal_finish: Default::default(),
             logging,
             logger,
             debug,
@@ -526,6 +528,9 @@ impl ConnectionFactory {
             result => result,
         }
     }
+    pub fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
+        self.signal_finish.set(finish);
+    }
     pub async fn dispose(self: &Arc<Self>, executor: Executor) -> VendorResult<()> {
         self.dispose_before(executor, None).await
     }
@@ -612,10 +617,9 @@ impl ConnectionFactory {
             None,
         );
         let closed = {
-            let left = deadline.saturating_sub(self.clock.now_millis());
             tokio::select! { biased;
                 result = lease.executor.close() => Some(result),
-                _ = self.clock.delay(left, marathon_core::executor::shared::Signal::new()) => None,
+                _ = self.signal_finish.wait(self.clock.as_ref(), deadline, |finish| finish.devices) => None,
             }
         };
         if let Some(result) = closed {

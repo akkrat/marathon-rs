@@ -516,6 +516,22 @@ impl CancellationSignal for GateSignal {
 /// a stop was not confirmed (now or earlier in the run). Empty: the lifecycle and the release may run. When `stop`, a pull
 /// still running is stopped and so ends on D91's path for a stopped transfer, within its 40 s bound (killed and reaped, or
 /// unconfirmed); it is not waited for, since the device is quarantined either way.
+pub async fn wait_for_pulls(
+    pulls: &[Arc<super::TransferReceipt>],
+    clock: &dyn marathon_core::runtime::VendorClock,
+    deadline: i64,
+) {
+    let all = async {
+        for pull in pulls {
+            let _ = pull.wait_in(marathon_core::executor::shared::Signal::new()).await;
+        }
+    };
+    tokio::select! { biased;
+        _ = all => {},
+        _ = clock.delay(deadline.saturating_sub(clock.now_millis()), marathon_core::executor::shared::Signal::new()) => {},
+    }
+}
+
 pub fn settle_pulls(pulls: &[Arc<super::TransferReceipt>], serial: &str, stop: bool) -> Vec<String> {
     pulls
         .iter()

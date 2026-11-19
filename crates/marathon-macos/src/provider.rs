@@ -33,6 +33,7 @@ use std::sync::{
 
 /// The production implementation owns ConnectionFactory leases. Recording worlds replace only transport I/O.
 pub trait MacosConnections: Send + Sync {
+    fn seal_for_signal(&self, _finish: marathon_core::signal_finish::SignalFinish) {}
     fn transport_log_text(&self, transport: &Transport, local: &str) -> String {
         transport_text(transport, local)
     }
@@ -55,6 +56,9 @@ pub trait MacosConnections: Send + Sync {
     }
 }
 impl MacosConnections for Arc<ConnectionFactory> {
+    fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
+        ConnectionFactory::seal_for_signal(self, finish);
+    }
     fn transport_log_text(&self, transport: &Transport, local: &str) -> String {
         ConnectionFactory::transport_log_text(self, transport, local)
     }
@@ -478,6 +482,16 @@ impl DeviceProvider for AppleMacosProvider {
                 context.clock.delay(200, context.cancellation.clone()).await?;
             }
         })
+    }
+    fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
+        {
+            let _devices = self.devices.lock().unwrap_or_else(|e| e.into_inner());
+            self.terminated.store(true, Ordering::SeqCst);
+        }
+        for device in self.retained.lock().unwrap_or_else(|e| e.into_inner()).iter() {
+            device.seal_for_signal(finish);
+        }
+        self.connections.seal_for_signal(finish);
     }
     fn terminate(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {

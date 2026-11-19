@@ -30,11 +30,33 @@ impl FileBridge for BundleBridge {
     fn send<'a>(&'a self, _: &'a Path, _: &'a str) -> VendorFuture<'a, bool> {
         Box::pin(async { Ok(true) })
     }
-    /// D54: stopped as the rsync bridge stops a receive: a cancellation returns it, a lost connection makes it `false`.
     fn receive_with<'a>(
         &'a self,
         src: &'a str,
         dst: &'a Path,
+        stop: marathon_apple::cmd::TransferStop,
+    ) -> VendorFuture<'a, bool> {
+        let folder = dst.join(src.rsplit('/').next().unwrap());
+        self.receive_into(src, folder, stop)
+    }
+    fn receive_bundle<'a>(
+        &'a self,
+        src: &'a str,
+        dst: &'a Path,
+        stop: marathon_apple::cmd::TransferStop,
+    ) -> VendorFuture<'a, bool> {
+        self.receive_into(src, dst.to_owned(), stop)
+    }
+    fn receive<'a>(&'a self, src: &'a str, dst: &'a Path) -> VendorFuture<'a, bool> {
+        self.receive_with(src, dst, marathon_apple::cmd::TransferStop::never())
+    }
+}
+impl BundleBridge {
+    /// Match the rsync bridge's cancellation and loss outcomes.
+    fn receive_into<'a>(
+        &'a self,
+        src: &'a str,
+        folder: PathBuf,
         mut stop: marathon_apple::cmd::TransferStop,
     ) -> VendorFuture<'a, bool> {
         use marathon_apple::cmd::TransferStopped;
@@ -45,11 +67,11 @@ impl FileBridge for BundleBridge {
                     TransferStopped::Cancelled(reason) => Err(VendorError::Cancelled(reason)),
                     TransferStopped::Lost(_) => Ok(false),
                 },
-                pulled = self.receive(src, dst) => pulled,
+                pulled = self.copy(src, folder) => pulled,
             }
         })
     }
-    fn receive<'a>(&'a self, src: &'a str, dst: &'a Path) -> VendorFuture<'a, bool> {
+    fn copy<'a>(&'a self, src: &'a str, folder: PathBuf) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             self.pulls.fetch_add(1, Ordering::SeqCst);
             self.trace.lock().unwrap().push(format!("pull:{src}"));
@@ -72,7 +94,6 @@ impl FileBridge for BundleBridge {
                 }
                 _ => {}
             }
-            let folder = dst.join(src.rsplit('/').next().unwrap());
             tokio::fs::create_dir_all(&folder)
                 .await
                 .map_err(|e| VendorError::Other(failure(FailureKind::Io, e.to_string())))?;

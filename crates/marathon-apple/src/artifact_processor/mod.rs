@@ -52,6 +52,7 @@ struct State {
 /// Drop performs no cancellation or observable cleanup; providers call close_and_join.
 pub struct ArtifactProcessor {
     state: Mutex<State>,
+    signal: marathon_core::signal_finish::SignalDeadline,
     runtime: Arc<dyn VendorRuntime>,
     monotonic: Arc<dyn MonotonicClock>,
     transfers: Semaphore,
@@ -81,6 +82,7 @@ impl ArtifactProcessor {
                 sources: IndexMap::new(),
                 undelivered: vec![],
             }),
+            signal: Default::default(),
             runtime,
             monotonic,
             transfers: Semaphore::new(max_concurrent as usize),
@@ -431,6 +433,9 @@ impl ArtifactProcessor {
             );
         }
     }
+    pub fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
+        self.signal.set(finish);
+    }
     pub async fn close_and_join(
         self: &Arc<Self>,
         timeout: i64,
@@ -446,20 +451,13 @@ impl ArtifactProcessor {
         }
         let started = self.now("apple.ArtifactProcessor.closeAndJoin")?;
         let clock = &context.clock;
-        let deadline = clock
-            .now_millis()
-            .saturating_add(timeout.max(0))
-            .saturating_add(cancel_timeout.max(0));
-        if context
-            .clock
-            .with_timeout_or_null(
-                context.cancellation.clone(),
-                timeout,
-                Box::new(|signal| Box::pin(async { finished.wait_in(signal).await.map(|_| ()) })),
-            )
-            .await?
-            .is_none()
-        {
+        let drain_by = clock.now_millis().saturating_add(timeout.max(0));
+        let deadline = drain_by.saturating_add(cancel_timeout.max(0));
+        let drained = tokio::select! { biased;
+            result = finished.wait_in(context.cancellation.clone()) => { result?; true },
+            _ = self.signal.wait(clock.as_ref(), drain_by, |finish| finish.drain) => false,
+        };
+        if !drained {
             let pending = self.state().queue.pending();
             let pending = pending
                 .iter()
@@ -475,8 +473,9 @@ impl ArtifactProcessor {
             );
         }
         // The worker joins and the final receipt share the cancellation phase, including after a slow drain.
-        let cancel_by = deadline.min(clock.now_millis().saturating_add(cancel_timeout.max(0)));
-        let remaining = || cancel_by.saturating_sub(clock.now_millis()).max(0);
+        let cancellation_started = clock.now_millis();
+        let cancel_by = deadline.min(cancellation_started.saturating_add(cancel_timeout.max(0)));
+        let cancellation_deadline = || self.signal.wait(clock.as_ref(), cancel_by, |finish| finish.receipts);
         self.supervisor.cancel(Cancellation::Requested(failure(
             FailureKind::JobCancelled,
             "Job was cancelled",
@@ -488,10 +487,11 @@ impl ArtifactProcessor {
                 "Job was cancelled",
             )));
         }
-        context.clock.with_timeout_or_null(context.cancellation.clone(), remaining(), Box::new(move |signal| Box::pin(async move {
-            for task in tasks { tokio::select! { biased; reason = signal.cancelled() => return Err(VendorError::Cancelled(reason)), _ = task.join() => {} } }
-            Ok(())
-        }))).await?;
+        tokio::select! { biased;
+            reason = context.cancellation.cancelled() => return Err(VendorError::Cancelled(reason)),
+            _ = async { for task in tasks { let _ = task.join().await; } } => {},
+            _ = cancellation_deadline() => {},
+        }
         let (stuck, residual) = {
             let mut state = self.state();
             (
@@ -499,6 +499,12 @@ impl ArtifactProcessor {
                 state.queue.residual(),
             )
         };
+        let cancel_timeout = self.signal.current().map_or(cancel_timeout, |finish| {
+            cancel_by
+                .min(finish.receipts)
+                .saturating_sub(cancellation_started)
+                .max(0)
+        });
         if !stuck.is_empty() {
             let names = stuck
                 .iter()
@@ -518,14 +524,10 @@ impl ArtifactProcessor {
             self.report_safely("not started before shutdown", &work.payload.undelivered);
             self.complete(&work).await?;
         }
-        context
-            .clock
-            .with_timeout_or_null(
-                context.cancellation.clone(),
-                remaining(),
-                Box::new(|signal| Box::pin(async { finished.wait_in(signal).await.map(|_| ()) })),
-            )
-            .await?;
+        tokio::select! { biased;
+            result = finished.wait_in(context.cancellation.clone()) => { result?; },
+            _ = cancellation_deadline() => {},
+        }
         for waiter in rejected {
             self.report_safely("artifact queue is closed", &waiter.item.payload.undelivered);
         }

@@ -258,6 +258,26 @@ async fn only_the_final_lease_abandons_a_stalled_close_at_its_deadline_d95() {
         assert_eq!(before.elapsed().as_millis(), 0);
     }
 }
+#[tokio::test(start_paused = true)]
+async fn signal_tightens_the_final_lease_close_already_in_progress_d97() {
+    let (factory, control) = factory(true, 8);
+    let lease = get(&factory, "a").await;
+    let sibling = get(&factory, "b").await;
+    let old = control.fake(&lease);
+    old.close_gate.forget_permits(1);
+    let dispose = {
+        let factory = factory.clone();
+        tokio::spawn(async move { factory.dispose(lease).await })
+    };
+    wait(&old.close_started, 1).await;
+    let start = tokio::time::Instant::now();
+    factory.seal_for_signal(marathon_core::signal_finish::SignalFinish::from_start(0));
+    dispose.await.unwrap().unwrap();
+    assert_eq!(start.elapsed().as_millis(), 23_000);
+    assert_eq!(old.abandoned.load(Ordering::SeqCst), 1);
+    assert!(sibling.connected());
+    factory.dispose(sibling).await.unwrap();
+}
 struct TestConnector(Arc<Control>);
 impl Connector for TestConnector {
     fn prepare(&self, t: Transport) -> ConnectionFuture<'_, PreparedConnection> {

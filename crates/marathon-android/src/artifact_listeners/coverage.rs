@@ -133,15 +133,7 @@ impl CoverageTestRunListener {
         let remote = file.remote();
         let target = local.to_string_lossy().into_owned();
         let timeout = millis(device.runtime().configuration.timeout_configuration.pull_file)?;
-        let pulled = timed(context, timeout, |signal| {
-            let child = VendorContext {
-                cancellation: signal,
-                ..context.clone()
-            };
-            let (remote, target) = (remote.clone(), target.clone());
-            Box::pin(async move { device.pull_file(&remote, &target, child).await })
-        })
-        .await;
+        let pulled = device.pull_with_timeout(&remote, &target, context.clone()).await;
         match pulled {
             Ok(Some(())) => {}
             Ok(None) => return Ok(Err(format!("pulling it timed out after {timeout} ms"))),
@@ -192,7 +184,9 @@ impl AndroidTestRunListener for CoverageTestRunListener {
                     for test in tests {
                         let merged = PARAMETERIZED_METHOD.matches(&test.method).then(|| {
                             let mut merged = test.clone();
-                            merged.method.truncate(merged.method.find('[').unwrap_or(merged.method.len()));
+                            merged
+                                .method
+                                .truncate(merged.method.find('[').unwrap_or(merged.method.len()));
                             merged.meta_properties.clear();
                             merged
                         });
@@ -207,13 +201,16 @@ impl AndroidTestRunListener for CoverageTestRunListener {
                             .emit(key, local.clone(), AttachmentType::Coverage, "coverage")?;
                     }
                 }
-                Ok(Err(reason)) => self.error(
-                    &format!(
-                        "Code coverage of batch {} is missing: {remote} was not written or could not be pulled ({reason})",
-                        file.batch_id
-                    ),
-                    None,
-                ),
+                Ok(Err(reason)) => {
+                    self.error(
+                        &format!(
+                            "Code coverage of batch {} is missing: {remote} was not written or could not be pulled ({reason})",
+                            file.batch_id
+                        ),
+                        None,
+                    );
+                    return Ok(());
+                }
                 Err(e) => return Err(e),
             }
             self.artifacts

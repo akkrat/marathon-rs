@@ -84,6 +84,9 @@ pub trait Device: Send + Sync {
     /// admits no new work: the cancelled call, `join_cancelled_work` and the device's disposal all end within what is
     /// left of it, rather than each with a window of its own. Idempotent.
     fn seal_for_stop(&self) {}
+    fn seal_for_signal(&self, _finish: crate::signal_finish::SignalFinish) {
+        self.seal_for_stop();
+    }
     /// D84: ends, or waits for, the work this device keeps running after a cancelled call returned to its caller (an
     /// Apple preparation runs on in a retained task), so that a stopping run can wait for it before the provider
     /// terminates. Bounded by the run with `cancellation_cleanup_millis`, which must cover it.
@@ -145,6 +148,8 @@ pub trait DeviceProvider: Send + Sync {
     fn terminate_after_stop(&self) -> VendorFuture<'_, ()> {
         self.terminate()
     }
+    /// Stop admitting producers and tighten any finish already in progress. No I/O on core.
+    fn seal_for_signal(&self, _finish: crate::signal_finish::SignalFinish) {}
     /// D84: the failure this provider has published on its device channel (its device source failed), if any. A remote
     /// parse that ends without a device reads it: it is then the run's cause, not a no-device timeout. No I/O.
     fn published_failure(&self) -> Option<crate::error::Failure> {

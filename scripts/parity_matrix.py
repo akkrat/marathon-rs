@@ -813,6 +813,11 @@ def generate(root: pathlib.Path, existing):
             namespace = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", r[2]).lower()
             name = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", r[3]).lower()
             tail = ["ported", f"crates/marathon-android/tests/android_artifacts.rs::{namespace}::{name}", tail[2]]
+        if (r[2] == "FileSyncTestRunListenerTest" and r[3] in {"testPull", "testPullFolderWithEmptyFile"}) or (
+            (r[2], r[3]) == ("ResultBundleRunListenerTest",
+                             "failed local finalization keeps the remote bundle and never replaces an existing destination")
+        ):
+            tail = ["n/a", "x96: D97", ""]
         out.append(r + tail)
     return out
 
