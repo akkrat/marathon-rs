@@ -119,6 +119,113 @@ fn termination_limits_remote_cleanup_on_each_server_within_the_device_deadline_d
         })
     });
 }
+
+#[test]
+fn a_signal_during_routine_android_cleanup_keeps_remote_cleanup_until_23s_d97() {
+    use marathon_android::device::{AndroidBatchExecutor, AndroidDevice};
+    use marathon_core::{
+        executor::shared::SharedDeferred,
+        model::{BatchRef, DevicePoolId, TestBatch, TestBatchResults},
+        runtime::{Deferred, VendorFuture},
+        signal_finish::SignalFinish,
+        vendor::VendorContext,
+    };
+    use serde_json::json;
+    use std::{sync::Arc, time::Duration};
+
+    #[derive(Default)]
+    struct HeldBatch {
+        entered: tokio::sync::Notify,
+        release: tokio::sync::Notify,
+    }
+    impl AndroidBatchExecutor for HeldBatch {
+        fn execute<'a>(
+            &'a self,
+            _: &'a AndroidDevice,
+            _: Arc<marathon_config::Configuration>,
+            _: DevicePoolId,
+            _: BatchRef,
+            _: Arc<Deferred<TestBatchResults>>,
+            _: VendorContext,
+        ) -> VendorFuture<'a, ()> {
+            Box::pin(async move {
+                self.entered.notify_one();
+                self.release.notified().await;
+                Ok(())
+            })
+        }
+    }
+
+    let _ports = shared_ports();
+    let mut config = configuration();
+    android(&mut config).timeout_configuration.shell = jcompat::jtime::Duration::of_seconds(60);
+    run_with_driven_clock(config, |runtime, context, clock| {
+        Box::pin(async move {
+            let mut script = base_script(27, vec![]);
+            script["shell"].as_array_mut().unwrap().extend([
+                json!({"exact":"logcat -c","stdout":""}),
+                json!({"regex":"token=.*; marker=.*; rm -f ", "output":[{"gate":"markers"}]}),
+            ]);
+            let mut server = server(script).await;
+            let held = Arc::new(HeldBatch::default());
+            let mut services = change_runtime(&runtime, &[server.port()]).as_ref().clone();
+            services.executor = held.clone();
+            let provider = AdamDeviceProvider::new(Arc::new(services))?;
+            provider.initialize(context.clone()).await?;
+            let DeviceEvent::Connected(device) = event(&provider).await else {
+                panic!("expected a connected Android device");
+            };
+            let configuration = runtime.dependencies.configuration.clone();
+            device.0.prepare(configuration.clone(), context.clone()).await?;
+            let batch_context = context.clone();
+            let batch = tokio::spawn(async move {
+                device
+                    .0
+                    .execute(
+                        configuration,
+                        DevicePoolId { name: "pool".into() },
+                        Arc::new(TestBatch {
+                            tests: vec![],
+                            id: "batch".into(),
+                        }),
+                        SharedDeferred::new(),
+                        batch_context,
+                    )
+                    .await
+            });
+            checked(tokio::time::timeout(Duration::from_secs(60), held.entered.notified()).await);
+            let mut termination = provider.terminate();
+            assert!(futures_util::poll!(termination.as_mut()).is_pending());
+            clock.advance_to(55_000).await;
+            checked(
+                tokio::time::timeout(Duration::from_secs(60), async {
+                    while !commands(&server)
+                        .iter()
+                        .any(|command| command.contains("rm -f \"$marker\""))
+                    {
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                })
+                .await,
+            );
+
+            // Propagate the absolute deadline after the routine remote command has started.
+            // The receipt cutoff is already due, with five seconds left for the device.
+            provider.seal_for_signal(SignalFinish::from_start(context.clock.now_millis() - 18_000));
+            clock.advance_to(55_000).await;
+            assert!(futures_util::poll!(termination.as_mut()).is_pending());
+            clock.advance_to(59_999).await;
+            assert!(futures_util::poll!(termination.as_mut()).is_pending());
+            clock.advance_to(60_000).await;
+            checked(tokio::time::timeout(Duration::from_secs(60), termination).await)?;
+            held.release.notify_one();
+            checked(checked(tokio::time::timeout(Duration::from_secs(60), batch).await))?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
 #[test]
 fn tracker_vanished_first_and_non_device_retention() {
     let _ports = shared_ports();

@@ -304,7 +304,7 @@ struct Worker {
     transcript: PathBuf,
 }
 
-/// An iOS run on a worker whose `xcodebuild` ignores TERM, so that D30 takes its 20 s up to the KILL.
+/// An iOS run on a worker whose `xcodebuild` ignores TERM and needs KILL.
 async fn slow_to_stop(debug: bool) -> Result<(Worker, tokio::process::Child)> {
     let repo = repo();
     let dir = tempfile::tempdir()?;
@@ -427,8 +427,7 @@ impl Worker {
     }
 }
 
-/// D97: reports and the first stop request reach their destinations while the worker is still active.
-/// The CLI exits with the signal status in both debug modes.
+/// D97: reports precede escalation and the worker receives both signals before the CLI exits.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_cancel_writes_reports_first_while_a_worker_ignores_term_d97() -> Result {
     for debug in [false, true] {
@@ -454,6 +453,11 @@ async fn a_cancel_writes_reports_first_while_a_worker_ignores_term_d97() -> Resu
             "debug={debug}\n{}",
             worker.logs()
         );
+        assert!(
+            worker.saw("signal", "signal", "KILL"),
+            "debug={debug}\n{}",
+            worker.logs()
+        );
         // U161: the worker's batch was admitted once, including during shutdown.
         assert_eq!(worker.started(), 1, "debug={debug}\n{}", worker.logs());
         worker.worker.shutdown().await.map_err(|e| e.to_string())?;
@@ -461,7 +465,7 @@ async fn a_cancel_writes_reports_first_while_a_worker_ignores_term_d97() -> Resu
     Ok(())
 }
 
-/// D52: a second signal doesn't sit out D30's 20 s, and has the status of its own number. It comes while the worker is
+/// D52: a second signal exits with its own status. It comes while the worker is
 /// still ignoring TERM, and the exit comes before any KILL.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_second_signal_leaves_the_slow_worker_process_behind_d52() -> Result {

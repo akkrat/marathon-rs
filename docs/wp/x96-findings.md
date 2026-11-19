@@ -5,7 +5,8 @@ Base `9ce312ff`. D97 and U235–U242.
 ## Design and invariants
 
 - The Android pull owns a private file on the destination filesystem. ADB marks the receive complete only after DONE,
-  exactly the STAT count, and writer closure. Cancellation before rename leaves the previous destination intact.
+  a count matching STAT, and writer closure. STAT v1 only exposes the low 32 bits. Cancellation before rename leaves
+  the previous destination intact.
   A timeout that races a commit already admitted by the owner can still return its successful receipt. Failed pulls
   produce one named non-delivery diagnostic, even when the timeout prevents the pull from starting.
 - iOS and macOS receives own a private destination directory through copy or rsync and publication. Rsync must exit successfully
@@ -18,7 +19,8 @@ Base `9ce312ff`. D97 and U235–U242.
 - The relay stamps the first signal on the shared scheduler clock. Stop seals devices before actor cancellation,
   starts reports, and includes the first console flush in the report head start. Reports can hold provider and
   history finish for 10 s. Artifact admission and drainage have a 12 s cutoff, cleanup receipts have until 18 s,
-  and device verdicts, lifecycle and leases have until 23 s. The existing CLI exit callback owns the final second.
+  and device verdicts, lifecycle and leases have until 23 s. A stalling SSH command close requests KILL by 17 s.
+  The exit path takes over by 24 s and has one more second for console output.
   Routine and internal-failure tests verify their respective 300 + 60 s and 30 + 40 s budgets.
 - Provider shutdown and final lease waits already running observe the new deadlines. iOS stops recovery and retry
   producers at termination entry and joins them after artifact finalization. A device with unconfirmed work
@@ -38,7 +40,7 @@ Base `9ce312ff`. D97 and U235–U242.
   reported once at 18 s, and the confirmed device completes its lifecycle and releases its lease without extra
   timer delay. It observes recovery cancellation before the drain and the recovery join after it. The separate
   connection witness starts the final close first and observes abandonment at 23 s, with a sibling still connected.
-  The core relay witnesses check status 143, status 130, the report head start and handoff by 23 s.
+  The core relay witnesses check status 143, status 130, the report head start and handoff by 24 s.
 - Scratch-worktree reverts reproduced four expected failures. Renaming an errored Android receive replaced prior
   output in both the timeout and short-DONE cases. Removing the iOS signal cutoff returned to the longer drain.
   Removing the signal's lease cutoff returned to the 40 s close. The five timing witnesses passed 50 runs each
@@ -67,12 +69,12 @@ golden diff was empty after the D97 allowance.
 
 ## Verification limits and incidental bugs
 
-The release acceptance reports were inspected. Real-device and Linux verification, and integration with x95's
-process manager and finalized-recorder receipt, remain for integration. The standalone CLI signal witness checks the
-worker's TERM attempt, reports, and status. The shortened device wait can finish before the original D30 escalation.
-The x95 integration supplies process exit and containment at that point. A filesystem operation already entered
-by the owner is completed under that owner's receipt. The signal budget limits how long the runner can wait to
-observe the operating system's result.
+The release acceptance reports were inspected. Real-device, network-filesystem and Linux verification, and integration
+with x95's process manager and finalized-recorder receipt, remain for integration. The standalone CLI signal witness
+checks reports, TERM, KILL and status. SSH signals target the command channel. Process-group containment and the
+exit sweep belong to x95. A filesystem operation already entered by the owner is completed under that owner's receipt.
+The signal budget limits how long the runner can wait to observe the operating system's result. A hard kill can leave
+Apple `.marathon-artifact-*` directories or Android pull staging on disk.
 
 Generated GIF encoders and report writers have separate production paths from vendor file receipt. In particular,
 Android's GIF listener can construct an attachment after a failed capture job. This was found while auditing the
@@ -80,3 +82,24 @@ consumers of vendor transfers and is outside the transfer and signal changes in 
 
 Two existing `simulator_world` tests replace the process-wide SSH outbound exec test hook. The parallel iOS rerun
 hit the 60-second watchdog in one of them. All seven tests in that target passed with one test thread.
+
+## Round 1 review witnesses
+
+- Injected EINVAL, ENOTSUP and ENOSYS exercise exclusive-rename fallback with and without a pre-existing bundle.
+  The exchange fallback witness exercises a successful merge and restoration after a failed publication. The fallback
+  has the old presence-check race, and an exchange replaced by two renames can leave a short absence at the final path.
+- The Android device witness invokes the scheduler's signal-seal entry point before waking a cancelled actor.
+  It holds an ADB pull at a partial payload, checks that the actor cannot open another pull, and verifies cancellation
+  at 12 s, timely disposal and retention of the previous artifact. The provider witness starts routine remote cleanup
+  first and delivers a signal cutoff with the receipt cutoff already due. The remote command retains its 23 s window.
+- A virtual SSH witness sets the signal deadline after the TERM wait has begun and observes KILL before CLOSE at 17 s
+  and receipt expiry at 18 s. The CLI witness observes TERM and KILL on the worker in both debug modes. The core relay
+  and CLI cutoff witnesses exercise the 24 s exit handoff.
+- ADB's DONE tests inject a count above 4 GiB to distinguish STAT v1 wrapping from a v2 mismatch without allocating
+  a multi-gigabyte artifact. Android listener witnesses check one missing coverage error, quiet missing APP_DATA, and
+  deletion only after an explicit extraction receipt and successful pulls. The rsync invocation already excludes SSH
+  configuration via `-F /dev/null`. An existing receive witness covers a success exit with inherited pipes still open.
+- Scratch reverts removed the Android deadline override, restored the Android fail-fast join, removed the shortened
+  SSH escalation, and restored the 23 s relay handoff. Each corresponding witness failed.
+- Five virtual timing witnesses and two real-signal CLI witnesses each passed 50 isolated runs and one further
+  run under six busy CPU workers.

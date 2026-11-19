@@ -10,13 +10,16 @@ use super::client::{
 };
 use super::error::{CIRCULAR_BUFFER_EXCEPTION, CONNECTION_EXCEPTION, DisconnectReason, SshFailure};
 use crate::{cmd::SessionScope, extensions::reader::ReaderInput};
-use marathon_core::runtime::{VendorClock, VendorRuntime};
+use marathon_core::{
+    runtime::{VendorClock, VendorRuntime},
+    signal_finish::{SignalDeadline, SignalFinish},
+};
 use russh::{ChannelId, ChannelMsg, ChannelReadHalf, ChannelWriteHalf, Sig, client};
 use std::{
     collections::VecDeque,
     future::Future,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     task::{Context, Poll, Waker},
 };
 use tokio::{
@@ -128,6 +131,7 @@ enum Op {
 }
 
 pub struct ExecChannel {
+    signal_finish: OnceLock<Arc<SignalDeadline>>,
     /// sshj's local channel number, `chan#N` in its promise names.
     pub number: u32,
     state: Mutex<State>,
@@ -159,6 +163,7 @@ impl ExecChannel {
             changed: watch::channel(0).0,
             ops,
             shared: connection.shared.clone(),
+            signal_finish: OnceLock::new(),
             clock: connection.clock.clone(),
             scope: connection.scope(),
             handed: HandedSlot::default(),
@@ -250,6 +255,9 @@ impl ExecChannel {
         gate: Option<Arc<dyn marathon_core::runtime::CancellationSignal>>,
         admission: Option<Arc<crate::cmd::device_commands::CommandAdmission>>,
     ) -> Result<(), SshFailure> {
+        if let Some(admission) = &admission {
+            let _ = self.signal_finish.set(admission.signal_finish.clone());
+        }
         let promise = format!("chan#{} / chanreq for exec", self.number);
         self.update(|s| s.command = command.clone());
         let (withheld, withholding) = tokio::sync::oneshot::channel();
@@ -398,7 +406,11 @@ impl ExecChannel {
         }
         let ended =
             self.wait_for(|s| (s.closed.is_some() || s.exit_status.is_some() || s.exit_signal.is_some()).then_some(()));
-        let killed = self.bounded(TERM_WAIT_MILLIS, ended).await.is_none();
+        // Leave one second for the signal and CLOSE to reach the worker before receipt expiry.
+        let killed = self
+            .bounded_close(TERM_WAIT_MILLIS, |finish| finish.receipts.saturating_sub(1_000), ended)
+            .await
+            .is_none();
         if killed {
             // A dead transport rejects the write, and the wait below ends with its error.
             let _ = self.signal(Sig::KILL);
@@ -407,7 +419,11 @@ impl ExecChannel {
             self.request_close();
         }
         let closed = self
-            .bounded(CLOSE_WAIT_MILLIS, self.wait_for(|s| s.closed.clone()))
+            .bounded_close(
+                CLOSE_WAIT_MILLIS,
+                |finish| finish.receipts,
+                self.wait_for(|s| s.closed.clone()),
+            )
             .await;
         if closed.is_none() {
             let command = self.update(|s| {
@@ -417,17 +433,43 @@ impl ExecChannel {
                 }
                 s.command.clone()
             });
+            let wait = if self.signal_finish.get().and_then(|signal| signal.current()).is_some() {
+                "before the shutdown deadline"
+            } else {
+                "in 30 s"
+            };
             self.shared.log_executor_error(format!(
-                "Abandoning session `{command}`: no reply to TERM, KILL and CLOSE in 30 s. The process may still run on the worker and hold its session slot"
+                "Abandoning session `{command}`: no reply to TERM, KILL and CLOSE {wait}. The process may still run on the worker and hold its session slot"
             ));
         } else if killed {
             // U183: a server may ignore both signals and still confirm the close, so the close alone proves nothing.
             let command = self.read(|s| s.command.clone());
+            let wait = if self.signal_finish.get().and_then(|signal| signal.current()).is_some() {
+                "before the shutdown escalation deadline"
+            } else {
+                "within 20 s of TERM"
+            };
             self.shared.log_session_close_warning(format!(
-                "Session `{command}` did not end within 20 s of TERM and was closed after KILL. The process may still be running on the worker"
+                "Session `{command}` did not end {wait} and was closed after KILL. The process may still be running on the worker"
             ));
         }
         self.close_outcome(closed)
+    }
+
+    async fn bounded_close<T>(
+        &self,
+        millis: i64,
+        cutoff: fn(SignalFinish) -> i64,
+        work: impl Future<Output = T>,
+    ) -> Option<T> {
+        let ordinary = self.bounded(millis, work);
+        let Some(signal) = self.signal_finish.get() else {
+            return ordinary.await;
+        };
+        tokio::select! { biased;
+            result = ordinary => result,
+            _ = signal.wait_for_signal(self.clock.as_ref(), cutoff) => None,
+        }
     }
     /// D30: a close has begun, so its TERM has been sent.
     pub fn is_closing(&self) -> bool {
@@ -802,10 +844,21 @@ mod tests {
         assert_eq!(window_credit(0, 0), WINDOW_SIZE);
     }
 
-    struct NoClock;
+    #[derive(Default)]
+    struct NoClock(Option<watch::Sender<i64>>);
     impl VendorClock for NoClock {
-        fn delay(&self, _: i64, _: Arc<dyn CancellationSignal>) -> VendorFuture<'_, ()> {
-            Box::pin(std::future::pending())
+        fn now_millis(&self) -> i64 {
+            self.0.as_ref().map_or(0, |now| *now.borrow())
+        }
+        fn delay(&self, millis: i64, _: Arc<dyn CancellationSignal>) -> VendorFuture<'_, ()> {
+            let Some(now) = &self.0 else {
+                return Box::pin(std::future::pending());
+            };
+            let at = self.now_millis() + millis;
+            Box::pin(async move {
+                now.subscribe().wait_for(|now| *now >= at).await.unwrap();
+                Ok(())
+            })
         }
         fn with_timeout<'a>(
             &'a self,
@@ -828,6 +881,7 @@ mod tests {
     fn reader_test_channel() -> Arc<ExecChannel> {
         let logging = SshLogging::new(Arc::new(Mutex::new(LogSettings::default())), Arc::new(|_, _, _, _| {}));
         Arc::new(ExecChannel {
+            signal_finish: OnceLock::new(),
             number: 0,
             state: Mutex::new(State {
                 window: WINDOW_SIZE,
@@ -836,10 +890,41 @@ mod tests {
             changed: watch::channel(0).0,
             ops: mpsc::unbounded_channel().0,
             shared: ConnectionShared::new(PerformanceDefaultConfig::new(false, logging).loggers()),
-            clock: Arc::new(NoClock),
+            clock: Arc::new(NoClock::default()),
             scope: Arc::new(SessionScope::default()),
             handed: HandedSlot::default(),
         })
+    }
+
+    #[tokio::test]
+    async fn a_signal_tightens_an_ssh_close_already_waiting_on_term_d97() {
+        let mut channel = reader_test_channel();
+        let (now, _) = watch::channel(0);
+        let (ops, mut writes) = mpsc::unbounded_channel();
+        let inner = Arc::get_mut(&mut channel).unwrap();
+        inner.ops = ops;
+        inner.clock = Arc::new(NoClock(Some(now.clone())));
+        let signal = Arc::new(SignalDeadline::default());
+        assert!(inner.signal_finish.set(signal.clone()).is_ok());
+
+        channel.signal(Sig::TERM).unwrap();
+        assert!(matches!(writes.try_recv(), Ok(Op::Signal(Sig::TERM))));
+        let close = channel.close_escalating();
+        tokio::pin!(close);
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(close.as_mut().poll(&mut cx).is_pending());
+        now.send_replace(1_000);
+        signal.set(SignalFinish::from_start(1_000));
+        assert!(close.as_mut().poll(&mut cx).is_pending());
+        now.send_replace(17_999);
+        assert!(close.as_mut().poll(&mut cx).is_pending());
+        assert!(writes.try_recv().is_err());
+        now.send_replace(18_000);
+        assert!(close.as_mut().poll(&mut cx).is_pending());
+        assert!(matches!(writes.try_recv(), Ok(Op::Signal(Sig::KILL))));
+        assert!(matches!(writes.try_recv(), Ok(Op::Close)));
+        now.send_replace(19_000);
+        assert!(matches!(close.as_mut().poll(&mut cx), Poll::Ready(Err(_))));
     }
 
     fn end_reader(channel: &ExecChannel, event: usize) {
@@ -928,7 +1013,7 @@ mod tests {
             let channel = reader_test_channel();
             let output = LineChannel::new(4);
             let ctx = VendorContext {
-                clock: Arc::new(NoClock),
+                clock: Arc::new(NoClock::default()),
                 hooks: RuntimeHooks::live(),
                 cancellation: Arc::new(SessionScope::default()),
             };
@@ -972,6 +1057,7 @@ mod tests {
         let logging = SshLogging::new(Arc::new(Mutex::new(LogSettings::default())), Arc::new(|_, _, _, _| {}));
         let shared = ConnectionShared::new(PerformanceDefaultConfig::new(false, logging).loggers());
         let channel = ExecChannel {
+            signal_finish: OnceLock::new(),
             number: 0,
             state: Mutex::new(State {
                 window: WINDOW_SIZE,
@@ -980,7 +1066,7 @@ mod tests {
             changed: watch::channel(0).0,
             ops: mpsc::unbounded_channel().0,
             shared: shared.clone(),
-            clock: Arc::new(NoClock),
+            clock: Arc::new(NoClock::default()),
             scope: Arc::new(SessionScope::default()),
             handed: HandedSlot::default(),
         };

@@ -1357,7 +1357,8 @@ impl AndroidDevice {
                 .await
             } else {
                 // If a signal arrives here during routine cleanup, the idle receipt still tightens.
-                tokio::try_join!(idle, remote).map(|_| ())
+                let (receipt, remote) = tokio::join!(idle, remote);
+                receipt.and(remote)
             };
             result.is_err()
         };

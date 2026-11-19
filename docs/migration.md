@@ -238,8 +238,12 @@ be retrieved.
 
 [D97](deviations.md#d97--publish-complete-artifacts-and-reserve-time-for-signal-cleanup) needs no configuration change.
 A download that fails or times out leaves the final path absent or preserves the previous file. Report attachments
-require a successful delivery. SIGINT and SIGTERM can drain eligible artifacts for up to 12 seconds and finish
-within 24 seconds, including console output. Read the undelivered-artifact diagnostics to identify missing files.
+require a successful delivery. Android reports a download as undelivered if its byte count differs from STAT. This
+includes files that grow during transfer, such as live app files collected by file sync. An rsync receive that exits
+successfully with its output pipes still open is also undelivered. Marathon's rsync SSH command ignores ControlMaster
+and ControlPersist settings from SSH config.
+SIGINT and SIGTERM can drain eligible artifacts for up to 12 seconds and finish within 25 seconds, including console
+output. Read the undelivered-artifact diagnostics to identify missing files.
 
 [D87](deviations.md#d87--a-devices-preparation-has-one-deadline) bounds how long a device that cannot be prepared keeps its
 place: its preparation, the retries inside it and an iOS simulator's replacements after a failed boot share one deadline,
@@ -544,7 +548,8 @@ These fix bugs that Kotlin has, and need no configuration change.
   an error line starting `No reply to exec` names it. A channel that a worker opens after its 30 s are up is closed then, and the line
   starts `No reply to opening`.
 - **Closing a session takes at most 30 s, and can kill the process**
-  ([D30](deviations.md#d30--closing-an-ssh-session-has-a-limit)). A process that ignores TERM gets KILL after 20 s. A
+  ([D30](deviations.md#d30--closing-an-ssh-session-has-a-limit)). A process that ignores TERM gets KILL after 20 s in
+  ordinary cleanup. A run interrupted by a signal requests KILL by 17 s from that signal. A
   server that ignores signals can leave it running; an error line starting `Abandoning session` then names the command.
   On iOS an abandoned session retires its simulator, and a pool whose last device it was waits
   ([D48](deviations.md#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)), then ends.

@@ -18,7 +18,7 @@ impl SignalFinish {
             reports: at.saturating_add(crate::marathon::CANCEL_REPORTS_HEAD_START_MILLIS),
             drain: at.saturating_add(12_000),
             receipts: at.saturating_add(18_000),
-            devices: at.saturating_add(crate::marathon::CANCEL_LIMIT_MILLIS - crate::marathon::CANCEL_FLUSH_MILLIS),
+            devices: at.saturating_add(23_000),
             exit: at.saturating_add(crate::marathon::CANCEL_LIMIT_MILLIS),
         }
     }

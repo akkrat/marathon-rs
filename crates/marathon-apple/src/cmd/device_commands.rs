@@ -148,6 +148,7 @@ pub(crate) fn admission() -> Option<Arc<CommandAdmission>> {
 /// device's verdict waits for it to end.
 pub struct CommandAdmission {
     gate: Weak<DeviceCommands>,
+    pub(crate) signal_finish: Arc<marathon_core::signal_finish::SignalDeadline>,
     /// The caller held a pass (the lifecycle, the registered batch) when it asked.
     pass: bool,
 }
@@ -202,6 +203,7 @@ pub struct DeviceCommands {
     handed: Mutex<Vec<Arc<super::TransferReceipt>>>,
     /// D93 (round 10): closed by the disposal as it takes its look at the device's pulls, whatever the seal's cause.
     pulls_closed: Mutex<Option<Failure>>,
+    signal_finish: Arc<marathon_core::signal_finish::SignalDeadline>,
 }
 impl DeviceCommands {
     pub fn new(lease: super::super::device::connection_factory::Executor) -> Arc<Self> {
@@ -214,7 +216,11 @@ impl DeviceCommands {
             quarantine: Mutex::new((None, false)),
             handed: Mutex::new(Vec::new()),
             pulls_closed: Mutex::new(None),
+            signal_finish: Arc::default(),
         })
+    }
+    pub fn limit_commands_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
+        self.signal_finish.set(finish);
     }
     /// D93 (round 7): closes the gate, once: from now on a command of this device is refused as `cause` says, with `why`,
     /// before it reaches the worker, except the device's own on-dispose lifecycle (`as_lifecycle`). The device calls it
@@ -429,6 +435,7 @@ impl CommandExecutor for DeviceCommands {
         };
         let admission = Arc::new(CommandAdmission {
             gate: self.me.clone(),
+            signal_finish: self.signal_finish.clone(),
             pass: GATE_PASS.try_with(|_| ()).is_ok(),
         });
         let executing = self.lease.execute(request, gated);

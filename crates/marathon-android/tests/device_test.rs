@@ -8,6 +8,107 @@ use serde_json::json;
 use support::*;
 
 #[test]
+fn sigterm_seals_android_before_actor_cancellation_and_forces_a_stalled_pull_at_12s_d97() {
+    use marathon_core::{
+        executor::shared::{Signal, failure, requested},
+        runtime::CancellationSignal,
+        signal_finish::SignalFinish,
+        vendor::Device,
+    };
+    use std::time::Duration;
+
+    let config = configuration();
+    run_with_driven_clock(config, move |runtime, context, clock| {
+        Box::pin(async move {
+            let mut script = base_script(27, vec![]);
+            script["devices"][0]["files"] =
+                json!([{"path":"/partial","content":"Partial artifact","recv_cut":"trickle"}]);
+            let mut server = server(script).await;
+            let output = checked(tempfile::tempdir());
+            let destination = output.path().join("artifact");
+            checked(std::fs::write(&destination, b"previous"));
+            let device = device(&server, runtime.clone());
+            let pulling = device.clone();
+            let path = destination.clone();
+            let pull_stop = Signal::new();
+            let pull_context = marathon_core::vendor::VendorContext {
+                cancellation: pull_stop.clone(),
+                ..context.clone()
+            };
+            let pulled = marathon_core::executor::shared::SharedDeferred::new();
+            let receipt = pulled.clone();
+            let pull = runtime.dependencies.io.spawn(Box::pin(async move {
+                let result = pulling
+                    .pull_file("/partial", &path.to_string_lossy(), pull_context)
+                    .await;
+                receipt.complete(Ok((pulling.runtime().dependencies.clock.now_millis(), result)));
+                Ok(())
+            }));
+            checked(
+                tokio::time::timeout(Duration::from_secs(60), async {
+                    while !server
+                        .transcript()
+                        .iter()
+                        .any(|row| row["op"] == "trickle" && row["path"] == "/partial")
+                    {
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                })
+                .await,
+            );
+
+            // Exercise the scheduler's device entry point. A producer woken by actor
+            // cancellation must observe sealing even before the provider begins disposal.
+            let actor = Signal::new();
+            let actor_stopped = actor.clone();
+            let actor_device = device.clone();
+            let actor_check = tokio::spawn(async move {
+                actor_stopped.cancelled().await;
+                actor_device.client().socket_factory().is_sealed()
+            });
+            Device::seal_for_signal(&device, SignalFinish::from_start(context.clock.now_millis()));
+            actor.cancel(requested("SIGTERM"));
+            let sealed = checked(checked(
+                tokio::time::timeout(Duration::from_secs(60), actor_check).await,
+            ));
+            if !sealed {
+                pull_stop.cancel(requested("test finished"));
+                pull.join().await?;
+                checked(server.shutdown().await);
+                return Err(VendorError::Other(failure(
+                    marathon_error::FailureKind::IllegalState,
+                    "the actor observed an open ADB request gate after SIGTERM",
+                )));
+            }
+
+            let mut dispose = device.dispose();
+            assert!(futures_util::poll!(dispose.as_mut()).is_pending());
+            clock.advance_to(11_999).await;
+            assert!(pulled.completed().is_none());
+            clock.advance_to(12_000).await;
+            let Ok(delivery) = tokio::time::timeout(Duration::from_secs(15), pulled.wait()).await else {
+                pull_stop.cancel(requested("test watchdog expired"));
+                pull.join().await?;
+                checked(server.shutdown().await);
+                return Err(VendorError::Other(failure(
+                    marathon_error::FailureKind::Timeout,
+                    "the stalled pull was not forced at 12 s",
+                )));
+            };
+            let delivery = delivery?;
+            assert_eq!(delivery.0, 12_000);
+            assert!(matches!(delivery.1, Err(VendorError::Cancelled(_))), "{delivery:?}");
+            checked(tokio::time::timeout(Duration::from_secs(60), dispose).await)?;
+            assert!(context.clock.now_millis() < 18_000);
+            assert_eq!(checked(std::fs::read(&destination)), b"previous");
+            pull.join().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
+#[test]
 fn a_timed_out_pull_preserves_the_previous_artifact_d97() {
     use std::{os::unix::fs::MetadataExt, time::Duration};
 

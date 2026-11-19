@@ -1183,6 +1183,7 @@ impl Device for MacosDevice {
     }
     fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
         self.signal_finish.set(finish);
+        self.device_commands.limit_commands_for_signal(finish);
         let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
         execution.pulls.limit_for_signal(finish);
         let shutdown = self.seal_locked(&mut execution, SealCause::RunStop);

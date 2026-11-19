@@ -590,7 +590,7 @@ fn a_stuck_provider_hands_off_at_the_signal_cleanup_cutoff_d97() {
     let status = signalled_wait(&mut child, Duration::from_secs(120));
     let waited = signalled_at.elapsed();
     assert_eq!(status.and_then(|s| s.code()), Some(143), "{status:?}");
-    let cutoff = marathon_core::marathon::CANCEL_LIMIT_MILLIS - marathon_core::marathon::CANCEL_FLUSH_MILLIS;
+    let cutoff = marathon_core::marathon::CANCEL_LIMIT_MILLIS;
     let limit = u64::try_from(cutoff).unwrap();
     assert!(waited >= Duration::from_millis(limit), "it gave up early: {waited:?}");
 }

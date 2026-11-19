@@ -352,6 +352,7 @@ impl AppleSimulatorDevice {
     }
     pub(crate) fn signal_seal(&self, finish: marathon_core::signal_finish::SignalFinish) {
         self.signal_finish.set(finish);
+        self.commands.limit_commands_for_signal(finish);
         let mut state = self.state();
         state.pulls.limit_for_signal(finish);
         let shutdown = self.seal_locked(&mut state, SealCause::RunStop, None);
@@ -366,6 +367,7 @@ impl AppleSimulatorDevice {
     }
     pub(crate) fn limit_pulls_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
         self.signal_finish.set(finish);
+        self.commands.limit_commands_for_signal(finish);
         self.state().pulls.limit_for_signal(finish);
     }
     pub(crate) fn limit_pulls_for_provider_shutdown(&self, deadline: i64) {

@@ -36,7 +36,7 @@ pub const TIMINGS: &str = "marathon_core::timing";
 const NO_DEVICES: FailureKind = FailureKind::NoDevices;
 const NO_TESTS: FailureKind = FailureKind::NoTests;
 
-/// D52 and D97: the time from the first signal through the exit path, including the final console allowance.
+/// D52 and D97: the cleanup budget from the first signal to the exit path.
 pub const CANCEL_LIMIT_MILLIS: i64 = 24_000;
 /// D97: the final second of the signal's budget belongs to the console.
 pub const CANCEL_FLUSH_MILLIS: i64 = 1_000;
@@ -1387,7 +1387,7 @@ impl Marathon {
                         let finished = race(
                             marathon.finish_cancelled(number, &task, finish),
                             task.clock
-                                .delay(finish.devices.saturating_sub(task.clock.now_millis()), task.job.clone()),
+                                .delay(finish.exit.saturating_sub(task.clock.now_millis()), task.job.clone()),
                         )
                         .await;
                         if let futures_util::future::Either::Right(_) = finished {
@@ -1407,6 +1407,7 @@ impl Marathon {
                     if !marathon.services.live_output {
                         let left = finish
                             .exit
+                            .saturating_add(CANCEL_FLUSH_MILLIS)
                             .saturating_sub(task.clock.now_millis())
                             .min(CANCEL_FLUSH_MILLIS);
                         let _ = race(marathon.flush(Signal::new()), task.clock.delay(left, task.job.clone())).await;
