@@ -134,6 +134,10 @@ struct State {
     /// D93: its disposal could not confirm that its work had ended: its lease is quarantined, not released.
     quarantined: bool,
     last_session: Option<Arc<marathon_apple::xcodebuild_session::XcodebuildSession>>,
+    /// D93: every xcodebuild session registered and not confirmed to have ended, the last included. A session leaves only
+    /// once it has ended confirmed (`ended() == Some(true)`), so one whose exec or close could not be confirmed keeps the
+    /// simulator's stop unconfirmed for the rest of the run, whatever replaces it as the last session.
+    sessions: Vec<Arc<marathon_apple::xcodebuild_session::XcodebuildSession>>,
 }
 impl State {
     /// U179, D91, D93: why no new batch, preparation or send may start, if none may: disposal, or the run's stop.
@@ -236,6 +240,7 @@ impl AppleSimulatorDevice {
             shutdown: None,
             quarantined: false,
             last_session: None,
+            sessions: Vec::new(),
         };
         Arc::new_cyclic(move |me| Self {
             me: me.clone(),

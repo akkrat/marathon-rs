@@ -1452,3 +1452,121 @@ async fn a_lifecycle_command_cut_at_the_bound_is_left_to_its_own_cleanup_d93() -
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }
+
+// ---- D93 closing audit ----------------------------------------------------------------------------------------------
+
+/// D93 (closing audit, finding 2): discovery's first xcodebuild session fails its exec without an acknowledgment, so it
+/// may be running; discovery stops that session and retries on the same simulator. The retry no longer replaces it (a
+/// session that is not confirmed closed is still the simulator's), and the simulator's disposal runs no lifecycle and
+/// quarantines it (before: the retry replaced the session, and the lifecycle ran beside the first xcodebuild).
+#[tokio::test(start_paused = true)]
+async fn a_retried_session_does_not_erase_an_unconfirmed_one_d93() -> TestResult {
+    use marathon_apple::{apple_device::AppleDevice, test::TestRequest, xcodebuild_session::XcodebuildSession};
+    let h = harness(70_000)?;
+    let (d, _) = prepared(&h).await?;
+    let gate = PermissionGate::attach(&h);
+    gate.release.complete(Ok(()));
+    let original = h.worker.session.lock().unwrap().clone();
+    let first = Arc::new(AtomicBool::new(true));
+    *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
+        if cmd.iter().any(|part| part.contains("test-without-building")) && first.swap(false, Ordering::SeqCst) {
+            return Err(VendorError::Other(marathon_apple::cmd::failure(
+                marathon_error::FailureKind::IllegalState,
+                "D93 probe: no reply to the exec",
+            )));
+        }
+        original(cmd)
+    });
+    let request = || TestRequest::new("/tmp/marathon", "/tmp/marathon/parse.xctestrun", false);
+    let context = h.services.context.clone();
+    let session = XcodebuildSession::new(h.services.runtime.clone(), h.services.logging.clone());
+    let events = d
+        .execute_test_request(request(), session.clone(), &context)
+        .await
+        .map_err(|e| e.failure().to_string().to_owned())?;
+    assert!(events.receive(&context).await.is_err());
+    let _ = session.stop(support::duration(1_000), &context).await;
+    assert_eq!(session.ended(), Some(false));
+    let retry = XcodebuildSession::new(h.services.runtime.clone(), h.services.logging.clone());
+    match d.execute_test_request(request(), retry.clone(), &context).await {
+        Ok(events) => {
+            let _ = events.receive(&context).await;
+            let _ = retry.stop(support::duration(1_000), &context).await;
+        }
+        Err(error) => assert!(matches!(error, VendorError::DeviceLost(_)), "{error:?}"),
+    }
+    d.dispose().await.unwrap();
+    assert_eq!(
+        gate.lifecycle.load(Ordering::SeqCst),
+        0,
+        "the retry erased the unconfirmed session"
+    );
+    assert!(d.quarantined());
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+/// D93 (closing audit, finding 3): a simulator is removed after discovery has sent its parser library and before it opens
+/// xcodebuild. Its disposal seals it and runs its on-dispose lifecycle (held here); discovery's xcodebuild, asked for
+/// then, is refused under the seal's lock, so nothing starts beside the lifecycle (before: session registration ignored
+/// the seal, and xcodebuild started while the lifecycle ran).
+#[tokio::test(start_paused = true)]
+async fn a_session_asked_for_after_the_seal_is_refused_d93() -> TestResult {
+    use marathon_apple::{apple_device::AppleDevice, test::TestRequest, xcodebuild_session::XcodebuildSession};
+    let h = harness(70_000)?;
+    let (d, _) = prepared(&h).await?;
+    let entered = SharedDeferred::new();
+    let release = SharedDeferred::new();
+    let (start, gate, boot) = (entered.clone(), release.clone(), h.boot.clone());
+    *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
+        let lifecycle = cmd.get(2).is_some_and(|s| s.starts_with("ps aux"));
+        let (start, gate, reply) = (start.clone(), gate.clone(), boot.answer(&cmd));
+        Box::pin(async move {
+            if lifecycle {
+                start.complete(Ok(()));
+                gate.wait().await?;
+            }
+            Ok(reply)
+        })
+    });
+    let opened = Arc::new(AtomicUsize::new(0));
+    let (count, original) = (opened.clone(), h.worker.session.lock().unwrap().clone());
+    *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
+        if cmd.iter().any(|part| part.contains("test-without-building")) {
+            count.fetch_add(1, Ordering::SeqCst);
+        }
+        original(cmd)
+    });
+    let disposal = {
+        let d = d.clone();
+        tokio::spawn(async move { d.dispose().await })
+    };
+    entered.wait().await.unwrap();
+    let context = h.services.context.clone();
+    let session = XcodebuildSession::new(h.services.runtime.clone(), h.services.logging.clone());
+    let asked = d
+        .execute_test_request(
+            TestRequest::new("/tmp/marathon", "/tmp/marathon/parse.xctestrun", false),
+            session.clone(),
+            &context,
+        )
+        .await;
+    if let Ok(events) = asked {
+        let _ = events.receive(&context).await;
+        let _ = session.stop(support::duration(1_000), &context).await;
+        panic!(
+            "a sealed simulator opened a session; xcodebuild execs: {}",
+            opened.load(Ordering::SeqCst)
+        );
+    }
+    assert!(matches!(asked, Err(VendorError::Cancelled(_))));
+    assert_eq!(
+        opened.load(Ordering::SeqCst),
+        0,
+        "xcodebuild started beside the lifecycle"
+    );
+    release.complete(Ok(()));
+    disposal.await?.unwrap();
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}

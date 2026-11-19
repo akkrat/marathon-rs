@@ -998,6 +998,12 @@ impl Marathon {
     /// adds INCOMPLETE results to the reports. With the queue gone, a test in flight can't be recorded behind the
     /// reports' back either (A99). Cancelling also starts closing what the batches in flight have open.
     fn stop_execution(&self, reason: &str) {
+        // D93: every Apple device starts its one window before any actor is cancelled, as the Scheduler's own stop seals
+        // them, so that the provider's disposal after the reports reads that window's verdict instead of starting one.
+        let scheduler = self.diagnostic_scheduler.borrow().clone();
+        if let Some(scheduler) = scheduler {
+            scheduler.seal_devices();
+        }
         // Out of the cells first: a cancel can complete a job, and run what it left behind, right here.
         let jobs = [self.scheduler_job.borrow().clone(), self.run_job.borrow().clone()];
         for job in jobs.into_iter().flatten() {

@@ -131,6 +131,8 @@ struct Hooked {
     started: Option<Arc<SharedDeferred<()>>>,
     /// D93: where `seal_for_stop` and the cancel of a batch's call are recorded, in the order they reach the device.
     stop_order: Option<Arc<std::sync::Mutex<Vec<String>>>>,
+    /// D93: raises this signal (SIGTERM) when a batch starts.
+    signal_on_start: Option<Arc<SharedDeferred<i32>>>,
 }
 #[derive(Default)]
 enum AfterCancel {
@@ -161,6 +163,7 @@ fn hooked(inner: Arc<StubDevice>) -> Hooked {
         prepared: None,
         started: None,
         stop_order: None,
+        signal_on_start: None,
     }
 }
 impl Device for Hooked {
@@ -213,6 +216,9 @@ impl Device for Hooked {
         Box::pin(async move {
             if let Some(started) = &self.started {
                 started.complete(Ok(()));
+            }
+            if let Some(signal) = &self.signal_on_start {
+                signal.complete(Ok(15));
             }
             let outcome = self
                 .inner
@@ -1275,4 +1281,36 @@ fn the_stop_waits_for_its_devices_together_d93() {
     );
     assert_eq!(outcome.completed_at, Some(3_000 + 40_000));
     assert_eq!(run_failure(&outcome), [format!("{PROBE}: the device events failed")]);
+}
+
+/// D93 (x92 closing audit, finding 1): SIGTERM while a batch runs. D52's stop cancels the Scheduler's job directly; it now
+/// seals the run's devices first, as the Scheduler's own stop does, so that the device's one window has started before
+/// the cancel reaches it and the provider's disposal after the reports reads that window instead of starting a fresh one
+/// (before: cancelled without a seal). The run still exits 143.
+#[test]
+fn a_signal_seals_the_devices_before_it_cancels_them_d93() {
+    let (mut factory, script) = script();
+    let trigger = SharedDeferred::<i32>::new();
+    factory.signal_trigger = Some(trigger.clone());
+    let exits: Arc<std::sync::Mutex<Vec<i32>>> = Arc::default();
+    let recorded = exits.clone();
+    factory.exit = Some(Arc::new(move |status| recorded.lock().unwrap().push(status)));
+    let order = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = order.clone();
+    let ready = connect(move |_| Hooked {
+        signal_on_start: Some(trigger),
+        stop_order: Some(seen),
+        cleanup_bound: Some(70_000),
+        ..hooked(stub("serial-3", "modelA", 1_000))
+    });
+    let _outcome = scenario::drive(factory, script, None, ready);
+    let order = order.lock().unwrap().clone();
+    let sealed = order.iter().position(|e| e == "sealed serial-3");
+    let cancelled = order.iter().position(|e| e == "cancelled serial-3");
+    assert!(cancelled.is_some(), "the batch was not cancelled: {order:?}");
+    assert!(
+        sealed.is_some_and(|sealed| Some(sealed) < cancelled),
+        "the signal cancelled the device before sealing it: {order:?}"
+    );
+    assert_eq!(*exits.lock().unwrap(), [143]);
 }

@@ -254,6 +254,19 @@ impl Scheduler {
             let _ = stop.join().await;
         }
     }
+    /// D93: seals every device of the run's pools (`Device::seal_for_stop`), as the Scheduler's own stop does, for a stop
+    /// that cancels the Scheduler's job directly (D52's signal), before it does. No I/O, no blocking; idempotent.
+    pub fn seal_devices(&self) {
+        let pools: Vec<DevicePool> = match self.inner.pools.try_borrow() {
+            Ok(pools) => pools.values().cloned().collect(),
+            Err(_) => return,
+        };
+        for pool in &pools {
+            for (_, device) in pool.devices() {
+                device.0.seal_for_stop();
+            }
+        }
+    }
     /// D84: the stop routine's job once the run has begun to stop, completed once it has stopped. The run joins it
     /// before it finishes, so that no device work it waits for is still running when the provider terminates.
     pub fn stopping(&self) -> Option<JobRef> {

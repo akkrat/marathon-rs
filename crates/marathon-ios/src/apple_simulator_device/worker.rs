@@ -170,11 +170,22 @@ impl AppleDevice for AppleSimulatorDevice {
         context: &'a VendorContext,
     ) -> VendorFuture<'a, marathon_apple::xcodebuild_session::EventReceiver> {
         Box::pin(async move {
-            let previous = self.state().last_session.clone();
-            if let Some(previous) = previous {
-                previous.check_closed(&self.serial)?;
+            {
+                // D93: registered under the lock the seal takes, as a batch, a preparation and a send are: a sealed
+                // simulator opens no session, and one opened before the seal is in the seal's receipt.
+                let mut state = self.state();
+                if let Some(refusal) = state.refusal(&self.serial) {
+                    return Err(VendorError::Cancelled(marathon_core::error::Cancellation::Requested(
+                        failure(FailureKind::IllegalState, refusal),
+                    )));
+                }
+                if let Some(previous) = &state.last_session {
+                    previous.check_closed(&self.serial)?;
+                }
+                state.sessions.retain(|s| s.ended() != Some(true));
+                state.sessions.push(session.clone());
+                state.last_session = Some(session.clone());
             }
-            self.state().last_session = Some(session.clone());
             let args = self
                 .services
                 .vendor

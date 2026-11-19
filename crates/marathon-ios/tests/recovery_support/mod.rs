@@ -73,6 +73,9 @@ impl ProvisioningConnections for ScriptConnections {
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()> {
         self.inner.release(executor)
     }
+    fn quarantine(&self, executor: &Executor) {
+        self.inner.quarantine(executor)
+    }
 }
 pub struct Time {
     pub clock: Arc<Clock>,
@@ -246,9 +249,11 @@ impl RecoveryHarness {
     }
     pub async fn balanced(&self) -> TestResult {
         self.provider.terminate().await.map_err(test_error)?;
+        // D93: a quarantined lease is kept, never released, and accounted for as such.
         eventually(|| {
             self.base.connections.acquired.load(Ordering::SeqCst)
                 == self.base.connections.released.load(Ordering::SeqCst)
+                    + self.base.connections.quarantined.load(Ordering::SeqCst)
         })
         .await;
         Ok(())

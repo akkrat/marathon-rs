@@ -239,3 +239,24 @@ commit.
 After the rebase: `cargo fmt --check`; `cargo clippy` of core, apple, ios, macos, android, cli and test-support with
 `-D warnings`; `cargo test --no-fail-fast` of those crates: 2,466 passed, 0 failed, 34 ignored, among them every D91
 (14), D92 (10) and D93 (26) witness; `scripts/check_plan_dag.py`.
+
+## Closing audit (Sol 6.2 max at 3c36e19c: REQUEST_CHANGES, three P2s, one invariant)
+
+The invariant: no on-dispose lifecycle and no lease release while an xcodebuild may be live. Three rules make it
+unexpressible.
+
+| Finding | Rule and change | Witness (fails on 3c36e19c) |
+|---|---|---|
+| 1 SIGTERM bypassed the seal | R3: D52's `stop_execution` seals the Scheduler's devices (`Scheduler::seal_devices`, the same `seal_for_stop`) before it cancels any job. Report-first order and the 24 s limit are untouched; the provider's disposal after the reports reads the window already started. | `run_supervision.rs::a_signal_seals_the_devices_before_it_cancels_them_d93` (a batch raises SIGTERM: sealed before cancelled, exit 143; on the base only the cancel) |
+| 2 a successful retry erased an unconfirmed exec | R2: each device keeps every session registered and not confirmed to have ended (`sessions`: iOS state, the Mac's list); a session leaves only once `ended() == Some(true)`, so neither iOS's replacement of the last session nor the Mac's prune can drop one whose exec or close was not confirmed. The seal's receipt is that list, and the verdict waits for and evaluates each. `XcodebuildSession::closed()` now counts an open failure, so the next session on the device is refused as after any unclosed one. | `simulator_dispose.rs::a_retried_session_does_not_erase_an_unconfirmed_one_d93`, `batch.rs::a_retried_session_does_not_erase_an_unconfirmed_one_on_a_mac_d93` (on the base: lifecycle ran / not quarantined) |
+| 3 session admission raced a confirmed disposal | R1: session registration (iOS `execute_test_request`, the Mac's) checks the seal under the lock it takes, as batches, preparations and sends do; a sealed device's session is refused with a cancellation, and one registered before the seal is in the receipt. | `simulator_dispose.rs::a_session_asked_for_after_the_seal_is_refused_d93` (lifecycle held: xcodebuild refused; on the base it started beside it), `batch.rs::a_sealed_mac_opens_no_session_d93` |
+
+Changed test: `simulator_admission.rs::recovery_waits_70_seconds_for_an_open_parsing_session_then_retires_only_that_device`
+(Rust-only, no parity row) → `a_parsing_session_open_at_the_recovery_disposal_keeps_the_simulator_out_and_quarantined_d93`:
+the open parse session is in the lost simulator's receipt, so its disposal stops it in its reserve and quarantines the
+simulator at its window's end (200 ms in that harness) instead of returning at once. The test connections now count
+quarantined leases (`provider_support::Connections::quarantined`, forwarded by `recovery_support::ScriptConnections`),
+and the harness's lease balance is acquired = released + quarantined.
+
+Follow-ups left as the audit lists them (non-blocking): a full D44/D90 recovery witness; reconciling iOS's latched-error
+propagation with D93.

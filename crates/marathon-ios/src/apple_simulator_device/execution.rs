@@ -37,6 +37,9 @@ pub(super) struct Shutdown {
     batches: Vec<Arc<BatchJob>>,
     preparations: Vec<Arc<prepare::PreparationJob>>,
     transfers: Vec<Arc<marathon_apple::cmd::TransferReceipt>>,
+    /// The xcodebuild sessions registered and not confirmed to have ended when it was sealed: one still running (a
+    /// batch's, a parse's) and one whose exec or close could not be confirmed. No session registers after the seal.
+    sessions: Vec<Arc<marathon_apple::xcodebuild_session::XcodebuildSession>>,
 }
 pub(super) struct BatchJob {
     signal: Arc<Signal>,
@@ -359,6 +362,12 @@ impl AppleSimulatorDevice {
                 .filter(|t| t.ended() != Some(TransferCleanup::Confirmed))
                 .cloned()
                 .collect(),
+            sessions: state
+                .sessions
+                .iter()
+                .filter(|s| s.ended() != Some(true))
+                .cloned()
+                .collect(),
         });
         state.shutdown = Some(shutdown.clone());
         match self.me.upgrade() {
@@ -400,20 +409,23 @@ impl AppleSimulatorDevice {
         let in_time = self.wait_for(shutdown, graceful, deadline).await?;
         let in_time = in_time || {
             self.stop_all(shutdown);
-            let session = self.state().last_session.clone().filter(|s| s.ended().is_none());
             let left = deadline.saturating_sub(clock.now_millis()).max(0);
-            let forced = async {
-                if let Some(session) = session {
-                    let protected = VendorContext {
-                        cancellation: Signal::new(),
-                        ..self.services.context.clone()
-                    };
+            let protected = VendorContext {
+                cancellation: Signal::new(),
+                ..self.services.context.clone()
+            };
+            let forced = shutdown.sessions.iter().filter(|s| s.ended().is_none()).map(|session| {
+                let protected = protected.clone();
+                async move {
                     let _ = session
                         .stop(marathon_apple::bin::java_duration_of_millis(left), &protected)
                         .await;
                 }
-            };
-            let (_, waited) = tokio::join!(forced, self.wait_for(shutdown, left, deadline));
+            });
+            let (_, waited) = tokio::join!(
+                futures_util::future::join_all(forced),
+                self.wait_for(shutdown, left, deadline)
+            );
             waited?
         };
         let mut left = Vec::new();
@@ -433,10 +445,10 @@ impl AppleSimulatorDevice {
                 Some(TransferCleanup::Confirmed) => {}
             }
         }
-        if let Some(session) = self.state().last_session.clone().filter(|s| s.stopping()) {
+        for session in &shutdown.sessions {
             match session.ended() {
-                None => left.push("its xcodebuild session has not ended".to_owned()),
-                Some(false) => left.push("its xcodebuild session's command did not close".to_owned()),
+                None => left.push("an xcodebuild session has not ended".to_owned()),
+                Some(false) => left.push("an xcodebuild session was not confirmed to have closed".to_owned()),
                 Some(true) => {}
             }
         }
@@ -483,17 +495,13 @@ impl AppleSimulatorDevice {
     /// Waits up to `millis` for everything in the receipt, and then for the last xcodebuild session's producer (a batch
     /// opens its session itself); whether all of it ended. Nothing left: no wait, only a look.
     async fn wait_for(&self, receipt: &Shutdown, millis: i64, deadline: i64) -> VendorResult<bool> {
-        let ended = |device: &Self| {
+        let ended = || {
             receipt.batches.iter().all(|b| b.done.completed().is_some())
                 && receipt.preparations.iter().all(|p| p.done.completed().is_some())
                 && receipt.transfers.iter().all(|t| t.ended().is_some())
-                && device
-                    .state()
-                    .last_session
-                    .as_ref()
-                    .is_none_or(|s| !s.stopping() || s.ended().is_some())
+                && receipt.sessions.iter().all(|s| s.ended().is_some())
         };
-        if ended(self) {
+        if ended() {
             // A look after the deadline counts for nothing.
             return Ok(self.services.context.clock.now_millis() <= deadline);
         }
@@ -507,7 +515,7 @@ impl AppleSimulatorDevice {
             .chain(receipt.preparations.iter().map(|p| p.done.clone()))
             .collect();
         let sends = receipt.transfers.clone();
-        let me = self.this()?;
+        let sessions = receipt.sessions.clone();
         // Joining observes completion, not the jobs' results; the timeout only bounds this wait.
         let finished = self
             .services
@@ -533,8 +541,7 @@ impl AppleSimulatorDevice {
                                 return Err(VendorError::Cancelled(reason));
                             }
                         }
-                        let session = me.state().last_session.clone().filter(|s| s.stopping());
-                        if let Some(session) = session {
+                        for session in sessions {
                             tokio::select! { biased;
                                 reason = signal.cancelled() => return Err(VendorError::Cancelled(reason)),
                                 _ = session.wait_ended() => {}
@@ -546,7 +553,7 @@ impl AppleSimulatorDevice {
             )
             .await?
             .is_some();
-        Ok(finished && ended(self))
+        Ok(finished && ended())
     }
     /// D93: the simulator's lifecycle and lease are no longer safe: once, one WARN (`warning`), its commands revoked with
     /// `why`, its lease quarantined in its connection factory now, and the simulator retired.

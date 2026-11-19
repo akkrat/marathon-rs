@@ -97,6 +97,8 @@ pub struct Connections {
     pub workers: Mutex<Vec<(Transport, Executor)>>,
     pub acquired: AtomicUsize,
     pub released: AtomicUsize,
+    /// D93: leases kept out of use instead of released, for a simulator whose work could not be confirmed to have ended.
+    pub quarantined: AtomicUsize,
     /// The release with this number, counting from 1, fails after being counted.
     pub fail_release: AtomicUsize,
     pub trace: Arc<Mutex<Vec<String>>>,
@@ -132,6 +134,13 @@ impl ProvisioningConnections for Connections {
             Ok(())
         })
     }
+    fn quarantine(&self, executor: &Executor) {
+        self.quarantined.fetch_add(1, Ordering::SeqCst);
+        self.trace
+            .lock()
+            .unwrap()
+            .push(format!("quarantine:{}", executor.host().id));
+    }
 }
 pub struct ProviderHarness {
     pub h: Harness,
@@ -146,6 +155,7 @@ impl ProviderHarness {
             workers: Mutex::new(vec![(Transport::Local, h.worker.clone())]),
             acquired: 0.into(),
             released: 0.into(),
+            quarantined: 0.into(),
             fail_release: 0.into(),
             trace: Arc::default(),
         });

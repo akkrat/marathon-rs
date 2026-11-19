@@ -2766,7 +2766,9 @@ known limit).
   5 s margin, so a failing run's devices' work is done within 75 s of the stop, where it was up to 145 s. A device that was
   not in a pool (one the provider kept, or replaced) is sealed by its first disposal, which then has the same single
   window. A disposal or a cancelled call outside a stopping run (a direct caller, a recovery) keeps its own window, as
-  before. The last fourteenth of the window (5 s of 70) is a reserve in which everything is stopped again and an
+  before. A signal's stop (D52), which cancels the Scheduler's job directly, seals the devices first in the same way,
+  before any cancel; the reports still come first and the 24 s limit still holds, and the provider's disposal after
+  them reads the window already started. The last fourteenth of the window (5 s of 70) is a reserve in which everything is stopped again and an
   xcodebuild session whose producer still runs is stopped, on a Mac also one its batch opened and has not yet told to
   stop (a batch stuck in its xcresult pull, before its runner stops the session).
 - **One verdict.** What the device ran when it was sealed is its receipt, and its verdict is decided once, by one task:
@@ -2781,7 +2783,12 @@ known limit).
   and every 1 MiB.
 - **What has to end.** The window covers the device's batch, its preparations (a Mac's preparation, which a cancelled
   caller leaves running, is now stopped when the Mac stops, as an iOS simulator's is), the sends registered with it
-  (D91; a Mac now registers its sends as an iOS simulator does) and any xcodebuild session that was told to stop. Its
+  (D91; a Mac now registers its sends as an iOS simulator does) and every xcodebuild session registered and not
+  confirmed to have ended: a session registers under the same lock as a batch, a preparation and a send, so a sealed
+  device opens none (discovery asking for one then is refused with a cancellation), and a session leaves the device's
+  list only once it has ended confirmed, so one whose exec or close could not be confirmed keeps the device unconfirmed
+  for the rest of the run, whatever session follows it (a session whose open failed so also counts as not closed, and
+  the device's next session is refused as after any unclosed one). Its
   work counts as ended only if all of these have ended, each send's cleanup confirmed and each session's command
   opened and closed without a failure (a session whose exec failed is never confirmed: the worker may have started
   xcodebuild without acknowledging it). A failure known to have started nothing does not count against it: over SSH, a
@@ -2825,7 +2832,9 @@ stopped rsync does. A batch whose xcodebuild could not be opened, other than by 
 nothing, now makes its simulator's or Mac's disposal unconfirmed (no lifecycle, lease quarantined), also outside a
 run's stop; with a local worker every failed open counts so, since only the SSH executor reports what it started. A
 lifecycle command cut at the bound may still run on the worker until its cleanup ends; the quarantine keeps its
-connection open. The iOS provider's artifact drain before disposal is not within the bound (above).
+connection open. The iOS provider's artifact drain before disposal is not within the bound (above). A parsing session
+still open when a lost simulator is disposed of is now in its receipt: the disposal stops it in its reserve and, if it
+cannot confirm its end, quarantines the simulator within its window.
 
 Evidence, each failing on 3d945010 where it can be built there:
 `crates/marathon-ios/tests/simulator_dispose.rs::one_window_from_the_runs_stop_and_lifecycle_only_after_confirmed_termination_d93`
@@ -2852,7 +2861,11 @@ work ends at 71 s, the decider resumes at 72 s), `a_lifecycle_command_deaf_to_it
 661e4d88 where they can be built there: `crates/marathon-ios/tests/simulator_world.rs::a_session_refused_before_its_exec_is_confirmed_ended_over_ssh_d93`
 (the real SSH executor against the fake worker with both `MaxSessions` slots held),
 `simulator_dispose.rs::a_session_refused_before_its_exec_lets_the_disposal_confirm_d93`, and
-`a_lifecycle_command_cut_at_the_bound_is_left_to_its_own_cleanup_d93`.
+`a_lifecycle_command_cut_at_the_bound_is_left_to_its_own_cleanup_d93`. Closing audit, each failing on 3c36e19c:
+`crates/marathon-core/tests/run_supervision.rs::a_signal_seals_the_devices_before_it_cancels_them_d93`,
+`simulator_dispose.rs::a_retried_session_does_not_erase_an_unconfirmed_one_d93` and
+`a_session_asked_for_after_the_seal_is_refused_d93`, and `crates/marathon-macos/tests/batch.rs::a_retried_session_does_not_erase_an_unconfirmed_one_on_a_mac_d93`
+and `a_sealed_mac_opens_no_session_d93`.
 Amends D74 and D84.
 
 Approved 2026-11-18 (project owner's decision). See

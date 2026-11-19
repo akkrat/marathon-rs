@@ -115,6 +115,9 @@ struct Shutdown {
     preparation: Option<Arc<SharedDeferred<()>>>,
     preparation_stop: Option<Arc<Signal>>,
     transfers: Vec<Arc<marathon_apple::cmd::TransferReceipt>>,
+    /// The xcodebuild sessions registered and not confirmed to have ended when it was sealed: one still running (a
+    /// batch's, a parse's) and one whose exec or close could not be confirmed. No session registers after the seal.
+    sessions: Vec<Arc<XcodebuildSession>>,
 }
 struct BatchJob {
     result: Arc<SharedDeferred<()>>,
@@ -490,6 +493,15 @@ impl MacosDevice {
                 .filter(|t| t.ended() != Some(marathon_apple::cmd::TransferCleanup::Confirmed))
                 .cloned()
                 .collect(),
+            // Under the execution lock, as `execute_test_request` registers a session.
+            sessions: self
+                .sessions
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .filter(|s| s.ended() != Some(true))
+                .cloned()
+                .collect(),
         });
         execution.shutdown = Some(shutdown.clone());
         match self.identity.upgrade() {
@@ -513,16 +525,10 @@ impl MacosDevice {
         }
         shutdown
     }
-    /// D93: the sessions the receipt covers: those told to stop, and those its batches opened, stopped or not.
+    /// D93: the sessions the receipt covers: those registered and not confirmed to have ended at the seal, and those its
+    /// batches opened.
     fn receipt_sessions(&self, shutdown: &Shutdown) -> Vec<Arc<XcodebuildSession>> {
-        let mut sessions: Vec<Arc<XcodebuildSession>> = self
-            .sessions
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .filter(|s| s.stopping())
-            .cloned()
-            .collect();
+        let mut sessions = shutdown.sessions.clone();
         for batch in &shutdown.batches {
             for session in batch.sessions.lock().unwrap_or_else(|e| e.into_inner()).iter() {
                 if !sessions.iter().any(|s| Arc::ptr_eq(s, session)) {
@@ -1293,11 +1299,21 @@ impl AppleDevice for MacosDevice {
     ) -> VendorFuture<'a, EventReceiver> {
         Box::pin(async move {
             {
+                // D93: registered under the lock the seal takes, as a batch, a preparation and a send are: a sealed Mac
+                // opens no session, and one opened before the seal is in the seal's receipt. A session leaves the list
+                // only once it has ended confirmed, so one whose exec or close could not be confirmed keeps the Mac's stop
+                // unconfirmed for the rest of the run.
+                let execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(refusal) = execution.refusal(&self.serial) {
+                    return Err(VendorError::Cancelled(marathon_core::error::Cancellation::Requested(
+                        failure(FailureKind::IllegalState, refusal),
+                    )));
+                }
                 let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(previous) = sessions.last() {
                     previous.check_closed(&self.serial.to_owned())?;
                 }
-                sessions.retain(|s| !s.closed());
+                sessions.retain(|s| s.ended() != Some(true));
                 sessions.push(session.clone());
             }
             // D93: a session a batch opens is that batch's, for the Mac's stop.

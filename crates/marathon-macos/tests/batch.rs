@@ -850,3 +850,70 @@ async fn the_macs_stop_stops_a_batch_session_while_the_batch_is_stuck_in_its_pul
     v(timeout(Duration::from_secs(60), d.join_pending()).await?)?;
     Ok(())
 }
+
+/// D93 (closing audit, finding 2) on a Mac: the first xcodebuild session's exec fails without an acknowledgment; a retry
+/// no longer prunes it, so the Mac's disposal cannot confirm its work ended and quarantines it (before: the retry pruned
+/// the unconfirmed session and the lease was free to be released).
+#[tokio::test]
+async fn a_retried_session_does_not_erase_an_unconfirmed_one_on_a_mac_d93() -> R {
+    use marathon_apple::{test::TestRequest, xcodebuild_session::XcodebuildSession};
+    let h = Harness::new("")?;
+    let d = prepared(&h).await?;
+    let first = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    *h.worker.fake.session.lock().unwrap() = Arc::new(move |cmd| {
+        if cmd.iter().any(|part| part.contains("test-without-building"))
+            && first.swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(VendorError::Other(marathon_apple::cmd::failure(
+                FailureKind::IllegalState,
+                "D93 probe: no reply to the exec",
+            )));
+        }
+        Ok(None)
+    });
+    let request = || TestRequest::new("/tmp/marathon", "/tmp/marathon/parse.xctestrun", false);
+    let session = XcodebuildSession::new(h.options.dependencies.io.clone(), h.options.logging.clone());
+    let events = v(d.execute_test_request(request(), session.clone(), &h.context).await)?;
+    assert!(events.receive(&h.context).await.is_err());
+    let _ = session.stop(runtime::duration(1_000), &h.context).await;
+    assert_eq!(session.ended(), Some(false));
+    let retry = XcodebuildSession::new(h.options.dependencies.io.clone(), h.options.logging.clone());
+    match d.execute_test_request(request(), retry.clone(), &h.context).await {
+        Ok(events) => {
+            let _ = events.receive(&h.context).await;
+            let _ = retry.stop(runtime::duration(1_000), &h.context).await;
+        }
+        Err(error) => assert!(matches!(error, VendorError::DeviceLost(_)), "{error:?}"),
+    }
+    v(timeout(Duration::from_secs(60), d.dispose()).await?)?;
+    assert!(d.quarantined(), "the retry erased the unconfirmed session");
+    v(d.join_pending().await)?;
+    Ok(())
+}
+
+/// D93 (closing audit, finding 3) on a Mac: once sealed, a Mac opens no xcodebuild session (before: session registration
+/// ignored the seal).
+#[tokio::test]
+async fn a_sealed_mac_opens_no_session_d93() -> R {
+    use marathon_apple::{test::TestRequest, xcodebuild_session::XcodebuildSession};
+    let h = Harness::new("")?;
+    let d = prepared(&h).await?;
+    Device::seal_for_stop(&*d);
+    let session = XcodebuildSession::new(h.options.dependencies.io.clone(), h.options.logging.clone());
+    let asked = d
+        .execute_test_request(
+            TestRequest::new("/tmp/marathon", "/tmp/marathon/parse.xctestrun", false),
+            session.clone(),
+            &h.context,
+        )
+        .await;
+    if let Ok(events) = asked {
+        let _ = events.receive(&h.context).await;
+        let _ = session.stop(runtime::duration(1_000), &h.context).await;
+        panic!("a sealed Mac opened a session");
+    }
+    assert!(matches!(asked, Err(VendorError::Cancelled(_))));
+    v(timeout(Duration::from_secs(60), d.dispose()).await?)?;
+    v(d.join_pending().await)?;
+    Ok(())
+}

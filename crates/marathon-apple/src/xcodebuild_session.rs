@@ -203,7 +203,8 @@ impl XcodebuildSession {
     }
     pub fn closed(&self) -> bool {
         let s = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        s.stopped && (!s.started || s.finished) && s.close_failure.is_none()
+        // D93: a session whose open failed, not known to have started nothing, is not closed either.
+        s.stopped && (!s.started || s.finished) && s.close_failure.is_none() && s.open_failure.is_none()
     }
     /// D93: `None` while the session's producer runs; once it has ended (or if it never started), whether its command
     /// was opened and closed without a failure, so that nothing of the session is left on the worker as far as it can
