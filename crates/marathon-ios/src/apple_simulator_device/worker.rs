@@ -35,6 +35,10 @@ fn io_error(error: std::io::Error) -> VendorError {
     VendorError::Other(failure(FailureKind::Io, error.to_string()))
 }
 impl AppleSimulatorDevice {
+    pub(crate) async fn worker_supervised(&self) -> VendorResult<bool> {
+        self.executor.worker_supervised().await
+    }
+
     pub async fn critical_listener_command(
         &self,
         command: Vec<String>,

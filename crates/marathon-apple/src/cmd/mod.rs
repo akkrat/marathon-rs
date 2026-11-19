@@ -123,6 +123,9 @@ pub trait CommandExecutor: Send + Sync {
     fn host(&self) -> &CommandHost;
     fn component(&self) -> &Component;
     fn connected(&self) -> bool;
+    fn worker_supervised(&self) -> VendorFuture<'_, bool> {
+        Box::pin(async { Ok(false) })
+    }
     fn log_error(&self, message: String);
     /// `logger.error(e) { message }`; executors whose sink keeps the throwable override this.
     fn log_error_with(&self, message: String, cause: &Failure) {

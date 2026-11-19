@@ -13,6 +13,7 @@ pub mod host;
 pub mod keep_alive;
 pub mod known_hosts;
 pub mod session;
+mod supervisor;
 
 pub use auth::SshAuthentication;
 pub use error::{DisconnectReason, SshFailure};

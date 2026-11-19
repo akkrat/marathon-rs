@@ -34,6 +34,7 @@ log = "0.4"
 tracing.workspace = true
 indexmap = "2"
 base64 = "0.22"
+rand = "0.10"
 hmac = "0.13"
 sha1 = "0.11"
 md5 = "0.8"
@@ -50,4 +51,3 @@ sha2 = "=0.10.9"
 # Inflating individual entries of fixtures/bundles/{ios,macos}.zip in tests.
 flate2 = "=1.1.10"
 fake-worker = { path = "../../tools/fake-worker" }
-rand = "0.10"

@@ -3,7 +3,10 @@
 use super::{AppleSimulatorDevice, VendorContext, VendorResult};
 use marathon_apple::{
     apple_device::AppleDevice,
-    cmd::{CommandSession, base_command::CommandTermination, exec_outcome, retained_tasks::panic_as_error},
+    cmd::{
+        CommandExecutor, CommandRequest, CommandSession, base_command::CommandTermination, exec_outcome,
+        retained_tasks::panic_as_error,
+    },
 };
 use marathon_core::{
     executor::shared::{SharedDeferred, Signal},
@@ -24,9 +27,15 @@ pub enum RecordingFinalization {
     Unconfirmed,
 }
 
+enum Capture {
+    Video(String),
+    DeviceLog(Vec<String>),
+}
+
 pub struct Recording {
     deadline: watch::Sender<Option<i64>>,
     done: Arc<SharedDeferred<RecordingFinalization>>,
+    opened: Arc<SharedDeferred<()>>,
 }
 
 impl Recording {
@@ -34,6 +43,7 @@ impl Recording {
         Arc::new(Self {
             deadline: watch::channel(None).0,
             done: SharedDeferred::new(),
+            opened: SharedDeferred::new(),
         })
     }
 
@@ -49,6 +59,10 @@ impl Recording {
         });
     }
 
+    pub(crate) async fn wait_opened(&self) -> VendorResult<()> {
+        self.opened.wait().await.map(|_| ())
+    }
+
     pub async fn finalization(&self) -> VendorResult<RecordingFinalization> {
         self.done.wait().await.map(|result| *result)
     }
@@ -62,7 +76,7 @@ impl Recording {
     async fn run(
         &self,
         device: &AppleSimulatorDevice,
-        path: &str,
+        capture: Capture,
         context: VendorContext,
         ready: VendorFuture<'static, bool>,
     ) -> VendorResult<RecordingFinalization> {
@@ -90,16 +104,20 @@ impl Recording {
         // Keep the open awaiter alive after handoff so a late acknowledgement still supplies
         // the session needed to stop. The device's admission gate refuses a launch after seal.
         let opened = {
-            let mut opening = std::pin::pin!(exec_outcome::observe(device.start_video_recording(path, &protected)));
+            let timeouts = &device.services().vendor.timeout_configuration;
+            let (opening, timeout) = match &capture {
+                Capture::Video(path) => (device.start_video_recording(path, &protected), timeouts.video),
+                Capture::DeviceLog(command) => (
+                    device.commands.execute(
+                        CommandRequest::new(command.clone(), marathon_apple::extensions::Durations::INFINITE),
+                        protected.clone(),
+                    ),
+                    timeouts.shell,
+                ),
+            };
+            let mut opening = std::pin::pin!(exec_outcome::observe(opening));
             let clock = protected.clock.as_ref();
-            let launch_millis = device
-                .services()
-                .vendor
-                .timeout_configuration
-                .video
-                .to_millis()
-                .unwrap_or(i64::MAX)
-                .max(0);
+            let launch_millis = timeout.to_millis().unwrap_or(i64::MAX).max(0);
             let stopping = async {
                 tokio::select! {
                     _ = deadline.wait_for(Option::is_some) => {}
@@ -126,13 +144,16 @@ impl Recording {
             Err(_) if started_nothing => return Ok(RecordingFinalization::NotStarted),
             Err(_) => return Ok(RecordingFinalization::Unconfirmed),
         };
-        let logger = device.services().logging.component("marathon_ios::listener::video");
-        device.services().logging.log(
-            &logger,
-            Level::DEBUG,
-            || format!("started video recording to {path}"),
-            None,
-        );
+        self.opened.complete(Ok(()));
+        if let Capture::Video(path) = &capture {
+            let logger = device.services().logging.component("marathon_ios::listener::video");
+            device.services().logging.log(
+                &logger,
+                Level::DEBUG,
+                || format!("started video recording to {path}"),
+                None,
+            );
+        }
         let outcome = self
             .run_session(&session, &protected, batch.as_ref(), &mut deadline)
             .await;
@@ -219,6 +240,23 @@ impl AppleSimulatorDevice {
         context: VendorContext,
         ready: VendorFuture<'static, bool>,
     ) -> VendorResult<Arc<Recording>> {
+        self.begin_capture(Capture::Video(path), context, ready)
+    }
+
+    pub(crate) fn begin_device_log(
+        self: &Arc<Self>,
+        command: Vec<String>,
+        context: VendorContext,
+    ) -> VendorResult<Arc<Recording>> {
+        self.begin_capture(Capture::DeviceLog(command), context, Box::pin(async { Ok(true) }))
+    }
+
+    fn begin_capture(
+        self: &Arc<Self>,
+        capture: Capture,
+        context: VendorContext,
+        ready: VendorFuture<'static, bool>,
+    ) -> VendorResult<Arc<Recording>> {
         let recording = Recording::new();
         {
             let mut state = self.state();
@@ -231,7 +269,17 @@ impl AppleSimulatorDevice {
         let device = self.clone();
         let owned = recording.clone();
         self.services.runtime.spawn(Box::pin(async move {
-            let result = panic_as_error(owned.run(&device, &path, context, ready)).await;
+            let result = panic_as_error(owned.run(&device, capture, context, ready)).await;
+            if owned.opened.completed().is_none() {
+                owned
+                    .opened
+                    .complete(Err(result.as_ref().err().cloned().unwrap_or_else(|| {
+                        marathon_core::error::VendorError::Other(marathon_apple::cmd::failure(
+                            marathon_error::FailureKind::Io,
+                            "The worker did not confirm the capture started",
+                        ))
+                    })));
+            }
             owned.done.complete(result);
             Ok(())
         }));

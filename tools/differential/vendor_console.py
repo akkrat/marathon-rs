@@ -34,7 +34,16 @@ def normalize(data, values, implementation, stream, facts=None, *, d96_askpass=F
         return text.encode()
     result = []
     system = False; system_seen = False
+    fallback = False
     for line in text.splitlines(keepends=True):
+        if d96_askpass and re.fullmatch(
+            r'\d{2}:\d{2}:\d{2}\.\d{3} WARN marathon_apple::cmd::remote::ssh::sshj::supervisor: '
+            + re.escape(f"SSH worker 127.0.0.1:{values['port']} has no usable /usr/bin/perl with the required core modules. Leftover worker processes are not contained.\n"),
+            line,
+        ):
+            e.require(not fallback,'duplicate D96 worker fallback warning')
+            fallback = True
+            continue
         if SYSTEM + 'System Information:\n' in line or SYSTEM_NATIVE + 'System Information:\n' in line:
             e.require(not system_seen,'duplicate System Information block')
             system = system_seen = True

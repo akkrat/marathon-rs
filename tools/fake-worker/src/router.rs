@@ -93,6 +93,14 @@ impl Router {
     }
     async fn builtin(&self, r: &Request, fs: &VirtualFs) -> Result<Option<Plan>> {
         let a = r.argv.iter().map(String::as_str).collect::<Vec<_>>();
+        // Pinned pre-supervision fixtures model a worker without the optional interpreter.
+        if let ["/usr/bin/perl", "-e", script, "--", bytes] = a.as_slice()
+            && *script == include_str!("../../../crates/marathon-apple/src/cmd/remote/ssh/sshj/supervisor/bootstrap.pl")
+            && BASE64_STANDARD.decode(bytes)?
+                == include_bytes!("../../../crates/marathon-apple/src/cmd/remote/ssh/sshj/supervisor/worker.pl")
+        {
+            return Ok(Some(Plan::Action(Action::output("", 127))));
+        }
         if a.first() == Some(&self.rsync_remote.as_str()) {
             return Ok(Some(Plan::Rsync(rsync_args(&a[1..])?)));
         }

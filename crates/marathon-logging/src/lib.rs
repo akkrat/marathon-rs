@@ -77,6 +77,10 @@ pub fn filter(configurator: Vendor, debug: bool) -> Targets {
             "marathon_apple::cmd::remote::rsync::password",
             if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
         )
+        .with_target(
+            "marathon_apple::cmd::remote::ssh::sshj::supervisor",
+            if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
+        )
         .with_target("marathon_core::diagnostics", LevelFilter::WARN)
         .with_target("marathon_process", LevelFilter::WARN)
         .with_target("marathon_core::timing", LevelFilter::INFO)
@@ -374,6 +378,10 @@ mod tests {
             ),
             (
                 "marathon_apple::cmd::remote::rsync::password",
+                if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
+            ),
+            (
+                "marathon_apple::cmd::remote::ssh::sshj::supervisor",
                 if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
             ),
             ("marathon_core::diagnostics", LevelFilter::WARN),

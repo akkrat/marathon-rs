@@ -706,7 +706,8 @@ def normalized(directory, contract, native=False):
                         d97_native_staging=record['implementation'] == 'native')
                 elif contract['transport'] == 'ssh':
                     content = vendor_transport.ssh(
-                        data,contract['vendor'],may_withhold(directory,record),d96_recorder_transport=True)
+                        data,contract['vendor'],may_withhold(directory,record),d96_recorder_transport=True,
+                        d96_fallback_bootstrap=not may_withhold(directory,record))
                 else:
                     content = vendor_transport.adb(data, may_withhold(directory,record),
                                                    d85_native_setup=record['implementation'] == 'native')

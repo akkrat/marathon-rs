@@ -932,6 +932,21 @@ class EvidenceTests(unittest.TestCase):
 
 
 class VendorEvidenceTests(unittest.TestCase):
+    def test_d96_worker_probe_requires_exact_program_and_fallback(self):
+        import shlex
+        import vendor_transport as t
+        source = ROOT / 'crates/marathon-apple/src/cmd/remote/ssh/sshj/supervisor'
+        program = (source / 'bootstrap.pl').read_text()
+        payload = base64.b64encode((source / 'worker.pl').read_bytes()).decode()
+        argv = ['/usr/bin/perl', '-e', program, '--', payload]
+        row = dict(wire=shlex.join(argv), exit=127, end='completed', stdout=b'', stderr=b'', stdin=b'')
+        self.assertTrue(t._d96_fallback_bootstrap(row))
+        self.assertFalse(t._d96_fallback_bootstrap(dict(row, wire='env /usr/bin/perl -e 1')))
+        for bad in (dict(row, wire=shlex.join([*argv[:-1], 'Zml4dHVyZQ=='])),
+                    dict(row, exit=0), dict(row, stderr=b'failure'), dict(row, end='abandoned')):
+            with self.subTest(bad=bad), self.assertRaises(e.Invalid):
+                t._d96_fallback_bootstrap(bad)
+
     def test_d96_foreground_recording_requires_its_own_int_and_success(self):
         import vendor_transport as t
         device = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE'

@@ -6,6 +6,7 @@ use super::config::{PerformanceDefaultConfig, SshLogging};
 use super::error::{IO_EXCEPTION, SshFailure};
 use super::host::SshCommandHost;
 use super::session::session_control;
+use super::supervisor::{Proof, Supervisor, Warnings};
 use crate::cmd::{BaseCommand, CommandExecutor, CommandHost, CommandRequest, CommandSession, failure, millis};
 use crate::extensions::{
     poll_backoff::PollBackoff,
@@ -33,6 +34,7 @@ pub struct SshCommandExecutor {
     logging: SshLogging,
     config: PerformanceDefaultConfig,
     runtime: Arc<dyn VendorRuntime>,
+    supervisor: Option<Arc<Supervisor>>,
 }
 impl SshCommandExecutor {
     pub fn new(
@@ -50,7 +52,24 @@ impl SshCommandExecutor {
             channel_capacity,
             logging,
             config,
+            supervisor: None,
         }
+    }
+    #[doc(hidden)]
+    pub fn with_worker_supervisor(
+        mut self,
+        warnings: Warnings,
+        interval: jcompat::jtime::Duration,
+        count: i32,
+    ) -> Self {
+        self.supervisor = Some(Arc::new(Supervisor::new(
+            (self.ssh_host.addr.clone(), self.ssh_host.port),
+            warnings,
+            self.logging.clone(),
+            interval,
+            count,
+        )));
+        self
     }
     pub fn connection(&self) -> &SshConnection {
         &self.connection
@@ -185,10 +204,19 @@ async fn execute(
     capacity: usize,
     config: PerformanceDefaultConfig,
     admission: Option<Arc<crate::cmd::device_commands::CommandAdmission>>,
+    supervisor: Option<Arc<Supervisor>>,
 ) -> Result<CommandSession, ExecFailure> {
     if let Some(reason) = context.cancellation.reason() {
         return Err((VendorError::Cancelled(reason), true));
     }
+    let command = exec_string(&request);
+    let lease = match supervisor {
+        Some(supervisor) => supervisor
+            .prepare(&connection, &command)
+            .await
+            .map_err(|error| (error, true))?,
+        None => None,
+    };
     let runtime = connection.runtime.clone();
     let channel = connection
         .start_session()
@@ -201,7 +229,9 @@ async fn execute(
         let _ = channel.close().await;
         return Err((VendorError::Cancelled(reason), true));
     }
-    let command = exec_string(&request);
+    if let Some(lease) = &lease {
+        channel.set_worker_lease(lease.clone());
+    }
     let channel_logger = config.logger_for_class(Some("PatchedExecChannel"));
     config.logging.log(
         &channel_logger,
@@ -293,12 +323,28 @@ async fn exit_code(
                 }),
             )
             .await?;
+        let waited = waited.lock().unwrap_or_else(|e| e.into_inner()).take();
         match outcome {
-            Some(()) => match waited.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            Some(()) => match waited {
                 // D7: a null result without expiry (another signal, no status) sends no stale TERM; the
                 // following close() is a no-op on the closed channel.
                 Some(Ok(code)) => {
                     use crate::cmd::base_command::CommandTermination;
+                    if let Some(lease) = channel.worker_lease() {
+                        let proof = tokio::time::timeout(std::time::Duration::from_secs(8), lease.proof())
+                            .await
+                            .map_err(|_| {
+                                VendorError::Other(failure(FailureKind::Io, "Worker exit proof timed out"))
+                            })??;
+                        if let Proof::Done(status) = proof {
+                            termination = Some(CommandTermination::Status(status));
+                            return Ok(Some(status));
+                        }
+                        return Err(VendorError::Other(failure(
+                            FailureKind::Io,
+                            "Worker command was not started",
+                        )));
+                    }
                     let detail = if let Some(status) = channel.exit_status() {
                         CommandTermination::Status(status)
                     } else if let Some(signal) = channel.exit_signal() {
@@ -348,6 +394,22 @@ impl CommandExecutor for SshCommandExecutor {
     fn set_provider_signal_deadline(&self, deadline: Arc<marathon_core::signal_finish::SignalDeadline>) {
         let _ = self.connection.shared.provider_signal.set(deadline);
     }
+    fn worker_supervised(&self) -> VendorFuture<'_, bool> {
+        Box::pin(async move {
+            let Some(supervisor) = self.supervisor.clone() else {
+                return Ok(false);
+            };
+            let connection = self.connection.clone();
+            let (send, reply) = tokio::sync::oneshot::channel();
+            self.runtime.spawn(Box::pin(async move {
+                let _ = send.send(supervisor.available(&connection).await);
+                Ok(())
+            }));
+            reply.await.map_err(|error| {
+                VendorError::Other(failure(FailureKind::Io, format!("Worker supervisor probe: {error}")))
+            })?
+        })
+    }
     fn shared_ssh_is_saturated(&self) -> bool {
         self.connection.shared.saturated.load(Ordering::SeqCst)
     }
@@ -375,6 +437,7 @@ impl CommandExecutor for SshCommandExecutor {
         let capacity = self.channel_capacity;
         let config = self.config.clone();
         let runtime = self.runtime.clone();
+        let supervisor = self.supervisor.clone();
         Box::pin(async move {
             // russh needs Tokio: the whole exchange runs on the vendor runtime, which owns the session until
             // the caller takes it (an abandoned execute closes it there).
@@ -383,7 +446,7 @@ impl CommandExecutor for SshCommandExecutor {
             // D93 (round 10): read in the caller's task, where its device set it.
             let admission = crate::cmd::device_commands::admission();
             runtime.spawn(Box::pin(async move {
-                match execute(connection, request, context, capacity, config, admission).await {
+                match execute(connection, request, context, capacity, config, admission, supervisor).await {
                     Ok(session) => {
                         let pending = Arc::new(Mutex::new(Some(session)));
                         if tx.send(Ok(pending.clone())).is_ok() {

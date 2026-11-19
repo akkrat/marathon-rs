@@ -367,7 +367,8 @@ def validate_record(directory, contract, record):
         return e.payload(directory,rows[0],record)
     import vendor_transport as t
     if apple(contract['vendor']):
-        t.ssh(artifact('transcript.jsonl'),contract['vendor'])
+        t.ssh(artifact('transcript.jsonl'), contract['vendor'],
+              d96_fallback_bootstrap=not e.may_withhold(directory, record))
         if e.may_withhold(directory, record):
             e.require(t.redact_parser_transfer(artifact('transcript.jsonl')) == artifact('transcript.jsonl'),
                       'third-party library bytes in the transcript of a recorded run')

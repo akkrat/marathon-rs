@@ -2,6 +2,7 @@
 import base64
 from collections import defaultdict
 import json
+from pathlib import Path
 import re
 import shlex
 import evidence as e
@@ -223,7 +224,19 @@ def d96_native_golden(lanes):
     return dict(lanes, recorder=recorder, control=[s for index, s in enumerate(control) if index not in removed])
 
 
-def ssh(data, name=None, before_d32=False, *, d96_recorder_transport=False):
+def _d96_fallback_bootstrap(session):
+    wire = session['wire']
+    if not wire.startswith('/usr/bin/perl -e '):
+        return False
+    source = Path(__file__).resolve().parents[2] / 'crates/marathon-apple/src/cmd/remote/ssh/sshj/supervisor'
+    expected = ['/usr/bin/perl', '-e', (source / 'bootstrap.pl').read_text(), '--',
+                base64.b64encode((source / 'worker.pl').read_bytes()).decode()]
+    e.require(shlex.split(wire) == expected, 'D96 unexpected worker probe')
+    e.require(_d96_recorder_reply(session, 127), 'D96 unexpected worker probe response')
+    return True
+
+
+def ssh(data, name=None, before_d32=False, *, d96_recorder_transport=False, d96_fallback_bootstrap=False):
     rows = records(data)
     if before_d32:
         rows = with_d46_probe(rows)
@@ -255,6 +268,13 @@ def ssh(data, name=None, before_d32=False, *, d96_recorder_transport=False):
         elif event == 'signal' and key in sessions:
             signals[key].append(detail.get('signal'))
     e.require(sessions,'no SSH sessions')
+    if d96_fallback_bootstrap:
+        probes = set()
+        for key, session in list(sessions.items()):
+            if _d96_fallback_bootstrap(session):
+                e.require(key[0] not in probes, 'D96 duplicate per-connection worker probe')
+                probes.add(key[0])
+                del sessions[key]
     control = {key[0] for key,s in sessions.items() if not s['wire'].startswith('/usr/bin/rsync --server ') and s['wire'] != 'xcrun simctl list --json'}
     inventory = {key[0] for key,s in sessions.items() if s['wire'] == 'xcrun simctl list --json'}
     transfers = [key[0] for key,s in sessions.items() if s['wire'].startswith('/usr/bin/rsync --server ')]

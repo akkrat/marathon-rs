@@ -1,18 +1,21 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/log/DeviceLogListener.kt
 use super::*;
+use crate::apple_simulator_device::recording::Recording;
 use marathon_apple::model::Sdk;
 pub struct DeviceLogListener {
     c: ListenerContext,
     logger: Component,
     pid: Mutex<Option<String>>,
+    recording: Mutex<Option<Arc<Recording>>>,
+}
+fn log_stream_shell(udid: &str, path: &str) -> String {
+    format!("xcrun simctl spawn {udid} log stream --type log --color none --style compact 2>/dev/null > {path}")
 }
 pub fn log_stream_command(udid: &str, path: &str) -> Vec<String> {
     vec![
         "sh".into(),
         "-c".into(),
-        format!(
-            "xcrun simctl spawn {udid} log stream --type log --color none --style compact 2>/dev/null > {path} & echo $!"
-        ),
+        format!("{} & echo $!", log_stream_shell(udid, path)),
     ]
 }
 pub fn parse_pid(successful: bool, stdout: &str) -> Option<String> {
@@ -26,6 +29,7 @@ impl DeviceLogListener {
             c,
             logger,
             pid: Mutex::new(None),
+            recording: Mutex::new(None),
         }
     }
     fn enabled(&self) -> bool {
@@ -56,6 +60,19 @@ impl AppleTestRunListener for DeviceLogListener {
                 return Ok(());
             }
             let d = &self.c.device;
+            if d.worker_supervised().await? {
+                let command = vec![
+                    "sh".into(),
+                    "-c".into(),
+                    format!(
+                        "exec {}",
+                        log_stream_shell(d.udid(), &d.remote_file_manager().remote_log())
+                    ),
+                ];
+                let recording = d.begin_device_log(command, self.c.context.clone())?;
+                *self.recording.lock().unwrap_or_else(|e| e.into_inner()) = Some(recording.clone());
+                return recording.wait_opened().await;
+            }
             let result = d
                 .critical_listener_command(
                     log_stream_command(d.udid(), &d.remote_file_manager().remote_log()),
@@ -73,8 +90,12 @@ impl AppleTestRunListener for DeviceLogListener {
             if !self.enabled() {
                 return Ok(());
             }
+            let recording = self.recording.lock().unwrap_or_else(|e| e.into_inner()).take();
             let pid = self.pid.lock().unwrap_or_else(|e| e.into_inner()).clone();
-            if let Some(pid) = pid {
+            if let Some(recording) = recording {
+                recording.request_stop(self.c.context.clock.as_ref(), None);
+                recording.finalization().await?;
+            } else if let Some(pid) = pid {
                 self.c
                     .device
                     .execute_worker_command(
@@ -82,27 +103,29 @@ impl AppleTestRunListener for DeviceLogListener {
                         &self.c.context,
                     )
                     .await?;
-                let local = self.c.file(FileType::DeviceLog, None).await?;
-                let remote = self.c.device.remote_file_manager().remote_log();
-                let start = self.c.millis("ios.DeviceLogListener.pullLogfile")?;
-                let pulled = self.c.device.pull_file(&remote, &local, &self.c.context).await;
-                if !matches!(pulled, Ok(true)) {
-                    self.c.log(
-                        &self.logger,
-                        Level::ERROR,
-                        format!("Device log {remote} was not delivered"),
-                    );
-                    return pulled.map(|_| ());
-                }
+            } else {
+                return Ok(());
+            }
+            let local = self.c.file(FileType::DeviceLog, None).await?;
+            let remote = self.c.device.remote_file_manager().remote_log();
+            let start = self.c.millis("ios.DeviceLogListener.pullLogfile")?;
+            let pulled = self.c.device.pull_file(&remote, &local, &self.c.context).await;
+            if !matches!(pulled, Ok(true)) {
                 self.c.log(
                     &self.logger,
-                    Level::DEBUG,
-                    format!(
-                        "Pulling finished in {}ms {remote} ",
-                        self.c.millis("ios.DeviceLogListener.pullLogfile")?.wrapping_sub(start)
-                    ),
+                    Level::ERROR,
+                    format!("Device log {remote} was not delivered"),
                 );
+                return pulled.map(|_| ());
             }
+            self.c.log(
+                &self.logger,
+                Level::DEBUG,
+                format!(
+                    "Pulling finished in {}ms {remote} ",
+                    self.c.millis("ios.DeviceLogListener.pullLogfile")?.wrapping_sub(start)
+                ),
+            );
             Ok(())
         })
     }

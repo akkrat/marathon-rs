@@ -235,6 +235,7 @@ impl ConnectionFactory {
         logging: SshLogging,
     ) -> ConnectionResult<Arc<Self>> {
         let connector = Arc::new(ProductionConnector {
+            warnings: Arc::default(),
             ssh: ssh.clone(),
             runtime: runtime.clone(),
             clock: clock.clone(),
@@ -717,6 +718,7 @@ impl ConnectionFactory {
     }
 }
 struct ProductionConnector {
+    warnings: Arc<Mutex<std::collections::HashSet<(String, u16)>>>,
     ssh: SshConfiguration,
     runtime: Arc<dyn VendorRuntime>,
     clock: Arc<dyn VendorClock>,
@@ -770,6 +772,8 @@ impl Connector for ProductionConnector {
             factory.keep_alive_interval = self.ssh.keep_alive_interval;
             factory.keep_alive_max_count = self.ssh.keep_alive_max_count;
             let debug = self.ssh.debug;
+            let warnings = self.warnings.clone();
+            let (interval, count) = (self.ssh.keep_alive_interval, self.ssh.keep_alive_max_count);
             // Validation remains outside the connector's IOException catch boundary.
             let port = u16::try_from(port)
                 .map_err(|_| SshFailure::new(ILLEGAL_ARGUMENT_EXCEPTION, format!("port out of range:{port}")))?;
@@ -778,7 +782,7 @@ impl Connector for ProductionConnector {
                     factory
                         .connect(&addr.to_owned(), port, auth, verifier, debug)
                         .await
-                        .map(|e| Arc::new(e) as Executor)
+                        .map(|e| Arc::new(e.with_worker_supervisor(warnings, interval, count)) as Executor)
                         .map_err(Into::into)
                 }) as ConnectionFuture<'static, Executor>
             }) as PreparedConnection)

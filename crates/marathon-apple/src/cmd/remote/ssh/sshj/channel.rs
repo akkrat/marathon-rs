@@ -9,6 +9,7 @@ use super::client::{
     ConnectionShared, HandleRef, MAX_PACKET_SIZE, SshConnection, TIMEOUT_MILLIS, TIMEOUT_TEXT, WINDOW_SIZE, within,
 };
 use super::error::{CIRCULAR_BUFFER_EXCEPTION, CONNECTION_EXCEPTION, DisconnectReason, SshFailure};
+use super::supervisor::Lease;
 use crate::{cmd::SessionScope, extensions::reader::ReaderInput};
 use marathon_core::{
     runtime::{VendorClock, VendorRuntime},
@@ -69,6 +70,7 @@ struct State {
     /// D93 (round 9): the writer did not send the exec request, because its gate had closed when it came to write it; it
     /// sent CLOSE instead. Nothing was started.
     exec_withheld: Option<marathon_core::error::Cancellation>,
+    worker_lease: Option<Arc<Lease>>,
     window: u32,
 }
 
@@ -124,6 +126,7 @@ enum Op {
         gate: Option<Arc<dyn marathon_core::runtime::CancellationSignal>>,
         admission: Option<Arc<crate::cmd::device_commands::CommandAdmission>>,
         withheld: tokio::sync::oneshot::Sender<marathon_core::error::Cancellation>,
+        worker_lease: Option<Arc<Lease>>,
     },
     Signal(Sig),
     Close,
@@ -147,6 +150,14 @@ pub struct ExecChannel {
 pub enum Stream {
     Stdout,
     Stderr,
+}
+
+impl Drop for ExecChannel {
+    fn drop(&mut self) {
+        if let Some(lease) = self.worker_lease() {
+            lease.channel_ended();
+        }
+    }
 }
 
 impl ExecChannel {
@@ -215,6 +226,21 @@ impl ExecChannel {
     pub fn is_open(&self) -> bool {
         self.read(|s| s.closed.is_none() && !s.close_requested)
     }
+    pub(super) fn set_worker_lease(&self, lease: Arc<Lease>) {
+        self.update(|state| state.worker_lease = Some(lease));
+    }
+    pub(super) fn worker_lease(&self) -> Option<Arc<Lease>> {
+        self.read(|state| state.worker_lease.clone())
+    }
+    pub(super) async fn protocol_exit(&self) -> Option<i32> {
+        self.wait_for(|state| {
+            state
+                .exit_status
+                .map(Some)
+                .or_else(|| state.closed.as_ref().map(|_| None))
+        })
+        .await
+    }
     pub async fn read_ended(&self) {
         self.wait_for(|s| (s.eof || s.close_requested || s.closed.is_some()).then_some(()))
             .await;
@@ -258,16 +284,21 @@ impl ExecChannel {
         if let Some(admission) = &admission {
             let _ = self.signal_finish.set(admission.signal_finish.clone());
         }
+        let worker_lease = self.worker_lease();
+        let wire = worker_lease
+            .as_ref()
+            .map_or_else(|| command.clone(), |lease| lease.wire().to_owned());
         let promise = format!("chan#{} / chanreq for exec", self.number);
         self.update(|s| s.command = command.clone());
         let (withheld, withholding) = tokio::sync::oneshot::channel();
         if self
             .ops
             .send(Op::Exec {
-                command,
+                command: wire,
                 gate,
                 admission,
                 withheld,
+                worker_lease,
             })
             .is_err()
             || self.shared.is_dead()
@@ -345,6 +376,10 @@ impl ExecChannel {
     }
     /// `signal(sig)`: no want-reply and no state check, like sshj; a dead transport rejects the write.
     pub fn signal(&self, signal: Sig) -> Result<(), SshFailure> {
+        if let Some(lease) = self.worker_lease() {
+            lease.signal(&signal);
+            return Ok(());
+        }
         if self.shared.is_dead() || self.ops.send(Op::Signal(signal)).is_err() {
             return Err(self.shared.write_failure());
         }
@@ -376,7 +411,10 @@ impl ExecChannel {
         }
     }
     /// `sendClose`: `closeRequested` is set even if the write fails.
-    fn request_close(&self) {
+    pub(super) fn request_close(&self) {
+        if let Some(lease) = self.worker_lease() {
+            lease.channel_ended();
+        }
         let first = self.update(|s| !std::mem::replace(&mut s.close_requested, true));
         if first {
             let _ = self.ops.send(Op::Close);
@@ -570,6 +608,9 @@ impl ExecChannel {
         }
     }
     fn finish(&self, result: Result<(), SshFailure>) {
+        if let Some(lease) = self.worker_lease() {
+            lease.channel_ended();
+        }
         self.update(|s| {
             if s.closed.is_none() {
                 s.closed = Some(result);
@@ -711,6 +752,7 @@ async fn writer(
                 gate,
                 admission,
                 withheld,
+                worker_lease,
             } => {
                 // D93 (rounds 9, 10): the last look before the command is handed to the transport, and its registration
                 // with the device in the same step as the device's gate is looked at.
@@ -724,7 +766,9 @@ async fn writer(
                         write.close().await
                     }
                     Ok(receipt) => {
-                        if let Some(receipt) = receipt {
+                        if let Some(lease) = worker_lease {
+                            lease.start(receipt);
+                        } else if let Some(receipt) = receipt {
                             hold(&handed, receipt);
                         }
                         #[cfg(feature = "test-support")]
