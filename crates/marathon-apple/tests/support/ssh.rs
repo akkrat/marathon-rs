@@ -55,6 +55,14 @@ pub async fn fake(script: Script, max_sessions: usize) -> Fake {
     fake_with(script, max_sessions, |_| {}).await
 }
 pub async fn fake_with(script: Script, max_sessions: usize, adjust: impl FnOnce(&mut Config)) -> Fake {
+    fake_with_handlers(script, max_sessions, adjust, vec![]).await
+}
+pub async fn fake_with_handlers(
+    script: Script,
+    max_sessions: usize,
+    adjust: impl FnOnce(&mut Config),
+    handlers: Vec<Arc<dyn fake_worker::router::Handler>>,
+) -> Fake {
     let dir = tempfile::tempdir().unwrap();
     let host_key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
     let host = dir.path().join("host");
@@ -88,7 +96,7 @@ pub async fn fake_with(script: Script, max_sessions: usize, adjust: impl FnOnce(
         run: "wp-4.2".into(),
     };
     adjust(&mut config);
-    let worker = fake_worker::start(config, vec![]).await.unwrap();
+    let worker = fake_worker::start(config, handlers).await.unwrap();
     Fake { dir, worker, host_key }
 }
 /// A throwaway client key, generated per test process.

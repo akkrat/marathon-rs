@@ -295,10 +295,10 @@ impl ExecChannel {
             .ops
             .send(Op::Exec {
                 command: wire,
-                gate,
+                gate: gate.clone(),
                 admission,
                 withheld,
-                worker_lease,
+                worker_lease: worker_lease.clone(),
             })
             .is_err()
             || self.shared.is_dead()
@@ -322,15 +322,32 @@ impl ExecChannel {
                 (None, None) => None,
             }),
         );
+        // A device may stop while its exec reply is missing. On supervised workers
+        // the token can be ended on the independent connection, even before exec arrives.
+        let stopped = async {
+            if let Some(gate) = gate.filter(|_| worker_lease.is_some()) {
+                return gate.cancelled().await;
+            }
+            std::future::pending().await
+        };
         let reply = tokio::select! { biased;
             reason = withholding => {
                 self.update(|s| s.exec_withheld = Some(reason));
                 return Err(SshFailure::connection(DisconnectReason::Unknown, "The exec request was not sent"));
             }
             reply = replying => reply,
+            _ = stopped => {
+                self.request_close();
+                return Err(SshFailure::connection(DisconnectReason::Unknown, "Stopped while waiting for exec reply"));
+            }
         };
         let (error, rejected) = match reply {
-            Some(Ok(true)) => return Ok(()),
+            Some(Ok(true)) => {
+                if let Some(lease) = &worker_lease {
+                    lease.acknowledge();
+                }
+                return Ok(());
+            }
             Some(Ok(false)) => (
                 SshFailure::connection(DisconnectReason::Unknown, "Request failed"),
                 true,
@@ -431,6 +448,9 @@ impl ExecChannel {
     /// at once. An abandoned channel stays open on the peer, in its slot, until the process ends or the connection does:
     /// the connection is shared with other sessions, so it is left alone.
     pub async fn close_escalating(&self) -> Result<(), SshFailure> {
+        if let Some(lease) = self.worker_lease() {
+            return self.close_owned(&lease).await;
+        }
         if let Some(result) = self.read(|s| s.closed.clone()) {
             return result;
         }
@@ -517,6 +537,39 @@ impl ExecChannel {
             result = self.bounded(millis, work) => result,
             _ = wait(self.signal_finish.get(), self.clock.as_ref(), cutoff) => None,
             _ = wait(self.shared.provider_signal.get(), self.clock.as_ref(), cutoff) => None,
+        }
+    }
+
+    async fn close_owned(&self, lease: &Lease) -> Result<(), SshFailure> {
+        let wait = |millis| {
+            within(
+                self.clock.as_ref(),
+                Arc::new(SessionScope::default()),
+                millis,
+                lease.proof(),
+            )
+        };
+        let proof = if self.update(|s| std::mem::replace(&mut s.escalating, true)) {
+            wait(TIMEOUT_MILLIS).await
+        } else {
+            match wait(TERM_WAIT_MILLIS).await {
+                Some(result) => Some(result),
+                None => {
+                    lease.signal(&Sig::KILL);
+                    wait(CLOSE_WAIT_MILLIS).await
+                }
+            }
+        };
+        // A wedged data channel can be discarded once worker cleanup is
+        // settled. A channel CLOSE does not settle the worker receipt.
+        self.request_close();
+        match proof {
+            Some(Ok(_)) => Ok(()),
+            Some(Err(error)) => Err(SshFailure::connection(
+                DisconnectReason::Unknown,
+                error.failure().to_string(),
+            )),
+            None => Err(SshFailure::timeout_expired(CONNECTION_EXCEPTION, TIMEOUT_TEXT)),
         }
     }
     /// D30: a close has begun, so its TERM has been sent.

@@ -773,16 +773,15 @@ impl Connector for ProductionConnector {
             factory.keep_alive_max_count = self.ssh.keep_alive_max_count;
             let debug = self.ssh.debug;
             let warnings = self.warnings.clone();
-            let (interval, count) = (self.ssh.keep_alive_interval, self.ssh.keep_alive_max_count);
             // Validation remains outside the connector's IOException catch boundary.
             let port = u16::try_from(port)
                 .map_err(|_| SshFailure::new(ILLEGAL_ARGUMENT_EXCEPTION, format!("port out of range:{port}")))?;
             Ok(Box::new(move || {
                 Box::pin(async move {
                     factory
-                        .connect(&addr.to_owned(), port, auth, verifier, debug)
+                        .connect_worker(&addr.to_owned(), port, auth, verifier, debug, warnings)
                         .await
-                        .map(|e| Arc::new(e.with_worker_supervisor(warnings, interval, count)) as Executor)
+                        .map(|e| Arc::new(e) as Executor)
                         .map_err(Into::into)
                 }) as ConnectionFuture<'static, Executor>
             }) as PreparedConnection)

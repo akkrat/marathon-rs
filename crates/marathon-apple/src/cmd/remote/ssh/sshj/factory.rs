@@ -13,11 +13,13 @@ use super::executor::SshCommandExecutor;
 use super::host::SshCommandHost;
 use super::keep_alive::KeepAliveRunner;
 use super::known_hosts::{HostKeyVerifier, PromiscuousVerifier};
+use super::supervisor::Warnings;
 use jcompat::jtime::Duration;
 use marathon_core::runtime::{VendorClock, VendorRuntime};
 use std::{future::Future, sync::Arc};
 use tokio::sync::oneshot;
 
+#[derive(Clone)]
 pub struct SshjCommandExecutorFactory {
     pub connection_attempts: i32,
     pub keep_alive_interval: Duration,
@@ -61,18 +63,9 @@ impl SshjCommandExecutorFactory {
         host_key_verifier: Option<Arc<dyn HostKeyVerifier>>,
         debug: bool,
     ) -> Result<SshCommandExecutor, SshFailure> {
-        let (runtime, clock) = (self.runtime.clone(), self.clock.clone());
+        let runtime = self.runtime.clone();
         let verifier = host_key_verifier.unwrap_or_else(|| Arc::new(PromiscuousVerifier));
-        let factory = Self {
-            connection_attempts: self.connection_attempts,
-            keep_alive_interval: self.keep_alive_interval,
-            keep_alive_max_count: self.keep_alive_max_count,
-            channel_capacity: self.channel_capacity,
-            logging: self.logging.clone(),
-            logger: self.logger.clone(),
-            runtime: runtime.clone(),
-            clock: clock.clone(),
-        };
+        let factory = self.clone();
         let addr = addr.to_owned();
         let (tx, rx) = oneshot::channel();
         runtime.spawn(Box::pin(async move {
@@ -94,6 +87,40 @@ impl SshjCommandExecutorFactory {
         }));
         rx.await
             .unwrap_or_else(|e| Err(SshFailure::new(ILLEGAL_STATE_EXCEPTION, e.to_string())))
+    }
+
+    /// Connect a production worker. Probe on the data connection before opening a control transport.
+    #[doc(hidden)]
+    pub async fn connect_worker(
+        &self,
+        addr: &str,
+        port: u16,
+        auth: SshAuthentication,
+        verifier: Option<Arc<dyn HostKeyVerifier>>,
+        debug: bool,
+        warnings: Warnings,
+    ) -> Result<SshCommandExecutor, SshFailure> {
+        let data = self.connect(addr, port, auth.clone(), verifier.clone(), debug).await?;
+        let mut control = self.clone();
+        control.connection_attempts = 1;
+        let addr = addr.to_owned();
+        Ok(data.with_worker_supervisor(
+            warnings,
+            self.keep_alive_interval,
+            self.keep_alive_max_count,
+            Arc::new(move || {
+                let factory = control.clone();
+                let addr = addr.clone();
+                let auth = auth.clone();
+                let verifier = verifier.clone();
+                Box::pin(async move {
+                    factory
+                        .connect(&addr, port, auth, verifier, debug)
+                        .await
+                        .map(SshCommandExecutor::into_connection)
+                })
+            }),
+        ))
     }
 
     /// The Kotlin tests' `internal connect(newClient, …)`. Every attempt uses a fresh client: sshj replaces the

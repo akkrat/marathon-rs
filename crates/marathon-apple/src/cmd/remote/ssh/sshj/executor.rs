@@ -6,7 +6,7 @@ use super::config::{PerformanceDefaultConfig, SshLogging};
 use super::error::{IO_EXCEPTION, SshFailure};
 use super::host::SshCommandHost;
 use super::session::session_control;
-use super::supervisor::{Proof, Supervisor, Warnings};
+use super::supervisor::{ControlDial, Proof, Supervisor, Warnings};
 use crate::cmd::{BaseCommand, CommandExecutor, CommandHost, CommandRequest, CommandSession, failure, millis};
 use crate::extensions::{
     poll_backoff::PollBackoff,
@@ -55,12 +55,12 @@ impl SshCommandExecutor {
             supervisor: None,
         }
     }
-    #[doc(hidden)]
-    pub fn with_worker_supervisor(
+    pub(super) fn with_worker_supervisor(
         mut self,
         warnings: Warnings,
         interval: jcompat::jtime::Duration,
         count: i32,
+        control: ControlDial,
     ) -> Self {
         self.supervisor = Some(Arc::new(Supervisor::new(
             (self.ssh_host.addr.clone(), self.ssh_host.port),
@@ -68,8 +68,12 @@ impl SshCommandExecutor {
             self.logging.clone(),
             interval,
             count,
+            control,
         )));
         self
+    }
+    pub(super) fn into_connection(self) -> Arc<SshConnection> {
+        self.connection
     }
     pub fn connection(&self) -> &SshConnection {
         &self.connection
@@ -331,6 +335,7 @@ async fn exit_code(
                 Some(Ok(code)) => {
                     use crate::cmd::base_command::CommandTermination;
                     if let Some(lease) = channel.worker_lease() {
+                        lease.channel_ended();
                         let proof = tokio::time::timeout(std::time::Duration::from_secs(8), lease.proof())
                             .await
                             .map_err(|_| {
@@ -389,7 +394,7 @@ impl CommandExecutor for SshCommandExecutor {
         &self.logger
     }
     fn connected(&self) -> bool {
-        self.connection.is_connected()
+        self.connection.is_connected() && self.supervisor.as_ref().is_none_or(|supervisor| supervisor.connected())
     }
     fn set_provider_signal_deadline(&self, deadline: Arc<marathon_core::signal_finish::SignalDeadline>) {
         let _ = self.connection.shared.provider_signal.set(deadline);
