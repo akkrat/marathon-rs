@@ -546,8 +546,10 @@ batch that rejected a test.
   ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)).
   Stock \`/usr/bin/perl\` with its core modules is optional and recommended.
   Allow the bootstrap, token control and supervised requests in worker command
-  filters, including the supervisor retirement request. A dropped control
-  connection reconnects on a bounded retry. During
+  filters, including the supervisor retirement request. The filter must
+  `exec` the original supervised command so a wrapper failure arrives as
+  an SSH signal. Each supervised pull checks the sender's exit receipt over
+  a control exchange. A dropped control connection reconnects on a bounded retry. During
   a control outage, a spare session on the command connection can carry renewals
   and return cleanup proof.
 - **A partition expires Apple worker leases** ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)).
@@ -630,6 +632,11 @@ lease has at most 40 s for disconnect.
 Report generation logs the active reporter after one minute and repeats the warning at most once a minute until it finishes.
 
 ## Cancelling a run
+
+The process reaper appears as a second `marathon` process with the same
+arguments until the controller exits. It ignores INT, TERM and HUP. Scripts
+that count matching processes or use `pgrep`, `pidof` or `killall` can see
+both. Use the controller PID saved when starting Marathon to target that run.
 
 SIGINT, SIGTERM or SIGHUP writes the reports and terminates the provider whatever `debug` says,
 in at most 25 s. A second signal exits at once, however soon after the first. Two of the same signal

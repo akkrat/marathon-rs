@@ -642,6 +642,24 @@ fn ordinary_cli_exit_sweeps_a_running_group_d96() {
 }
 
 #[test]
+fn the_binary_sweeps_a_running_group_at_ordinary_exit_d96() {
+    let mut child = Running(
+        Command::new(env!("CARGO_BIN_EXE_marathon"))
+            .arg("--help")
+            .env("MARATHON_TEST_ORDINARY_EXIT_SWEEP", "1")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .unwrap(),
+    );
+    let mut stderr = Stderr::new(child.stderr.take().unwrap());
+    stderr.read_owned_group();
+    assert!(signalled_wait(&mut child, PATIENCE).is_some_and(|status| status.success()));
+    stderr.assert_owned_group_ended();
+}
+
+#[test]
 fn cleanup_expiry_sweeps_a_running_group_before_cli_exit_d96() {
     if inherited_ignored(Signal::SIGTERM) || inherited_ignored(Signal::SIGINT) {
         return;
@@ -954,9 +972,8 @@ fn inherited_ignored_sigquit_stays_ignored_d66() -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
-/// D96: the reaper starts on every launch. Its parent used to set the helper's process group too,
-/// and on macOS that call could fail with EPERM while the helper was changing its own group: the
-/// CLI then warned and ran without its backstop. Launch the binary many times, several at once.
+/// Exercise concurrent CLI startup after moving process-group setup entirely
+/// into the helper. The previous startup race was not reproduced locally.
 #[test]
 fn the_reaper_starts_on_every_launch_d96() -> Result<(), Box<dyn std::error::Error>> {
     let workers = (0..4)

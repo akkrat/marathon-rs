@@ -41,8 +41,15 @@ fn main() -> ExitCode {
     if let Some(status) = marathon_process::askpass::enter() {
         return status;
     }
+    #[cfg(not(feature = "test-seams"))]
+    let start_backstop = true;
+    #[cfg(feature = "test-seams")]
+    let start_backstop = match ordinary_exit_witness() {
+        Ok(witness) => !witness,
+        Err(error) => return failure_exit(FailureKind::Io, &error.to_string()),
+    };
     // SAFETY: main has not created threads or installed signal handlers.
-    if let Err(error) = unsafe { marathon_process::start_reaper() } {
+    if start_backstop && let Err(error) = unsafe { marathon_process::start_reaper() } {
         // Startup diagnostics must leave stdout available for machine-readable CLI output.
         let _ = writeln!(
             io::stderr().lock(),
@@ -60,6 +67,26 @@ fn main() -> ExitCode {
     let status = run(args, quit_error);
     marathon_cli::tracing_output::sweep_at_ordinary_exit();
     status
+}
+
+#[cfg(feature = "test-seams")]
+fn ordinary_exit_witness() -> io::Result<bool> {
+    if std::env::var_os("MARATHON_TEST_ORDINARY_EXIT_SWEEP").is_none() {
+        return Ok(false);
+    }
+    let child = marathon_process::Command::new("/bin/sleep")
+        .arg("120")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    let pid = child
+        .id()
+        .ok_or_else(|| io::Error::other("the sweep witness did not start"))?;
+    writeln!(io::stderr().lock(), "MARKER owned group {pid}")?;
+    // Leave the registered group for main's exit sweep alone.
+    std::mem::forget(child);
+    Ok(true)
 }
 
 fn run(args: Vec<String>, quit_error: Option<io::Error>) -> ExitCode {

@@ -9,7 +9,10 @@ use registry::{Registry, Target};
 use std::{
     ffi::OsStr,
     io,
-    os::unix::process::{CommandExt, ExitStatusExt},
+    os::{
+        fd::AsRawFd,
+        unix::process::{CommandExt, ExitStatusExt},
+    },
     path::Path,
     process::{ExitStatus, Output, Stdio},
     time::Duration,
@@ -242,22 +245,23 @@ impl Child {
 
     pub async fn wait_with_output(mut self) -> io::Result<Output> {
         use tokio::io::{AsyncRead, AsyncReadExt};
-        async fn read(pipe: Option<impl AsyncRead + Unpin>, bytes: &mut Vec<u8>) -> io::Result<()> {
-            if let Some(mut pipe) = pipe {
+        async fn read(pipe: &mut Option<impl AsyncRead + Unpin>, bytes: &mut Vec<u8>) -> io::Result<()> {
+            if let Some(pipe) = pipe {
                 pipe.read_to_end(bytes).await?;
             }
             Ok(())
         }
-        let (stdout_pipe, stderr_pipe) = (self.take_stdout()?, self.take_stderr()?);
+        let (mut stdout_pipe, mut stderr_pipe) = (self.take_stdout()?, self.take_stderr()?);
         let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
         let status;
         {
             let readers = async {
-                tokio::try_join!(read(stdout_pipe, &mut stdout), read(stderr_pipe, &mut stderr))?;
+                tokio::try_join!(read(&mut stdout_pipe, &mut stdout), read(&mut stderr_pipe, &mut stderr))?;
                 Ok::<_, io::Error>(())
             };
             tokio::pin!(readers);
             status = tokio::select! {
+                biased;
                 result = self.wait() => {
                     let status = result?;
                     if self.cleanup_confirmed() {
@@ -271,8 +275,42 @@ impl Child {
                 }
             };
         }
+        if !self.cleanup_confirmed() {
+            // A descendant may still hold a writer. Collect readable bytes
+            // without waiting for EOF or letting continuous output hold exit.
+            if let Some(pipe) = &stdout_pipe {
+                drain_buffered(pipe, &mut stdout)?;
+            }
+            if let Some(pipe) = &stderr_pipe {
+                drain_buffered(pipe, &mut stderr)?;
+            }
+        }
         Ok(Output { status, stdout, stderr })
     }
+}
+
+#[allow(unsafe_code)]
+fn drain_buffered(pipe: &impl AsRawFd, bytes: &mut Vec<u8>) -> io::Result<()> {
+    let mut buffer = [0u8; 8192];
+    // At most 1 MiB per stream, plus the bytes already collected asynchronously.
+    for _ in 0..128 {
+        // SAFETY: Tokio's ChildStdout and ChildStderr own nonblocking read FDs.
+        // The buffer is writable for its full length and the FD outlives the call.
+        let len = unsafe { libc::read(pipe.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len()) };
+        if len == 0 {
+            break;
+        }
+        if len < 0 {
+            let error = io::Error::last_os_error();
+            match error.kind() {
+                io::ErrorKind::WouldBlock => break,
+                io::ErrorKind::Interrupted => continue,
+                _ => return Err(error),
+            }
+        }
+        bytes.extend_from_slice(&buffer[..len as usize]);
+    }
+    Ok(())
 }
 
 async fn confirm_group_exit(pid: i32) -> io::Result<()> {
@@ -364,6 +402,40 @@ fn observe_exit(pid: u32) -> io::Result<Option<ExitStatus>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn unconfirmed_group_keeps_buffered_output() -> io::Result<()> {
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "printf stdout; printf stderr >&2; exit 37"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        child
+            .finish_with(|_| async { Err(io::Error::other("injected group check failure")) })
+            .await?;
+        assert!(!child.cleanup_confirmed());
+        let output = child.wait_with_output().await?;
+        assert_eq!(output.status.code(), Some(37));
+        assert_eq!(output.stdout, b"stdout");
+        assert_eq!(output.stderr, b"stderr");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn retirement_is_reported_while_the_leader_is_still_pinned() -> io::Result<()> {
+        let mut child = Command::new("/usr/bin/true").spawn()?;
+        registry::RETIRE_WITNESS.with(|witness| {
+            witness.set(Some((child.target, |pid| {
+                assert!(
+                    matches!(observe_exit(pid), Ok(Some(_))),
+                    "the leader was reaped before retirement"
+                );
+            })))
+        });
+        assert!(child.wait().await?.success());
+        assert!(registry::RETIRE_WITNESS.with(|witness| witness.get().is_none()));
+        Ok(())
+    }
 
     #[tokio::test]
     async fn unconfirmed_group_keeps_the_command_exit_status() -> io::Result<()> {

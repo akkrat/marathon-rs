@@ -263,6 +263,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn startup_report_distinguishes_ready_failure_and_eof() -> io::Result<()> {
+        for (report, expected) in [
+            (Some(READY), None),
+            (
+                Some(NO_GROUP),
+                Some("the process reaper could not lead its own process group"),
+            ),
+            (
+                Some(NO_SIGNALS),
+                Some("the process reaper could not ignore termination signals"),
+            ),
+            (None, Some("the process reaper exited during startup")),
+        ] {
+            let (reader, writer) = pipe()?;
+            let mut writer = std::fs::File::from(writer);
+            if let Some(report) = report {
+                writer.write_all(&[report])?;
+            }
+            drop(writer);
+            let result = await_report(reader.as_raw_fd());
+            assert_eq!(result.err().as_ref().map(ToString::to_string).as_deref(), expected);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn a_full_pipe_preserves_the_registration_and_removal_slot() -> io::Result<()> {
         let (read, write) = pipe()?;
         let mut reaper = Reaper::with_writer(write);

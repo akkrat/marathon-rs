@@ -44,6 +44,14 @@ pub(super) struct Registry {
     completed: Condvar,
 }
 
+#[cfg(test)]
+type RetireWitness = (Target, fn(u32));
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static RETIRE_WITNESS: std::cell::Cell<Option<RetireWitness>> = const { std::cell::Cell::new(None) };
+}
+
 impl Registry {
     pub(super) const fn new() -> Self {
         Self {
@@ -105,6 +113,15 @@ impl Registry {
         if lost.is_some() {
             warn_reaper_lost();
         }
+        #[cfg(test)]
+        RETIRE_WITNESS.with(|witness| {
+            if let Some((watched, check)) = witness.get()
+                && watched == target
+            {
+                witness.set(None);
+                check(target.address().unsigned_abs());
+            }
+        });
         Ok(())
     }
 

@@ -3044,14 +3044,18 @@ registry's ordered updates and sends KILL to its remaining targets if Marathon e
 means, including SIGKILL. If the reaper cannot start, Marathon warns and continues with
 the synchronous sweeps. A native spawn that has yet to register is outside the reaper's
 view. If the pipe or the reaper's 4,096-entry table is full, Marathon kills the new process
-and returns a launch error.
+and returns a launch error. The helper appears as a second `marathon` process
+with the same arguments until the controller exits. It ignores INT, TERM and HUP.
+Process-name tools such as `pgrep`, `pidof` and `killall` can see both entries.
 
 Ordinary cleanup sends KILL and checks for other group members while the unreaped leader
 still pins the group ID. The registry removes the group from the reaper before reaping the
 leader. If the check returns an error or cannot confirm the group is empty within 5 s,
 Marathon warns once and returns the command's actual exit status. It does the same if the reaper
 pipe is full when it tries to publish the removal. Cleanup remains unconfirmed, and the group
-stays registered until cleanup succeeds. This preserves rsync's exit status
+stays registered until cleanup succeeds. An output-returning command drains
+available stdout and stderr without waiting for EOF, up to 1 MiB per pipe in
+addition to bytes already read. This preserves rsync's exit status
 while ending other members that hold its output pipes. A local iOS or macOS command that receives
 TERM escalates to KILL after 5 s if it is still running. Device and signal deadlines can apply sooner.
 
@@ -3082,7 +3086,10 @@ timeout for INT, with up to 5 s for escalation. Cancellation and disposal can
 shorten the stop to 15 s, clipped to the device's remaining window. Status 0
 before escalation confirms finalization. An SSH launch acknowledgement frees
 the session and the worker exit receipt confirms the outcome. An unconfirmed
-stop prevents disposal from releasing the device under D93. A stop before
+owned stop prevents disposal from releasing the device under D93. Legacy
+recording is best effort. A failed start or stop loses that movie and later
+tests can record again. A legacy recorder contributes no D93 cleanup receipt.
+The "Video recording did not start" warning can repeat for individual tests. A stop before
 worker acknowledgement can use token KILL and leave the recorder unfinalized.
 D97 reports that movie as undelivered.
 
@@ -3090,10 +3097,12 @@ Apple SSH exec probes for usable stock Perl once per connection. When available,
 a worker supervisor records the token before starting the payload in an owned
 group and writes an exit receipt after cleanup. It covers SSH commands,
 detached video, foreground device logs and remote rsync senders. A pull joins the local rsync cleanup and the
-worker's receipt. A successful pull still needs a successful local rsync exit.
+worker's receipt. Each supervised pull makes a control exchange for the worker
+sender's exit receipt, including when the local rsync succeeds.
 A nonzero bootstrap exit means the supervisor is unavailable. The worker warns
 once and keeps the existing command and transfer paths. Transport and malformed
-success responses fail that command. A later command can retry the probe.
+success responses fail the commands waiting on that attempt. Concurrent commands
+share the result of one probe and the next command can retry a failure.
 The probe is one shell line and has a 12 s bound.
 Each terminal token, including one that expires, keeps one compact receipt
 until the connection closes. The receipt can still answer a delayed proof
@@ -3105,8 +3114,10 @@ receipts. Lease expiry still kills the owned group.
 The worker wrapper reports a signalled payload as status 128 plus its signal
 number. A signal on the wrapper itself still uses SSH signal semantics.
 
-Foreground commands finish from the data channel's exit status. The wrapper
-emits a normal status only after it has written its cleanup proof. The first
+Foreground commands finish from the data channel's exit status. Once the
+payload starts, the wrapper emits a normal status after writing its cleanup
+proof. A failure before payload launch is reported with the wrapper's own
+status, such as 255, 2 or 125. The first
 renewal is at the configured interval. The controller opens the independent
 connection only when it needs renewal or control. The dial and each request
 have a 4 s bound. Failed dials back off exponentially from 1 s to 60 s.
@@ -3132,7 +3143,10 @@ Sending a cancellation signal to Marathon's process group still works for regist
 `sshpass` is optional on controllers with OpenSSH 8.4 or newer.
 Workers can enable containment with stock `/usr/bin/perl` and its core modules.
 SSH command filters must allow supervised launches, including detached video,
-and token control requests. Without Perl, allow the legacy video launcher,
+and token control requests. An SSH command filter must `exec` the original
+supervised command. A filter that stays in front of the wrapper can turn the
+wrapper's failure signal into status 137, which the controller can read as
+a confirmed exit. Without Perl, allow the legacy video launcher,
 pidfile commands and PID-based stop commands. OpenSSH rejects channel signals
 for forced commands and subsystems.
 
@@ -3154,7 +3168,9 @@ can hold those pipes open. Marathon's rsync SSH command uses `-F /dev/null`, whi
 configuration, including ControlMaster and ControlPersist. A local iOS or macOS copy must finish reading and writing
 all entries. Each receive owns a private area on the destination filesystem. A verified artifact becomes visible by
 atomic rename, and a failed, cancelled or timed-out receive leaves any previous output in place. Failures report
-non-delivery. The attachment, success log and remote deletion paths use the successful receipt. An xcresult is renamed
+non-delivery. The attachment, success log and remote deletion paths use the successful receipt. A requested iOS video
+also needs a finalized recording before transfer. Other recording outcomes are reported once as undelivered.
+An xcresult is renamed
 as a whole tree under its batch name. A failed pull leaves its remote artifact available for inspection. Android
 APP_DATA file sync removes application data after its copied files have been delivered.
 
