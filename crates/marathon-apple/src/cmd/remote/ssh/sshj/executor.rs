@@ -6,7 +6,7 @@ use super::config::{PerformanceDefaultConfig, SshLogging};
 use super::error::{IO_EXCEPTION, SshFailure};
 use super::host::SshCommandHost;
 use super::session::session_control;
-use super::supervisor::{ControlDial, Proof, Supervisor, Warnings};
+use super::supervisor::{ControlDial, EXIT_PROOF_TIMEOUT, Proof, Supervisor, Warnings, WorkerRsync};
 use crate::cmd::{BaseCommand, CommandExecutor, CommandHost, CommandRequest, CommandSession, failure, millis};
 use crate::extensions::{
     poll_backoff::PollBackoff,
@@ -336,7 +336,7 @@ async fn exit_code(
                     use crate::cmd::base_command::CommandTermination;
                     if let Some(lease) = channel.worker_lease() {
                         lease.channel_ended();
-                        let proof = tokio::time::timeout(std::time::Duration::from_secs(8), lease.proof())
+                        let proof = tokio::time::timeout(EXIT_PROOF_TIMEOUT, lease.proof())
                             .await
                             .map_err(|_| {
                                 VendorError::Other(failure(FailureKind::Io, "Worker exit proof timed out"))
@@ -394,7 +394,21 @@ impl CommandExecutor for SshCommandExecutor {
         &self.logger
     }
     fn connected(&self) -> bool {
-        self.connection.is_connected() && self.supervisor.as_ref().is_none_or(|supervisor| supervisor.connected())
+        self.connection.is_connected()
+    }
+    fn prepare_worker_rsync<'a>(&'a self, program: &'a str) -> VendorFuture<'a, Option<WorkerRsync>> {
+        Box::pin(async move {
+            use super::auth::SshAuthentication;
+            use marathon_config::vendor::SshAuthentication as Auth;
+            let Some(supervisor) = &self.supervisor else {
+                return Ok(None);
+            };
+            let auth = match self.ssh_host.authentication.clone() {
+                SshAuthentication::Password { username, password } => Auth::Password { username, password },
+                SshAuthentication::PublicKey { username, key } => Auth::PublicKey { username, key },
+            };
+            supervisor.prepare_rsync(&self.connection, program, auth).await
+        })
     }
     fn set_provider_signal_deadline(&self, deadline: Arc<marathon_core::signal_finish::SignalDeadline>) {
         let _ = self.connection.shared.provider_signal.set(deadline);

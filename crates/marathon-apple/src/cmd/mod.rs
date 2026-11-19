@@ -126,6 +126,13 @@ pub trait CommandExecutor: Send + Sync {
     fn worker_supervised(&self) -> VendorFuture<'_, bool> {
         Box::pin(async { Ok(false) })
     }
+    #[doc(hidden)]
+    fn prepare_worker_rsync<'a>(
+        &'a self,
+        _program: &'a str,
+    ) -> VendorFuture<'a, Option<remote::ssh::sshj::WorkerRsync>> {
+        Box::pin(async { Ok(None) })
+    }
     fn log_error(&self, message: String);
     /// `logger.error(e) { message }`; executors whose sink keeps the throwable override this.
     fn log_error_with(&self, message: String, cause: &Failure) {
@@ -244,6 +251,7 @@ pub trait FileBridge: Send + Sync {
 /// D54: what ends a transfer before it ends by itself. Kotlin's transfer blocks in a suspend function, so neither its caller's
 /// cancellation nor the loss of its device's connection ends it (A104).
 pub struct TransferStop {
+    pub(crate) worker: Option<Arc<dyn CommandExecutor>>,
     cancellation: Arc<dyn CancellationSignal>,
     lost: Option<Pin<Box<dyn Future<Output = Failure> + Send>>>,
     /// What `lost` gave once it was ready, since a finished future may not be polled again.
@@ -287,6 +295,7 @@ impl TransferStop {
     /// Stops on the caller's cancellation only.
     pub fn new(cancellation: Arc<dyn CancellationSignal>) -> Self {
         Self {
+            worker: None,
             cancellation,
             lost: None,
             lost_with: None,
@@ -294,6 +303,11 @@ impl TransferStop {
             unconfirmed: None,
             admission: None,
         }
+    }
+    /// Use the device's connection to own any remote rsync sender.
+    pub fn on_worker(mut self, worker: Arc<dyn CommandExecutor>) -> Self {
+        self.worker = Some(worker);
+        self
     }
     /// D93 (round 8): also refused as it starts once `admission` is cancelled; a transfer under way is not stopped by it.
     pub fn admitted_by(mut self, admission: Arc<dyn CancellationSignal>) -> Self {

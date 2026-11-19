@@ -96,7 +96,9 @@ impl AppleSimulatorDevice {
     /// D93 (round 9): registered with the simulator, as a send is, so that its disposal finds it if it still runs.
     fn receive_stop(&self) -> marathon_apple::cmd::TransferStop {
         let receipt = self.state().pulls.register(self.services.context.clock.clone());
-        marathon_apple::cmd::receive_stop_gated(self.executor.as_ref(), self.commands.pull_signal()).owned_by(receipt)
+        marathon_apple::cmd::receive_stop_gated(self.executor.as_ref(), self.commands.pull_signal())
+            .on_worker(self.executor.clone())
+            .owned_by(receipt)
     }
     /// D93 (round 8): a pull the simulator's pull gate refused or stopped is an undelivered artifact, with a WARN.
     fn gated_pull(&self, received: VendorResult<bool>, src: &str) -> VendorResult<bool> {

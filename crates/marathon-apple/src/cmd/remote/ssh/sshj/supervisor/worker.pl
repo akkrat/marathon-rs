@@ -6,6 +6,7 @@ use Fcntl qw(:DEFAULT :flock);
 use Errno qw(ESRCH EAGAIN EWOULDBLOCK);
 use File::Temp qw(tempdir);
 use IO::Select;
+use MIME::Base64 qw(decode_base64);
 
 sub clock_ms { int(clock_gettime(CLOCK_MONOTONIC) * 1000) }
 
@@ -191,6 +192,12 @@ if ($mode eq 'control') {
         print "$1 ", control("$root/$1", $2, $lease), "\n";
     }
     exit 0;
+}
+if ($mode eq 'rsync') {
+    my ($token, $program) = splice @ARGV, 0, 2;
+    $token =~ /\A[a-f0-9]{32}\z/ && $program =~ /\A[A-Za-z0-9+\/=]+\z/
+        && @ARGV >= 2 && $ARGV[0] eq '--server' && $ARGV[1] eq '--sender' or die "invalid rsync sender";
+    exit run_owned("$root/$token", $lease, '/bin/sh', '-c', decode_base64($program) . ' "$@"', 'rsync', @ARGV);
 }
 if ($mode eq 'run') {
     my $token = shift @ARGV;

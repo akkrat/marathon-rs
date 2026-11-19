@@ -1065,6 +1065,7 @@ impl MacosDevice {
             self.binary.command_executor.as_ref(),
             self.device_commands.pull_signal(),
         )
+        .on_worker(self.binary.command_executor.clone())
         .owned_by(receipt)
     }
     /// D93 (round 8): a pull the Mac's pull gate refused or stopped is an undelivered artifact, with a WARN.

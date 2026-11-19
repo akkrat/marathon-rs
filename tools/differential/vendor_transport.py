@@ -224,19 +224,123 @@ def d96_native_golden(lanes):
     return dict(lanes, recorder=recorder, control=[s for index, s in enumerate(control) if index not in removed])
 
 
-def _d96_fallback_bootstrap(session):
+def _d96_probe(session):
     wire = session['wire']
     if not wire.startswith('/usr/bin/perl -e '):
         return False
     source = Path(__file__).resolve().parents[2] / 'crates/marathon-apple/src/cmd/remote/ssh/sshj/supervisor'
     expected = ['/usr/bin/perl', '-e', (source / 'bootstrap.pl').read_text(), '--',
                 base64.b64encode((source / 'worker.pl').read_bytes()).decode()]
-    e.require(shlex.split(wire) == expected, 'D96 unexpected worker probe')
+    e.require(_d96_words(wire) == expected, 'D96 unexpected worker probe')
+    return True
+
+
+D96_ROOT = r'/tmp/marathon-supervisor-[a-zA-Z0-9_-]{10}'
+D96_TOKEN = r'[a-f0-9]{32}'
+D96_RSYNC = base64.b64encode(b'/usr/bin/rsync').decode()
+
+
+def _d96_words(wire):
+    try:
+        return shlex.split(wire)
+    except ValueError:
+        raise e.Invalid('D96 malformed supervisor argv') from None
+
+
+def _d96_fallback_bootstrap(session):
+    if not _d96_probe(session):
+        return False
     e.require(_d96_recorder_reply(session, 127), 'D96 unexpected worker probe response')
     return True
 
 
-def ssh(data, name=None, before_d32=False, *, d96_recorder_transport=False, d96_fallback_bootstrap=False):
+def _d96_header(argv):
+    e.require(len(argv) >= 6 and re.fullmatch(D96_ROOT, argv[3]) and
+              argv[:2] == ['/usr/bin/perl', argv[3] + '/supervisor.pl'] and
+              re.fullmatch(r'[0-9]{5,7}', argv[4]), 'D96 invalid supervisor argv')
+    lease = int(argv[4])
+    e.require(27000 <= lease <= 1264000 and lease % 1000 == 0, 'D96 invalid lease period')
+    return argv[3], argv[4]
+
+
+def _d96_sender(argv):
+    root, lease = _d96_header(argv)
+    e.require(argv[2] == 'rsync' and re.fullmatch(D96_TOKEN, argv[5]) and argv[6:7] == [D96_RSYNC],
+              'D96 invalid supervisor rsync sender')
+    return root, lease, argv[5]
+
+
+def d96_worker_sessions(sessions, signals):
+    """Validate the envelope and receipts before comparing the original payloads."""
+    boots, roots, commands, requests = set(), {}, {}, []
+    for key, session in list(sessions.items()):
+        wire = session['wire']
+        if _d96_probe(session):
+            e.require(key[0] not in boots and not signals[key], 'D96 duplicate or signalled worker probe')
+            boots.add(key[0])
+            if session['exit'] == 127:
+                _d96_fallback_bootstrap(session)
+            else:
+                root = re.fullmatch(rb'MARATHON_D96_1 (' + D96_ROOT.encode() + rb')\n', session['stdout'])
+                e.require(root and _d96_recorder_reply(session, 0, stdout=session['stdout']),
+                          'D96 invalid supervisor installation')
+                root = root[1].decode()
+                e.require(root not in roots, 'D96 duplicate supervisor root')
+                roots[root] = (key[0], session['seq'])
+            del sessions[key]
+        elif wire.startswith('/usr/bin/perl /tmp/marathon-supervisor-'):
+            argv = _d96_words(wire)
+            root, lease = _d96_header(argv)
+            e.require(not signals[key], 'D96 unexpected SSH signal on supervisor channel')
+            if argv[2] == 'control':
+                e.require(len(argv) == 6, 'D96 unexpected control arguments')
+                requests.append((key, session, root, lease, argv[5]))
+                continue
+            token = argv[5]
+            e.require(re.fullmatch(D96_TOKEN, token) and token not in commands,
+                      'D96 invalid or reused supervised exec token')
+            sender = argv[2] == 'rsync'
+            if sender:
+                _d96_sender(argv)
+                remote = argv[7:]
+                e.require(remote[:2] == ['--server', '--sender'] and len(remote) >= 4 and remote[-2] == '.',
+                          'D96 invalid wrapped sender framing')
+                session['wire'] = shlex.join(['/usr/bin/rsync', *remote])
+            else:
+                e.require(argv[2] == 'run' and len(argv) == 9 and argv[6:8] == ['/bin/sh', '-c'] and argv[8],
+                          'D96 invalid supervised command')
+                session['wire'] = argv[8]
+            commands[token] = (key, session, root, lease, sender)
+    proofs = set()
+    for key, session, root, lease, request in requests:
+        matched = re.fullmatch(fr'({D96_TOKEN}):(status|renew-[0-9]{{1,16}}|[123])', request)
+        e.require(matched and matched[1] in commands, 'D96 invalid or unowned control request')
+        token, operation = matched.groups()
+        launch_key, launch, command_root, command_lease, _ = commands[token]
+        e.require((root, lease) == (command_root, command_lease), 'D96 control addresses another lease')
+        e.require(root in roots and session['seq'] > roots[root][1], 'D96 control precedes installation')
+        e.require(_d96_recorder_reply(session, 0, stdout=session['stdout']), 'D96 invalid control channel end')
+        reply = re.fullmatch(token.encode() + rb' (unknown|busy|running:[0-9]{1,16}|done:[0-9]{1,3})\n',
+                             session['stdout'])
+        e.require(reply, 'D96 invalid worker receipt')
+        value = reply[1]
+        if value.startswith(b'done:'):
+            status = int(value[5:])
+            e.require(value[5:] == str(status).encode() and status <= 255 and
+                      status == launch['exit'] and session['seq'] > launch['seq'],
+                      'D96 worker receipt differs from the payload exit')
+            proofs.add(token)
+        elif operation in ('1', '2', '3') and value.startswith(b'running:'):
+            signals[launch_key].append({'1': 'INT', '2': 'TERM', '3': 'KILL'}[operation])
+        del sessions[key]
+    for token, (key, session, root, _, sender) in commands.items():
+        e.require(root in roots and roots[root][1] < session['seq'], 'D96 worker token has no installed supervisor')
+        e.require(sender != (key[0] == roots[root][0]), 'D96 wrong supervisor transport for payload')
+        e.require(token in proofs, 'D96 missing worker exit proof')
+    return {(root, lease, token) for token, (_, _, root, lease, sender) in commands.items() if sender}
+
+
+def ssh(data, name=None, before_d32=False, *, d96_recorder_transport=False, d96_worker_transport=False, sender_tokens=None):
     rows = records(data)
     if before_d32:
         rows = with_d46_probe(rows)
@@ -268,13 +372,12 @@ def ssh(data, name=None, before_d32=False, *, d96_recorder_transport=False, d96_
         elif event == 'signal' and key in sessions:
             signals[key].append(detail.get('signal'))
     e.require(sessions,'no SSH sessions')
-    if d96_fallback_bootstrap:
-        probes = set()
-        for key, session in list(sessions.items()):
-            if _d96_fallback_bootstrap(session):
-                e.require(key[0] not in probes, 'D96 duplicate per-connection worker probe')
-                probes.add(key[0])
-                del sessions[key]
+    ended = {row['connection'] for row in rows if row['event'] == 'connection_end'}
+    e.require({key[0] for key in sessions} <= ended,'unfinished SSH connection')
+    if d96_worker_transport:
+        senders = d96_worker_sessions(sessions, signals)
+        if sender_tokens is not None:
+            sender_tokens.update(senders)
     control = {key[0] for key,s in sessions.items() if not s['wire'].startswith('/usr/bin/rsync --server ') and s['wire'] != 'xcrun simctl list --json'}
     inventory = {key[0] for key,s in sessions.items() if s['wire'] == 'xcrun simctl list --json'}
     transfers = [key[0] for key,s in sessions.items() if s['wire'].startswith('/usr/bin/rsync --server ')]
@@ -282,8 +385,6 @@ def ssh(data, name=None, before_d32=False, *, d96_recorder_transport=False, d96_
               'SSH control/inventory connection roles differ')
     e.require(len(set(transfers)) == len(transfers) and not set(transfers)&(control|inventory),
               'SSH transfer connection role collision')
-    ended = {row['connection'] for row in rows if row['event'] == 'connection_end'}
-    e.require({key[0] for key in sessions} <= ended,'unfinished SSH connection')
     if name == 'ios-media' and d96_recorder_transport:
         removed, lanes['recorder'] = d96_recorder(sessions, signals, before_d32)
         sessions = {key: value for key, value in sessions.items() if key not in removed}
@@ -388,11 +489,33 @@ def d97_staging_destination(args):
             return
 
 
-def host_argv(data, values, before_d31=False, d97_native_staging=False):
-    lanes = defaultdict(list)
+def host_argv(data, values, before_d31=False, d97_native_staging=False, *, d96_worker=False, sender_tokens=None):
+    lanes, wrapped = defaultdict(list), defaultdict(set)
+    def sender(program, argv):
+        identity = _d96_sender(argv)
+        if sender_tokens is not None:
+            e.require(identity in sender_tokens and identity not in wrapped[program],
+                      'D96 duplicate or unobserved host sender token')
+            wrapped[program].add(identity)
     for row in records(data):
         e.require(row['event'] == 'host_argv' and row['program'] in ('rsync','ssh'),'unknown host argv')
         row = dict(row); args = list(row['argv'])
+        if d96_worker and row['program'] == 'rsync':
+            for i, arg in enumerate(args):
+                if arg.startswith('--rsync-path=/usr/bin/perl /tmp/marathon-supervisor-'):
+                    worker_argv = _d96_words(arg.removeprefix('--rsync-path='))
+                    sender("rsync", worker_argv)
+                    e.require(len(worker_argv) == 7 and args[-2].startswith('127.0.0.1:'),
+                              'D96 wrapped a host rsync receiver or added sender arguments')
+                    args[i] = '--rsync-path=/usr/bin/rsync'
+        if d96_worker and row['program'] == 'ssh':
+            start = args.index('127.0.0.1') + 1
+            if args[start].startswith('/usr/bin/perl'):
+                worker_argv = _d96_words(' '.join(args[start:]))
+                sender("ssh", worker_argv)
+                e.require(worker_argv[7:9] == ['--server', '--sender'],
+                          'D96 wrapped a worker rsync receiver')
+                args = [*args[:start], '/usr/bin/rsync', *worker_argv[7:]]
         if before_d31:
             args = with_d43_flag(row['program'],with_d31_flag(row['program'],args))
         for i,arg in enumerate(args):
@@ -421,6 +544,9 @@ def host_argv(data, values, before_d31=False, d97_native_staging=False):
         # The explicit destination identifies its transfer lane; repeated uses
         # of one destination remain ordered.
         lanes[row['program'] + ':' + args[-1]].append(row)
+    if sender_tokens is not None:
+        e.require(wrapped['rsync'] == wrapped['ssh'] == sender_tokens,
+                  'D96 worker sender lacks a matching host invocation')
     return dict(lanes)
 
 

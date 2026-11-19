@@ -703,11 +703,12 @@ def normalized(directory, contract, native=False):
                 elif name == 'host-argv.jsonl':
                     content = vendor_transport.host_argv(
                         data, record['identities'], may_withhold(directory,record),
-                        d97_native_staging=record['implementation'] == 'native')
+                        d97_native_staging=record['implementation'] == 'native',
+                        d96_worker=not may_withhold(directory, record))
                 elif contract['transport'] == 'ssh':
                     content = vendor_transport.ssh(
                         data,contract['vendor'],may_withhold(directory,record),d96_recorder_transport=True,
-                        d96_fallback_bootstrap=not may_withhold(directory,record))
+                        d96_worker_transport=not may_withhold(directory,record))
                 else:
                     content = vendor_transport.adb(data, may_withhold(directory,record),
                                                    d85_native_setup=record['implementation'] == 'native')

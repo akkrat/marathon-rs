@@ -1,4 +1,6 @@
 mod support;
+#[path = "support/supervisor.rs"]
+mod virtual_supervisor;
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use marathon_apple::cmd::{CommandExecutor, CommandRequest};
@@ -95,6 +97,54 @@ fn cancellation_before_launch_prevents_worker_payload_d96() -> Result<(), Box<dy
         .status()?;
     assert_eq!(status.code(), Some(125));
     assert!(!effect.exists());
+    Ok(())
+}
+
+#[test]
+fn the_worker_sender_uses_the_original_server_arguments_d96() -> Result<(), Box<dyn std::error::Error>> {
+    if !Path::new("/usr/bin/perl").is_file() {
+        eprintln!("worker witness requires stock Perl");
+        return Ok(());
+    }
+    let root = tempfile::Builder::new()
+        .prefix("marathon-supervisor-")
+        .rand_bytes(10)
+        .tempdir_in("/tmp")?;
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700))?;
+    let supervisor = root.path().join("supervisor.pl");
+    let sender = root.path().join("sender");
+    std::fs::write(
+        &supervisor,
+        include_bytes!("../src/cmd/remote/ssh/sshj/supervisor/worker.pl"),
+    )?;
+    std::fs::write(&sender, "printf '<%s>\\n' \"$@\"\n")?;
+    let token = "0123456789abcdef0123456789abcdef";
+    let encoded = STANDARD.encode(format!("/bin/sh '{}'", sender.display()));
+    let output = std::process::Command::new("/usr/bin/perl")
+        .arg(&supervisor)
+        .arg("rsync")
+        .arg(root.path())
+        .args([
+            "27000",
+            token,
+            &encoded,
+            "--server",
+            "--sender",
+            ".",
+            "path with spaces",
+        ])
+        .output()?;
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"<--server>\n<--sender>\n<.>\n<path with spaces>\n");
+    let proof = std::process::Command::new("/usr/bin/perl")
+        .arg(supervisor)
+        .arg("control")
+        .arg(root.path())
+        .args(["27000", &format!("{token}:status")])
+        .output()?;
+    assert!(proof.status.success());
+    assert_eq!(String::from_utf8(proof.stdout)?, format!("{token} done:0\n"));
     Ok(())
 }
 
@@ -293,7 +343,12 @@ async fn d30_escalation_joins_worker_proof_without_a_data_close_d96() {
         .unwrap();
     let execs = fake.events("exec").await;
     let kill = execs.iter().find(|row| matches_operation(row, ":3")).unwrap();
-    assert_eq!(kill["connection"], term["connection"]);
+    let run = execs
+        .iter()
+        .find(|row| matches_operation(row, "echo resistant'"))
+        .unwrap();
+    assert_ne!(kill["connection"], run["connection"]);
+    assert_ne!(term["connection"], run["connection"]);
     assert!(kill["seq"].as_u64().unwrap() > term["seq"].as_u64().unwrap());
     // Neither escalation request consumed the original SSH session's acknowledgement or CLOSE.
     assert!(fake.events("signal").await.is_empty());
@@ -309,9 +364,48 @@ fn matches_operation(row: &serde_json::Value, suffix: &str) -> bool {
 }
 
 #[cfg(target_os = "macos")]
+#[test]
+fn worker_commands_and_senders_stop_over_independent_real_ssh_d96() -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = tempfile::tempdir()?;
+    let ssh = fixture.path().join("ssh");
+    std::fs::write(
+        &ssh,
+        "#!/bin/sh\nexec /usr/bin/ssh -o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null \"$@\"\n",
+    )?;
+    std::fs::set_permissions(ssh, std::fs::Permissions::from_mode(0o700))?;
+    let mut path = std::ffi::OsString::from(fixture.path());
+    path.push(":");
+    path.push(std::env::var_os("PATH").unwrap_or_default());
+    let output = std::process::Command::new(std::env::current_exe()?)
+        .args(["--exact", "real_worker_commands_and_senders_child"])
+        .env("PATH", path)
+        .env("MRS_D96_REAL_WORKER", "1")
+        .output()?;
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
 #[tokio::test(flavor = "multi_thread")]
-async fn worker_renews_and_stops_over_independent_real_ssh_d96() -> Result<(), Box<dyn std::error::Error>> {
-    use marathon_apple::cmd::remote::ssh::sshj::SshAuthentication;
+async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var_os("MRS_D96_REAL_WORKER").is_none() {
+        return Ok(());
+    }
+    use marathon_apple::cmd::{
+        FileBridge, TransferCleanup, TransferReceipt, TransferStop,
+        remote::{
+            rsync::{RsyncFileBridge, RsyncTarget},
+            ssh::sshj::SshAuthentication,
+        },
+    };
+    use marathon_config::vendor::{RsyncConfiguration, SshAuthentication as Auth, SshConfiguration};
+    use marathon_core::executor::shared::Signal;
     use std::process::Stdio;
     if !Path::new("/usr/sbin/sshd").is_file() || !Path::new("/usr/bin/perl").is_file() {
         eprintln!("loopback witness requires stock sshd and Perl");
@@ -350,7 +444,7 @@ async fn worker_renews_and_stops_over_independent_real_ssh_d96() -> Result<(), B
     let output = tokio::process::Command::new("/usr/bin/id").arg("-un").output().await?;
     assert!(output.status.success());
     let user = String::from_utf8(output.stdout)?.trim().to_string();
-    let (logging, _) = ssh::logging(false);
+    let (logging, events) = ssh::logging(false);
     let mut factory = ssh::factory(&logging);
     factory.connection_attempts = 1;
     factory.keep_alive_interval = duration(1000);
@@ -389,7 +483,7 @@ async fn worker_renews_and_stops_over_independent_real_ssh_d96() -> Result<(), B
     let context = context();
     let healthy = executor
         .execute(
-            CommandRequest::new(["/bin/sh", "-c", "sleep 7; exit 23"], duration(15000)),
+            CommandRequest::new(["/bin/sh", "-c", "exit 23"], duration(15000)),
             context.clone(),
         )
         .await
@@ -399,6 +493,99 @@ async fn worker_renews_and_stops_over_independent_real_ssh_d96() -> Result<(), B
         .await
         .map_err(|e| e.failure().to_string())?;
     assert_eq!(ended.exit_code, Some(23));
+
+    healthy.close().await.map_err(|e| e.failure().to_string())?;
+    let executor = Arc::new(executor);
+    let local = server.path().join("local");
+    let remote = server.path().join("remote");
+    std::fs::write(&remote, b"rsync fixture")?;
+    let bridge = |remote_path: String| {
+        RsyncFileBridge::new(
+            RsyncTarget {
+                addr: "127.0.0.1".into(),
+                port: i32::from(port),
+            },
+            false,
+            SshConfiguration {
+                authentication: None,
+                known_hosts_path: None,
+                keep_alive_interval: duration(1000),
+                keep_alive_max_count: 1,
+                debug: false,
+                share_worker_connection: false,
+            },
+            RsyncConfiguration { remote_path },
+            Some(Auth::PublicKey {
+                username: user.clone(),
+                key: key.clone(),
+            }),
+            Arc::new(support::Runtime),
+            Arc::new(support::Clock::default()),
+            logging.clone(),
+        )
+    };
+    let receiving = bridge("/usr/bin/rsync".into())
+        .await
+        .map_err(|e| e.failure().to_string())?;
+    let receipt = TransferReceipt::new();
+    let received = receiving
+        .receive_with(
+            remote.to_str().ok_or("non-UTF8 test source")?,
+            &local,
+            TransferStop::never()
+                .on_worker(executor.clone())
+                .owned_by(receipt.clone()),
+        )
+        .await
+        .map_err(|e| e.failure().to_string())?;
+    assert!(
+        received,
+        "rsync stderr and receipt: {:?}; {:?}",
+        ssh::lines(&events),
+        receipt.ended()
+    );
+    assert_eq!(std::fs::read(&local)?, b"rsync fixture");
+    assert_eq!(receipt.ended(), Some(TransferCleanup::Confirmed));
+
+    let sender = server.path().join("sender");
+    let marker = server.path().join("sender-pid");
+    std::fs::write(
+        &sender,
+        format!(
+            "trap '' HUP TERM\nprintf '%s\\n' \"$$\" > \"{}\"\nexec /bin/sleep 60\n",
+            marker.display()
+        ),
+    )?;
+    let waiting = bridge(format!("/bin/sh {}", sender.display()))
+        .await
+        .map_err(|e| e.failure().to_string())?;
+    let signal = Signal::new();
+    let receipt = TransferReceipt::new();
+    let pull = {
+        let stop = TransferStop::new(signal.clone())
+            .on_worker(executor.clone())
+            .owned_by(receipt.clone());
+        tokio::spawn(async move { waiting.receive_with(&remote.to_string_lossy(), &local, stop).await })
+    };
+    let pid = tokio::time::timeout(std::time::Duration::from_secs(8), async {
+        loop {
+            if let Ok(text) = tokio::fs::read_to_string(&marker).await
+                && let Ok(pid) = text.trim().parse::<i32>()
+            {
+                break nix::unistd::Pid::from_raw(pid);
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    signal.cancel(marathon_apple::cmd::cancelled("fixture stopped"));
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(8), pull)
+            .await??
+            .is_err()
+    );
+    assert_eq!(receipt.ended(), Some(TransferCleanup::Confirmed));
+    assert_eq!(nix::sys::signal::kill(pid, None), Err(nix::errno::Errno::ESRCH));
 
     let command = executor
         .execute(

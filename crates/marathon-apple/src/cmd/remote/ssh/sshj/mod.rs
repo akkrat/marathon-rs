@@ -20,3 +20,5 @@ pub use error::{DisconnectReason, SshFailure};
 pub use executor::{SshCommandExecutor, shell_command};
 pub use factory::SshjCommandExecutorFactory;
 pub use host::SshCommandHost;
+
+pub use supervisor::WorkerRsync;

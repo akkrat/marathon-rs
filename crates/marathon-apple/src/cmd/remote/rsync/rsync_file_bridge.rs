@@ -4,8 +4,10 @@ use marathon_logging::{Component, Level};
 
 use super::{RsyncTarget, password};
 use crate::cmd::{
-    FileBridge, SessionScope, TransferStop, TransferStopped, blocking, failure, io_error,
-    remote::ssh::sshj::config::SshLogging, retained_tasks::RetainedTasks, stall_record::StallRecord,
+    CommandExecutor, FileBridge, SessionScope, TransferStop, TransferStopped, blocking, failure, io_error,
+    remote::ssh::sshj::{WorkerRsync, config::SshLogging},
+    retained_tasks::RetainedTasks,
+    stall_record::StallRecord,
 };
 use jcompat::file_manager::absolute_file_path;
 use marathon_config::vendor::{RsyncConfiguration, SshAuthentication, SshConfiguration};
@@ -189,6 +191,7 @@ impl RsyncFileBridge {
                             None,
                             None,
                             &mut None,
+                            None,
                         )
                         .await?;
                     let first = output.stdout.split('\n').next().unwrap_or_default().to_owned();
@@ -256,7 +259,7 @@ impl RsyncFileBridge {
     }
     /// The rsync argv before the launcher selects the host password transport.
     pub fn arguments(&self, source: String, destination: String) -> VendorResult<Vec<String>> {
-        self.0.arguments(source, destination)
+        self.0.arguments(source, destination, None)
     }
 }
 #[derive(Clone)]
@@ -348,13 +351,21 @@ impl SpawnTicket {
 }
 
 impl Inner {
-    fn arguments(&self, source: String, destination: String) -> VendorResult<Vec<String>> {
-        let auth = self.auth.as_ref().ok_or_else(|| {
-            VendorError::Other(failure(
-                FailureKind::Config(marathon_error::ConfigKind::Rejected),
-                "rsync bridge needs ssh auth",
-            ))
-        })?;
+    fn arguments(
+        &self,
+        source: String,
+        destination: String,
+        worker: Option<&WorkerRsync>,
+    ) -> VendorResult<Vec<String>> {
+        let auth = worker
+            .map(|worker| &worker.auth)
+            .or(self.auth.as_ref())
+            .ok_or_else(|| {
+                VendorError::Other(failure(
+                    FailureKind::Config(marathon_error::ConfigKind::Rejected),
+                    "rsync bridge needs ssh auth",
+                ))
+            })?;
         let mut args = vec![rsync_program()];
         if self.debug {
             args.push("--verbose".into());
@@ -393,7 +404,7 @@ impl Inner {
             rsh.push_str("-vvv");
         }
         args.extend(["--rsh".into(), rsh]);
-        let remote_path = self.config.remote_path.to_owned();
+        let remote_path = worker.map_or(self.config.remote_path.as_str(), WorkerRsync::wire);
         if !remote_path.is_empty() {
             args.push(format!("--rsync-path={remote_path}"));
         }
@@ -422,6 +433,7 @@ impl Inner {
         cancelled: Option<Box<dyn Fn() -> Option<Cancellation> + Send>>,
         place: Option<String>,
         unconfirmed: &mut Option<Failure>,
+        mut worker: Option<&mut WorkerRsync>,
     ) -> VendorResult<Outcome> {
         let bound = Bound {
             clock: self.clock.as_ref(),
@@ -490,6 +502,9 @@ impl Inner {
                 }
                 admission.starting.push((place.clone(), ticket.clone()));
             }
+        }
+        if let Some(worker) = worker.as_deref_mut() {
+            worker.start();
         }
         // The start is read on the vendor clock as the process starts, not when the spawn's result reaches this task, so a
         // late delivery can't shorten the time a send has been quiet.
@@ -619,16 +634,32 @@ impl Inner {
             arrived = self.watch(arriving, &stall, &progress) => {
                 nothing_arrived = !arrived;
                 // D31's steps, each held to the stop's deadline once a stop comes; the 5 s before TERM ends on one.
+                if let Some(worker) = &worker {
+                    worker.stop();
+                }
                 let (status, wrapper_stopped) = self.stop_child(&mut child, &descendants, true, wrapped, bound).await;
                 (status, wrapper_stopped, false)
             }
             // D54: rsync has said nothing and is not on its way out, so it gets no time to end by itself.
             _ = stopping.wait() => {
+                if let Some(worker) = &worker {
+                    worker.stop();
+                }
                 let (status, wrapper_stopped) = self.stop_child(&mut child, &descendants, false, wrapped, bound).await;
                 (status, wrapper_stopped, true)
             }
             _ = descendants.follow(unbounded) => unreachable!("following never ends"),
         };
+        if let Some(worker) = worker {
+            if status
+                .as_ref()
+                .is_some_and(|result| result.as_ref().is_ok_and(ExitStatus::success))
+            {
+                worker.finish();
+            } else {
+                worker.stop();
+            }
+        }
         // Measured as the process ended, however that came about, and before its pipes are waited for.
         let quiet = self.clock.now_millis() - progress.load(Ordering::SeqCst);
         let mut doubts = Vec::new();
@@ -873,6 +904,7 @@ impl Inner {
         let stopping = Stopping::new(stop.receipt());
         // D93 (round 8): as rsync starts, its admission too (a device's closed pulls).
         let cancelled = stop.start_check();
+        let worker = stop.worker.clone();
         let mut unconfirmed = None;
         let result = {
             let clock = self.clock.clone();
@@ -903,6 +935,7 @@ impl Inner {
                 Box::new(cancelled),
                 &mut unconfirmed,
                 &mut stage,
+                worker,
             );
             tokio::select! {
                 biased;
@@ -942,6 +975,7 @@ impl Inner {
         cancelled: Box<dyn Fn() -> Option<Cancellation> + Send + Sync>,
         unconfirmed: &mut Option<Failure>,
         stage: &mut Option<crate::cmd::artifact_stage::ArtifactStage>,
+        worker: Option<Arc<dyn CommandExecutor>>,
     ) -> VendorResult<bool> {
         let receive = publication.is_some();
         let bound = Bound {
@@ -1021,20 +1055,69 @@ impl Inner {
         {
             return self.quarantined(receive, &destination);
         }
-        let outcome = self
+        let mut worker = match worker.filter(|_| receive) {
+            Some(worker) => {
+                let configured = self.config.remote_path.as_str();
+                let program = if configured.is_empty() { "rsync" } else { configured };
+                match bound.run(None, None, true, worker.prepare_worker_rsync(program)).await {
+                    Step::Done(lease) => lease?,
+                    Step::Expired | Step::Stopped => return self.stopped(stopping.stopped(), receive, &source),
+                }
+            }
+            None => None,
+        };
+        let auth = worker.as_ref().map(|worker| &worker.auth).or(self.auth.as_ref());
+        let mut outcome = self
             .process(
-                self.arguments(source.clone(), destination.clone())?,
+                self.arguments(source.clone(), destination.clone(), worker.as_ref())?,
                 arriving,
-                match &self.auth {
-                    Some(SshAuthentication::Password { password, .. }) => Some(password.to_owned()),
+                match auth {
+                    Some(SshAuthentication::Password { password, .. }) => Some(password.clone()),
                     _ => None,
                 },
                 stopping,
                 Some(Box::new(move || cancelled())),
                 Some(place.clone()),
                 unconfirmed,
+                worker.as_mut(),
             )
             .await;
+        if let Some(worker) = worker.filter(|worker| worker.started) {
+            // A stopped local client is not proof about the worker. The
+            // transfer owner publishes its D91/D93 receipt after both settle.
+            let successful = outcome
+                .as_ref()
+                .is_ok_and(|result| result.status == 0 && result.stopped.is_none());
+            if successful {
+                worker.finish();
+            } else {
+                worker.stop();
+            }
+            let proof = async {
+                tokio::select! {
+                    result = worker.confirmed(successful) => result,
+                    _ = stopping.wait() => {
+                        worker.stop();
+                        worker.confirmed(false).await
+                    }
+                }
+            };
+            if let Some(why) = match bound
+                .run(Some(WorkerRsync::EXIT_PROOF_TIMEOUT), None, false, proof)
+                .await
+            {
+                Step::Done(Ok(())) => None,
+                Step::Done(Err(error)) => Some(error.failure().clone()),
+                Step::Expired | Step::Stopped => {
+                    Some(failure(FailureKind::Io, "No exit proof for the rsync worker sender"))
+                }
+            } {
+                unconfirmed.get_or_insert(why);
+            }
+            if let Ok(outcome) = &mut outcome {
+                outcome.stopped = outcome.stopped.take().or_else(|| stopping.stopped());
+            }
+        }
         if let Some(why) = unconfirmed.as_ref() {
             // D91: never waits for a start under way; one into this destination is killed at its commit. The lock is let go
             // before the log sink, which is the run's to configure, is called.

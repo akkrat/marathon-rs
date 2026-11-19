@@ -367,14 +367,15 @@ def validate_record(directory, contract, record):
         return e.payload(directory,rows[0],record)
     import vendor_transport as t
     if apple(contract['vendor']):
-        t.ssh(artifact('transcript.jsonl'), contract['vendor'],
-              d96_fallback_bootstrap=not e.may_withhold(directory, record))
-        if e.may_withhold(directory, record):
+        live = not e.may_withhold(directory, record)
+        senders = set()
+        t.ssh(artifact('transcript.jsonl'), contract['vendor'], d96_worker_transport=live, sender_tokens=senders)
+        if not live:
             e.require(t.redact_parser_transfer(artifact('transcript.jsonl')) == artifact('transcript.jsonl'),
                       'third-party library bytes in the transcript of a recorded run')
         else:
             t.check_new_native_transfer(artifact('transcript.jsonl'))
-        t.host_argv(artifact('host-argv.jsonl'),record['identities'])
+        t.host_argv(artifact('host-argv.jsonl'), record['identities'], d96_worker=live, sender_tokens=senders)
         state = e.loads(artifact('state.json'))
         e.require(not state['deferred'] and all(s['state'] == 'finished' for s in state['sessions']),
                   'unfinished Apple world state')

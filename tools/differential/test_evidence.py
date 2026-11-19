@@ -947,6 +947,77 @@ class VendorEvidenceTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(e.Invalid):
                 t._d96_fallback_bootstrap(bad)
 
+    def test_d96_successful_worker_wrapper_preserves_payload_and_requires_its_exit_proof(self):
+        import shlex
+        from collections import defaultdict
+        import vendor_transport as t
+        source = ROOT / 'crates/marathon-apple/src/cmd/remote/ssh/sshj/supervisor'
+        root = '/tmp/marathon-supervisor-abcdefghij'
+        program = root + '/supervisor.pl'
+        token, sender = 'a' * 32, 'b' * 32
+        probe = ['/usr/bin/perl', '-e', (source / 'bootstrap.pl').read_text(), '--',
+                 base64.b64encode((source / 'worker.pl').read_bytes()).decode()]
+        command = ['env', 'NSUnbufferedIO=YES', 'xcrun', 'xcodebuild', 'test-without-building']
+        def session(seq, words, stdout=b'', exit=0):
+            return dict(seq=seq, wire=shlex.join(words), stdout=stdout, stderr=b'', stdin=b'', exit=exit, end='completed')
+        def envelope(operation, arg):
+            return ['/usr/bin/perl', program, operation, root, '79000', arg]
+        install = (1, 1)
+        run = (1, 2)
+        transfer = (3, 1)
+        proof = (2, 1)
+        sender_proof = (4, 1)
+        expected = {
+            install: session(1, probe, f'MARATHON_D96_1 {root}\n'.encode()),
+            run: session(2, envelope('run', token) + ['/bin/sh', '-c', shlex.join(command)], b'payload\n'),
+            transfer: session(3, envelope('rsync', sender) + [t.D96_RSYNC] + ['--server', '--sender', '-r', '.', '/source']),
+            proof: session(4, envelope('control', token + ':3'), f'{token} done:0\n'.encode()),
+            sender_proof: session(5, envelope('control', sender + ':3'), f'{sender} done:0\n'.encode()),
+        }
+        actual = {key: row.copy() for key, row in expected.items()}
+        t.d96_worker_sessions(actual, defaultdict(list))
+        self.assertEqual(actual, {
+            run: dict(expected[run], wire=shlex.join(command)),
+            transfer: dict(expected[transfer], wire='/usr/bin/rsync --server --sender -r . /source'),
+        })
+        for key, invalid in (
+            (install, None),
+            (proof, None),
+            (proof, dict(expected[proof], stdout=f'{sender} done:0\n'.encode())),
+            (proof, dict(expected[proof], stdout=f'{token} done:1\n'.encode())),
+            (proof, dict(expected[proof], wire=expected[proof]['wire'].replace('79000', '80000'))),
+            (run, dict(expected[run], wire=expected[run]['wire'].replace(token, sender))),
+            (transfer, dict(expected[transfer], wire=expected[transfer]['wire'].replace(' --sender', ''))),
+        ):
+            with self.subTest(key=key, invalid=invalid), self.assertRaises(e.Invalid):
+                actual = {key: row.copy() for key, row in expected.items()}
+                if invalid is None:
+                    del actual[key]
+                else:
+                    actual[key] = invalid.copy()
+                t.d96_worker_sessions(actual, defaultdict(list))
+
+    def test_d96_host_sender_tokens_match_the_worker(self):
+        import vendor_transport as t
+        root = '/tmp/marathon-supervisor-0123456789'
+        token = 'c' * 32
+        envelope = f'/usr/bin/perl {root}/supervisor.pl rsync {root} 79000 {token} {t.D96_RSYNC}'
+        values = dict(sandbox='/fixture', safe_serial='fixture', port='2200')
+        rsync = dict(event='host_argv', program='rsync',
+                     argv=['--rsync-path=' + envelope, '127.0.0.1:/source', '/fixture/output'])
+        ssh = dict(event='host_argv', program='ssh',
+                   argv=['-p', '2200', '127.0.0.1', envelope, '--server', '--sender', '-r', '.', '/source'])
+        def compare(rows):
+            return t.host_argv(b''.join((json.dumps(row) + '\n').encode() for row in rows), values, d96_worker=True,
+                               sender_tokens={(root, '79000', token)})
+        normalized = compare([rsync, ssh])
+        self.assertEqual(normalized['rsync:{sandbox}/output'][0]['argv'][0], '--rsync-path=/usr/bin/rsync')
+        for broken in ([rsync], [rsync, ssh, ssh], [
+            rsync, dict(ssh, argv=[arg.replace(token, 'd' * 32) for arg in ssh['argv']]),
+        ]):
+            with self.subTest(broken=broken), self.assertRaises(e.Invalid):
+                compare(broken)
+
     def test_d96_foreground_recording_requires_its_own_int_and_success(self):
         import vendor_transport as t
         device = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE'

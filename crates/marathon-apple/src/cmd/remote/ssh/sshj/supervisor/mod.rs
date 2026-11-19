@@ -22,6 +22,8 @@ use tokio::{
 const TARGET: &str = "marathon_apple::cmd::remote::ssh::sshj::supervisor";
 const PROTOCOL: &str = "MARATHON_D96_1";
 const CONTROL_TIMEOUT: WallDuration = WallDuration::from_secs(4);
+pub(super) const EXIT_PROOF_TIMEOUT: WallDuration = WallDuration::from_secs(24);
+const RECONNECT_DELAY: WallDuration = WallDuration::from_secs(1);
 const CLOSE_GRACE: WallDuration = WallDuration::from_secs(20);
 const BOOTSTRAP: &str = include_str!("bootstrap.pl");
 const WORKER: &str = include_str!("worker.pl");
@@ -45,7 +47,12 @@ impl Timing {
         let misses = count.clamp(1, 20) as u64;
         Self {
             interval: WallDuration::from_secs(seconds),
-            lease_ms: 1000 * (seconds * (misses + 1) + CONTROL_TIMEOUT.as_secs()),
+            // A renewal may be observed one exchange late. Budget also for
+            // a wait on a shared dial, the failed exchange, the reconnect,
+            // an exchange on the new connection, and a data-path exchange.
+            lease_ms: 1000
+                * (seconds * (misses + 1) + CONTROL_TIMEOUT.as_secs())
+                    .max(seconds + 6 * CONTROL_TIMEOUT.as_secs() + 2 * RECONNECT_DELAY.as_secs()),
         }
     }
 }
@@ -80,10 +87,6 @@ impl Supervisor {
         }
     }
 
-    pub(super) fn connected(&self) -> bool {
-        self.peer.get().is_none_or(|peer| peer.connection.is_connected())
-    }
-
     pub(super) async fn available(&self, connection: &Arc<SshConnection>) -> VendorResult<bool> {
         Ok(self.peer(connection).await?.is_some())
     }
@@ -96,7 +99,22 @@ impl Supervisor {
         Ok(self
             .peer(connection)
             .await?
-            .map(|peer| Arc::new(Lease::new(peer, command))))
+            .map(|peer| Arc::new(Lease::new(peer, "run", format!("/bin/sh -c {}", quote(command))))))
+    }
+
+    pub(super) async fn prepare_rsync(
+        &self,
+        connection: &Arc<SshConnection>,
+        program: &str,
+        auth: marathon_config::vendor::SshAuthentication,
+    ) -> VendorResult<Option<WorkerRsync>> {
+        Ok(self.peer(connection).await?.map(|peer| WorkerRsync {
+            // openrsync rebuilds the remote command from argv and removes
+            // shell quotes. Keep the envelope free of shell syntax.
+            lease: Arc::new(Lease::new(peer, "rsync", STANDARD.encode(program))),
+            auth,
+            started: false,
+        }))
     }
 
     async fn peer(&self, connection: &Arc<SshConnection>) -> VendorResult<Option<Arc<Peer>>> {
@@ -106,7 +124,7 @@ impl Supervisor {
                 quote(BOOTSTRAP),
                 STANDARD.encode(WORKER)
             );
-            let (status, output) = exchange(connection, install).await?;
+            let (status, output) = exchange(connection, install).await.map_err(ExchangeError::into_vendor)?;
             if matches!(status, 2 | 126 | 127) {
                 let first = self.warnings.lock().unwrap_or_else(|e| e.into_inner()).insert(self.worker.clone());
                 if first {
@@ -126,22 +144,20 @@ impl Supervisor {
         let Some(root) = capability.clone()? else {
             return Ok(None);
         };
-        let peer = tokio::time::timeout(
-            CONTROL_TIMEOUT,
-            self.peer.get_or_try_init(|| async {
-                let control = (self.dial)().await.map_err(super::error::SshFailure::into_vendor)?;
-                Ok(Arc::new(Peer {
-                    connection: control,
+        let peer = self
+            .peer
+            .get_or_init(|| async {
+                let peer = Arc::new(Peer {
+                    data: connection.clone(),
+                    dial: self.dial.clone(),
+                    control: tokio::sync::Mutex::default(),
                     root,
                     timing: self.timing,
-                }))
-            }),
-        )
-        .await
-        .map_err(|_| protocol_error("Worker supervisor control connection timed out"))??;
-        if !peer.connection.is_connected() {
-            return Err(protocol_error("Worker supervisor control connection is closed"));
-        }
+                });
+                let _ = peer.connection().await;
+                peer
+            })
+            .await;
         Ok(Some(peer.clone()))
     }
 }
@@ -163,12 +179,25 @@ fn protocol_error(message: &str) -> VendorError {
     VendorError::Other(failure(FailureKind::Io, message))
 }
 
-async fn exchange(connection: &SshConnection, wire: String) -> VendorResult<(i32, String)> {
+enum ExchangeError {
+    Timeout(&'static str),
+    Command(VendorError),
+}
+impl ExchangeError {
+    fn into_vendor(self) -> VendorError {
+        match self {
+            Self::Timeout(message) => protocol_error(message),
+            Self::Command(error) => error,
+        }
+    }
+}
+
+async fn exchange(connection: &SshConnection, wire: String) -> Result<(i32, String), ExchangeError> {
     let deadline = tokio::time::Instant::now() + CONTROL_TIMEOUT;
     let channel = tokio::time::timeout_at(deadline, connection.start_session())
         .await
-        .map_err(|_| protocol_error("Worker supervisor channel open timed out"))?
-        .map_err(super::error::SshFailure::into_vendor)?;
+        .map_err(|_| ExchangeError::Timeout("Worker supervisor channel open timed out"))?
+        .map_err(|error| ExchangeError::Command(error.into_vendor()))?;
     let result = tokio::time::timeout_at(deadline, async {
         channel
             .exec(wire)
@@ -191,18 +220,29 @@ async fn exchange(connection: &SshConnection, wire: String) -> VendorResult<(i32
     })
     .await;
     channel.request_close();
-    result.map_err(|_| protocol_error("Worker supervisor command timed out"))?
+    result
+        .map_err(|_| ExchangeError::Timeout("Worker supervisor command timed out"))?
+        .map_err(ExchangeError::Command)
 }
 
+#[derive(Default)]
+struct Control {
+    active: Option<Arc<SshConnection>>,
+    next_dial: Option<tokio::time::Instant>,
+}
 struct Peer {
-    connection: Arc<SshConnection>,
+    data: Arc<SshConnection>,
+    dial: ControlDial,
+    control: tokio::sync::Mutex<Control>,
     root: String,
     timing: Timing,
 }
 
 impl Drop for Peer {
     fn drop(&mut self) {
-        self.connection.abandon();
+        if let Some(active) = self.control.get_mut().active.take() {
+            active.abandon();
+        }
     }
 }
 
@@ -240,15 +280,124 @@ impl Reply {
 }
 
 impl Peer {
-    async fn ask(&self, token: &str, operation: &str) -> VendorResult<Reply> {
+    async fn connection(&self) -> VendorResult<Arc<SshConnection>> {
+        let deadline = tokio::time::Instant::now() + CONTROL_TIMEOUT;
+        let mut control = tokio::time::timeout_at(deadline, self.control.lock())
+            .await
+            .map_err(|_| protocol_error("Worker supervisor reconnect is busy"))?;
+        if let Some(active) = &control.active
+            && active.is_connected()
+        {
+            return Ok(active.clone());
+        }
+        if control.next_dial.is_some_and(|next| tokio::time::Instant::now() < next) {
+            return Err(protocol_error("Worker supervisor reconnect is waiting to retry"));
+        }
+        // One dial per shared connection. Its deadline also bounds callers
+        // waiting behind it. Keep the failed-attempt bound on cancellation.
+        control.next_dial = Some(deadline + RECONNECT_DELAY);
+        let connected = tokio::time::timeout_at(deadline, (self.dial)()).await;
+        control.next_dial = Some(tokio::time::Instant::now() + RECONNECT_DELAY);
+        let active = connected
+            .map_err(|_| protocol_error("Worker supervisor control connection timed out"))?
+            .map_err(super::error::SshFailure::into_vendor)?;
+        control.active = Some(active.clone());
+        Ok(active)
+    }
+
+    async fn control_lost(&self) {
+        let active = self
+            .control
+            .try_lock()
+            .ok()
+            .and_then(|control| control.active.as_ref().filter(|active| active.is_connected()).cloned());
+        match active {
+            Some(active) => active.shared.wait_dead().await,
+            None => std::future::pending().await,
+        }
+    }
+
+    async fn ask(&self, token: &str, operation: &str) -> VendorResult<(Reply, bool)> {
         let wire = format!(
             "/usr/bin/perl {}/supervisor.pl control {} {} {token}:{operation}",
             self.root, self.root, self.timing.lease_ms
         );
-        let (status, output) = exchange(&self.connection, wire).await?;
+        let control = async {
+            let active = self.connection().await?;
+            match exchange(&active, wire.clone()).await {
+                Ok(response) => Ok(response),
+                Err(error) if matches!(error, ExchangeError::Timeout(_)) || !active.is_connected() => {
+                    // Replace only the generation this request observed. Never
+                    // abandon the data transport or a newer control connection.
+                    active.abandon();
+                    let retry = self.connection().await?;
+                    exchange(&retry, wire.clone()).await.map_err(ExchangeError::into_vendor)
+                }
+                Err(error) => Err(error.into_vendor()),
+            }
+        }
+        .await;
+        let ((status, output), fallback) = match control {
+            Ok(response) => (response, false),
+            Err(_) if self.data.is_connected() => (
+                exchange(&self.data, wire).await.map_err(ExchangeError::into_vendor)?,
+                true,
+            ),
+            Err(error) => return Err(error),
+        };
         Reply::parse(&output, token)
             .filter(|_| status == 0)
+            .map(|reply| (reply, fallback))
             .ok_or_else(|| protocol_error("Worker supervisor returned an invalid token receipt"))
+    }
+}
+
+/// The remote sender's token and the credentials under which its state exists.
+#[doc(hidden)]
+pub struct WorkerRsync {
+    lease: Arc<Lease>,
+    pub(crate) auth: marathon_config::vendor::SshAuthentication,
+    pub(crate) started: bool,
+}
+
+impl WorkerRsync {
+    pub(crate) const EXIT_PROOF_TIMEOUT: WallDuration = EXIT_PROOF_TIMEOUT;
+
+    pub(crate) fn wire(&self) -> &str {
+        self.lease.wire()
+    }
+
+    pub(crate) fn start(&mut self) {
+        self.started = true;
+        // The separate ssh client exposes no exec acknowledgement. A status
+        // response from the worker is needed before any renewal.
+        self.lease.start(None);
+        self.lease.acknowledge();
+    }
+
+    pub(crate) fn stop(&self) {
+        self.lease.channel_ended();
+    }
+
+    pub(crate) fn finish(&self) {
+        self.lease.stop.lock().unwrap_or_else(|e| e.into_inner()).finished = true;
+        self.lease.changed.notify_one();
+    }
+
+    pub(crate) async fn confirmed(&self, successful: bool) -> VendorResult<()> {
+        match self.lease.proof().await? {
+            Proof::Done(0) => Ok(()),
+            _ if !successful => Ok(()),
+            _ => Err(protocol_error(
+                "Successful rsync has no successful worker sender receipt",
+            )),
+        }
+    }
+}
+
+impl Drop for WorkerRsync {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 
@@ -257,6 +406,7 @@ struct Stop {
     signal: u8,
     channel_ended: bool,
     acknowledged: bool,
+    finished: bool,
 }
 
 pub(super) struct Lease {
@@ -269,14 +419,11 @@ pub(super) struct Lease {
 }
 
 impl Lease {
-    fn new(peer: Arc<Peer>, command: &str) -> Self {
+    fn new(peer: Arc<Peer>, mode: &str, argv: String) -> Self {
         let token = format!("{:032x}", rand::random::<u128>());
         let wire = format!(
-            "/usr/bin/perl {}/supervisor.pl run {} {} {token} /bin/sh -c {}",
-            peer.root,
-            peer.root,
-            peer.timing.lease_ms,
-            quote(command)
+            "/usr/bin/perl {}/supervisor.pl {mode} {} {} {token} {argv}",
+            peer.root, peer.root, peer.timing.lease_ms
         );
         Self {
             peer,
@@ -293,7 +440,7 @@ impl Lease {
 
     pub(super) fn start(self: &Arc<Self>, receipt: Option<Arc<TransferReceipt>>) {
         let lease = self.clone();
-        self.peer.connection.runtime.spawn(Box::pin(async move {
+        self.peer.data.runtime.spawn(Box::pin(async move {
             let outcome = lease.watch().await.map_err(|error| error.failure().clone());
             if let Some(receipt) = receipt {
                 receipt.end(match &outcome {
@@ -351,14 +498,20 @@ impl Lease {
         loop {
             tokio::select! {
                 _ = self.changed.notified() => {},
+                _ = self.peer.control_lost() => {},
                 _ = tokio::time::sleep(delay) => {},
             }
             let state = *self.stop.lock().unwrap_or_else(|error| error.into_inner());
             let now = tokio::time::Instant::now();
-            if (state.signal != 0 || state.channel_ended) && ending.is_none() {
+            if (state.signal != 0 || state.channel_ended || state.finished) && ending.is_none() {
                 ending = Some(now);
             }
-            let wanted = if state.channel_ended || ending.is_some_and(|start| now - start >= CLOSE_GRACE) {
+            let grace = if state.finished {
+                WallDuration::from_secs(2)
+            } else {
+                CLOSE_GRACE
+            };
+            let wanted = if state.channel_ended || ending.is_some_and(|start| now - start >= grace) {
                 3
             } else {
                 state.signal
@@ -366,6 +519,7 @@ impl Lease {
             let operation = if wanted > signalled {
                 wanted.to_string()
             } else if wanted == 0
+                && !state.finished
                 && state.acknowledged
                 && let Some(stamp) = stamp
             {
@@ -374,22 +528,23 @@ impl Lease {
                 "status".to_string()
             };
             match self.peer.ask(&self.token, &operation).await {
-                Ok(Reply::Proof(proof)) => return Ok(proof),
-                Ok(Reply::Unconfirmed) => {
+                Ok((Reply::Proof(proof), _)) => return Ok(proof),
+                Ok((Reply::Unconfirmed, _)) => {
                     return Err(protocol_error("Worker process group disappearance was not confirmed"));
                 }
-                Ok(Reply::Running(expiry)) => {
+                Ok((Reply::Running(expiry), fallback)) => {
                     signalled = wanted;
                     let needs_renewal = stamp.is_none() && ending.is_none();
                     stamp = Some(expiry);
                     delay = if needs_renewal || ending.is_some() {
                         WallDuration::from_millis(100)
+                    } else if fallback {
+                        self.peer.timing.interval.min(RECONNECT_DELAY)
                     } else {
                         self.peer.timing.interval
                     };
                 }
-                Ok(Reply::Busy | Reply::Unknown) => delay = WallDuration::from_millis(100),
-                Err(error) if !self.peer.connection.is_connected() => return Err(error),
+                Ok((Reply::Busy | Reply::Unknown, _)) => delay = WallDuration::from_millis(100),
                 Err(_) => delay = WallDuration::from_secs(1),
             }
             if ending.is_some_and(|start| now - start >= CLOSE_GRACE + 3 * CONTROL_TIMEOUT) {
