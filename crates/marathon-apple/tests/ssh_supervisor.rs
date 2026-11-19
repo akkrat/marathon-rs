@@ -352,6 +352,113 @@ async fn stock_perl_detaches_the_recorder_and_returns_its_own_exit_proof_d96() -
 }
 
 #[tokio::test]
+async fn forced_and_expired_recorders_finalize_and_failed_recorders_keep_bounded_stderr_d96()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::{os::unix::fs::PermissionsExt, time::Duration};
+    if !Path::new("/usr/bin/perl").is_file() {
+        eprintln!("worker witness requires stock Perl");
+        return Ok(());
+    }
+    let root = tempfile::Builder::new()
+        .prefix("marathon-supervisor-")
+        .rand_bytes(10)
+        .tempdir_in("/tmp")?;
+    std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700))?;
+    let supervisor = root.path().join("supervisor.pl");
+    std::fs::write(
+        &supervisor,
+        include_bytes!("../src/cmd/remote/ssh/sshj/supervisor/worker.pl"),
+    )?;
+    let invoke = |mode: &str, lease: &str, args: &[&str]| {
+        let mut command = tokio::process::Command::new("/usr/bin/perl");
+        command
+            .arg(&supervisor)
+            .arg(mode)
+            .arg(root.path())
+            .arg(lease)
+            .args(args);
+        command.kill_on_drop(true);
+        command.output()
+    };
+    for (token, lease, force) in [
+        ("00000000000000000000000000000001", "1500", false),
+        ("00000000000000000000000000000002", "10000", true),
+    ] {
+        let ready = root.path().join(format!("{token}.ready"));
+        let payload = r#"
+    $SIG{INT} = sub { exit(0) };
+    open my $marker, '>', shift or die $!;
+    close $marker;
+    while (1) { select undef, undef, undef, .01 }
+    "#;
+        let start = invoke(
+            "detach",
+            lease,
+            &[token, "/usr/bin/perl", "-e", payload, ready.to_str().unwrap()],
+        )
+        .await?;
+        assert!(start.status.success(), "{}", String::from_utf8_lossy(&start.stderr));
+        tokio::time::timeout(Duration::from_secs(4), async {
+            while !ready.is_file() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await?;
+        if force {
+            assert!(
+                invoke("control", lease, &[&format!("{token}:3")])
+                    .await?
+                    .status
+                    .success()
+            );
+        }
+        tokio::time::timeout(Duration::from_secs(6), async {
+            loop {
+                let receipt = invoke("control", lease, &[&format!("{token}:status")]).await?;
+                if receipt.stdout.starts_with(format!("{token} done:").as_bytes()) {
+                    assert_eq!(receipt.stdout, format!("{token} done:0\n").as_bytes());
+                    return Ok::<_, std::io::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await??;
+        std::fs::remove_file(ready)?;
+    }
+    let failed = "00000000000000000000000000000003";
+    let start = invoke(
+        "detach",
+        "8000",
+        &[
+            failed,
+            "/usr/bin/perl",
+            "-e",
+            r#"print STDERR "A recording is already in progress\n", "x" x 50000; exit 16"#,
+        ],
+    )
+    .await?;
+    assert!(start.status.success());
+    tokio::time::timeout(Duration::from_secs(6), async {
+        loop {
+            let receipt = invoke("control", "8000", &[&format!("{failed}:status")]).await?;
+            let output = String::from_utf8(receipt.stdout).map_err(std::io::Error::other)?;
+            if output.starts_with(&format!("{failed} done:")) {
+                use base64::{Engine, engine::general_purpose::STANDARD};
+                let encoded = output.trim_end().strip_prefix(&format!("{failed} done:16 ")).unwrap();
+                let stderr = STANDARD.decode(encoded).map_err(std::io::Error::other)?;
+                assert_eq!(stderr.len(), 8192);
+                assert!(stderr.starts_with(b"A recording is already in progress\n"));
+                return Ok::<_, std::io::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await??;
+    assert_eq!(invoke("retire", "8000", &[]).await?.stdout, b"MARATHON_D96_1 retired\n");
+    Ok(())
+}
+
+#[tokio::test]
 async fn worker_expiry_compacts_its_receipt_and_retirement_waits_for_owned_groups_d96()
 -> Result<(), Box<dyn std::error::Error>> {
     use std::{os::unix::fs::PermissionsExt, time::Duration};
@@ -382,7 +489,20 @@ async fn worker_expiry_compacts_its_receipt_and_retirement_waits_for_owned_group
     };
     let live = "0123456789abcdef0123456789abcdef";
     let sibling = "fedcba9876543210fedcba9876543210";
-    assert!(invoke("detach", &[live, "/bin/sleep", "30"]).await?.status.success());
+    assert!(
+        invoke(
+            "detach",
+            &[
+                live,
+                "/usr/bin/perl",
+                "-e",
+                "$SIG{INT} = $SIG{TERM} = 'IGNORE'; sleep 30"
+            ]
+        )
+        .await?
+        .status
+        .success()
+    );
     assert_eq!(invoke("retire", &[]).await?.stdout, b"MARATHON_D96_1 busy\n");
     assert!(root.path().join(format!("{live}.state")).is_file());
 

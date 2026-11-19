@@ -512,6 +512,23 @@ witness passed 120 loaded runs and the batch-timeout witness passed 640.
 On Linux the process and simulator-batch suites passed, with another 30
 successful runs of the timeout witness.
 
+## x95e detached recorder recovery
+
+A throwaway iOS 18.6 simulator recorded a readable movie and exited zero on
+INT. KILL during the next confirmed recording left the service busy. A new
+`recordVideo` returned code 16 and “A recording is already in progress”.
+The old supervisor reproduced this after lease expiry with `done:137`.
+After rebooting that same throwaway simulator, the fixed supervisor expired
+with `done:0` and a readable movie. The next recording also finalized and
+was readable. Both throwaway simulators were deleted. The earlier acceptance
+discarded stderr, so its six original errors cannot be identified verbatim.
+
+The worker gives a started detached recorder up to 2 s after INT and 1 s
+after TERM when a forced stop is needed. It preserves the first 8 KiB of
+stderr when a recording fails and returns it with the failed receipt. The
+warning for a busy recorder identifies the active session or simulator
+restart as the recovery action.
+
 ## Incidental bugs
 
 No additional bug outside x95 was pursued.

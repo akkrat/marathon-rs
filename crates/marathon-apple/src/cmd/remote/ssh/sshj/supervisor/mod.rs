@@ -37,6 +37,21 @@ mod tests {
     use super::*;
     use std::task::{Context, Waker};
 
+    #[test]
+    fn recorder_stderr_is_bounded_and_only_accepted_on_a_failed_receipt_d96() {
+        let stderr = STANDARD.encode(b"A recording is already in progress\r\n");
+        assert_eq!(
+            Reply::parse(&format!("token done:16 {stderr}\n"), "token"),
+            Some((
+                Reply::Proof(Proof::Done(16)),
+                Some("A recording is already in progress\r\n".into())
+            ))
+        );
+        assert_eq!(Reply::parse(&format!("token done:0 {stderr}\n"), "token"), None);
+        let too_large = STANDARD.encode(vec![b'x'; 8193]);
+        assert_eq!(Reply::parse(&format!("token done:1 {too_large}\n"), "token"), None);
+    }
+
     #[tokio::test(start_paused = true)]
     async fn retirement_waits_for_the_in_flight_probe_d96() {
         let supervisor = Supervisor::new(
@@ -261,6 +276,7 @@ impl Supervisor {
             control: tokio::sync::Mutex::default(),
             root: root.to_owned(),
             timing: self.timing,
+            logging: self.logging.clone(),
         })))
     }
 }
@@ -353,6 +369,7 @@ struct Peer {
     control: tokio::sync::Mutex<Control>,
     root: String,
     timing: Timing,
+    logging: SshLogging,
 }
 
 impl Drop for Peer {
@@ -379,12 +396,15 @@ enum Reply {
 }
 
 impl Reply {
-    fn parse(output: &str, token: &str) -> Option<Self> {
+    fn parse(output: &str, token: &str) -> Option<(Self, Option<String>)> {
         let (returned, state) = output.strip_suffix('\n')?.split_once(' ')?;
         if returned != token {
             return None;
         }
-        Some(match state {
+        let (state, encoded) = state
+            .split_once(' ')
+            .map_or((state, None), |(state, encoded)| (state, Some(encoded)));
+        let reply = match state {
             "busy" => Self::Busy,
             "unknown" => Self::Unknown,
             "not-started" => Self::Proof(Proof::NotStarted),
@@ -392,7 +412,22 @@ impl Reply {
             _ if state.starts_with("running:") => Self::Running(state[8..].parse().ok()?),
             _ if state.starts_with("done:") => Self::Proof(Proof::Done(i32::from(state[5..].parse::<u8>().ok()?))),
             _ => return None,
-        })
+        };
+        let diagnostic = match encoded {
+            Some(encoded) if matches!(reply, Self::Proof(Proof::Done(1..)) | Self::Unconfirmed) => {
+                if encoded.len() > 8192usize.div_ceil(3) * 4 {
+                    return None;
+                }
+                let bytes = STANDARD.decode(encoded).ok()?;
+                if bytes.len() > 8192 {
+                    return None;
+                }
+                Some(String::from_utf8_lossy(&bytes).into_owned())
+            }
+            Some(_) => return None,
+            None => None,
+        };
+        Some((reply, diagnostic))
     }
 }
 
@@ -515,10 +550,27 @@ impl Peer {
             ),
             Err(error) => return Err(error),
         };
-        Reply::parse(&output, token)
+        let (reply, diagnostic) = Reply::parse(&output, token)
             .filter(|_| status == 0)
-            .map(|reply| (reply, fallback))
-            .ok_or_else(|| protocol_error("Worker supervisor returned an invalid token receipt"))
+            .ok_or_else(|| protocol_error("Worker supervisor returned an invalid token receipt"))?;
+        if let Some(stderr) = diagnostic {
+            let logger = self.logging.component(TARGET);
+            self.logging.log(
+                &logger,
+                Level::WARN,
+                || {
+                    let mut message = format!("Worker recorder {token} failed ({reply:?}). stderr: {stderr:?}");
+                    if stderr.contains("A recording is already in progress") {
+                        message.push_str(
+                            ". Stop the active recording or restart the affected simulator before recording again.",
+                        );
+                    }
+                    message
+                },
+                None,
+            );
+        }
+        Ok((reply, fallback))
     }
 }
 

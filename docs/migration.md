@@ -558,15 +558,21 @@ batch that rejected a test.
   The default lease is 79 s. The lease reserves at least the renewal interval
   plus 26 s for control recovery. One already issued renewal can extend the
   last observed deadline once, so an already-running group can survive up to
-  two lease periods plus the worker poll interval, normally 50 ms. A queued
+  two lease periods plus the worker poll interval, normally 50 ms. A recorder
+  gets up to another 3 s to finalize and stop. A queued
   exec whose stop cannot reach the worker starts its lease when the worker
   admits it. A frozen worker can act after it runs again. If both paths stay
   down, the private supervisor directory and one small receipt per finished
   token can remain under `/tmp`. Ordinary close attempts to remove the
   directory while the worker is reachable.
 - **Stopping an iOS recorder before launch acknowledgement can leave an undelivered movie.**
-  Marathon sends token KILL when it cannot reach an acknowledged recorder session.
+  Marathon requests a token stop when it cannot reach an acknowledged recorder
+  session. If the recorder has started, the worker gives it INT before escalation.
+  A failed detached recorder reports bounded stderr when available.
   If its movie cannot be confirmed finalized, D97 reports it as undelivered.
+- **Xcode shared service hosts can outlive a run.** Helpers such as
+  `DTServiceHub` use their own groups and can reparent to the system service
+  manager. They are shared across Xcode sessions and remain available.
 
 These fix bugs that Kotlin has, and need no configuration change.
 

@@ -61,7 +61,7 @@ sub locked {
 
 sub control {
     my ($dir, $op, $lease) = @_;
-    return locked($dir, sub {
+    my $reply = locked($dir, sub {
         my ($started, $expiry, $signal, $receipt) = @_;
         my $now = clock_ms();
         return (undef, $receipt) if $receipt ne '-';
@@ -78,10 +78,29 @@ sub control {
         }
         return ([$started, $expiry, $signal, '-'], $started ? "running:$expiry" : 'unknown');
     }) // 'busy';
+    if ($reply =~ /\A(?:done:[1-9][0-9]*|unconfirmed)\z/ && open my $file, '<', "$dir.stderr") {
+        my $count = read($file, my $diagnostic, 8192);
+        if ($count) {
+            require MIME::Base64;
+            $reply .= ' ' . MIME::Base64::encode_base64($diagnostic, '');
+        }
+    }
+    return $reply;
+}
+
+sub drain_errors {
+    my ($pipe, $tail) = @_;
+    for (1..8) {
+        last unless readable($pipe, 0);
+        last unless sysread($pipe, my $bytes, 4096);
+        my $remaining = 8192 - length($$tail);
+        $$tail .= substr($bytes, 0, $remaining) if $remaining > 0;
+    }
 }
 
 sub run_owned {
     my ($dir, $lease, $announce, @argv) = @_;
+    my $recorder = defined $announce;
     my $start;
     my $admission_deadline = clock_ms() + $lease;
     while (!defined $start && clock_ms() < $admission_deadline) {
@@ -98,6 +117,8 @@ sub run_owned {
     pipe(my $ready, my $ready_w) or die "ready pipe: $!";
     pipe(my $go, my $go_w) or die "start pipe: $!";
     pipe(my $status, my $status_w) or die "status pipe: $!";
+    my ($errors, $errors_w);
+    pipe($errors, $errors_w) or die "recorder stderr pipe: $!" if $recorder;
     local $SIG{CHLD} = 'DEFAULT';
     local $SIG{PIPE} = 'IGNORE';
     local $SIG{HUP} = 'IGNORE';
@@ -107,6 +128,7 @@ sub run_owned {
     defined($anchor) or die "fork anchor: $!";
     if ($anchor == 0) {
         close $announce if $announce;
+        close $errors if $recorder;
         close $_ for ($ready, $go_w, $status);
         my $group_permit;
         sysread($go, $group_permit, 1) == 1 && $group_permit eq 'P' or exit(125);
@@ -114,6 +136,10 @@ sub run_owned {
         defined($payload) or exit(125);
         if ($payload == 0) {
             close $status_w;
+            if ($recorder) {
+                open STDERR, '>&', $errors_w or exit(125);
+                close $errors_w;
+            }
             $SIG{$_} = 'DEFAULT' for qw(PIPE HUP INT TERM);
             syswrite($ready_w, 'R', 1) == 1 or exit(125);
             close $ready_w;
@@ -122,6 +148,7 @@ sub run_owned {
             close $go;
             exec { $argv[0] } @argv or exit(127);
         }
+        close $errors_w if $recorder;
         close $_ for ($ready_w, $go);
         waitpid($payload, 0) == $payload or exit(125);
         syswrite($status_w, pack('N', $?), 4);
@@ -131,17 +158,22 @@ sub run_owned {
     }
 
     close $_ for ($ready_w, $go, $status_w);
+    close $errors_w if $recorder;
     my $group = setpgrp($anchor, $anchor);
     my $permitted = $group && syswrite($go_w, 'P', 1) == 1;
     my $rc = 125;
     my $seen = 0;
+    my $signal_at;
+    my $diagnostic = '';
     my ($expiry, $wanted) = ($start, 0);
     my $starting = 1;
     eval {
         while ($permitted) {
             my $observed = locked($dir, sub { (undef, [$_[1], $_[2]]) });
             ($expiry, $wanted) = @$observed if defined $observed;
-            if (clock_ms() >= $expiry || $wanted == 3) {
+            my $now = clock_ms();
+            my $force = $now >= $expiry || $wanted == 3;
+            if ($force && (!$recorder || $starting)) {
                 $rc = 137;
                 last;
             }
@@ -160,9 +192,26 @@ sub run_owned {
                     close $announce;
                 }
             }
-            if (!$starting && $wanted > $seen) {
-                kill($wanted == 1 ? 'INT' : 'TERM', -$anchor);
-                $seen = $wanted;
+            if (!$starting) {
+                if ($recorder) {
+                    drain_errors($errors, \$diagnostic);
+                    # A disappearing controller can still leave the simulator's
+                    # video service busy. Give the recorder the same first
+                    # chance to finalize even on a hard stop or lease expiry.
+                    if (($wanted || $force) && !$seen) {
+                        kill 'INT', -$anchor;
+                        ($seen, $signal_at) = (1, $now);
+                    } elsif (($wanted >= 2 || $force) && $seen == 1 && $now - $signal_at >= 2000) {
+                        kill 'TERM', -$anchor;
+                        ($seen, $signal_at) = (2, $now);
+                    } elsif ($force && $seen == 2 && $now - $signal_at >= 1000) {
+                        $rc = 137;
+                        last;
+                    }
+                } elsif ($wanted > $seen) {
+                    kill($wanted == 1 ? 'INT' : 'TERM', -$anchor);
+                    $seen = $wanted;
+                }
             }
             if (readable($status, 0.025)) {
                 my $n = sysread($status, my $packet, 4);
@@ -185,6 +234,17 @@ sub run_owned {
         $gone = $group && !(kill 0, -$anchor) && $! == ESRCH;
         last if $gone || clock_ms() >= $end;
         select undef, undef, undef, 0.025;
+    }
+    if ($recorder) {
+        drain_errors($errors, \$diagnostic);
+        close $errors;
+        if (length($diagnostic) && ($rc || !$reaped || !$gone)) {
+            # Diagnostics are published before the terminal receipt.
+            if (sysopen my $file, "$dir.stderr", O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW, 0600) {
+                print {$file} $diagnostic;
+                close $file;
+            }
+        }
     }
     my $receipt_deadline = clock_ms() + 5000;
     my $recorded;
@@ -232,7 +292,7 @@ if ($mode eq 'retire') {
     opendir my $dir, $root or die "open root: $!";
     my @files = grep { $_ ne '.' && $_ ne '..' && $_ ne 'supervisor.pl' } readdir $dir;
     closedir $dir or die "close root: $!";
-    !grep { !/\A[a-f0-9]{32}\.(?:state|lock|pending|receipt)\z/ } @files or die "unexpected root entries";
+    !grep { !/\A[a-f0-9]{32}\.(?:state|lock|pending|receipt|stderr)\z/ } @files or die "unexpected root entries";
     unlink(map { "$root/$_" } @files) == @files or die "remove token state: $!";
     unlink "$root/supervisor.pl" or die "remove supervisor: $!";
     rmdir $root or die "remove root: $!";

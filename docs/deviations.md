@@ -3097,6 +3097,12 @@ tests can record again. A legacy recorder contributes no D93 cleanup receipt.
 The "Video recording did not start" warning can repeat for individual tests. A stop before
 worker acknowledgement can use token KILL and leave the recorder unfinalized.
 D97 reports that movie as undelivered.
+If the worker has started the recorder, a forced stop or lease expiry gives it
+INT and 2 s to finalize, then TERM and up to 1 s before KILL. A failed detached
+recorder can report up to 8 KiB of stderr with its receipt. A stale-session
+error identifies the need to stop the active recording or restart the affected
+simulator. Cleanup leaves detached Xcode shared service hosts such as
+`DTServiceHub` running because other Xcode sessions can use them.
 
 Apple SSH exec probes for usable stock Perl once per connection. When available,
 a worker supervisor records the token before starting the payload in an owned
