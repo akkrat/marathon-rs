@@ -840,6 +840,15 @@ async fn failed_or_null_transcode_requests_the_original_movie_d97() -> TestResul
             bridge.pulls.lock().unwrap().as_slice(),
             &[d.remote_file_manager().remote_temp_video_for_test(&test, "batch")]
         );
+        let src = d.remote_file_manager().remote_video_for_test(&test, "batch");
+        {
+            let commands = h.worker.commands.lock().unwrap();
+            let transcode = commands
+                .iter()
+                .position(|cmd| cmd.last().is_some_and(|s| s.contains(" -vf ")))
+                .unwrap();
+            assert!(commands[transcode + 1..].iter().any(|cmd| cmd == &["rm", "-rf", &src]));
+        }
         assert_eq!(
             h.logs
                 .lock()

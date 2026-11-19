@@ -261,9 +261,15 @@ impl Media {
             .c
             .device
             .execute_worker_command(transcode_command(config, src, temp), &self.c.context)
-            .await?;
-        let succeeded = result.as_ref().is_some_and(|result| result.successful());
-        if let Some(result) = result.filter(|r| !r.successful()) {
+            .await;
+        let succeeded = result
+            .as_ref()
+            .is_ok_and(|result| result.as_ref().is_some_and(|result| result.successful()));
+        if !succeeded {
+            // The original is staged at temp, so src can only hold partial output.
+            let _ = self.remove(src).await;
+        }
+        if let Some(result) = result?.filter(|r| !r.successful()) {
             self.c.log(
                 &self.logger,
                 Level::ERROR,

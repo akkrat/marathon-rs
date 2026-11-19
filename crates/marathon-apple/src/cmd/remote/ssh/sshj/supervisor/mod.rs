@@ -32,6 +32,31 @@ const CLOSE_GRACE: WallDuration = WallDuration::from_secs(20);
 const BOOTSTRAP: &str = include_str!("bootstrap.pl");
 const WORKER: &str = include_str!("worker.pl");
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::task::{Context, Waker};
+
+    #[tokio::test(start_paused = true)]
+    async fn retirement_waits_for_the_in_flight_probe_d96() {
+        let supervisor = Supervisor::new(
+            ("worker".into(), 22),
+            Arc::default(),
+            SshLogging::new(Arc::default(), Arc::new(|_, _, _, _| {})),
+            Duration::ZERO,
+            1,
+            Arc::new(|| panic!("retirement must not dial")),
+        );
+        let reply = SharedDeferred::new();
+        *supervisor.capability.lock().unwrap() = Capability::Probing(reply.clone());
+        let mut retiring = std::pin::pin!(supervisor.retire());
+        let mut context = Context::from_waker(Waker::noop());
+        assert!(retiring.as_mut().poll(&mut context).is_pending());
+        reply.complete(Ok(None));
+        assert!(retiring.as_mut().poll(&mut context).is_ready());
+    }
+}
+
 pub type Warnings = Arc<Mutex<HashSet<(String, u16)>>>;
 type ControlConnection = Pin<Box<dyn Future<Output = Result<Arc<SshConnection>, super::error::SshFailure>> + Send>>;
 pub(super) type ControlDial = Arc<dyn Fn() -> ControlConnection + Send + Sync>;
@@ -61,7 +86,7 @@ impl Timing {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 enum Capability {
     #[default]
     Unknown,
@@ -141,10 +166,21 @@ impl Supervisor {
     }
 
     pub(super) async fn retire(&self) {
-        let peer = match &*self.capability.lock().unwrap_or_else(|error| error.into_inner()) {
-            Capability::Ready(Some(peer)) => peer.clone(),
-            _ => return,
+        let capability = self
+            .capability
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        // The bootstrap can create its directory after its last caller stops waiting.
+        let peer = match capability {
+            Capability::Probing(reply) => match tokio::time::timeout(PROBE_TIMEOUT, reply.wait()).await {
+                Ok(Ok(peer)) => (*peer).clone(),
+                _ => None,
+            },
+            Capability::Ready(peer) => peer,
+            Capability::Unknown => None,
         };
+        let Some(peer) = peer else { return };
         let result = tokio::time::timeout(CONTROL_TIMEOUT, peer.retire()).await;
         if !matches!(result, Ok(Ok(()))) {
             let logger = self.logging.component(TARGET);
