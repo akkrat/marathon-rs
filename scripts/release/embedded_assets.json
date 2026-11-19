@@ -82,6 +82,19 @@
       "licences": [
         "scripts/release/asset-licences/skcms.txt"
       ]
+    },
+    {
+      "component": "marathon worker supervisor scripts (bootstrap.pl, worker.pl)",
+      "version": "this release",
+      "spdx": "GPL-2.0-only",
+      "status": "open-source",
+      "source": "written for marathon-rs (D96); sent to SSH workers and run there by the stock Perl",
+      "files": [
+        "crates/marathon-apple/src/cmd/remote/ssh/sshj/supervisor/bootstrap.pl",
+        "crates/marathon-apple/src/cmd/remote/ssh/sshj/supervisor/worker.pl"
+      ],
+      "note": "",
+      "licences": []
     }
   ]
 }
