@@ -131,9 +131,9 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 | have devices that go `offline` often ([D41](deviations.md#d41--a-brief-offline-does-not-lose-the-device)) | A device gets up to 10 s to come back, at most 5 times per adb server in a run. The count is never reset. From the sixth `offline` on the device is disconnected at once, as in Kotlin. | Fix the transport. A device that drops more than five times in one run is lost for the rest of that run. |
 | filter adb shell commands or run Android through intermittent adb outages ([D85](deviations.md#d85--android-checks-the-boot-before-resuming-tests)) | D85 is new in 0.15.0-rc.1. Marathon reads `/proc/sys/kernel/random/boot_id` and writes, reads and removes a per-preparation marker under `/data/local/tmp`. During an adb outage or a brief `offline`, a changed boot ID or a confirmed missing or different marker (a full reboot, a snapshot from before preparation) triggers fresh setup. If the marker's creation could not be confirmed, recovery checks the boot ID alone; without readable evidence of a reset, ordinary recovery continues. An unchanged kernel ID and marker can hide a restart of a shared-kernel container that preserves the marker while resetting other state. Marathon gives a still-listed device one more setup after preparation exhausts its retries, within the existing return deadline. | Allow the boot ID read and marker operations if you filter adb commands. Existing Marathonfiles need no changes. |
 | rely on a run failing quickly when it loses all its devices ([D48](deviations.md#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)) | A pool with tests left waits up to `deviceInitializationTimeoutMillis` (180 s by default), from when its last working device went away (or a test that device reports after leaving ended), for a device that comes back and gets ready before it ends, and then for the devices leaving to finish cleaning up. A killed emulator alone exits 1 after about 180 s, not 12.5 s. | Lower `deviceInitializationTimeoutMillis`, which also bounds the wait for the first device. |
-| have devices that need many slow retries before they get ready ([D87](deviations.md#d87--a-devices-preparation-has-one-deadline)) | A device's preparation, its retries and an iOS simulator's replacements after a failed boot share one deadline: the greater of `deviceInitializationTimeoutMillis` and one preparation's limits (550 s on iOS, 1,104 s on Android with an app and its test app, 812 s on macOS, with the defaults). No retry or replacement starts after it; nothing running is stopped. A device that keeps failing slowly leaves in about 9 to 12 minutes on iOS, 19 on Android and 14 on macOS (scenario estimates) instead of up to 33, 96 and 30. A preparation that fails at once keeps its 30 attempts with the default timeouts; shorter timeouts and wait can make the deadline shorter than those 30 attempts (290 s). | Raise `deviceInitializationTimeoutMillis` to give such devices longer; it also bounds the wait for the first device and D48's wait. |
+| have devices that need many slow retries before they get ready ([D87](deviations.md#d87--a-devices-preparation-has-one-deadline)) | A device's preparation, its retries and an iOS simulator's replacements after a failed boot share one deadline: the greater of `deviceInitializationTimeoutMillis` and one preparation's limits (550 s on iOS, 1,104 s on Android with an app and its test app, 812 s on macOS, with the defaults). No retry or replacement starts after it; nothing running is stopped. A device that keeps failing slowly leaves in about 9 to 12 minutes on iOS, 19 on Android and 14 on macOS (scenario estimates) instead of up to 33, 96 and 30. A preparation that fails at once keeps its 30 attempts with the default timeouts; shorter timeouts and wait can make the deadline shorter than those 30 attempts (290 s). | To extend the preparation deadline, raise `deviceInitializationTimeoutMillis` above that calculated allowance (one preparation with its retries at their limits, from the timeouts; the figures above with the defaults); it also bounds the wait for the first device and D48's wait. |
 | use `fixed-size` batching with flaky copies or several test APKs, and set `testBatchTimeoutMillis` close to what a batch took ([D50](deviations.md#d50--a-rejected-test-does-not-use-a-batch-slot)) | Only the tests a batch accepts count against `size` and `durationMillis`, so batches that used to end early hold more tests and take longer. | Check `testBatchTimeoutMillis`. [See below](#batches-hold-more-tests-with-flaky-copies-or-several-test-apks). |
-| cancel runs with SIGINT, SIGTERM or SIGHUP, or take a run's reports as a sign that it finished ([D52](deviations.md#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit)) | A cancelled run writes its reports and terminates its devices whatever `debug` says, and exits with 130, 143 or 129 within 25 s. A second signal exits at once. | Allow 25 s before killing it, and read the exit code to tell whether a run finished. [See below](#cancelling-a-run). |
+| cancel runs with SIGINT, SIGTERM or SIGHUP, or take a run's reports as a sign that it finished ([D52](deviations.md#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit)) | Whatever `debug` says, a cancelled run attempts to write its reports if the output directory is ready and starts provider cleanup. It hands off to exit by 24 s, with up to 1 s more for console output, and exits with 130, 143 or 129; reports or cleanup can remain unfinished. A second signal exits at once. | Allow 25 s before killing it, and read the exit code to tell whether a run finished. [See below](#cancelling-a-run). |
 
 These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D22, D23, D26, D28–D30, D34, D36, D37, D40, D42, D45, D49,
 D51, D53, D54, D64–D66, D68–D70, D74–D77, D79–D84, D88, D90–D95 and D97. D65 can include a previously missed late pool,
@@ -237,7 +237,7 @@ is logged and no longer ends it.
 With `shareWorkerConnection: true`, an SSH connection that runs out of session slots after an abandoned channel can
 be replaced while existing leases drain. A worker can have up to two connection generations at once.
 
-[D91](deviations.md#d91--a-stopped-rsync-transfer-ends-within-40-s-and-its-device-waits-for-it) is new in 0.15.0-rc.1 and needs no action. A
+[D91](deviations.md#d91--a-stopped-rsync-transfer-gets-40-s-for-its-cleanup-and-its-device-waits-for-it) is new in 0.15.0-rc.1 and needs no action. A
 stopped rsync transfer to an iOS or macOS worker now has at most 40 s for its cleanup and the confirmation of it, and an
 iOS simulator's disposal waits for its sends, also those whose caller had stopped waiting, before its on-dispose
 lifecycle. If the end of rsync and what it started cannot be confirmed, an ERROR line names the worker and rsync's pid,
@@ -268,14 +268,14 @@ Provider teardown, Apple lease release and history shutdown use bounded waits. S
 for the shutdown and reporting details.
 
 [D97](deviations.md#d97--publish-complete-artifacts-and-reserve-time-for-signal-cleanup) is new in 0.15.0-rc.1 and needs no configuration change.
-A download that fails or times out leaves no partial artifact at the final path and preserves the previous file. On
+A failed, cancelled or timed-out receive leaves no partial artifact at the final path and preserves the previous
+file, and marathon reports the failed delivery. On
 a filesystem that rejects rename flags, replacing an Apple directory can leave the final path absent for a moment, and
 if a failed publication cannot restore the previous tree, that tree is kept in a named backup. Report attachments
-require a successful delivery. Android needs adb's DONE, a completed write and a byte count that agrees with the size
-STAT reported (its low 32 bits with legacy STAT); a mismatch is undelivered, including a file that grows during
-transfer, such as a live app file collected by file sync. An rsync receive whose output pipes are still open after its
-group's cleanup is also undelivered, even if rsync exits successfully. Each artifact path attempted is logged once as
-undelivered. Marathon's rsync SSH command ignores ControlMaster
+require a successful delivery. Android needs adb's DONE and a completed write, and rejects a pull when the received
+count disagrees with STAT (low 32 bits with legacy STAT), as when a file grows during the transfer (a live app file
+collected by file sync, say). An rsync receive whose output pipes are still open after its group's cleanup is also
+undelivered, even if rsync exits successfully. Marathon's rsync SSH command ignores ControlMaster
 and ControlPersist settings from SSH config.
 After SIGINT, SIGTERM or SIGHUP, eligible artifacts drain through 12 seconds from the signal, and the exit takes over
 by 24 seconds with up to 1 second more for console output. Read the undelivered-artifact diagnostics to identify missing files.
@@ -652,8 +652,9 @@ See [D51](deviations.md#d51--metrics-and-cleanup-failures-do-not-stop-a-run) and
 [D95](deviations.md#d95--finish-deadlines-for-providers-connections-and-history) applies the same 30 s allowance to
 history analytics close, after the existing 3 s refresh join. Android provider termination shares 65 s by default.
 The iOS provider has 70 s for its own teardown after artifact finalization. The D94 artifact windows are 300 s
-plus 60 s on routine termination, including failed assertions, and 30 s plus 40 s after interruption.
-On interruption the provider applies that artifact window to pulls still running from replaced simulators.
+plus 60 s on routine termination, including failed assertions, and 30 s plus 40 s after an internal run failure
+or owner cancellation, when the provider also applies that window to pulls still running from replaced simulators.
+After SIGINT, SIGTERM or SIGHUP, D97's signal cutoffs apply instead.
 Unconfirmed simulators skip on-dispose commands and keep their worker lease quarantined. The last Apple worker
 lease has at most 40 s for disconnect.
 Report generation logs the active reporter after one minute and repeats the warning at most once a minute until it finishes.
@@ -665,8 +666,10 @@ arguments until the controller exits. It ignores INT, TERM and HUP. Scripts
 that count matching processes or use `pgrep`, `pidof` or `killall` can see
 both. Use the controller PID saved when starting Marathon to target that run.
 
-SIGINT, SIGTERM or SIGHUP writes the reports and terminates the provider whatever `debug` says,
-in at most 25 s. A second signal exits at once, however soon after the first. Two of the same signal
+On SIGINT, SIGTERM or SIGHUP, marathon attempts to write reports if the output directory is ready and starts
+provider cleanup, whatever `debug` says. It hands off to exit by 24 s, with up to 1 s more for console output.
+Reports or cleanup can remain unfinished. Internal failures and owner cancellation use D94's shorter artifact
+window; signals use D97's cutoffs. A second signal exits at once, however soon after the first. Two of the same signal
 that arrive together count as one. Exit statuses are 130 for SIGINT, 143 for SIGTERM and 129 for SIGHUP.
 A cancelled run's output directory can hold partial results, so use the exit status to tell whether a
 run finished. A harness that waits less than 25 s for exit should allow for it.

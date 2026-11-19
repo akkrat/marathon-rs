@@ -502,7 +502,7 @@ Approved 2026-11-06 (project owner's decision). See
 **A receive's output pipes** also have the send's limit (U158, approved 2026-11-07). A process that ended, leaving a child that holds its pipes, such as a hung
 ssh, holds up the receive for at most 5 s more. The process's status decides the result, and that child is not stopped.
 
-**Amended by [D91](#d91--a-stopped-rsync-transfer-ends-within-40-s-and-its-device-waits-for-it):** the reap after
+**Amended by [D91](#d91--a-stopped-rsync-transfer-gets-40-s-for-its-cleanup-and-its-device-waits-for-it):** the reap after
 KILL, a failed wait and the readers' last join each have a limit now, and a cleanup that cannot be confirmed keeps the
 destination from further transfers.
 
@@ -1239,7 +1239,7 @@ Approved 2026-11-08 (project owner's decision). See [PLAN §3.11](../PLAN.md#311
 
 **Migration action:** none needed.
 
-**Amended by [D91](#d91--a-stopped-rsync-transfer-ends-within-40-s-and-its-device-waits-for-it):** a stop's cleanup,
+**Amended by [D91](#d91--a-stopped-rsync-transfer-gets-40-s-for-its-cleanup-and-its-device-waits-for-it):** a stop's cleanup,
 listings included, ends within 40 s, confirmed or reported; what rsync started is ended before its output is waited
 for; and an iOS simulator's disposal stops and waits for its sends, also those whose caller stopped waiting.
 
@@ -2673,7 +2673,7 @@ Approved 2026-11-18 (project owner's decision).
 **Migration action:** none. A shared worker can see an extra simultaneous SSH connection after this failure. Sharing
 is still off by default.
 
-## D91 — A stopped rsync transfer ends within 40 s, and its device waits for it
+## D91 — A stopped rsync transfer gets 40 s for its cleanup, and its device waits for it
 
 The Kotlin marathon blocks in an rsync transfer (A104), so the transfer never outlives its caller. The port runs a
 transfer in a task of the bridge's own, so that [D54](#d54--an-apple-send-stops-when-its-call-is-cancelled-and-any-transfer-when-its-devices-connection-is-lost)
@@ -2764,8 +2764,9 @@ that point, the device cancels pending connects, closes its request sockets, unr
 its producers. Staged pulls interrupted by teardown discard their partial output. D85 marker removal, reverse-forward
 removal and recorder stop attempts share the remaining time, with at most eight devices per ADB server issuing these
 cleanup commands at once. Provider termination reuses a cleanup already started. Active siblings retain their own
-connections. Healthy pulls and video chunks keep their normal timeouts, including D21's idle policy and the partial
-file left by an ordinary pull timeout. Pulls stage in the run's private `.marathon-staging` directory under
+connections. Healthy pulls and video chunks keep their normal timeouts, including D21's idle policy. An ordinary pull timeout
+left a partial file under D92; since [D97](#d97--publish-complete-artifacts-and-reserve-time-for-signal-cleanup) it
+leaves no partial artifact at the final path and the pull is reported undelivered. Pulls stage in the run's private `.marathon-staging` directory under
 `outputDir` and publish by rename. If staging is unavailable, the pull is not delivered (since [D97](#d97--publish-complete-artifacts-and-reserve-time-for-signal-cleanup); D92 wrote
 directly to the destination and warned once). Normal teardown removes the staging directory. A hard kill can leave it until the next run's
 output wipe. Reports and the output manifest exclude it.
@@ -2890,8 +2891,9 @@ progress and summary text and exit codes do not change. No configuration changes
 of the worker's two connection slots (D90). Revoking a device's commands stops only what goes through the device; a
 process already started on the worker is the worker's. A session nobody asked to stop (a parse's) is its owner's and is
 not waited for. A direct disposal outside a stopping run (for example a recovery's) can now skip the lifecycle and keep
-the lease, where it ran the lifecycle after its window. A local copy stopped mid-file leaves a partial destination, as a
-stopped rsync does. A batch whose xcodebuild could not be opened, other than by a failure known to have started
+the lease, where it ran the lifecycle after its window. A local copy stopped mid-file left a partial destination, as a
+stopped rsync did; since [D97](#d97--publish-complete-artifacts-and-reserve-time-for-signal-cleanup) both write into a
+private area and leave no partial artifact at the final path. A batch whose xcodebuild could not be opened, other than by a failure known to have started
 nothing, now makes its simulator's or Mac's disposal unconfirmed (no lifecycle, lease quarantined), also outside a
 run's stop; with a local worker every failed open counts so, since only the SSH executor reports what it started. A
 lifecycle command cut at the bound may still run on the worker until its cleanup ends; the quarantine keeps its
