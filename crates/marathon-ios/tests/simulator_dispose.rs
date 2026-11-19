@@ -1559,7 +1559,13 @@ async fn a_session_asked_for_after_the_seal_is_refused_d93() -> TestResult {
             opened.load(Ordering::SeqCst)
         );
     }
-    assert!(matches!(asked, Err(VendorError::Cancelled(_))));
+    // D93 (round 6): a device failure, so that discovery takes another device (D53), never a cancellation that it
+    // would read as an empty test list.
+    assert!(
+        matches!(asked, Err(VendorError::DeviceLost(_))),
+        "{:?}",
+        asked.as_ref().err()
+    );
     assert_eq!(
         opened.load(Ordering::SeqCst),
         0,
@@ -1567,6 +1573,100 @@ async fn a_session_asked_for_after_the_seal_is_refused_d93() -> TestResult {
     );
     release.complete(Ok(()));
     disposal.await?.unwrap();
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+// ---- D93 review round 6 ---------------------------------------------------------------------------------------------
+
+/// A runtime whose spawned tasks wait for `open` before they run: a session's producer registered but not yet started.
+struct GatedSpawns {
+    inner: Arc<dyn marathon_core::runtime::VendorRuntime>,
+    open: Arc<SharedDeferred<()>>,
+}
+impl marathon_core::runtime::VendorRuntime for GatedSpawns {
+    fn spawn_cancellable(
+        &self,
+        body: marathon_core::runtime::VendorTaskBody,
+    ) -> Arc<dyn marathon_core::runtime::VendorTask> {
+        self.inner.spawn_cancellable(body)
+    }
+    fn spawn(
+        &self,
+        body: marathon_core::runtime::VendorFuture<'static, ()>,
+    ) -> Arc<dyn marathon_core::runtime::VendorTask> {
+        let open = self.open.clone();
+        self.inner.spawn(Box::pin(async move {
+            let _ = open.wait().await;
+            body.await
+        }))
+    }
+    fn spawn_blocking(
+        &self,
+        body: Box<dyn FnOnce() -> marathon_core::error::VendorResult<()> + Send>,
+    ) -> Arc<dyn marathon_core::runtime::VendorTask> {
+        self.inner.spawn_blocking(body)
+    }
+}
+
+/// D93 (round 6, P2-a): a session registered and not yet started is live, and a seal that comes in that gap keeps it from
+/// starting. Discovery's session is registered; its producer has not run yet when the simulator's disposal seals it. The
+/// session is in the seal's receipt, its start is refused, so no xcodebuild is started, and with nothing left running the
+/// disposal is confirmed (before: the producer started xcodebuild after the seal).
+#[tokio::test(start_paused = true)]
+async fn a_session_registered_but_not_started_is_live_and_refused_at_the_seal_d93() -> TestResult {
+    use marathon_apple::{apple_device::AppleDevice, test::TestRequest, xcodebuild_session::XcodebuildSession};
+    let h = harness(70_000)?;
+    let (d, _) = prepared(&h).await?;
+    let gate = PermissionGate::attach(&h);
+    gate.release.complete(Ok(()));
+    let opened = Arc::new(AtomicUsize::new(0));
+    let (count, original) = (opened.clone(), h.worker.session.lock().unwrap().clone());
+    *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
+        if cmd.iter().any(|part| part.contains("test-without-building")) {
+            count.fetch_add(1, Ordering::SeqCst);
+        }
+        original(cmd)
+    });
+    let open = SharedDeferred::new();
+    let session = XcodebuildSession::new(
+        Arc::new(GatedSpawns {
+            inner: h.services.runtime.clone(),
+            open: open.clone(),
+        }),
+        h.services.logging.clone(),
+    );
+    let context = h.services.context.clone();
+    let events = d
+        .execute_test_request(
+            TestRequest::new("/tmp/marathon", "/tmp/marathon/parse.xctestrun", false),
+            session.clone(),
+            &context,
+        )
+        .await
+        .map_err(|e| e.failure().to_string().to_owned())?;
+    assert_eq!(
+        session.ended(),
+        None,
+        "a registered session read as ended before it started"
+    );
+    let disposal = {
+        let d = d.clone();
+        tokio::spawn(async move { d.dispose().await })
+    };
+    while !d.leaving() {
+        tokio::task::yield_now().await;
+    }
+    open.complete(Ok(()));
+    assert!(matches!(
+        events.receive(&context).await,
+        Err(VendorError::DeviceLost(_))
+    ));
+    disposal.await?.unwrap();
+    assert_eq!(opened.load(Ordering::SeqCst), 0, "xcodebuild started after the seal");
+    assert_eq!(session.ended(), Some(true));
+    assert!(!d.quarantined());
+    assert_eq!(gate.lifecycle.load(Ordering::SeqCst), 1);
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }

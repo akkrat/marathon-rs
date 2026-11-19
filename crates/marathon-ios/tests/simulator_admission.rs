@@ -170,7 +170,8 @@ async fn default_recovery_pauses_0_30_60_seconds_then_fourth_loss_exhausts_the_i
 /// D93 (x92 closing audit): the parsing session still open when recovery disposes of the lost simulator is part of its
 /// receipt. The disposal stops it in its window's reserve and, its close held, cannot confirm it ended: the simulator is
 /// retired and quarantined at its window's end (200 ms here; before: disposed of at once, retired by the recovery's own
-/// 70 s wait for the session), and only the other simulator is set up again.
+/// 70 s wait for the session), and only the other simulator is set up again, after that one window (round 6: before, the
+/// recovery then waited another 70 s for the same session).
 async fn a_parsing_session_open_at_the_recovery_disposal_keeps_the_simulator_out_and_quarantined_d93() -> TestResult {
     use marathon_apple::{apple_device::AppleDevice, test::TestRequest, xcodebuild_session::XcodebuildSession};
     use marathon_config::devices::Transport;
@@ -211,8 +212,11 @@ async fn a_parsing_session_open_at_the_recovery_disposal_keeps_the_simulator_out
     assert!(old.retired());
     assert!(old.quarantined());
     assert_eq!(home(&fresh, "a"), 0);
-    advance(70_000).await;
+    // Round 6: the recovery reads the disposal's verdict and waits no second 70 s for the session: the sibling is set up
+    // again straight after the one window.
+    let at = p.h().clock.now();
     assert_eq!(p.connected(1).await[0].udid(), "b");
+    assert!(p.h().clock.now() - at < 70_000, "the sibling waited a second window");
     assert_eq!(home(&fresh, "a"), 0);
     gate.complete(Ok(()));
     let _ = session.stop(support::duration(100), &p.h().services.context).await;

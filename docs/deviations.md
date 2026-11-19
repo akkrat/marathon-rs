@@ -2785,7 +2785,9 @@ known limit).
   caller leaves running, is now stopped when the Mac stops, as an iOS simulator's is), the sends registered with it
   (D91; a Mac now registers its sends as an iOS simulator does) and every xcodebuild session registered and not
   confirmed to have ended: a session registers under the same lock as a batch, a preparation and a send, so a sealed
-  device opens none (discovery asking for one then is refused with a cancellation), and a session leaves the device's
+  device opens none (discovery asking for one is refused with a device failure, so that D53 takes another device, never
+  with a cancellation it would read as an empty test list); a registered session is live from then on, before its
+  producer has started, and a seal that comes before it opens its command keeps it from opening one; and a session leaves the device's
   list only once it has ended confirmed, so one whose exec or close could not be confirmed keeps the device unconfirmed
   for the rest of the run, whatever session follows it (a session whose open failed so also counts as not closed, and
   the device's next session is refused as after any unclosed one). Its
@@ -2834,7 +2836,8 @@ run's stop; with a local worker every failed open counts so, since only the SSH 
 lifecycle command cut at the bound may still run on the worker until its cleanup ends; the quarantine keeps its
 connection open. The iOS provider's artifact drain before disposal is not within the bound (above). A parsing session
 still open when a lost simulator is disposed of is now in its receipt: the disposal stops it in its reserve and, if it
-cannot confirm its end, quarantines the simulator within its window.
+cannot confirm its end, quarantines the simulator within its window; D44's recovery reads that verdict and no longer
+waits another 70 s for the session before it sets up the worker's other simulators.
 
 Evidence, each failing on 3d945010 where it can be built there:
 `crates/marathon-ios/tests/simulator_dispose.rs::one_window_from_the_runs_stop_and_lifecycle_only_after_confirmed_termination_d93`
@@ -2865,7 +2868,11 @@ work ends at 71 s, the decider resumes at 72 s), `a_lifecycle_command_deaf_to_it
 `crates/marathon-core/tests/run_supervision.rs::a_signal_seals_the_devices_before_it_cancels_them_d93`,
 `simulator_dispose.rs::a_retried_session_does_not_erase_an_unconfirmed_one_d93` and
 `a_session_asked_for_after_the_seal_is_refused_d93`, and `crates/marathon-macos/tests/batch.rs::a_retried_session_does_not_erase_an_unconfirmed_one_on_a_mac_d93`
-and `a_sealed_mac_opens_no_session_d93`.
+and `a_sealed_mac_opens_no_session_d93`. Round 6, failing on d20ecdcc:
+`simulator_dispose.rs::a_session_registered_but_not_started_is_live_and_refused_at_the_seal_d93`, the two
+`…opens_no_session…`/`…is_refused…` witnesses (now a device failure), and
+`simulator_admission.rs::a_parsing_session_open_at_the_recovery_disposal_keeps_the_simulator_out_and_quarantined_d93`
+(the sibling is set up again within the one window).
 Amends D74 and D84.
 
 Approved 2026-11-18 (project owner's decision). See

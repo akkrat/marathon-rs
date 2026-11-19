@@ -520,11 +520,10 @@ impl SimulatorRecovery {
             for result in disposed {
                 result?;
             }
-            let timeout = jcompat::jtime::duration_of(70, 0)
-                .ok_or_else(|| other(FailureKind::IllegalArgument, "Invalid session timeout"))?;
-            let sessions = join_all(lost.iter().map(|d| d.await_session_closed(timeout, &caller))).await;
-            for (device, result) in lost.iter().zip(sessions) {
-                if !result? {
+            // D93: the disposal's verdict covers the simulator's sessions, the parsing one included, within its one window;
+            // one it could not confirm closed has retired the simulator (quarantined). No second wait for the session.
+            for device in lost {
+                if device.quarantined() {
                     device.retire();
                 }
             }

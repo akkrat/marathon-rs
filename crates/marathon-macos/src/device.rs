@@ -559,6 +559,10 @@ impl MacosDevice {
         for transfer in &shutdown.transfers {
             transfer.stop(stop(), Some(shutdown.window.deadline));
         }
+        // A session registered before the seal that has not begun to open never will.
+        for session in &shutdown.sessions {
+            session.refuse_unopened(stop().failure().clone());
+        }
     }
     /// D93: seals the Mac if it is not yet, stops what it runs and returns its one verdict, decided at most once, within
     /// its window. Every caller (the cancelled call, the run's stop, disposal, the provider) reads the same verdict.
@@ -1303,16 +1307,17 @@ impl AppleDevice for MacosDevice {
                 // opens no session, and one opened before the seal is in the seal's receipt. A session leaves the list
                 // only once it has ended confirmed, so one whose exec or close could not be confirmed keeps the Mac's stop
                 // unconfirmed for the rest of the run.
+                // A refusal is a device failure, as a batch's on a disposed Mac is: discovery takes another device (D53).
                 let execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(refusal) = execution.refusal(&self.serial) {
-                    return Err(VendorError::Cancelled(marathon_core::error::Cancellation::Requested(
-                        failure(FailureKind::IllegalState, refusal),
-                    )));
+                    return Err(lost(failure(FailureKind::IllegalState, refusal)));
                 }
                 let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(previous) = sessions.last() {
                     previous.check_closed(&self.serial.to_owned())?;
                 }
+                // Live from here, before the locks are let go: a seal that comes next counts it.
+                session.claim();
                 sessions.retain(|s| s.ended() != Some(true));
                 sessions.push(session.clone());
             }

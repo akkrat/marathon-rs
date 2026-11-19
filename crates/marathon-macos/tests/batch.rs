@@ -912,7 +912,13 @@ async fn a_sealed_mac_opens_no_session_d93() -> R {
         let _ = session.stop(runtime::duration(1_000), &h.context).await;
         panic!("a sealed Mac opened a session");
     }
-    assert!(matches!(asked, Err(VendorError::Cancelled(_))));
+    // D93 (round 6): a device failure, so that discovery takes another device (D53), never a cancellation that it
+    // would read as an empty test list.
+    assert!(
+        matches!(asked, Err(VendorError::DeviceLost(_))),
+        "{:?}",
+        asked.as_ref().err()
+    );
     v(timeout(Duration::from_secs(60), d.dispose()).await?)?;
     v(d.join_pending().await)?;
     Ok(())

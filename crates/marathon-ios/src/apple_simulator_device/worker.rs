@@ -173,15 +173,21 @@ impl AppleDevice for AppleSimulatorDevice {
             {
                 // D93: registered under the lock the seal takes, as a batch, a preparation and a send are: a sealed
                 // simulator opens no session, and one opened before the seal is in the seal's receipt.
+                // D93: a refusal is a device failure, as a batch's on a disposed simulator is: discovery takes another
+                // device (D53) rather than reading an empty test list from a cancellation.
                 let mut state = self.state();
                 if let Some(refusal) = state.refusal(&self.serial) {
-                    return Err(VendorError::Cancelled(marathon_core::error::Cancellation::Requested(
-                        failure(FailureKind::IllegalState, refusal),
-                    )));
+                    return Err(marathon_apple::device::batch_failure_policy::BatchLoss::new(failure(
+                        FailureKind::IllegalState,
+                        refusal,
+                    ))
+                    .into_vendor());
                 }
                 if let Some(previous) = &state.last_session {
                     previous.check_closed(&self.serial)?;
                 }
+                // Live from here, before the lock is let go: a seal that comes next counts it.
+                session.claim();
                 state.sessions.retain(|s| s.ended() != Some(true));
                 state.sessions.push(session.clone());
                 state.last_session = Some(session.clone());

@@ -266,3 +266,16 @@ Stress, each alone: the five witnesses and the rewritten recovery test, 50/50 ea
 `cargo fmt --check`; `cargo clippy` of core, apple, ios, macos, android, cli and test-support with `-D warnings`; `cargo
 test --no-fail-fast` of those crates: 2,471 passed, 0 failed, 34 ignored, among them the D52 and signal tests (35). Not
 run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test --workspace`.
+
+## Review round 6 (Sol 6.2 delta check at d20ecdcc: closing-audit findings 1 and 2 closed)
+
+| Finding | Change | Witness (fails on d20ecdcc) |
+|---|---|---|
+| P2-a a session could be sealed between its registration and its start, and read as ended | `XcodebuildSession::claim()`: the device marks the session started while it still holds the lock it registered it under, so from registration until its producer ends `ended()` is `None` and a seal's receipt includes it. `refuse_unopened()`: the seal's `stop_all` refuses a receipt session that has not begun to open its command; its producer then ends at once with a device failure, having started nothing (no open failure recorded). A session already opening runs on and is waited for, as before. | `simulator_dispose.rs::a_session_registered_but_not_started_is_live_and_refused_at_the_seal_d93` (a runtime holds the producer back; the disposal seals in the gap: on the base xcodebuild started after the seal) |
+| P2-b a sealed device's refusal read as an empty test list | A session refused under the seal is a device failure (`BatchLoss` on iOS, as a batch on a disposed simulator; `lost` on a Mac), as is a refused start: `XCTestParser::collect_tests` swallows only cancellations, so the error reaches core, whose D53 retry marks the device tried and takes another (`run_flow_witnesses.rs::a_parse_that_fails_on_one_device_takes_the_other_next_d53` pins that for any non-cancellation error). | the iOS and Mac refusal witnesses of the closing audit now assert `DeviceLost` (a cancellation on the base) |
+| Availability (D44) recovery waited 70 s more for the session after the disposal | `recovery.rs`: the recovery no longer runs its own `await_session_closed(70 s)`; the disposal's verdict covers the parsing session within the one window, and a simulator whose session it could not confirm is retired by its quarantine. Siblings are set up again after that window. | `simulator_admission.rs::a_parsing_session_open_at_the_recovery_disposal_keeps_the_simulator_out_and_quarantined_d93` now asserts the sibling is set up within 70 s of the quarantine (on the base the recovery's own 70 s wait ran past the 60 s watchdog) |
+
+Not reproduced end to end: discovery refused on a removed simulator with a healthy sibling through the real binary
+(the chain is device refusal → parser propagation → core D53 retry, each witnessed or pinned separately). The send
+refusals a sealed device gives (D91's receipts) are still cancellations; a removal that lands during discovery's sends,
+rather than between them and its session, can so still end that discovery attempt as a cancellation.

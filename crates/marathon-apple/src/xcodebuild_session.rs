@@ -171,6 +171,10 @@ struct State {
     /// exec it never acknowledged may still run). A failure known to have started nothing (`exec_outcome`: the channel was
     /// refused, the exec refused) is not one, and neither is a session cancelled before it opened anything.
     open_failure: Option<Failure>,
+    /// D93: the device stopped before this session began to open: it opens nothing, so it ends having started nothing.
+    refused: Option<Failure>,
+    /// D93: the opener has been called, so a refusal can no longer stop it.
+    opening: bool,
     task: Option<Arc<dyn VendorTask>>,
     observation: Option<SessionObservation>,
 }
@@ -212,6 +216,21 @@ impl XcodebuildSession {
     pub fn ended(&self) -> Option<bool> {
         let s = self.state.lock().unwrap_or_else(|e| e.into_inner());
         (!s.started || s.finished).then(|| s.close_failure.is_none() && s.open_failure.is_none())
+    }
+    /// D93: the device registered this session under the lock its seal takes. From now on it is live (`ended()` is `None`)
+    /// until its producer ends, so that a seal that comes before its producer starts still counts it.
+    pub fn claim(&self) {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).started = true;
+    }
+    /// D93: the device has been sealed: if this session has not begun to open its command, it never will (its producer ends
+    /// at once, having started nothing). Whether it was refused.
+    pub fn refuse_unopened(&self, why: Failure) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.opening {
+            return false;
+        }
+        state.refused.get_or_insert(why);
+        true
     }
     /// D93: whether the session has been told to stop (its batch has ended, or someone stopped it). A stopping device
     /// waits only for these: one nobody has stopped, such as a parse's, is its owner's to end.
@@ -268,8 +287,17 @@ impl XcodebuildSession {
             // The opener owns transport acquisition cleanup; never drop it at cancellation.
             // D84: a panic in the opener, the consumer or the close is the session's error, so that the reader and
             // `close` still hear of its end (U206).
+            let refused = {
+                let mut state = this.state.lock().unwrap_or_else(|e| e.into_inner());
+                if state.refused.is_none() {
+                    state.opening = true;
+                }
+                state.refused.clone()
+            };
             let opened = if let Some(reason) = this.cancellation.reason() {
                 Err(VendorError::Cancelled(reason))
+            } else if let Some(why) = refused {
+                Err(VendorError::DeviceLost(why))
             } else {
                 let (opened, started_nothing) =
                     crate::cmd::exec_outcome::observe(panic_as_error(open(ctx.clone()))).await;

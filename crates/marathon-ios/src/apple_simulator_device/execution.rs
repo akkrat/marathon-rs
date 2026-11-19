@@ -484,6 +484,10 @@ impl AppleSimulatorDevice {
         for transfer in &shutdown.transfers {
             transfer.stop(disposed(), Some(shutdown.window.deadline));
         }
+        // A session registered before the seal that has not begun to open never will.
+        for session in &shutdown.sessions {
+            session.refuse_unopened(disposed().failure().clone());
+        }
     }
     /// D93: seals the simulator if it is not yet, stops what it runs and returns its one verdict, decided at most once,
     /// within its window. Every caller (the cancelled call, the run's stop, disposal) reads the same verdict.
