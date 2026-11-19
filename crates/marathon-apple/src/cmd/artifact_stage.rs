@@ -3,9 +3,12 @@
 use super::{failure, io_error};
 use marathon_core::error::{Cancellation, VendorError, VendorResult};
 use marathon_error::FailureKind;
-use rustix::fs::{CWD, RenameFlags, renameat_with};
+use rustix::{
+    fs::{CWD, RenameFlags, renameat_with},
+    io::Errno,
+};
 use std::{
-    fs,
+    fs, io,
     os::unix::fs::{PermissionsExt, symlink},
     path::{Path, PathBuf},
 };
@@ -63,6 +66,14 @@ impl ArtifactStage {
     }
 
     pub(crate) fn publish(self, stopped: impl FnOnce() -> Option<Cancellation>) -> VendorResult<()> {
+        self.publish_with(stopped, |from, to, flags| renameat_with(CWD, from, CWD, to, flags))
+    }
+
+    fn publish_with(
+        self,
+        stopped: impl FnOnce() -> Option<Cancellation>,
+        flagged_rename: impl FnOnce(&Path, &Path, RenameFlags) -> rustix::io::Result<()>,
+    ) -> VendorResult<()> {
         let replace_tree = !self.exclusive && self.content.is_dir() && self.destination.is_dir();
         // The stop is sampled by the owner at commit, on the blocking thread that renames.
         // Once admitted, the owner waits for rename and returns its receipt even if stop arrives.
@@ -75,7 +86,13 @@ impl ArtifactStage {
             } else {
                 RenameFlags::EXCHANGE
             };
-            renameat_with(CWD, &self.content, CWD, &self.destination, flags).map_err(std::io::Error::from)
+            match flagged_rename(&self.content, &self.destination, flags) {
+                Err(Errno::INVAL | Errno::NOTSUP | Errno::NOSYS) if self.exclusive => {
+                    rename_if_absent(&self.content, &self.destination)
+                }
+                Err(Errno::INVAL | Errno::NOTSUP | Errno::NOSYS) => self.replace_without_exchange(),
+                result => result.map_err(io::Error::from),
+            }
         } else {
             std::fs::rename(&self.content, &self.destination)
         };
@@ -93,8 +110,38 @@ impl ArtifactStage {
         })
     }
 
+    fn replace_without_exchange(&self) -> io::Result<()> {
+        let backup = tempfile::Builder::new()
+            .prefix(".marathon-artifact-")
+            .permissions(fs::Permissions::from_mode(0o700))
+            .tempdir_in(self.root.path().parent().unwrap_or(Path::new(".")))?;
+        let old = backup.path().join("previous");
+        fs::rename(&self.destination, &old)?;
+        if let Err(publish) = rename_if_absent(&self.content, &self.destination) {
+            if let Err(restore) = rename_if_absent(&old, &self.destination) {
+                let recovery = backup.keep();
+                return Err(io::Error::other(format!(
+                    "{publish}; could not restore old artifact ({restore}); retained in {}",
+                    recovery.display()
+                )));
+            }
+            return Err(publish);
+        }
+        Ok(())
+    }
+
     pub(crate) fn discard(self) {
         let _ = self.root.close();
+    }
+}
+
+fn rename_if_absent(from: &Path, to: &Path) -> io::Result<()> {
+    // Network filesystems can reject rename flags. As with the old move, another writer can
+    // create the destination after this check and before the atomic plain rename.
+    match fs::symlink_metadata(to) {
+        Ok(_) => Err(io::ErrorKind::AlreadyExists.into()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => fs::rename(from, to),
+        Err(error) => Err(error),
     }
 }
 
@@ -121,4 +168,73 @@ fn copy_tree(src: &Path, dst: &Path, stopped: &dyn Fn() -> Option<Cancellation>)
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_unsupported_exclusive_rename_publishes_a_new_bundle_but_keeps_a_winning_tree_d97() {
+        for errno in [Errno::INVAL, Errno::NOTSUP, Errno::NOSYS] {
+            let output = tempfile::tempdir().unwrap();
+            let bundle = output.path().join("run.xcresult");
+            for (payload, succeeds) in [(b"first", true), (b"later", false)] {
+                let stage = ArtifactStage::new(bundle.clone(), true).unwrap();
+                fs::create_dir(stage.content()).unwrap();
+                fs::write(stage.content().join("payload"), payload).unwrap();
+                let result = stage.publish_with(
+                    || None,
+                    |_, _, flags| {
+                        assert_eq!(flags, RenameFlags::NOREPLACE);
+                        Err(errno)
+                    },
+                );
+                if succeeds {
+                    result.unwrap();
+                } else {
+                    assert_eq!(result.unwrap_err().failure().kind, FailureKind::FileAlreadyExists);
+                }
+                assert_eq!(fs::read(bundle.join("payload")).unwrap(), b"first");
+            }
+            assert_eq!(fs::read_dir(output.path()).unwrap().count(), 1);
+        }
+    }
+
+    #[test]
+    fn an_unsupported_exchange_publishes_the_complete_merged_tree_d97() {
+        let output = tempfile::tempdir().unwrap();
+        let directory = output.path().join("logs");
+        fs::create_dir(&directory).unwrap();
+        fs::write(directory.join("first"), b"first").unwrap();
+        let stage = ArtifactStage::new(directory.clone(), false).unwrap();
+        stage.seed_directory(&|| None).unwrap();
+        fs::write(stage.content().join("later"), b"later").unwrap();
+        stage
+            .publish_with(
+                || None,
+                |_, _, flags| {
+                    assert_eq!(flags, RenameFlags::EXCHANGE);
+                    Err(Errno::NOTSUP)
+                },
+            )
+            .unwrap();
+        assert_eq!(fs::read(directory.join("first")).unwrap(), b"first");
+        assert_eq!(fs::read(directory.join("later")).unwrap(), b"later");
+        assert_eq!(fs::read_dir(output.path()).unwrap().count(), 1);
+
+        let stage = ArtifactStage::new(directory.clone(), false).unwrap();
+        stage.seed_directory(&|| None).unwrap();
+        let result = stage.publish_with(
+            || None,
+            |from, _, _| {
+                fs::rename(from, from.with_file_name("unavailable")).unwrap();
+                Err(Errno::NOTSUP)
+            },
+        );
+        assert_eq!(result.unwrap_err().failure().kind, FailureKind::NoSuchFile);
+        assert_eq!(fs::read(directory.join("first")).unwrap(), b"first");
+        assert_eq!(fs::read(directory.join("later")).unwrap(), b"later");
+        assert_eq!(fs::read_dir(output.path()).unwrap().count(), 1);
+    }
 }
