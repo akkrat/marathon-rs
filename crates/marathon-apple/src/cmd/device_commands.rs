@@ -175,9 +175,11 @@ impl CommandExecutor for DeviceCommands {
         match revoked {
             // A stopped caller hears of its stop, as the executors tell it, rather than of the revocation.
             Some(_) if let Some(reason) = context.cancellation.reason() => {
+                super::exec_outcome::record(true);
                 Box::pin(async move { Err(VendorError::Cancelled(reason)) })
             }
             Some(why) => {
+                super::exec_outcome::record(true);
                 let mut refused = failure(
                     FailureKind::IllegalState,
                     format!(

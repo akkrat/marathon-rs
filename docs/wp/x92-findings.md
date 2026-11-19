@@ -203,3 +203,15 @@ lifecycle, lease quarantined), outside a run's stop too; recorded in D93's limit
 50/50, and 20/20 with 12 busy processes, for all four. `cargo fmt --check`; `cargo clippy` of apple, ios, macos, core, cli
 and test-support with `-D warnings`; `cargo test --no-fail-fast` of those crates: 2,118 passed, 0 failed, 34 ignored. Not
 run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test --workspace`.
+
+## Review round 3 (Sol 6.2 re-check at 661e4d88: round 2 closed; two P2s from the declared behaviour change)
+
+| Finding | Change | Witness (fails on 661e4d88) |
+|---|---|---|
+| 1 a transient channel refusal quarantined and retired a simulator, defeating D44, and could pin both D90 generations | `cmd::exec_outcome`: the SSH executor reports, in the caller's task, whether an execute failed knowing that nothing reached a shell (cancelled before it began, `start_session` failed: channel refused or no reply to the open, or the exec request refused); `DeviceCommands` reports its own refusals so. `XcodebuildSession` observes it around its opener: such a failure is not an open failure, so the session ends cleanly and the verdict can be confirmed (lifecycle, release, D44 as before). An exec sent with no reply, or a transport that died after it, stays unconfirmed. An executor that reports nothing (the local one, test fakes) leaves the outcome unknown: the safe side. | `simulator_world.rs::a_session_refused_before_its_exec_is_confirmed_ended_over_ssh_d93` (real SSH executor, fake worker with both `MaxSessions` slots held: `ended()` was `Some(false)`); `simulator_dispose.rs::a_session_refused_before_its_exec_lets_the_disposal_confirm_d93` (device level; needs the new report, so not buildable on the base) |
+| 2 dropping a lifecycle command at the bound skipped its SSH cleanup | The lifecycle runs in a retained task of the simulator's (`spawn_published`); at the bound the disposal stops waiting, cancels it and quarantines, and returns; the command goes on to its executor's own bounded cleanup (D30's close; U154's CLOSE after the exec's 30 s), so its session slot is given back. | `a_lifecycle_command_cut_at_the_bound_is_left_to_its_own_cleanup_d93` (the held command reaches its end after the disposal returned at 75 s; on the base it was dropped and never ended) |
+
+The reviewer's full chain (refusals on two generations, then recovery reprovisioning the simulator and a third
+acquisition) is not reproduced end to end: the recovery harness uses scripted connections, not the factory over SSH.
+The SSH witness covers the classification, the device witness the disposal that follows it, and the round-0 factory
+witness that a release (not a quarantine) frees the lease.

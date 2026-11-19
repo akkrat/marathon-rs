@@ -611,24 +611,31 @@ impl AppleSimulatorDevice {
         let reserve =
             marathon_apple::cmd::device_commands::force_reserve_millis(self.services.timeouts.cancelled_batch_millis);
         let left = shutdown.window.deadline.saturating_sub(clock.now_millis()).max(reserve);
-        // D93 (review round 2): at the bound the lifecycle is cancelled and abandoned, not awaited: a command that does
-        // not end on its cancellation (an exec waiting for its reply) is left to the quarantine, as D30 abandons a session.
+        // D93 (review rounds 2, 3): at the bound the disposal stops waiting for the lifecycle, and does not drop it: it runs
+        // in a task of the simulator's own, cancelled there, so that a command whose reply is pending still gets its
+        // executor's own bounded cleanup (D30's close; U154's CLOSE for an exec with no reply) rather than being cut off.
+        // A command deaf to its cancellation is left to that cleanup and to the quarantine.
         let signal = Signal::new();
         let context = VendorContext {
             cancellation: signal.clone(),
             ..self.services.context.clone()
         };
-        let ran = {
-            let lifecycle = self.handle_lifecycle(actions, &context);
-            let bound = clock.delay(left, Signal::new());
-            tokio::pin!(lifecycle, bound);
-            tokio::select! { biased;
-                ran = &mut lifecycle => Some(ran),
-                _ = &mut bound => None,
-            }
+        let ran = SharedDeferred::new();
+        {
+            let (device, actions, ran) = (self.this()?, actions.clone(), ran.clone());
+            self.retained
+                .spawn_published(self.services.runtime.as_ref(), ran, async move {
+                    device.handle_lifecycle(&actions, &context).await
+                });
+        }
+        let ended = tokio::select! { biased;
+            ended = ran.wait() => Some(ended),
+            _ = clock.delay(left, Signal::new()) => None,
         };
-        match ran {
-            Some(ran) => ran?,
+        match ended {
+            Some(ended) => {
+                ended?;
+            }
             None => {
                 signal.cancel(marathon_core::error::Cancellation::Requested(failure(
                     FailureKind::JobCancelled,

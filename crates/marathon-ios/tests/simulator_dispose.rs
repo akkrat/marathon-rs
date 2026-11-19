@@ -1328,3 +1328,127 @@ async fn a_session_whose_open_failed_is_not_confirmed_closed_d93() -> TestResult
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }
+
+// ---- D93 review round 3 ---------------------------------------------------------------------------------------------
+
+/// The fake worker, except that xcodebuild's session is refused before its exec, as SSH reports a refused channel.
+struct RefusesXcodebuildChannel(Arc<marathon_test_support::apple::fake_simulator_worker::FakeSimulatorWorker>);
+impl marathon_apple::cmd::CommandExecutor for RefusesXcodebuildChannel {
+    fn host(&self) -> &marathon_apple::cmd::CommandHost {
+        self.0.host()
+    }
+    fn component(&self) -> &marathon_logging::Component {
+        self.0.component()
+    }
+    fn connected(&self) -> bool {
+        self.0.connected()
+    }
+    fn log_error(&self, message: String) {
+        self.0.log_error(message)
+    }
+    fn execute(
+        &self,
+        request: marathon_apple::cmd::CommandRequest,
+        context: VendorContext,
+    ) -> marathon_core::runtime::VendorFuture<'_, marathon_apple::cmd::CommandSession> {
+        if request
+            .command
+            .iter()
+            .any(|part| part.contains("test-without-building"))
+        {
+            marathon_apple::cmd::exec_outcome::record(true);
+            return Box::pin(async {
+                Err(VendorError::Other(marathon_apple::cmd::failure(
+                    marathon_error::FailureKind::IllegalState,
+                    "D93 probe: the worker refused the session's channel",
+                )))
+            });
+        }
+        let outcome = self.0.execute(request, context);
+        Box::pin(async move {
+            let session = outcome.await;
+            marathon_apple::cmd::exec_outcome::record(false);
+            session
+        })
+    }
+    fn close(&self) -> marathon_core::runtime::VendorFuture<'_, ()> {
+        self.0.close()
+    }
+}
+
+/// D93 (review round 3, finding 1): a batch whose xcodebuild session was refused before its exec (a transient channel
+/// refusal) leaves nothing running, so the simulator's disposal is confirmed: its on-dispose lifecycle runs and it is not
+/// quarantined, its lease to be released as usual (before: any open failure was unconfirmed, and the simulator was
+/// quarantined and retired, which kept D44 from setting it up again).
+#[tokio::test(start_paused = true)]
+async fn a_session_refused_before_its_exec_lets_the_disposal_confirm_d93() -> TestResult {
+    let h = harness(70_000)?;
+    let d = h
+        .device_on(
+            Arc::new(RefusesXcodebuildChannel(h.worker.clone())),
+            "a",
+            Arc::new(
+                marathon_ios::device::worker_provisioning_context::WorkerProvisioningContext::new(
+                    marathon_config::devices::Transport::Local,
+                    h.clock.clone(),
+                ),
+            ),
+        )
+        .await?;
+    h.prepare(&d).await.map_err(|e| e.failure().to_string().to_owned())?;
+    let gate = PermissionGate::attach(&h);
+    gate.release.complete(Ok(()));
+    let (outcome, _) = spawn_batch(&h, d.clone(), h.services.context.clone()).await?;
+    assert!(outcome.is_err(), "{outcome:?}");
+    d.dispose().await.unwrap();
+    assert_eq!(
+        gate.lifecycle.load(Ordering::SeqCst),
+        1,
+        "a refused channel was taken as a running xcodebuild"
+    );
+    assert!(!d.quarantined());
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+/// D93 (review round 3, finding 2): the lifecycle's command is still waiting for its reply at the bound. The disposal
+/// returns at the bound, and the command is not dropped: it goes on in the simulator's own task to its end, where its
+/// executor's own cleanup runs (D30's close, U154's CLOSE for an exec with no reply). Before, the command's future was
+/// dropped at the bound and never ended.
+#[tokio::test(start_paused = true)]
+async fn a_lifecycle_command_cut_at_the_bound_is_left_to_its_own_cleanup_d93() -> TestResult {
+    let h = harness(70_000)?;
+    let (d, _) = prepared(&h).await?;
+    let ended = Arc::new(AtomicBool::new(false));
+    let (boot, done) = (h.boot.clone(), ended.clone());
+    *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
+        let lifecycle = cmd.get(2).is_some_and(|s| s.starts_with("ps aux"));
+        let (reply, done) = (boot.answer(&cmd), done.clone());
+        Box::pin(async move {
+            if lifecycle {
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                done.store(true, Ordering::SeqCst);
+            }
+            Ok(reply)
+        })
+    });
+    let stopped = tokio::time::Instant::now();
+    Device::seal_for_stop(&*d);
+    Device::join_cancelled_work(&*d).await.unwrap();
+    tokio::time::sleep_until(stopped + std::time::Duration::from_secs(70)).await;
+    d.dispose().await.unwrap();
+    assert_eq!(
+        stopped.elapsed(),
+        std::time::Duration::from_secs(75),
+        "the disposal waited for the command"
+    );
+    assert!(d.quarantined());
+    assert!(!ended.load(Ordering::SeqCst));
+    tokio::time::sleep_until(stopped + std::time::Duration::from_secs(85)).await;
+    assert!(
+        ended.load(Ordering::SeqCst),
+        "the command was dropped at the bound, not left to its cleanup"
+    );
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}

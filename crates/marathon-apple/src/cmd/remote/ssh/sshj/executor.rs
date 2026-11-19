@@ -175,18 +175,24 @@ pub fn autodetect_exit_code(exit_signal: Option<&str>) -> Option<i32> {
     }
 }
 
+/// D93: a failed execute, and whether it is known to have started nothing on the worker (no exec request reached a
+/// shell: the channel was refused or never opened, or the exec was refused).
+type ExecFailure = (VendorError, bool);
 async fn execute(
     connection: Arc<SshConnection>,
     request: CommandRequest,
     context: VendorContext,
     capacity: usize,
     config: PerformanceDefaultConfig,
-) -> VendorResult<CommandSession> {
+) -> Result<CommandSession, ExecFailure> {
     if let Some(reason) = context.cancellation.reason() {
-        return Err(VendorError::Cancelled(reason));
+        return Err((VendorError::Cancelled(reason), true));
     }
     let runtime = connection.runtime.clone();
-    let channel = connection.start_session().await.map_err(SshFailure::into_vendor)?;
+    let channel = connection
+        .start_session()
+        .await
+        .map_err(|error| (error.into_vendor(), true))?;
     let command = exec_string(&request);
     let channel_logger = config.logger_for_class(Some("PatchedExecChannel"));
     config.logging.log(
@@ -195,7 +201,10 @@ async fn execute(
         || format!("Will request to exec `{command}`"),
         None,
     );
-    channel.exec(command).await.map_err(SshFailure::into_vendor)?;
+    if let Err(error) = channel.exec(command).await {
+        let refused = channel.exec_refused();
+        return Err((error.into_vendor(), refused));
+    }
     let base = BaseCommand::new(capacity, runtime.clone());
     let last_output = OutputActivity::new(context.clock.now_millis());
     let own_context = VendorContext {
@@ -371,7 +380,10 @@ impl CommandExecutor for SshCommandExecutor {
             }));
             let pending = rx
                 .await
-                .map_err(|e| VendorError::Other(failure(FailureKind::IllegalState, e.to_string())))??;
+                .map_err(|e| VendorError::Other(failure(FailureKind::IllegalState, e.to_string())))?;
+            // D93: in the caller's task, where an xcodebuild session's opener observes it.
+            crate::cmd::exec_outcome::record(matches!(pending, Err((_, true))));
+            let pending = pending.map_err(|(error, _)| error)?;
             let session = pending
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())

@@ -7,6 +7,7 @@ pub mod base_command;
 pub mod channel;
 pub mod command_session_output;
 pub mod device_commands;
+pub mod exec_outcome;
 pub mod line_buffer;
 pub mod local;
 pub mod remote;

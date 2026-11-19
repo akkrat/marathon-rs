@@ -218,6 +218,10 @@ impl ExecChannel {
         }
         Err(error)
     }
+    /// D93: the worker answered the exec request with a refusal, so the command did not start.
+    pub fn exec_refused(&self) -> bool {
+        self.read(|s| s.exec_reply == Some(false))
+    }
     /// The caller gets the exec's own error whatever becomes of the CLOSE: its outcome is deliberately unused. A peer that
     /// never answers keeps the slot; the pump drains what it may still send, so the shared connection is not held up.
     async fn close_failed_exec(&self) {

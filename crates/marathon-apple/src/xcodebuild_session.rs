@@ -168,7 +168,8 @@ struct State {
     abandoned: bool,
     close_failure: Option<Failure>,
     /// D93 (review round 2): opening the command failed, so nothing confirms that what the worker started has ended (an
-    /// exec it never acknowledged may still run). Only a session cancelled before it opened anything has none.
+    /// exec it never acknowledged may still run). A failure known to have started nothing (`exec_outcome`: the channel was
+    /// refused, the exec refused) is not one, and neither is a session cancelled before it opened anything.
     open_failure: Option<Failure>,
     task: Option<Arc<dyn VendorTask>>,
     observation: Option<SessionObservation>,
@@ -269,8 +270,11 @@ impl XcodebuildSession {
             let opened = if let Some(reason) = this.cancellation.reason() {
                 Err(VendorError::Cancelled(reason))
             } else {
-                let opened = panic_as_error(open(ctx.clone())).await;
-                if let Err(error) = &opened {
+                let (opened, started_nothing) =
+                    crate::cmd::exec_outcome::observe(panic_as_error(open(ctx.clone()))).await;
+                if let Err(error) = &opened
+                    && !started_nothing
+                {
                     this.state.lock().unwrap_or_else(|e| e.into_inner()).open_failure = Some(error.failure().clone());
                 }
                 opened

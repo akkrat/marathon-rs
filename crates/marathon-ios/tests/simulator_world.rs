@@ -480,3 +480,72 @@ async fn a_saturated_shared_worker_rotates_and_prepares_a_simulator_without_endi
     })
     .await
 }
+
+/// D93 (review round 3, finding 1): over the real SSH executor, the worker refuses the xcodebuild session's channel
+/// (both of its `MaxSessions` slots are held), before any exec is sent. Nothing can be running, so the session counts as
+/// cleanly ended, and a stopping simulator's verdict can be confirmed (D44's recovery then sets it up again as before).
+/// Before, any open failure was unconfirmed, and such a simulator was quarantined and retired.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_session_refused_before_its_exec_is_confirmed_ended_over_ssh_d93() -> TestResult {
+    watchdog(async {
+        let h = Harness::new(|_| {})?;
+        let (wire, _world) = start_wire_worker(&h).await?;
+        let transport = Transport::Ssh {
+            addr: "127.0.0.1".into(),
+            port: i32::from(wire.worker.ready.endpoint.port()),
+            authentication: Some(SshAuthentication::Password {
+                username: "fixture".into(),
+                password: "fake-password".into(),
+            }),
+            check_reachability: false,
+        };
+        let mut ssh = h.services.vendor.ssh.clone();
+        ssh.keep_alive_interval = duration(0);
+        let factory = ConnectionFactory::new(
+            false,
+            ssh,
+            h.services.vendor.rsync.clone(),
+            duration(60_000),
+            h.services.runtime.clone(),
+            Arc::new(Clock::default()),
+            h.services.logging.clone(),
+        )
+        .map_err(|e| describe(e.into_vendor()))?;
+        let executor = factory
+            .connect_worker(transport.clone(), context())
+            .await
+            .map_err(ConnectionError::into_vendor)
+            .map_err(describe)?;
+        let first = executor.execute(held("healthy"), context()).await.map_err(describe)?;
+        let second = executor.execute(held("healthy"), context()).await.map_err(describe)?;
+        refusal(&executor).await.map_err(describe)?;
+        let session = marathon_apple::xcodebuild_session::XcodebuildSession::new(
+            h.services.runtime.clone(),
+            h.services.logging.clone(),
+        );
+        let opener = executor.clone();
+        let events = session.produce(
+            context(),
+            move |ctx| async move { opener.execute(held("xcodebuild"), ctx).await },
+            |_, _, _| async { Ok(()) },
+        );
+        // The open's failure reaches the reader: the open was tried, and refused.
+        let opened = events.receive(&context()).await;
+        assert!(
+            matches!(&opened, Err(error) if !matches!(error, VendorError::Cancelled(_))),
+            "{opened:?}"
+        );
+        let _ = session.stop(duration(10_000), &context()).await;
+        assert_eq!(
+            session.ended(),
+            Some(true),
+            "a refused channel was not taken as having started nothing"
+        );
+        finish_healthy(first).await.map_err(describe)?;
+        finish_healthy(second).await.map_err(describe)?;
+        factory.dispose(executor).await.map_err(describe)?;
+        factory.join_pending().await.map_err(describe)?;
+        TestResult::Ok(())
+    })
+    .await
+}
