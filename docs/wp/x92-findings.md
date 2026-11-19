@@ -346,3 +346,11 @@ gives the stopped preparation's next command, besides the cancellation it gave b
 
 Limit, recorded in D93: a sealed device's listener tasks (a video recorder's stop, say) are refused at the gate like any
 other new command; the on-dispose lifecycle (shutdown, erase) ends a simulator's recordings.
+
+**Round 7 verification.** Each of the four round-7 witnesses fails on 396b8afe (scratch worktree, new tests copied in).
+Stress, each alone: the four witnesses and the two Mac tests the gate first broke (`concurrent_disposal_joins_…`,
+`the_macs_stop_stops_a_batch_session_…_d93`), 50/50 each and 20/20 each with 12 busy processes. `cargo fmt --check`;
+`cargo clippy` of core, apple, ios, macos, android, cli and test-support with `-D warnings`; `cargo test --no-fail-fast`
+of those crates: 2,476 passed, 0 failed, 34 ignored, among them the D52 (17) and signal (25) tests, x90's D91 witnesses
+(14) and every D93 witness (37). Not run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo
+test --workspace`.
