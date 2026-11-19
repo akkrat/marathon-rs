@@ -418,3 +418,10 @@ Changed tests (Rust-only unless said): `a_device_that_is_being_disposed_of_start
 a device loss); the U179 tests whose stopped preparation's next command meets the gate accept the device loss as well
 as the cancellation; x90's `a_send_to_a_disposed_simulator_is_stopped_before_it_starts_d91` is unchanged (its device loss's
 cause is the refusal, as round 6 had it).
+
+**Round 8 verification.** Each round-8 witness fails on 9a87cf86 (scratch worktree, new tests copied in). Stress, each
+alone: the six witnesses and the ported artifact test the pull gate first broke, 50/50 each and 20/20 each with 12 busy
+processes. `cargo fmt --check`; `cargo clippy` of core, apple, ios, macos, android, cli and test-support with
+`-D warnings`; `cargo test --no-fail-fast` of those crates: 2,481 passed, 0 failed, 34 ignored, among them D52 (17),
+signal (25), D91 (14), D92 (10) and D93 (42) tests. Not run, by the batch's rule: `scripts/check.sh`,
+`scripts/remote-check.sh`, `cargo test --workspace`.
