@@ -23,6 +23,11 @@ use tracing_subscriber::{
     reload,
 };
 
+/// Finish an ordinary CLI exit after ending any tools the run still owns.
+pub fn sweep_at_ordinary_exit() {
+    marathon_process::seal_and_kill();
+}
+
 static EXITING: AtomicBool = AtomicBool::new(false);
 
 /// Ends the process once. The exit watchdog, the console writer and a second signal can each
@@ -239,12 +244,7 @@ impl TracingOutput {
                             marathon_process::seal_and_kill();
                         }
                         ExitRequest::Exit(status, drained) => {
-                            let started = std::time::Instant::now();
-                            marathon_process::seal_and_kill();
-                            if drained
-                                .recv_timeout(exit_flush.saturating_sub(started.elapsed()))
-                                .is_err()
-                            {
+                            if drained.recv_timeout(exit_flush).is_err() {
                                 exit_once(status);
                             }
                             break;

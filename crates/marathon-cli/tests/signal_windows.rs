@@ -1,6 +1,6 @@
 //! Port of cli/src/main/kotlin/com/malinskiy/marathon/cli/ApplicationView.kt (signal windows).
 //!
-//! Real SIGINT/SIGTERM delivered with kill(2) to a child process (this test binary re-run in
+//! Real SIGINT/SIGTERM/SIGHUP delivered with kill(2) to a child process (this test binary re-run in
 //! child mode with the Stub vendor injected). While the vendor is constructing, the default
 //! disposition ends the process, so a shell sees 128 + the signal number; while the run is
 //! suspended, the P3 relay exits with that status itself in both debug modes. A signal whose
@@ -33,9 +33,13 @@ use nix::{
     unistd::Pid,
 };
 use std::{
+    fs,
     io::{BufRead, BufReader, Write},
     ops::{Deref, DerefMut},
-    os::unix::process::ExitStatusExt,
+    os::unix::{
+        fs::PermissionsExt,
+        process::{CommandExt, ExitStatusExt},
+    },
     process::{Child, ChildStderr, Command, ExitStatus, Stdio},
     sync::{
         Arc,
@@ -114,7 +118,10 @@ impl LocalTestParser for NoTests {
 /// Announces the provider's termination; `run-stuck` and `run-repeat` never end it, and `blocked-thread` leaves a
 /// blocking call behind, as a stuck name lookup would.
 fn on_terminate(provider: &StubDeviceProvider, mode: &str) {
-    let (stuck, blocked) = (matches!(mode, "run-stuck" | "run-repeat"), mode == "blocked-thread");
+    let (stuck, blocked) = (
+        matches!(mode, "run-stuck" | "run-repeat" | "expiry-sweep"),
+        mode == "blocked-thread",
+    );
     let release_parse = mode == "slow-exit-prepare";
     *provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
         let _ = writeln!(std::io::stderr(), "MARKER terminate");
@@ -185,8 +192,9 @@ fn repeating(number: i32) -> std::io::Result<SignalStream> {
 /// Announces the registrations; `run-fail-<signal>` makes that signal's registration fail.
 fn hooks(mode: &str) -> SignalHooks {
     let failing = match mode {
-        "run-fail-int" => Some(2),
-        "run-fail-term" => Some(15),
+        "run-fail-int" => Some(Signal::SIGINT as i32),
+        "run-fail-term" => Some(Signal::SIGTERM as i32),
+        "run-fail-hup" => Some(Signal::SIGHUP as i32),
         _ => None,
     };
     let repeat = mode == "run-repeat";
@@ -212,23 +220,42 @@ fn hooks(mode: &str) -> SignalHooks {
 #[test]
 fn signal_child() {
     let Ok(mode) = std::env::var(MODE) else { return };
-    let _owned = matches!(mode.as_str(), "run-stuck" | "stuck-console-long-watchdog").then(|| {
-        let process = marathon_process::Command::new("/bin/sh")
-            .args(["-c", "kill -STOP $$; exec /bin/sleep 120"])
-            .spawn()
-            .unwrap();
+    // The harness never starts a reaper. A running child survives orphaning unless the
+    // controller actually sweeps it; a stopped orphan would get HUP from the kernel.
+    let mut owned = owns_group(&mode).then(|| {
+        let process = marathon_process::Command::new("/bin/sleep").arg("120").spawn().unwrap();
         let _ = writeln!(std::io::stderr(), "MARKER owned group {}", process.id().unwrap());
         process
     });
+    if mode == "ordinary-sweep" {
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).unwrap();
+        assert_eq!(input, "continue\n");
+        marathon_cli::tracing_output::sweep_at_ordinary_exit();
+        std::process::exit(RETURNED); // Leave the owned handle live for the sweep.
+    }
+    if mode == "expiry-sweep" {
+        let mut process = owned.take().unwrap();
+        // Observe and reap the tool while the controller is still alive.
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let status = runtime.block_on(process.wait()).unwrap();
+            assert_eq!(status.signal(), Some(Signal::SIGKILL as i32));
+            let _ = writeln!(std::io::stderr(), "MARKER owned group ended");
+        });
+    }
     let mut factory = ConfigurationFactory::new();
     factory.configuration.debug = mode == "run-debug";
-    let stdout: Box<dyn Write + Send> = if mode.starts_with("stuck-console") {
+    let stdout: Box<dyn Write + Send> = if mode.starts_with("stuck-console") || mode == "expiry-sweep" {
         Box::new(StuckConsole)
     } else {
         Box::new(std::io::sink())
     };
     let stamp = Box::new(|wall: Option<i64>| marathon_cli::application::day_stamp(wall.unwrap_or(0)));
-    let cli = if mode == "stuck-console-long-watchdog" {
+    let cli = if matches!(mode.as_str(), "stuck-console-long-watchdog" | "expiry-sweep") {
         // Holds the first signal's watchdog open far beyond the test: only the
         // second signal's immediate exit can end this child, at any host speed.
         CliOutput::new_with_exit_flush(
@@ -281,6 +308,13 @@ fn signal_child() {
     panic!("the run finished");
 }
 
+fn owns_group(mode: &str) -> bool {
+    matches!(
+        mode,
+        "ordinary-sweep" | "expiry-sweep" | "stuck-console-long-watchdog" | "run-hup"
+    )
+}
+
 /// A child that is killed and reaped when the test lets go of it, so that a failing test leaves nothing behind.
 struct Running(Child);
 impl Drop for Running {
@@ -302,7 +336,43 @@ impl DerefMut for Running {
 }
 
 /// The child's stderr, read line by line on a thread, so that a wait for a line has a deadline.
-struct Stderr(mpsc::Receiver<String>, Option<Pid>);
+struct OwnedGroup(Option<Pid>);
+
+impl OwnedGroup {
+    fn new(pgid: i32) -> Self {
+        assert!(pgid > 1);
+        let group = Pid::from_raw(-pgid);
+        kill(group, None).expect("the group is running before the controller exits");
+        Self(Some(group))
+    }
+
+    fn assert_ended(&mut self) {
+        let group = self.0.unwrap();
+        let deadline = Instant::now() + PATIENCE;
+        loop {
+            match kill(group, None) {
+                Err(nix::errno::Errno::ESRCH) => {
+                    self.0 = None;
+                    return;
+                }
+                Ok(()) | Err(nix::errno::Errno::EPERM) => {}
+                Err(error) => panic!("cannot check process group {group}: {error}"),
+            }
+            assert!(Instant::now() < deadline, "process group {group} survived the sweep");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+}
+
+impl Drop for OwnedGroup {
+    fn drop(&mut self) {
+        if let Some(group) = self.0 {
+            let _ = kill(group, Signal::SIGKILL);
+        }
+    }
+}
+
+struct Stderr(mpsc::Receiver<String>, Option<OwnedGroup>);
 impl Stderr {
     fn new(stderr: ChildStderr) -> Self {
         let (lines, received) = mpsc::channel();
@@ -317,21 +387,13 @@ impl Stderr {
     }
     fn read_owned_group(&mut self) {
         let line = self.0.recv_timeout(PATIENCE).unwrap();
-        self.1 = Some(Pid::from_raw(
+        self.1 = Some(OwnedGroup::new(
             line.strip_prefix("MARKER owned group ").unwrap().parse().unwrap(),
         ));
     }
 
-    fn assert_owned_group_ended(&self) {
-        let pid = self.1.unwrap();
-        let deadline = Instant::now() + PATIENCE;
-        while kill(pid, None).is_ok() {
-            if Instant::now() >= deadline {
-                let _ = kill(pid, Signal::SIGKILL);
-                panic!("the stopped child survived controller exit");
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
+    fn assert_owned_group_ended(&mut self) {
+        self.1.as_mut().unwrap().assert_ended();
     }
 
     /// Whether `marker` comes before the end of stderr and within `PATIENCE`.
@@ -388,6 +450,9 @@ fn started_with_stderr(mode: &str, ignored: Option<&str>) -> (Running, Stderr) {
             command
         }
     };
+    if mode == "run-hup" {
+        command.process_group(0);
+    }
     let mut child = Running(
         command
             .env(MODE, mode)
@@ -399,7 +464,9 @@ fn started_with_stderr(mode: &str, ignored: Option<&str>) -> (Running, Stderr) {
     );
     // Construction is announced by the vendor; the run window by the parser and, as both
     // registrations have been attempted, by the relay.
-    let awaited: &[&str] = if mode == "after-run" {
+    let awaited: &[&str] = if mode == "ordinary-sweep" {
+        &[]
+    } else if mode == "after-run" {
         &["MARKER finished"]
     } else if mode == "construction" {
         &["MARKER construction"]
@@ -407,7 +474,7 @@ fn started_with_stderr(mode: &str, ignored: Option<&str>) -> (Running, Stderr) {
         &["MARKER run", "MARKER ready"]
     };
     let mut stderr = Stderr::new(child.stderr.take().unwrap());
-    if matches!(mode, "run-stuck" | "stuck-console-long-watchdog") {
+    if owns_group(mode) {
         stderr.read_owned_group();
     }
     let missing = stderr.saw_all(awaited);
@@ -470,7 +537,7 @@ fn inherited_ignored(signal: Signal) -> bool {
 
 #[test]
 fn a_signal_during_construction_ends_the_process() {
-    for signal in [Signal::SIGINT, Signal::SIGTERM] {
+    for signal in [Signal::SIGINT, Signal::SIGTERM, Signal::SIGHUP] {
         if inherited_ignored(signal) {
             continue;
         }
@@ -525,7 +592,6 @@ fn a_stuck_provider_holds_a_cancel_only_up_to_the_limit_d52() {
     assert_eq!(status.and_then(|s| s.code()), Some(143), "{status:?}");
     let limit = u64::try_from(marathon_core::marathon::CANCEL_LIMIT_MILLIS).unwrap();
     assert!(waited >= Duration::from_millis(limit), "it gave up early: {waited:?}");
-    stderr.assert_owned_group_ended();
 }
 
 /// D52: a console that has stopped reading holds up neither the cleanup nor the exit.
@@ -550,13 +616,137 @@ fn a_second_signal_exits_at_once_during_a_blocked_sink() {
     if inherited_ignored(Signal::SIGTERM) || inherited_ignored(Signal::SIGINT) {
         return;
     }
-    let (mut child, stderr) = started_with_stderr("stuck-console-long-watchdog", None);
+    let (mut child, mut stderr) = started_with_stderr("stuck-console-long-watchdog", None);
     kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM).unwrap();
     assert!(stderr.saw("MARKER terminate"));
     kill(Pid::from_raw(child.id() as i32), Signal::SIGINT).unwrap();
     let status = signalled_wait(&mut child, PATIENCE);
     assert_eq!(status.and_then(|s| s.code()), Some(130), "{status:?}");
     stderr.assert_owned_group_ended();
+}
+
+#[test]
+fn ordinary_cli_exit_sweeps_a_running_group_d96() {
+    let (mut child, mut stderr) = started_with_stderr("ordinary-sweep", None);
+    child.stdin.take().unwrap().write_all(b"continue\n").unwrap();
+    assert_eq!(
+        signalled_wait(&mut child, PATIENCE).and_then(|status| status.code()),
+        Some(RETURNED)
+    );
+    stderr.assert_owned_group_ended();
+}
+
+#[test]
+fn cleanup_expiry_sweeps_a_running_group_before_cli_exit_d96() {
+    if inherited_ignored(Signal::SIGTERM) || inherited_ignored(Signal::SIGINT) {
+        return;
+    }
+    let (mut child, mut stderr) = started_with_stderr("expiry-sweep", None);
+    kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM).unwrap();
+    assert!(stderr.saw("MARKER terminate"));
+    assert!(
+        stderr.saw("MARKER owned group ended"),
+        "the cleanup deadline did not kill the owned tool"
+    );
+    stderr.assert_owned_group_ended();
+    // The blocked console and held exit watchdog preclude any eventual exit sweep.
+    assert!(child.try_wait().unwrap().is_none());
+    let status = signalled(&mut child, Signal::SIGINT, PATIENCE);
+    assert_eq!(status.and_then(|status| status.code()), Some(130));
+}
+
+#[test]
+fn sighup_finishes_the_run_with_129_and_sweeps_a_running_group_d96() {
+    if inherited_ignored(Signal::SIGHUP) {
+        return;
+    }
+    let (mut child, mut stderr) = started_with_stderr("run-hup", None);
+    kill(Pid::from_raw(-(child.id() as i32)), Signal::SIGHUP).unwrap();
+    assert!(stderr.saw("MARKER terminate"));
+    let status = signalled_wait(&mut child, PATIENCE);
+    assert_eq!(status.and_then(|status| status.code()), Some(129));
+    stderr.assert_owned_group_ended();
+}
+
+#[test]
+fn sigkill_of_the_cli_group_reaps_a_running_tool_group_d96() -> Result<(), Box<dyn std::error::Error>> {
+    let root = tempfile::tempdir()?;
+    let root = root.path();
+    fs::create_dir(root.join("Sample.app"))?;
+    fs::create_dir(root.join("Sample.xctest"))?;
+    fs::write(
+        root.join("Marathonfile"),
+        "name: reaper
+outputDir: report
+analyticsTracking: false
+bugsnagReporting: false
+uncompletedTestRetryQuota: 5
+vendorConfiguration:
+  type: macOS
+  devices: Marathondevices
+  bundle:
+    application: Sample.app
+    testApplication: Sample.xctest
+    testType: xctest
+  testParserConfiguration:
+    type: nm
+",
+    )?;
+    fs::write(
+        root.join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: host}]\n",
+    )?;
+    let shim = root.join("system_profiler");
+    fs::write(
+        &shim,
+        r#"#!/bin/sh
+# Fill more than a pipe buffer so the CLI must have registered the group and started its reader.
+/usr/bin/yes 'process reaper readiness gate' | /usr/bin/head -n 65536
+pgid=$(ps -o pgid= -p "$$")
+printf '%s\n' "$pgid" > "$MARATHON_REAPER_WITNESS.tmp"
+/bin/mv "$MARATHON_REAPER_WITNESS.tmp" "$MARATHON_REAPER_WITNESS"
+exec /bin/sleep 120
+"#,
+    )?;
+    fs::set_permissions(&shim, fs::Permissions::from_mode(0o755))?;
+    let ready = root.join("ready");
+    let log = root.join("marathon.log");
+    let errors = root.join("errors.log");
+    let mut child = Running(
+        Command::new(env!("CARGO_BIN_EXE_marathon"))
+            .current_dir(root)
+            .env(
+                "PATH",
+                std::env::join_paths([root, std::path::Path::new("/usr/bin"), std::path::Path::new("/bin")])?,
+            )
+            .env("MARATHON_REAPER_WITNESS", &ready)
+            .stdout(fs::File::create(&log)?)
+            .stderr(fs::File::create(&errors)?)
+            .process_group(0)
+            .spawn()?,
+    );
+    let deadline = Instant::now() + PATIENCE;
+    let mut owned = loop {
+        match fs::read_to_string(&ready) {
+            Ok(pgid) => break OwnedGroup::new(pgid.trim().parse()?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        assert!(
+            child.try_wait()?.is_none() && Instant::now() < deadline,
+            "tool did not start: {}{}",
+            fs::read_to_string(&log)?,
+            fs::read_to_string(&errors)?
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    let cli_group = Pid::from_raw(-(child.id() as i32));
+    assert_ne!(owned.0, Some(cli_group));
+    kill(cli_group, Signal::SIGKILL)?;
+    let status = signalled_wait(&mut child, PATIENCE);
+    assert_eq!(status.and_then(|status| status.signal()), Some(Signal::SIGKILL as i32));
+    owned.assert_ended();
+    Ok(())
 }
 
 /// WP 8.8 review (P1): exit preparation that never finishes must not let the run
@@ -590,6 +780,7 @@ fn a_second_signal_exits_at_once_d52() {
         (Signal::SIGTERM, Signal::SIGINT, 130),
         (Signal::SIGINT, Signal::SIGTERM, 143),
         (Signal::SIGTERM, Signal::SIGTERM, 143),
+        (Signal::SIGTERM, Signal::SIGHUP, 129),
     ] {
         if inherited_ignored(first) || inherited_ignored(second) {
             continue;
@@ -666,6 +857,7 @@ fn a_signal_whose_registration_failed_keeps_its_default_disposition() {
     for (mode, failed, relayed, code) in [
         ("run-fail-int", Signal::SIGINT, Signal::SIGTERM, 143),
         ("run-fail-term", Signal::SIGTERM, Signal::SIGINT, 130),
+        ("run-fail-hup", Signal::SIGHUP, Signal::SIGTERM, 143),
     ] {
         if inherited_ignored(failed) || inherited_ignored(relayed) {
             continue;
@@ -682,6 +874,7 @@ fn a_signal_ignored_at_start_stays_ignored_during_the_run() {
     for (ignored, name, other, code) in [
         (Signal::SIGINT, "INT", Signal::SIGTERM, 143),
         (Signal::SIGTERM, "TERM", Signal::SIGINT, 130),
+        (Signal::SIGHUP, "HUP", Signal::SIGTERM, 143),
     ] {
         if inherited_ignored(other) {
             continue;

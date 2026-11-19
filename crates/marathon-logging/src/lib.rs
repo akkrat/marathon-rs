@@ -74,6 +74,7 @@ pub fn filter(configurator: Vendor, debug: bool) -> Targets {
             if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
         )
         .with_target("marathon_core::diagnostics", LevelFilter::WARN)
+        .with_target("marathon_process", LevelFilter::WARN)
         .with_target("marathon_core::timing", LevelFilter::INFO)
         .with_target("marathon_ios::device::timing", LevelFilter::INFO)
         .with_target("marathon_apple::xcodebuild_stderr", LevelFilter::WARN);
@@ -368,6 +369,7 @@ mod tests {
                 if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
             ),
             ("marathon_core::diagnostics", LevelFilter::WARN),
+            ("marathon_process", LevelFilter::WARN),
             ("marathon_core::timing", LevelFilter::INFO),
             ("marathon_ios::device::timing", LevelFilter::INFO),
             ("marathon_apple::xcodebuild_stderr", LevelFilter::WARN),

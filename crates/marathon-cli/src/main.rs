@@ -13,7 +13,7 @@ use marathon_cli::{
 };
 use marathon_error::FailureKind;
 use std::{
-    io::{self, IsTerminal},
+    io::{self, IsTerminal, Write},
     process::ExitCode,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -36,7 +36,16 @@ fn stdout_target() -> OutputTarget {
     OutputTarget::Pipe
 }
 
+#[allow(unsafe_code)]
 fn main() -> ExitCode {
+    // SAFETY: main has not created threads or installed signal handlers.
+    if let Err(error) = unsafe { marathon_process::start_reaper() } {
+        // Startup diagnostics must leave stdout available for machine-readable CLI output.
+        let _ = writeln!(
+            io::stderr().lock(),
+            "WARN: Could not start the process reaper: {error}; continuing with controller sweeps"
+        );
+    }
     #[cfg(unix)]
     let quit_error = marathon_core::diagnostics::install_quit_handler().err();
     #[cfg(not(unix))]
@@ -46,7 +55,7 @@ fn main() -> ExitCode {
         .map(|a| a.to_string_lossy().into_owned())
         .collect();
     let status = run(args, quit_error);
-    marathon_process::seal_and_kill();
+    marathon_cli::tracing_output::sweep_at_ordinary_exit();
     status
 }
 

@@ -204,7 +204,10 @@ fn android_run(root: &Path, debug: bool, port: u16, extra: &str) -> Result {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_cancel_mid_test_writes_the_reports_and_does_not_bounce_the_test_d52_u161() -> Result {
     for debug in [false, true] {
-        for (number, code) in [(Signal::SIGTERM, 143), (Signal::SIGINT, 130)] {
+        for (number, code) in [(Signal::SIGTERM, 143), (Signal::SIGINT, 130), (Signal::SIGHUP, 129)] {
+            if marathon_core::marathon::signal_ignored(number as i32) {
+                continue;
+            }
             let dir = tempfile::tempdir()?;
             let root = dir.path();
             let mut server = FakeAdbServer::start(

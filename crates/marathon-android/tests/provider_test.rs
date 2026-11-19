@@ -1062,7 +1062,13 @@ fn test_start_and_kill_adb_server() {
     checked(std::fs::create_dir(temp.path().join("platform-tools")));
     let binary = temp.path().join("platform-tools/adb");
     let output = temp.path().join("argv");
-    let script = format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\n", output.display());
+    let script = format!(
+        r#"#!/bin/sh
+test /dev/fd/0 -ef /dev/null && test /dev/fd/1 -ef /dev/null && test /dev/fd/2 -ef /dev/null || exit 65
+printf '%s\n' "$*" >> '{}'
+"#,
+        output.display()
+    );
     checked(std::fs::write(&binary, script));
     checked(std::fs::set_permissions(
         &binary,

@@ -1,12 +1,14 @@
 //! Run-owned local processes on Linux and macOS.
 
+mod group;
+mod reaper;
 mod registry;
 
 use registry::{Registry, Target};
 use std::{
     ffi::OsStr,
     io,
-    os::unix::process::CommandExt,
+    os::unix::process::{CommandExt, ExitStatusExt},
     path::Path,
     process::{ExitStatus, Output, Stdio},
     time::Duration,
@@ -14,6 +16,19 @@ use std::{
 use tokio::process::{ChildStderr, ChildStdout};
 
 static RUN: Registry = Registry::new();
+
+/// Install the process-death backstop used by the CLI.
+///
+/// # Safety
+///
+/// Call only once, at the start of main, before starting any thread or runtime.
+/// The CLI uses Rust's default SIGPIPE disposition.
+#[allow(unsafe_code)]
+pub unsafe fn start_reaper() -> io::Result<()> {
+    // SAFETY: the caller guarantees single-threaded startup.
+    RUN.set_reaper(unsafe { reaper::Reaper::start()? });
+    Ok(())
+}
 
 /// Seal admission and synchronously KILL registered groups without an executor. Returns the count
 /// of spawns still in the kernel after the brief wait for late registrations.
@@ -86,15 +101,19 @@ impl Command {
 
     fn spawn_target(&mut self, target: impl FnOnce(i32) -> Target) -> io::Result<Child> {
         let ticket = RUN.admit()?;
-        let inner = self.0.spawn()?;
+        let mut inner = self.0.spawn()?;
         let target = target(inner.id() as i32);
-        ticket.register(target);
-        drop(ticket);
-        Ok(Child {
-            registered: true,
+        let child = Child {
             target,
+            stdin: inner.stdin.take(),
+            stdout: inner.stdout.take(),
+            stderr: inner.stderr.take(),
             inner: Some(inner),
-        })
+            finished: None,
+            confirmed: false,
+        };
+        ticket.register(target)?;
+        Ok(child)
     }
 
     pub async fn output(&mut self) -> io::Result<Output> {
@@ -104,38 +123,36 @@ impl Command {
 }
 
 pub struct Child {
-    // Removed before reaping, after which no signal may be sent to the old number.
-    registered: bool,
     target: Target,
+    // Our handle exists only while the target is registered and its leader is pinned.
     inner: Option<std::process::Child>,
+    // Pipe ownership is independent of reaping the leader.
+    stdin: Option<std::process::ChildStdin>,
+    stdout: Option<std::process::ChildStdout>,
+    stderr: Option<std::process::ChildStderr>,
+    finished: Option<ExitStatus>,
+    confirmed: bool,
 }
 
 impl Child {
     pub fn take_stdin(&mut self) -> Option<std::process::ChildStdin> {
-        self.inner.as_mut().and_then(|child| child.stdin.take())
+        self.stdin.take()
     }
 
     pub fn take_stdout(&mut self) -> io::Result<Option<ChildStdout>> {
-        self.inner
-            .as_mut()
-            .and_then(|child| child.stdout.take())
-            .map(ChildStdout::from_std)
-            .transpose()
+        self.stdout.take().map(ChildStdout::from_std).transpose()
     }
 
     pub fn take_stderr(&mut self) -> io::Result<Option<ChildStderr>> {
-        self.inner
-            .as_mut()
-            .and_then(|child| child.stderr.take())
-            .map(ChildStderr::from_std)
-            .transpose()
+        self.stderr.take().map(ChildStderr::from_std).transpose()
     }
 
     pub fn id(&self) -> Option<u32> {
-        self.inner
-            .as_ref()
-            .filter(|_| self.registered)
-            .map(std::process::Child::id)
+        self.inner.as_ref().map(std::process::Child::id)
+    }
+
+    pub fn cleanup_confirmed(&self) -> bool {
+        self.confirmed
     }
 
     pub fn terminate(&self) -> io::Result<()> {
@@ -147,7 +164,7 @@ impl Child {
     }
 
     fn signal(&self, signal: i32) -> io::Result<()> {
-        if self.registered {
+        if self.inner.is_some() {
             RUN.signal(self.target, signal)?;
         }
         Ok(())
@@ -170,60 +187,135 @@ impl Child {
     }
 
     async fn finish(&mut self, legacy_recorder_start: bool) -> io::Result<ExitStatus> {
-        self.take_stdin();
-        let inner = self.inner.as_mut().ok_or_else(|| io::Error::other("missing child"))?;
-        if self.registered {
-            let mut changed = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())?;
-            let clean_exit = loop {
-                if let Some(success) = observe_exit(inner.id())? {
-                    break success;
-                }
-                changed.recv().await;
-            };
-            let keep_recorder = legacy_recorder_start && clean_exit;
-            let kill_group = matches!(self.target, Target::Group(_)) && !keep_recorder;
-            RUN.retire(self.target, kill_group.then_some(libc::SIGKILL), true)?;
-            self.registered = false;
+        self.finish_with(legacy_recorder_start, confirm_group_exit).await
+    }
+
+    async fn finish_with<F, Fut>(&mut self, legacy_recorder_start: bool, confirm: F) -> io::Result<ExitStatus>
+    where
+        F: FnOnce(i32) -> Fut,
+        Fut: Future<Output = io::Result<()>>,
+    {
+        if let Some(status) = self.finished {
+            return Ok(status);
         }
-        // WNOWAIT observed the exit while the group was still registered. This wait is nonblocking.
+        self.take_stdin();
+        let pid = self.id().ok_or_else(|| io::Error::other("missing child"))?;
+        let mut changed = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child())?;
+        let status = loop {
+            if let Some(status) = observe_exit(pid)? {
+                break status;
+            }
+            changed.recv().await;
+        };
+        let check_group = matches!(self.target, Target::Group(_)) && !(legacy_recorder_start && status.success());
+        if check_group {
+            // On macOS EPERM can also mean only our exited leader remains. Check
+            // membership with its PID still pinned in either case.
+            let kill = RUN.signal(self.target, libc::SIGKILL);
+            let check = match kill {
+                Err(error) if !(cfg!(target_os = "macos") && error.raw_os_error() == Some(libc::EPERM)) => Err(error),
+                _ => confirm(pid as i32).await,
+            };
+            if let Err(error) = check {
+                return Ok(self.finish_unconfirmed(status, error, true));
+            }
+        }
+        if let Err(error) = RUN.retire(self.target) {
+            // A backed-up pipe must drain before the leader's PID can be released.
+            return Ok(self.finish_unconfirmed(status, error, false));
+        }
+        let mut inner = self.inner.take().ok_or_else(|| io::Error::other("missing child"))?;
         let status = inner
             .try_wait()?
             .ok_or_else(|| io::Error::other("observed child exit could not be reaped"))?;
-        if matches!(self.target, Target::Group(_)) && !(legacy_recorder_start && status.success()) {
-            self.confirm_group_exit().await?;
-        }
+        self.confirmed = true;
+        self.finished = Some(status);
         Ok(status)
     }
 
-    async fn confirm_group_exit(&self) -> io::Result<()> {
-        tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                // Signal 0 is a read-only check. A reused PGID can only delay confirmation.
-                match self.target.signal(0) {
-                    Err(error) if error.raw_os_error() == Some(libc::ESRCH) => return Ok(()),
-                    Err(error) if error.raw_os_error() != Some(libc::EPERM) => return Err(error),
-                    _ => tokio::time::sleep(Duration::from_millis(5)).await,
-                }
-            }
-        })
-        .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "process group did not disappear"))?
+    fn finish_unconfirmed(&mut self, status: ExitStatus, error: io::Error, check_group: bool) -> ExitStatus {
+        if let Some(child) = self.inner.take() {
+            let pid = child.id();
+            tracing::warn!(target: "marathon_process", "Could not confirm cleanup of local process {pid}: {error}");
+            // WNOWAIT provides the real status. Keep the leader pinned until
+            // cleanup can be confirmed and removal reported to the reaper.
+            defer_reap(child, self.target, check_group);
+        }
+        self.finished = Some(status);
+        status
     }
 
     pub async fn wait_with_output(mut self) -> io::Result<Output> {
         use tokio::io::{AsyncRead, AsyncReadExt};
-        async fn read(pipe: Option<impl AsyncRead + Unpin>) -> io::Result<Vec<u8>> {
-            let mut bytes = Vec::new();
+        async fn read(pipe: Option<impl AsyncRead + Unpin>, bytes: &mut Vec<u8>) -> io::Result<()> {
             if let Some(mut pipe) = pipe {
-                pipe.read_to_end(&mut bytes).await?;
+                pipe.read_to_end(bytes).await?;
             }
-            Ok(bytes)
+            Ok(())
         }
-        let stdout = self.take_stdout()?;
-        let stderr = self.take_stderr()?;
-        let (status, stdout, stderr) = tokio::try_join!(self.wait(), read(stdout), read(stderr))?;
+        let (stdout_pipe, stderr_pipe) = (self.take_stdout()?, self.take_stderr()?);
+        let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+        let status;
+        {
+            let readers = async {
+                tokio::try_join!(read(stdout_pipe, &mut stdout), read(stderr_pipe, &mut stderr))?;
+                Ok::<_, io::Error>(())
+            };
+            tokio::pin!(readers);
+            status = tokio::select! {
+                result = self.wait() => {
+                    let status = result?;
+                    if self.cleanup_confirmed() {
+                        readers.await?;
+                    }
+                    status
+                }
+                result = &mut readers => {
+                    result?;
+                    self.wait().await?
+                }
+            };
+        }
         Ok(Output { status, stdout, stderr })
     }
+}
+
+async fn confirm_group_exit(pid: i32) -> io::Result<()> {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            #[cfg(target_os = "linux")]
+            let remaining = tokio::task::spawn_blocking(move || group::has_other_members(pid))
+                .await
+                .map_err(io::Error::other)??;
+            #[cfg(target_os = "macos")]
+            let remaining = group::has_other_members(pid)?;
+            if !remaining {
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "process group did not disappear"))?
+}
+
+fn defer_reap(mut child: std::process::Child, target: Target, check_group: bool) {
+    let _ = std::thread::Builder::new().spawn(move || {
+        let pid = child.id();
+        // std::process::Child::drop never reaps. Even if this thread cannot be
+        // started, the target remains pinned for the controller and reaper.
+        loop {
+            if matches!(observe_exit(pid), Ok(Some(_))) {
+                if check_group && !matches!(group::has_other_members(pid as i32), Ok(false)) {
+                    let _ = RUN.signal(target, libc::SIGKILL);
+                } else if RUN.retire(target).is_ok() {
+                    let _ = child.try_wait();
+                    return;
+                }
+            }
+            std::thread::sleep(Duration::from_secs(1));
+        }
+    });
 }
 
 impl Drop for Child {
@@ -231,22 +323,16 @@ impl Drop for Child {
         let Some(mut child) = self.inner.take() else {
             return;
         };
-        if self.registered && RUN.retire(self.target, Some(libc::SIGKILL), false).is_err() {
-            // The leader is still pinned if the group kill failed.
+        let killed = RUN.signal(self.target, libc::SIGKILL);
+        if killed.is_err() {
             let _ = child.kill();
-            let _ = RUN.retire(self.target, None, false);
         }
-        if !matches!(child.try_wait(), Ok(Some(_))) {
-            // kill-on-drop also reaps an abandoned direct child without holding up its caller.
-            let _ = std::thread::Builder::new().spawn(move || {
-                let _ = child.wait();
-            });
-        }
+        defer_reap(child, self.target, matches!(self.target, Target::Group(_)));
     }
 }
 
 #[allow(unsafe_code)]
-fn observe_exit(pid: u32) -> io::Result<Option<bool>> {
+fn observe_exit(pid: u32) -> io::Result<Option<ExitStatus>> {
     loop {
         // SAFETY: waitid writes to the initialized siginfo. WNOWAIT prevents PID reuse.
         let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
@@ -268,8 +354,38 @@ fn observe_exit(pid: u32) -> io::Result<Option<bool>> {
         if unsafe { info.si_pid() } == 0 {
             return Ok(None);
         }
-        return Ok(Some(
-            info.si_code == libc::CLD_EXITED && unsafe { info.si_status() } == 0,
-        ));
+        // waitid separates the exit code from its cause. ExitStatus expects waitpid's encoding.
+        let status = unsafe { info.si_status() };
+        let raw = match info.si_code {
+            libc::CLD_EXITED => status << 8,
+            libc::CLD_KILLED => status,
+            libc::CLD_DUMPED => status | 0x80,
+            _ => return Err(io::Error::other("unexpected child exit status")),
+        };
+        return Ok(Some(ExitStatus::from_raw(raw)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn unconfirmed_group_keeps_the_command_exit_status() -> io::Result<()> {
+        for code in [0, 37] {
+            let mut child = Command::new("/bin/sh").arg("-c").arg(format!("exit {code}")).spawn()?;
+            let status = child
+                .finish_with(false, |_| async {
+                    Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "injected group confirmation timeout",
+                    ))
+                })
+                .await?;
+            assert_eq!(status.code(), Some(code));
+            assert!(!child.cleanup_confirmed());
+            assert_eq!(child.wait().await?, status);
+        }
+        Ok(())
     }
 }

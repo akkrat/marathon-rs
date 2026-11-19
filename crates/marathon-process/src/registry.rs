@@ -1,3 +1,4 @@
+use super::reaper::Reaper;
 use std::{
     io,
     sync::{Condvar, Mutex, MutexGuard},
@@ -11,17 +12,17 @@ pub(super) enum Target {
 }
 
 impl Target {
-    fn address(self) -> i32 {
+    pub(super) fn address(self) -> i32 {
         match self {
             Self::Group(id) => -id,
             Self::Client(id) => id,
         }
     }
 
-    /// Requires a registered, unreaped leader, except when polling for disappearance.
+    /// Requires an unreaped leader.
     #[allow(unsafe_code)]
     pub(super) fn signal(self, signal: i32) -> io::Result<()> {
-        // SAFETY: a positive PID or a negative private PGID. Signal 0 has no side effects.
+        // SAFETY: a positive PID or a negative private PGID.
         if unsafe { libc::kill(self.address(), signal) } == 0 {
             Ok(())
         } else {
@@ -34,7 +35,8 @@ impl Target {
 struct State {
     sealed: Option<Instant>,
     in_flight: usize,
-    targets: Vec<Target>,
+    targets: Vec<(Target, Option<usize>)>,
+    reaper: Option<Reaper>,
 }
 
 pub(super) struct Registry {
@@ -49,6 +51,7 @@ impl Registry {
                 sealed: None,
                 in_flight: 0,
                 targets: Vec::new(),
+                reaper: None,
             }),
             completed: Condvar::new(),
         }
@@ -56,6 +59,10 @@ impl Registry {
 
     fn state(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(|error| error.into_inner())
+    }
+
+    pub(super) fn set_reaper(&self, reaper: Reaper) {
+        self.state().reaper = Some(reaper);
     }
 
     pub(super) fn admit(&self) -> io::Result<Launching<'_>> {
@@ -78,27 +85,25 @@ impl Registry {
         }
     }
 
-    /// Serialize unregistration with the emergency sweep, before the leader can be reaped.
-    pub(super) fn retire(&self, target: Target, signal: Option<i32>, exited: bool) -> io::Result<()> {
+    /// Serialize removal with the sweep and publish it before the leader can be reaped.
+    pub(super) fn retire(&self, target: Target) -> io::Result<()> {
         let mut state = self.state();
-        if let Some(signal) = signal {
-            match target.signal(signal) {
-                Err(error)
-                    if error.raw_os_error() != Some(libc::ESRCH)
-                        // macOS can report EPERM when only the unreaped leader remains. The caller
-                        // still needs to check that the group disappears after reaping that leader.
-                        && !(cfg!(target_os = "macos")
-                            && exited
-                            && matches!(target, Target::Group(_))
-                            && error.raw_os_error() == Some(libc::EPERM)) =>
-                {
+        let mut lost = None;
+        if let Some(index) = state.targets.iter().position(|&(registered, _)| registered == target) {
+            if let Some(slot) = state.targets[index].1
+                && let Some(reaper) = &mut state.reaper
+                && let Err(error) = reaper.remove(slot)
+            {
+                if error.kind() != io::ErrorKind::BrokenPipe {
                     return Err(error);
                 }
-                _ => {}
+                lost = state.reaper.take();
             }
-        }
-        if let Some(index) = state.targets.iter().position(|&registered| registered == target) {
             state.targets.swap_remove(index);
+        }
+        drop(state);
+        if lost.is_some() {
+            warn_reaper_lost();
         }
         Ok(())
     }
@@ -109,7 +114,7 @@ impl Registry {
             .sealed
             .get_or_insert_with(|| Instant::now() + Duration::from_millis(200));
         self.completed.notify_all();
-        for &target in &state.targets {
+        for &(target, _) in &state.targets {
             let _ = target.signal(libc::SIGKILL);
         }
         let (state, _) = self
@@ -125,13 +130,36 @@ impl Registry {
 pub(super) struct Launching<'a>(&'a Registry);
 
 impl Launching<'_> {
-    pub(super) fn register(&self, target: Target) {
+    pub(super) fn register(&self, target: Target) -> io::Result<()> {
         let mut state = self.0.state();
-        state.targets.push(target);
-        if state.sealed.is_some() {
+        let mut slot = None;
+        let mut lost = None;
+        let result = match state.reaper.as_mut().map(|reaper| reaper.add(target.address())) {
+            Some(Ok(assigned)) => {
+                slot = Some(assigned);
+                Ok(())
+            }
+            Some(Err(error)) if error.kind() == io::ErrorKind::BrokenPipe => {
+                lost = state.reaper.take();
+                Ok(())
+            }
+            Some(Err(error)) => Err(error),
+            None => Ok(()),
+        };
+        if state.sealed.is_some() || result.is_err() {
             let _ = target.signal(libc::SIGKILL);
         }
+        state.targets.push((target, slot));
+        drop(state);
+        if lost.is_some() {
+            warn_reaper_lost();
+        }
+        result
     }
+}
+
+fn warn_reaper_lost() {
+    tracing::warn!(target: "marathon_process", "Process reaper stopped; the controller will still sweep its registered processes");
 }
 
 impl Drop for Launching<'_> {
@@ -158,7 +186,7 @@ mod tests {
         let registered = registry.admit()?;
         let mut first = Command::new("/bin/sleep").arg("120").process_group(0).spawn()?;
         let first_target = Target::Group(first.id() as i32);
-        registered.register(first_target);
+        registered.register(first_target)?;
         drop(registered);
 
         let late = registry.admit()?;
@@ -174,7 +202,7 @@ mod tests {
                 .0;
             assert!(state.sealed.is_some());
             drop(state);
-            late.register(second_target);
+            late.register(second_target).ok();
             drop(late);
         });
 
@@ -183,8 +211,8 @@ mod tests {
             let end = Instant::now() + Duration::from_secs(60);
             let status = loop {
                 if let Some(status) = super::super::observe_exit(child.id())? {
-                    assert!(!status);
-                    registry.retire(target, None, true)?;
+                    assert!(!status.success());
+                    registry.retire(target)?;
                     break child.try_wait()?;
                 }
                 if Instant::now() >= end {

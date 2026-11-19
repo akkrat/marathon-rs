@@ -1716,9 +1716,9 @@ pub async fn start_adb(sdk: Option<&std::path::Path>, port: u16, context: Vendor
     let binary = std::path::absolute(binary).map_err(io)?;
     let mut child = marathon_process::Command::new(binary)
         .args(["-P", &port.to_string(), "start-server"])
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .spawn_adb_client()
         .map_err(io)?;
     tokio::select! {

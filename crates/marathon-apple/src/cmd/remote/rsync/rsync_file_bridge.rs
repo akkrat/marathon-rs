@@ -606,7 +606,7 @@ impl Inner {
         // Measured as the process ended, however that came about, and before its pipes are waited for.
         let quiet = self.clock.now_millis() - progress.load(Ordering::SeqCst);
         let mut doubts = Vec::new();
-        let reaped = match &status {
+        let exited = match &status {
             Some(Ok(_)) => true,
             // A failed wait may not have reaped the child; the error still wins.
             Some(Err(_)) => bound
@@ -616,8 +616,11 @@ impl Inner {
                 .is_some_and(|waited| waited.is_ok()),
             None => false,
         };
-        if !reaped {
+        let reaped = exited && child.cleanup_confirmed();
+        if !exited {
             doubts.push("it was not reaped".to_owned());
+        } else if !reaped {
+            doubts.push("its process group was not confirmed to have ended".to_owned());
         }
         // D54: once a stop has been sent, what rsync started goes, whatever rsync's status says. D91: before its pipes are
         // waited for, since that is what holds them; and then it is checked that none of it is left.

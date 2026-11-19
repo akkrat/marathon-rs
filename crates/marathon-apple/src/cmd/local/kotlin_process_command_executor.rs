@@ -249,7 +249,7 @@ async fn execute(
             }
         };
         alive_monitor.store(false, Ordering::SeqCst);
-        let settled = result.is_ok();
+        let settled = result.is_ok() && child.cleanup_confirmed();
         match result {
             Ok((code, termination)) => {
                 actual.complete_observed(Ok(code), Some(termination));

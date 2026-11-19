@@ -84,6 +84,7 @@ python3 -I scripts/release/test_release.py
 
 step "local process ownership boundary"
 python3 -I scripts/check_process_spawns.py
+python3 -I scripts/test_check_process_spawns.py
 
 step "cargo fmt"
 cargo fmt --all --check

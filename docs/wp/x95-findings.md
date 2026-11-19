@@ -1,8 +1,11 @@
 # WP x95 findings — process ownership
 
-## Initial investigation
+## Scope
 
-Stopped before migration on `9ce312ff`. The launcher prototype changed spawn errors, added measurable overhead, and could confirm cleanup while a descendant was still addressable. The prototype was removed. D96 and U227–U234 remain available for the implementation. No result golden, Kotlin recording, configuration, command, or release documentation was updated.
+D96's controller step and U227 cover native local launches, the exit sweeps and the
+run-scoped process reaper. The password transport, recorder ownership and worker
+supervisor are follow-up work within x95. The controller step changes no result
+goldens, Kotlin recordings or configuration fields.
 
 ## Evidence at the base
 
@@ -56,10 +59,10 @@ registrations send KILL immediately when sealed. A child may execute between the
 If a kernel spawn does not return within 200 ms, synchronous exit can beat its registration. This is the
 residual window of the approved native launch approach.
 
-The leader remains unreaped while the registry contains a signalable group. Retirement and the emergency
-sweep share the registry lock. Normal completion observes leader exit without reaping, sends KILL before
-unregistering, then reaps and confirms disappearance using signal 0. A permission error on an observed exited
-leader on macOS still requires the disappearance check. D93's local command receipt also waits for both readers.
+The initial implementation kept the leader unreaped while its group was signalable. Retirement and the
+emergency sweep shared the registry lock. It then reaped the leader and checked for group disappearance
+using signal 0. D93's local command receipt also waited for both readers. Round 1 moved the group check before
+retirement so an unresolved group can stay registered without releasing its identity.
 At the D52 deadline, core notifies the existing watchdog thread before flushing output. The watchdog sweeps
 synchronously without waiting on the console. The second signal sweeps synchronously in the immediate exit path.
 The signal cutoffs and publication policy belong to x96.
@@ -71,8 +74,8 @@ production throughput change.
 
 The registry late-registration witness, exited-leader witness and ADB client policy witness each passed 50 times
 and once under CPU load. The exited-leader witness failed with a group disappearance timeout in a scratch copy
-where retirement omitted KILL. All 16 CLI signal window tests passed, including the D52 expiry and second-signal
-checks with a real stopped child. The second-signal check passed 50 times and once under CPU load.
+where retirement omitted KILL. All 16 initial CLI signal window tests passed. The original stopped-child exit checks were
+superseded in round 1 because kernel orphan handling also killed those children.
 The CLI vendor differential comparison passed without changing recordings.
 Linux execution remains for the remote gate.
 
@@ -102,6 +105,60 @@ for the orchestrator.
 Recorder handles and the worker supervisor remain pending. The owner already authorized the stock Perl
 probe, fallback and warning. The worker protocol, migration prerequisite and real-device reruns still need
 implementation and verification.
+
+## Round 1 review
+
+The CLI starts one reaper before installing its run signal handlers or creating threads. It restores the default
+SIGCHLD disposition so the kernel cannot auto-reap a leader while its registration is live. The reaper has
+its own process group, closes every inherited descriptor except its pipe reader, and ignores INT, TERM,
+HUP and PIPE. The controller sends fixed-size add and remove records through a nonblocking write end with
+close-on-exec. The helper drains all records before it acts on EOF. Removal is serialized with the synchronous
+sweep and published before the controller reaps the leader. Publishing a removal frees its slot for reuse.
+A full pipe or table rejects a new launch after sending KILL and retaining the target for in-process cleanup.
+A failed removal keeps the leader pinned for deferred cleanup. Reaper setup or pipe loss logs a warning and
+leaves the synchronous sweeps active. The parent verifies the helper's private group even if the
+child gets there first. Startup warnings go to stderr so configuration dumps still emit only JSON on stdout.
+
+The ordinary exit sweep, the D52 expiry sweep and the immediate second-signal sweep have independent
+witnesses using live sleeping children and no reaper. The expiry witness observes the tool's SIGKILL and
+reap while the controller is still waiting on a blocked console. A separate test kills the built CLI's
+group with SIGKILL while it owns a running local tool. The tool fills its stdout pipe before announcing
+readiness, which establishes that launch registration completed. A group-directed SIGHUP finishes the
+provider and exits 129. The CLI report test also exercises SIGHUP in both debug modes.
+
+The local wait observes the leader's exit status with WNOWAIT, sends KILL and checks membership before
+reaping. macOS uses the native process-group query, and Linux checks procfs on the blocking pool.
+If group confirmation expires or fails, a warning accompanies the actual exit status. The unconfirmed
+receipt remains distinct from the status, with deferred cleanup retaining the leader and registry entry.
+The command handle retains ownership of its output pipes after reaping so readers can still drain them.
+The injected timeout checks both zero and nonzero status, and the pipe seam covers queued removal,
+slot reuse and saturation. The ADB client uses null standard streams, with a fake binary checking all
+three descriptors. ADB server ownership stays independent.
+
+The transfer from native spawn to registration still has a coverage window. A successful removal
+excludes that entry from the reaper's kill loop even if the kernel later reuses its number. On abrupt
+controller death the kernel can reclaim an unremoved group's ID if the group has already emptied
+and its orphaned leader is reaped before the helper runs. The portable KILL call takes a numeric PGID.
+Processes that leave their group and the legacy recorder handoff remain outside this controller step.
+
+The five real-process exit and signal witnesses, the removal and saturation witnesses and the
+unconfirmed-status witness each passed 50 isolated runs and one under CPU load on macOS. Scratch
+mutations dropped reaper startup, each sweep, HUP registration, remove publication, exit-status
+preservation, ADB standard-stream redirection and the added spawn-gate checks. Each corresponding
+witness failed at its expected assertion. Linux process-crate Clippy cross-checks passed. Linux
+execution and real-device acceptance were unavailable locally.
+
+The wider macOS package pass exposed a dropped-pipe regression and a startup warning that broke
+configuration JSON. After fixing both, the pipe-drain test, config corpus and replay of all 4,299
+configuration cases passed. A 60-run configuration smoke check returned valid JSON every time, with
+zero reaper startup warnings. The vendor differential comparison passed. The evidence validator passed
+110 tests after rebuilding its cached YAML helper. The local tool smoke test ran in 0.66 s and the
+built CLI's iOS run and parse through real SSH to a fake worker ran in 1.74 s.
+
+The adjacent 1,000-launch comparison measured 1.506 s direct and 1.711 s registered on the
+pre-review launcher, then 1.831 s direct and 1.874 s registered with this change. These measurements
+were taken during the package checks. They exercise native launch and group confirmation with the
+library reaper disabled, and the variation in the direct runs limits the comparison.
 
 ## Incidental bugs
 

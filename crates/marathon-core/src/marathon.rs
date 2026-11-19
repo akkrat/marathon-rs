@@ -82,7 +82,7 @@ pub struct SignalHooks {
     pub cleanup_expired: Option<Arc<dyn Fn() + Send + Sync>>,
     /// Replaces the tokio registration (failure injection).
     pub registration: Option<SignalRegistration>,
-    /// Called once both registrations have been attempted.
+    /// Called once all registrations have been attempted.
     pub ready: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
@@ -98,7 +98,7 @@ pub fn tokio_registration(number: i32) -> std::io::Result<SignalStream> {
 }
 
 /// Whether `number`'s current disposition is SIG_IGN. HotSpot installs no handler for a
-/// SIGINT or SIGTERM the process started with ignored (shell background jobs, CI wrappers),
+/// shutdown signal the process started with ignored (shell background jobs, CI wrappers),
 /// so the relay leaves such a signal ignored as well.
 #[cfg(unix)]
 #[allow(unsafe_code)]
@@ -114,12 +114,12 @@ pub fn signal_ignored(number: i32) -> bool {
     }
 }
 
-/// P3: the one owned relay for SIGINT/SIGTERM. A vendor-side listener completes `signal`
+/// P3: the one owned relay for SIGINT, SIGTERM and SIGHUP. A vendor-side listener completes `signal`
 /// with the signal number; `run` awaits it on core. The JVM exits with 128 + the signal
 /// number after its shutdown hooks, so `exit` receives that status in both debug modes.
 ///
 /// The OS handlers are installed only when the run starts, without waiting on core for the
-/// registration: until then the default disposition ends the process (the shell sees 130/143,
+/// registration: until then the default disposition ends the process (the shell sees 130/143/129,
 /// as with a JVM still constructing). Each signal is registered on its own: one that fails
 /// keeps its default disposition, while one that succeeded is still relayed (tokio keeps a
 /// registered handler, so abandoning its stream would swallow the signal). A signal the
@@ -137,7 +137,7 @@ pub struct SignalRelay {
     exit: Arc<dyn Fn(i32) + Send + Sync>,
 }
 impl SignalRelay {
-    /// The process's SIGINT and SIGTERM, delivered through the vendor runtime's I/O driver.
+    /// The process's SIGINT, SIGTERM and SIGHUP, delivered through the vendor runtime's I/O driver.
     /// Tokio keeps its handlers installed after the run (a later signal is ignored rather
     /// than ending the process; the CLI exits right after the run).
     #[cfg(unix)]
@@ -177,7 +177,8 @@ impl SignalRelay {
                     let stream = registration(number).ok()?;
                     Some(futures_util::StreamExt::map(stream, move |()| number))
                 };
-                let streams: Vec<_> = [2, 15]
+                use nix::libc::{SIGHUP, SIGINT, SIGTERM};
+                let streams: Vec<_> = [SIGINT, SIGTERM, SIGHUP]
                     .into_iter()
                     .filter(|&number| !signal_ignored(number))
                     .filter_map(numbered)

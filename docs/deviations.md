@@ -1069,14 +1069,14 @@ Kotlin runs its finish on SIGINT or SIGTERM only with `debug: true`. With the us
 reports and doesn't terminate the provider, so worker processes can outlive the job. With `debug: true` the finish closes the
 provider first, while the tests keep being handed out, and can be killed before it reaches the reports.
 
-Native builds do the following on the first SIGINT or SIGTERM, in both debug modes, in this order:
+Native builds do the following on the first SIGINT, SIGTERM or SIGHUP (D96), in both debug modes, in this order:
 
 1. **The tests stop.** Pools, queues and devices are cancelled, which also starts closing what the batches in flight have open.
    On a worker that means D30's TERM.
 2. **The reports are written:** results reach them only up to this point, so nothing can change under them.
 3. **Provider termination and the history close run side by side**, once the reports are done, or after 10 s if they aren't.
    The reports carry on, since only a remote backend's close comes after the report files and it may never end.
-4. **The process exits with 128 + the signal number:** 130 or 143, as before.
+4. **The process exits with 128 + the signal number:** 130 for SIGINT, 143 for SIGTERM, or 129 for SIGHUP.
 
 **At most 25 s.** That is 24 s for all of it, and 1 s for the last lines of the log if the console has stopped reading. Whatever
 is still running at 24 s is abandoned, with one error line. A CI's kill after SIGTERM often comes after 10 to 30 s. The reports
@@ -3028,17 +3028,33 @@ The deadlines leave committed results, the run's first cause, and D52's signal e
 
 Approved 2026-11-19 (project owner's decision). WP x95. See [process ownership findings](wp/x95-findings.md).
 
-Each local tool launches in a private process group. The controller seals launch admission and
-sends KILL to every remaining registered target at ordinary exit, at the signal exit deadline,
-and on the second signal. It waits at most 200 ms for a spawn already in progress to register
-and kill its group. A native spawn that has not returned by then can still leave a process behind.
-A local command ordinarily confirms cleanup only after reaping the leader and observing
-that its group has disappeared. A regular stop sends TERM before escalating to KILL. When rsync's leader exits while other
-members of its group still hold its output pipes, group cleanup ends those processes and
-preserves the leader's exit status.
+Each local tool launches in a private process group. Group-directed signals reach Marathon,
+which runs D52 cleanup for SIGINT, SIGTERM or SIGHUP. SIGHUP uses the same finish as SIGTERM
+and exits with 129 (128 + 1). At normal exit, at the cleanup deadline and on the second
+signal, Marathon seals admission and sends KILL to every remaining registered target. It
+waits at most 200 ms for an in-progress spawn to register. A separate reaper reads the
+registry's ordered updates and sends KILL to its remaining targets if Marathon exits by any
+means, including SIGKILL. If the reaper cannot start, Marathon warns and continues with
+the synchronous sweeps. A native spawn that has yet to register is outside the reaper's
+view. If the pipe or the reaper's 4,096-entry table is full, Marathon kills the new process
+and returns a launch error.
 
-Marathon tracks ADB clients, including `start-server`. It leaves every ADB server running under
-the existing server policy. The process sweep does not send a signal to the server's group.
+Ordinary cleanup sends KILL and checks for other group members while the unreaped leader
+still pins the group ID. The registry removes the group from the reaper before reaping the
+leader. If the check returns an error or cannot confirm the group is empty within 5 s,
+Marathon warns once and returns the command's actual exit status. It does the same if the reaper
+pipe is full when it tries to publish the removal. Cleanup remains unconfirmed, and the group
+stays registered until cleanup succeeds. This preserves rsync's exit status
+while ending other members that hold its output pipes. A local iOS or macOS command that receives
+TERM escalates to KILL after 5 s if it is still running. Device and signal deadlines can apply sooner.
 
-**Migration action:** none for local tools. A command that intentionally backgrounds work in
-the same process group should keep its command session open until that work is finished.
+Marathon tracks ADB clients, including `start-server`, with the existing independent
+server lifetime. `start-server` uses non-terminal standard streams so terminal job control
+cannot stop it on output. Other tools are background groups from the terminal's perspective.
+With `stty tostop`, inherited terminal output can stop a background tool. An SSH process that
+tries to read a password or key passphrase on `/dev/tty` can also stop.
+
+**Migration action:** Keep a command session open until any background work it intentionally started
+in the same process group has finished. Configure SSH to authenticate without an interactive
+terminal prompt, and redirect terminal output for tools that inherit it if `stty tostop` is set.
+Sending a cancellation signal to Marathon's process group still works for registered tools.

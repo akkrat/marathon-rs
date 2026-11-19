@@ -1781,6 +1781,7 @@ version = "0.0.0"
 dependencies = [
  "libc",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

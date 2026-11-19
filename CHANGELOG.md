@@ -4,7 +4,7 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## Unreleased
 
-- **Controller process cleanup on exit (D96).** Marathon stops registered local process groups on normal exit and when a signal forces exit. ADB servers stay available.
+- **Controller process cleanup on exit (D96).** Marathon stops registered local tools on exit, including when the controller is killed. A hang-up runs the same bounded cleanup as a termination signal. ADB servers stay available.
 - **Apple device setup and preparation survive analytics failures (U212).** If a timing read or tracker fails,
   the runner warns and the device can still join the run and take tests after successful setup and preparation.
 - **Android cleanup has a shared deadline (D92).** By default each device has up to 60 seconds to stop, including
