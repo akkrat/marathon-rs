@@ -30,6 +30,10 @@ use simulator_support::*;
 use std::{path::Path, sync::Arc, time::Duration};
 use support::{Clock, context, duration, watchdog};
 use tokio::sync::Semaphore;
+
+/// The SSH test hooks (`pause_outbound_exec`, `hold_disconnect`) are process-wide, and installing or removing one
+/// replaces another test's: the tests that use them take this lock, so they run one at a time.
+static SSH_TEST_HOOKS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 fn add_runner_app(h: &mut Harness) -> TestResult {
     let runner = h.dir.path().join("runner.app");
     std::fs::create_dir_all(runner.join("PlugIns"))?;
@@ -731,6 +735,7 @@ async fn a_command_whose_channel_is_accepted_after_the_seal_is_not_sent_d93() ->
 async fn a_command_the_transport_sends_after_the_seal_is_live_work_of_its_simulator_d93() -> TestResult {
     use marathon_apple::cmd::remote::ssh::sshj::channel::pause_outbound_exec;
     use marathon_core::{executor::shared::SharedDeferred, vendor::Device};
+    let _hooks = SSH_TEST_HOOKS.lock().await;
     watchdog(async {
         let mut h = Harness::new(|v| v.lifecycle_configuration.on_dispose = vec![LifecycleAction::Shutdown])?;
         h.services.timeouts.cancelled_batch_millis = 3_000;
@@ -872,6 +877,7 @@ async fn a_command_queued_on_a_connection_marked_dead_holds_the_disposal_until_t
     use marathon_apple::cmd::remote::ssh::sshj::{channel::pause_outbound_exec, client::hold_disconnect};
     use marathon_core::{executor::shared::SharedDeferred, vendor::Device};
     const DEATH: &str = "Keep-alive gave up on the stalled connection";
+    let _hooks = SSH_TEST_HOOKS.lock().await;
     watchdog(async {
         let mut h = Harness::new(|_| {})?;
         h.services.timeouts.cancelled_batch_millis = 30_000;
