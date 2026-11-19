@@ -21,6 +21,7 @@ use tokio::{
 
 const TARGET: &str = "marathon_apple::cmd::remote::ssh::sshj::supervisor";
 const PROTOCOL: &str = "MARATHON_D96_1";
+const PROBE_TIMEOUT: WallDuration = WallDuration::from_secs(12);
 const CONTROL_TIMEOUT: WallDuration = WallDuration::from_secs(4);
 pub(super) const EXIT_PROOF_TIMEOUT: WallDuration = WallDuration::from_secs(24);
 const RECONNECT_DELAY: WallDuration = WallDuration::from_secs(1);
@@ -58,7 +59,7 @@ impl Timing {
 }
 
 pub(super) struct Supervisor {
-    capability: OnceCell<VendorResult<Option<String>>>,
+    capability: OnceCell<Option<String>>,
     peer: OnceCell<Arc<Peer>>,
     dial: ControlDial,
     worker: (String, u16),
@@ -96,10 +97,22 @@ impl Supervisor {
         connection: &Arc<SshConnection>,
         command: &str,
     ) -> VendorResult<Option<Arc<Lease>>> {
+        // An absolute command made solely of shell literals needs no extra
+        // shell. All other commands retain the executor's shell semantics.
+        let argv = if command.starts_with('/')
+            && !command.starts_with("/bin/sh -c ")
+            && command
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b" /._-".contains(&byte))
+        {
+            command.to_owned()
+        } else {
+            format!("/bin/sh -c {}", quote(command))
+        };
         Ok(self
             .peer(connection)
             .await?
-            .map(|peer| Arc::new(Lease::new(peer, "run", format!("/bin/sh -c {}", quote(command))))))
+            .map(|peer| Arc::new(Lease::new(peer, "run", argv))))
     }
 
     pub(super) async fn prepare_rsync(
@@ -118,14 +131,16 @@ impl Supervisor {
     }
 
     async fn peer(&self, connection: &Arc<SshConnection>) -> VendorResult<Option<Arc<Peer>>> {
-        let capability = self.capability.get_or_init(|| async {
+        let capability = self.capability.get_or_try_init(|| async {
             let install = format!(
-                "/usr/bin/perl -e {} -- {}",
-                quote(BOOTSTRAP),
+                "/usr/bin/perl -MMIME::Base64 -e 'eval decode_base64 shift; die $@ if $@' -- {} {}",
+                STANDARD.encode(BOOTSTRAP),
                 STANDARD.encode(WORKER)
             );
-            let (status, output) = exchange(connection, install).await.map_err(ExchangeError::into_vendor)?;
-            if matches!(status, 2 | 126 | 127) {
+            let (status, output) = exchange(connection, install, PROBE_TIMEOUT)
+                .await
+                .map_err(ExchangeError::into_vendor)?;
+            if status != 0 {
                 let first = self.warnings.lock().unwrap_or_else(|e| e.into_inner()).insert(self.worker.clone());
                 if first {
                     let logger = self.logging.component(TARGET);
@@ -140,22 +155,20 @@ impl Supervisor {
                 return Err(protocol_error("SSH worker returned an invalid supervisor bootstrap response"));
             };
             Ok(Some(root.to_owned()))
-        }).await;
-        let Some(root) = capability.clone()? else {
+        }).await?;
+        let Some(root) = capability.clone() else {
             return Ok(None);
         };
         let peer = self
             .peer
             .get_or_init(|| async {
-                let peer = Arc::new(Peer {
+                Arc::new(Peer {
                     data: connection.clone(),
                     dial: self.dial.clone(),
                     control: tokio::sync::Mutex::default(),
                     root,
                     timing: self.timing,
-                });
-                let _ = peer.connection().await;
-                peer
+                })
             })
             .await;
         Ok(Some(peer.clone()))
@@ -192,8 +205,12 @@ impl ExchangeError {
     }
 }
 
-async fn exchange(connection: &SshConnection, wire: String) -> Result<(i32, String), ExchangeError> {
-    let deadline = tokio::time::Instant::now() + CONTROL_TIMEOUT;
+async fn exchange(
+    connection: &SshConnection,
+    wire: String,
+    timeout: WallDuration,
+) -> Result<(i32, String), ExchangeError> {
+    let deadline = tokio::time::Instant::now() + timeout;
     let channel = tokio::time::timeout_at(deadline, connection.start_session())
         .await
         .map_err(|_| ExchangeError::Timeout("Worker supervisor channel open timed out"))?
@@ -229,6 +246,7 @@ async fn exchange(connection: &SshConnection, wire: String) -> Result<(i32, Stri
 struct Control {
     active: Option<Arc<SshConnection>>,
     next_dial: Option<tokio::time::Instant>,
+    retry_delay: Option<WallDuration>,
 }
 struct Peer {
     data: Arc<SshConnection>,
@@ -295,9 +313,11 @@ impl Peer {
         }
         // One dial per shared connection. Its deadline also bounds callers
         // waiting behind it. Keep the failed-attempt bound on cancellation.
-        control.next_dial = Some(deadline + RECONNECT_DELAY);
+        let retry = control.retry_delay.unwrap_or(RECONNECT_DELAY);
+        control.next_dial = Some(deadline + retry);
+        control.retry_delay = Some((retry * 2).min(WallDuration::from_secs(60)));
         let connected = tokio::time::timeout_at(deadline, (self.dial)()).await;
-        control.next_dial = Some(tokio::time::Instant::now() + RECONNECT_DELAY);
+        control.next_dial = Some(tokio::time::Instant::now() + retry);
         let active = connected
             .map_err(|_| protocol_error("Worker supervisor control connection timed out"))?
             .map_err(super::error::SshFailure::into_vendor)?;
@@ -317,6 +337,25 @@ impl Peer {
         }
     }
 
+    async fn exchange_control(
+        &self,
+        active: &Arc<SshConnection>,
+        wire: String,
+    ) -> Result<(i32, String), ExchangeError> {
+        let result = exchange(active, wire, CONTROL_TIMEOUT).await;
+        if result.is_ok()
+            && let Ok(mut control) = self.control.try_lock()
+            && control
+                .active
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, active))
+        {
+            control.retry_delay = None;
+            control.next_dial = None;
+        }
+        result
+    }
+
     async fn ask(&self, token: &str, operation: &str) -> VendorResult<(Reply, bool)> {
         let wire = format!(
             "/usr/bin/perl {}/supervisor.pl control {} {} {token}:{operation}",
@@ -324,14 +363,16 @@ impl Peer {
         );
         let control = async {
             let active = self.connection().await?;
-            match exchange(&active, wire.clone()).await {
+            match self.exchange_control(&active, wire.clone()).await {
                 Ok(response) => Ok(response),
                 Err(error) if matches!(error, ExchangeError::Timeout(_)) || !active.is_connected() => {
                     // Replace only the generation this request observed. Never
                     // abandon the data transport or a newer control connection.
                     active.abandon();
                     let retry = self.connection().await?;
-                    exchange(&retry, wire.clone()).await.map_err(ExchangeError::into_vendor)
+                    self.exchange_control(&retry, wire.clone())
+                        .await
+                        .map_err(ExchangeError::into_vendor)
                 }
                 Err(error) => Err(error.into_vendor()),
             }
@@ -340,7 +381,9 @@ impl Peer {
         let ((status, output), fallback) = match control {
             Ok(response) => (response, false),
             Err(_) if self.data.is_connected() => (
-                exchange(&self.data, wire).await.map_err(ExchangeError::into_vendor)?,
+                exchange(&self.data, wire, CONTROL_TIMEOUT)
+                    .await
+                    .map_err(ExchangeError::into_vendor)?,
                 true,
             ),
             Err(error) => return Err(error),
@@ -413,6 +456,7 @@ pub(super) struct Lease {
     peer: Arc<Peer>,
     token: String,
     wire: String,
+    foreground: bool,
     stop: Mutex<Stop>,
     changed: Notify,
     proof: watch::Sender<Option<Result<Proof, Failure>>>,
@@ -421,14 +465,17 @@ pub(super) struct Lease {
 impl Lease {
     fn new(peer: Arc<Peer>, mode: &str, argv: String) -> Self {
         let token = format!("{:032x}", rand::random::<u128>());
+        let foreground = mode == "run";
+        let prefix = if foreground { "exec " } else { "" };
         let wire = format!(
-            "/usr/bin/perl {}/supervisor.pl {mode} {} {} {token} {argv}",
+            "{prefix}/usr/bin/perl {}/supervisor.pl {mode} {} {} {token} {argv}",
             peer.root, peer.root, peer.timing.lease_ms
         );
         Self {
             peer,
             token,
             wire,
+            foreground,
             stop: Mutex::default(),
             changed: Notify::new(),
             proof: watch::channel(None).0,
@@ -441,14 +488,25 @@ impl Lease {
     pub(super) fn start(self: &Arc<Self>, receipt: Option<Arc<TransferReceipt>>) {
         let lease = self.clone();
         self.peer.data.runtime.spawn(Box::pin(async move {
-            let outcome = lease.watch().await.map_err(|error| error.failure().clone());
+            let outcome = tokio::select! {
+                biased;
+                result = lease.proof() => result,
+                result = lease.watch() => result,
+            }
+            .map_err(|error| error.failure().clone());
             if let Some(receipt) = receipt {
                 receipt.end(match &outcome {
                     Ok(_) => TransferCleanup::Confirmed,
                     Err(why) => TransferCleanup::Unconfirmed(why.clone()),
                 });
             }
-            lease.proof.send_replace(Some(outcome));
+            lease.proof.send_if_modified(|current| {
+                if current.is_some() {
+                    return false;
+                }
+                *current = Some(outcome);
+                true
+            });
             Ok(())
         }));
     }
@@ -466,7 +524,21 @@ impl Lease {
 
     pub(super) fn acknowledge(&self) {
         self.stop.lock().unwrap_or_else(|error| error.into_inner()).acknowledged = true;
-        self.changed.notify_one();
+    }
+
+    pub(super) fn data_status(&self, status: i32) {
+        if !self.foreground {
+            return;
+        }
+        // The wrapper reports a normal status only after it proves cleanup.
+        // A channel close, or the wrapper's failure signal, is never evidence.
+        self.proof.send_if_modified(|proof| {
+            if proof.is_some() {
+                return false;
+            }
+            *proof = Some(Ok(Proof::Done(status)));
+            true
+        });
     }
 
     pub(super) fn channel_ended(&self) {
@@ -532,14 +604,14 @@ impl Lease {
                 Ok((Reply::Unconfirmed, _)) => {
                     return Err(protocol_error("Worker process group disappearance was not confirmed"));
                 }
-                Ok((Reply::Running(expiry), fallback)) => {
+                Ok((Reply::Running(expiry), _)) => {
                     signalled = wanted;
                     let needs_renewal = stamp.is_none() && ending.is_none();
                     stamp = Some(expiry);
-                    delay = if needs_renewal || ending.is_some() {
+                    delay = if needs_renewal {
+                        WallDuration::ZERO
+                    } else if ending.is_some() {
                         WallDuration::from_millis(100)
-                    } else if fallback {
-                        self.peer.timing.interval.min(RECONNECT_DELAY)
                     } else {
                         self.peer.timing.interval
                     };

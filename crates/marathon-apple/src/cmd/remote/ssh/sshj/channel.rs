@@ -241,6 +241,18 @@ impl ExecChannel {
         })
         .await
     }
+    pub(super) async fn data_exit(&self) -> Result<Option<i32>, SshFailure> {
+        self.wait_for(|state| {
+            if let Some(status) = state.exit_status {
+                return Some(Ok(Some(status)));
+            }
+            if let Some(signal) = state.exit_signal.as_deref() {
+                return Some(Ok(super::executor::autodetect_exit_code(Some(signal))));
+            }
+            state.closed.as_ref().map(|closed| closed.clone().map(|()| None))
+        })
+        .await
+    }
     pub async fn read_ended(&self) {
         self.wait_for(|s| (s.eof || s.close_requested || s.closed.is_some()).then_some(()))
             .await;
@@ -614,7 +626,13 @@ impl ExecChannel {
                 ));
             }
             ChannelMsg::Eof => self.update(|s| s.eof = true),
-            ChannelMsg::ExitStatus { exit_status } => self.update(|s| s.exit_status = Some(exit_status as i32)),
+            ChannelMsg::ExitStatus { exit_status } => {
+                let status = exit_status as i32;
+                if let Some(lease) = self.worker_lease() {
+                    lease.data_status(status);
+                }
+                self.update(|s| s.exit_status = Some(status));
+            }
             ChannelMsg::ExitSignal { signal_name, .. } => {
                 self.update(|s| s.exit_signal = Some(signal_text(&signal_name)))
             }

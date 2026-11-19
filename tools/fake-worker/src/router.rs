@@ -94,8 +94,17 @@ impl Router {
     async fn builtin(&self, r: &Request, fs: &VirtualFs) -> Result<Option<Plan>> {
         let a = r.argv.iter().map(String::as_str).collect::<Vec<_>>();
         // Pinned pre-supervision fixtures model a worker without the optional interpreter.
-        if let ["/usr/bin/perl", "-e", script, "--", bytes] = a.as_slice()
-            && *script == include_str!("../../../crates/marathon-apple/src/cmd/remote/ssh/sshj/supervisor/bootstrap.pl")
+        if let [
+            "/usr/bin/perl",
+            "-MMIME::Base64",
+            "-e",
+            "eval decode_base64 shift; die $@ if $@",
+            "--",
+            bootstrap,
+            bytes,
+        ] = a.as_slice()
+            && BASE64_STANDARD.decode(bootstrap)?
+                == include_bytes!("../../../crates/marathon-apple/src/cmd/remote/ssh/sshj/supervisor/bootstrap.pl")
             && BASE64_STANDARD.decode(bytes)?
                 == include_bytes!("../../../crates/marathon-apple/src/cmd/remote/ssh/sshj/supervisor/worker.pl")
         {

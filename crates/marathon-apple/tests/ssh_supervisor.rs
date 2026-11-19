@@ -45,7 +45,7 @@ async fn probes_each_connection_and_warns_once_for_the_worker_d96() {
                 STANDARD
                     .decode(row["detail"]["base64"].as_str().unwrap())
                     .unwrap()
-                    .starts_with(b"/usr/bin/perl -e ")
+                    .starts_with(b"/usr/bin/perl -MMIME::Base64 -e ")
             })
             .count();
         assert_eq!((probes, execs.len()), (2, 6));
@@ -59,6 +59,123 @@ async fn probes_each_connection_and_warns_once_for_the_worker_d96() {
         fake.worker.shutdown().await.unwrap();
     })
     .await;
+}
+
+struct ProbeReplies {
+    first: Option<fake_worker::script::Action>,
+    fallback: fake_worker::script::Action,
+    attempts: std::sync::atomic::AtomicUsize,
+}
+impl fake_worker::router::Handler for ProbeReplies {
+    fn name(&self) -> &str {
+        "probe-fixture"
+    }
+    fn route<'a>(
+        &'a self,
+        request: &'a fake_worker::router::Request,
+        _: &'a fake_worker::fs::VirtualFs,
+    ) -> fake_worker::router::HandlerFuture<'a> {
+        Box::pin(async move {
+            if !request.text.starts_with("/usr/bin/perl -MMIME::Base64 -e ") {
+                return Ok(None);
+            }
+            let attempt = self.attempts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(Some(if attempt == 0 {
+                self.first.as_ref().unwrap_or(&self.fallback).clone()
+            } else {
+                self.fallback.clone()
+            }))
+        })
+    }
+}
+
+#[tokio::test]
+async fn a_probe_transport_error_or_malformed_success_is_retried_d96() {
+    use fake_worker::script::Action;
+    for first in [Action::Reject, Action::output("invalid success\n", 0)] {
+        probe_fallback(Some(first), "fixture rejected", 127).await;
+    }
+}
+
+#[tokio::test]
+async fn failed_worker_bootstraps_fall_back_d96() {
+    for (diagnostic, status) in [
+        ("command filtered", 1),
+        ("failed to load a Perl module", 255),
+        ("cannot create a temporary directory", 255),
+    ] {
+        let wire = probe_fallback(None, diagnostic, status).await;
+        if Path::new("/bin/csh").exists() && Path::new("/usr/bin/perl").exists() {
+            assert!(!wire.contains('\n'));
+            let output = tokio::process::Command::new("/bin/csh")
+                .args(["-f", "-c", wire.as_str()])
+                .output()
+                .await
+                .unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            let result = String::from_utf8(output.stdout).unwrap();
+            let root = result
+                .trim()
+                .strip_prefix("MARATHON_D96_1 /tmp/marathon-supervisor-")
+                .unwrap();
+            assert!(root.len() == 10 && root.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b)));
+            std::fs::remove_dir_all(format!("/tmp/marathon-supervisor-{root}")).unwrap();
+        }
+    }
+}
+
+async fn probe_fallback(first: Option<fake_worker::script::Action>, detail: &str, status: u32) -> String {
+    use fake_worker::script::Action;
+    let failed_first = first.is_some();
+    let replies = Arc::new(ProbeReplies {
+        first,
+        fallback: ssh::output(vec![ssh::err_chunk(detail)], status),
+        attempts: Default::default(),
+    });
+    let fake = ssh::fake_with_handlers(
+        ssh::script(vec![ssh::exact("echo fallback", Action::output("fallback\n", 0))]),
+        3,
+        |_| {},
+        vec![replies.clone()],
+    )
+    .await;
+    let (logger, events) = ssh::logging(false);
+    let executor = ssh::factory(&logger)
+        .connect_worker("127.0.0.1", fake.port(), ssh::password(), None, false, Arc::default())
+        .await
+        .unwrap();
+    let command = CommandRequest::new(["echo", "fallback"], duration(1000));
+    if failed_first {
+        assert!(executor.critical_execute(command.clone(), context()).await.is_err());
+    }
+    for _ in 0..2 {
+        assert_eq!(
+            executor
+                .critical_execute(command.clone(), context())
+                .await
+                .unwrap()
+                .stdout,
+            ["fallback"]
+        );
+    }
+    assert_eq!(
+        replies.attempts.load(std::sync::atomic::Ordering::Relaxed),
+        1 + usize::from(failed_first)
+    );
+    assert_eq!(
+        ssh::lines(&events)
+            .iter()
+            .filter(|(target, level, _)| target.ends_with("::supervisor") && *level == Level::WARN)
+            .count(),
+        1
+    );
+    let probes = fake.events("exec").await;
+    let install = STANDARD
+        .decode(probes[0]["detail"]["base64"].as_str().unwrap())
+        .unwrap();
+    executor.close().await.unwrap();
+    fake.worker.shutdown().await.unwrap();
+    String::from_utf8(install).unwrap()
 }
 
 #[test]
@@ -169,7 +286,9 @@ impl fake_worker::router::Handler for SupervisorWorker {
             let argv: Vec<_> = request.argv.iter().map(String::as_str).collect();
             let root = "/tmp/marathon-supervisor-0123456789";
             match argv.as_slice() {
-                ["/usr/bin/perl", "-e", _, "--", _] => Ok(Some(Action::output(&format!("MARATHON_D96_1 {root}\n"), 0))),
+                ["/usr/bin/perl", "-MMIME::Base64", "-e", _, "--", _, _] => {
+                    Ok(Some(Action::output(&format!("MARATHON_D96_1 {root}\n"), 0)))
+                }
                 ["/usr/bin/perl", program, "control", directory, _, control]
                     if *directory == root && *program == format!("{root}/supervisor.pl") =>
                 {
@@ -186,6 +305,7 @@ impl fake_worker::router::Handler for SupervisorWorker {
                     Ok(Some(Action::output(&format!("{token} {proof}\n"), 0)))
                 }
                 [
+                    "exec",
                     "/usr/bin/perl",
                     program,
                     "run",
@@ -200,6 +320,7 @@ impl fake_worker::router::Handler for SupervisorWorker {
                     Ok(Some(Action::output("sibling\n", 0)))
                 }
                 [
+                    "exec",
                     "/usr/bin/perl",
                     program,
                     "run",
@@ -221,6 +342,42 @@ impl fake_worker::router::Handler for SupervisorWorker {
             }
         })
     }
+}
+
+#[tokio::test]
+async fn short_worker_commands_finish_without_a_control_connection_d96() {
+    use marathon_apple::cmd::device_commands::DeviceCommands;
+    let fake = ssh::fake_with_handlers(
+        ssh::script(vec![]),
+        1,
+        |_| {},
+        vec![Arc::new(SupervisorWorker::default())],
+    )
+    .await;
+    let (logging, _) = ssh::logging(false);
+    let executor = Arc::new(
+        ssh::factory(&logging)
+            .connect_worker("127.0.0.1", fake.port(), ssh::password(), None, false, Arc::default())
+            .await
+            .unwrap(),
+    );
+    let commands = DeviceCommands::new(executor.clone());
+    for _ in 0..4 {
+        let result = commands
+            .critical_execute(CommandRequest::new(["echo", "sibling"], duration(1000)), context())
+            .await
+            .unwrap();
+        assert_eq!(result.stdout, ["sibling"]);
+    }
+    commands
+        .wait_handed(marathon_core::executor::shared::Signal::new())
+        .await
+        .unwrap();
+    assert!(commands.handed_left().is_empty());
+    assert_eq!(fake.events("connection").await.len(), 1);
+    assert_eq!(fake.events("exec").await.len(), 5);
+    executor.close().await.unwrap();
+    fake.worker.shutdown().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -287,7 +444,7 @@ async fn a_sealed_device_stops_a_token_when_the_exec_reply_is_missing_d96() {
     assert!(executing.await.unwrap().is_err());
     let execs = fake.events("exec").await;
     let launch = wire(waiting);
-    let token = launch.split_ascii_whitespace().nth(5).unwrap();
+    let token = launch.split_ascii_whitespace().nth(6).unwrap();
     let stopped: Vec<_> = execs
         .iter()
         .filter(|row| wire(row).ends_with(&format!("{token}:3")))
@@ -480,6 +637,45 @@ async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::err
             .await
             .map_err(|e| e.failure().to_string())?
     );
+    if std::env::var_os("MRS_D96_SSH_BENCH").is_some() {
+        let authentication = SshAuthentication::PublicKey { username: user, key };
+        let plain = factory
+            .connect("127.0.0.1", port, authentication, None, false)
+            .await
+            .map_err(|error| error.into_vendor().failure().to_string())?;
+        for (label, command) in [
+            ("true", vec!["/usr/bin/true"]),
+            ("sleep 0.3", vec!["/bin/sleep", "0.3"]),
+        ] {
+            for (mode, commands) in [("plain", &plain), ("supervised", &executor)] {
+                let request = CommandRequest::new(command.clone(), duration(15_000));
+                for _ in 0..3 {
+                    commands
+                        .critical_execute(request.clone(), context())
+                        .await
+                        .map_err(|error| error.failure().to_string())?;
+                }
+                let mut elapsed = Vec::new();
+                for _ in 0..30 {
+                    let start = std::time::Instant::now();
+                    commands
+                        .critical_execute(request.clone(), context())
+                        .await
+                        .map_err(|error| error.failure().to_string())?;
+                    elapsed.push(start.elapsed().as_secs_f64() * 1_000.0);
+                }
+                elapsed.sort_by(f64::total_cmp);
+                println!(
+                    "{label} {mode}: median {:.2} ms, mean {:.2} ms (n={})",
+                    (elapsed[14] + elapsed[15]) / 2.0,
+                    elapsed.iter().sum::<f64>() / elapsed.len() as f64,
+                    elapsed.len()
+                );
+            }
+        }
+        daemon.kill().await?;
+        return Ok(());
+    }
     let context = context();
     let healthy = executor
         .execute(

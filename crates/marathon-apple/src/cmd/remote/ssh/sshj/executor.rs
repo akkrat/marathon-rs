@@ -6,7 +6,7 @@ use super::config::{PerformanceDefaultConfig, SshLogging};
 use super::error::{IO_EXCEPTION, SshFailure};
 use super::host::SshCommandHost;
 use super::session::session_control;
-use super::supervisor::{ControlDial, EXIT_PROOF_TIMEOUT, Proof, Supervisor, Warnings, WorkerRsync};
+use super::supervisor::{ControlDial, Supervisor, Warnings, WorkerRsync};
 use crate::cmd::{BaseCommand, CommandExecutor, CommandHost, CommandRequest, CommandSession, failure, millis};
 use crate::extensions::{
     poll_backoff::PollBackoff,
@@ -315,7 +315,15 @@ async fn exit_code(
                 timeout_millis,
                 Box::new(move |child| {
                     Box::pin(async move {
-                        let result = suspend_for(command.as_ref(), wait_clock.as_ref(), child).await;
+                        let result = if command.worker_lease().is_some() {
+                            tokio::select! {
+                                biased;
+                                result = command.data_exit() => result.map_err(ExitWaitError::Failed),
+                                reason = child.cancelled() => Err(ExitWaitError::Cancelled(reason)),
+                            }
+                        } else {
+                            suspend_for(command.as_ref(), wait_clock.as_ref(), child).await
+                        };
                         // Expiry reaches the waiter as cancellation; withTimeoutOrNull recognises its own.
                         let propagate = match &result {
                             Err(ExitWaitError::Cancelled(reason)) => Err(VendorError::Cancelled(reason.clone())),
@@ -334,22 +342,6 @@ async fn exit_code(
                 // following close() is a no-op on the closed channel.
                 Some(Ok(code)) => {
                     use crate::cmd::base_command::CommandTermination;
-                    if let Some(lease) = channel.worker_lease() {
-                        lease.channel_ended();
-                        let proof = tokio::time::timeout(EXIT_PROOF_TIMEOUT, lease.proof())
-                            .await
-                            .map_err(|_| {
-                                VendorError::Other(failure(FailureKind::Io, "Worker exit proof timed out"))
-                            })??;
-                        if let Proof::Done(status) = proof {
-                            termination = Some(CommandTermination::Status(status));
-                            return Ok(Some(status));
-                        }
-                        return Err(VendorError::Other(failure(
-                            FailureKind::Io,
-                            "Worker command was not started",
-                        )));
-                    }
                     let detail = if let Some(status) = channel.exit_status() {
                         CommandTermination::Status(status)
                     } else if let Some(signal) = channel.exit_signal() {

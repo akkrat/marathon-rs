@@ -938,12 +938,13 @@ class VendorEvidenceTests(unittest.TestCase):
         source = ROOT / 'crates/marathon-apple/src/cmd/remote/ssh/sshj/supervisor'
         program = (source / 'bootstrap.pl').read_text()
         payload = base64.b64encode((source / 'worker.pl').read_bytes()).decode()
-        argv = ['/usr/bin/perl', '-e', program, '--', payload]
+        argv = ['/usr/bin/perl', '-MMIME::Base64', '-e', 'eval decode_base64 shift; die $@ if $@', '--',
+                base64.b64encode(program.encode()).decode(), payload]
         row = dict(wire=shlex.join(argv), exit=127, end='completed', stdout=b'', stderr=b'', stdin=b'')
         self.assertTrue(t._d96_fallback_bootstrap(row))
         self.assertFalse(t._d96_fallback_bootstrap(dict(row, wire='env /usr/bin/perl -e 1')))
         for bad in (dict(row, wire=shlex.join([*argv[:-1], 'Zml4dHVyZQ=='])),
-                    dict(row, exit=0), dict(row, stderr=b'failure'), dict(row, end='abandoned')):
+                    dict(row, exit=0), dict(row, stdin=b'unexpected'), dict(row, end='abandoned')):
             with self.subTest(bad=bad), self.assertRaises(e.Invalid):
                 t._d96_fallback_bootstrap(bad)
 
@@ -955,7 +956,8 @@ class VendorEvidenceTests(unittest.TestCase):
         root = '/tmp/marathon-supervisor-abcdefghij'
         program = root + '/supervisor.pl'
         token, sender = 'a' * 32, 'b' * 32
-        probe = ['/usr/bin/perl', '-e', (source / 'bootstrap.pl').read_text(), '--',
+        probe = ['/usr/bin/perl', '-MMIME::Base64', '-e', 'eval decode_base64 shift; die $@ if $@', '--',
+                 base64.b64encode((source / 'bootstrap.pl').read_bytes()).decode(),
                  base64.b64encode((source / 'worker.pl').read_bytes()).decode()]
         command = ['env', 'NSUnbufferedIO=YES', 'xcrun', 'xcodebuild', 'test-without-building']
         def session(seq, words, stdout=b'', exit=0):
@@ -969,7 +971,7 @@ class VendorEvidenceTests(unittest.TestCase):
         sender_proof = (4, 1)
         expected = {
             install: session(1, probe, f'MARATHON_D96_1 {root}\n'.encode()),
-            run: session(2, envelope('run', token) + ['/bin/sh', '-c', shlex.join(command)], b'payload\n'),
+            run: session(2, ['exec'] + envelope('run', token) + ['/bin/sh', '-c', shlex.join(command)], b'payload\n'),
             transfer: session(3, envelope('rsync', sender) + [t.D96_RSYNC] + ['--server', '--sender', '-r', '.', '/source']),
             proof: session(4, envelope('control', token + ':3'), f'{token} done:0\n'.encode()),
             sender_proof: session(5, envelope('control', sender + ':3'), f'{sender} done:0\n'.encode()),
@@ -982,7 +984,7 @@ class VendorEvidenceTests(unittest.TestCase):
         })
         for key, invalid in (
             (install, None),
-            (proof, None),
+            (sender_proof, None),
             (proof, dict(expected[proof], stdout=f'{sender} done:0\n'.encode())),
             (proof, dict(expected[proof], stdout=f'{token} done:1\n'.encode())),
             (proof, dict(expected[proof], wire=expected[proof]['wire'].replace('79000', '80000'))),

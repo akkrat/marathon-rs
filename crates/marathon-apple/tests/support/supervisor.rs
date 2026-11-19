@@ -76,8 +76,11 @@ impl Handler for Worker {
             const PROGRAM: &str = "/tmp/marathon-supervisor-abcdefghij/supervisor.pl";
             let now = self.origin.elapsed().as_millis() as u64;
             match argv.as_slice() {
-                ["/usr/bin/perl", "-e", _, "--", _] => Ok(Some(Action::output(&format!("MARATHON_D96_1 {ROOT}\n"), 0))),
+                ["/usr/bin/perl", "-MMIME::Base64", "-e", _, "--", _, _] => {
+                    Ok(Some(Action::output(&format!("MARATHON_D96_1 {ROOT}\n"), 0)))
+                }
                 [
+                    "exec",
                     "/usr/bin/perl",
                     PROGRAM,
                     "run",
@@ -264,6 +267,13 @@ async fn control_loss(reconnect: bool) {
     let first = open(&executor, "first").await;
     let sibling = open(&executor, "sibling").await;
     let group = worker.group("first");
+    let start = stamp(&group);
+    advance(2).await;
+    wait_for(
+        group.state.subscribe(),
+        |state| matches!(state, State::Running(stamp) if *stamp > start),
+    )
+    .await;
     let original = stamp(&group);
     assert_eq!(proxy.count(), 2);
     if !reconnect {
@@ -325,6 +335,14 @@ async fn a_partition_expires_only_the_unreachable_worker_leases_d96() {
         let stranded = open(device.as_ref(), "stranded").await;
         let receipt = device.handed_commands().pop().unwrap();
         let continuing = open(&sibling, "continuing").await;
+        let stranded_group = worker.group("stranded");
+        let start = stamp(&stranded_group);
+        advance(2).await;
+        wait_for(
+            stranded_group.state.subscribe(),
+            |state| matches!(state, State::Running(stamp) if *stamp > start),
+        )
+        .await;
         proxy.block_new();
         proxy.cut(0);
         proxy.cut(1);

@@ -1,14 +1,17 @@
 use strict;
 use warnings;
-use POSIX qw(setpgid _exit);
 use Time::HiRes qw(clock_gettime CLOCK_MONOTONIC);
 use Fcntl qw(:DEFAULT :flock);
 use Errno qw(ESRCH EAGAIN EWOULDBLOCK);
-use File::Temp qw(tempdir);
-use IO::Select;
-use MIME::Base64 qw(decode_base64);
 
 sub clock_ms { int(clock_gettime(CLOCK_MONOTONIC) * 1000) }
+
+sub readable {
+    my ($file, $delay) = @_;
+    my $bits = '';
+    vec($bits, fileno($file), 1) = 1;
+    return select($bits, undef, undef, $delay) > 0;
+}
 
 sub read_state {
     my ($dir) = @_;
@@ -91,21 +94,21 @@ sub run_owned {
     if ($anchor == 0) {
         close $_ for ($ready, $go_w, $status);
         my $group_permit;
-        sysread($go, $group_permit, 1) == 1 && $group_permit eq 'P' or _exit(125);
+        sysread($go, $group_permit, 1) == 1 && $group_permit eq 'P' or exit(125);
         my $payload = fork();
-        defined($payload) or _exit(125);
+        defined($payload) or exit(125);
         if ($payload == 0) {
             close $status_w;
             $SIG{$_} = 'DEFAULT' for qw(PIPE HUP INT TERM);
-            syswrite($ready_w, 'R', 1) == 1 or _exit(125);
+            syswrite($ready_w, 'R', 1) == 1 or exit(125);
             close $ready_w;
             my $permit;
-            sysread($go, $permit, 1) == 1 && $permit eq 'G' or _exit(125);
+            sysread($go, $permit, 1) == 1 && $permit eq 'G' or exit(125);
             close $go;
-            exec { $argv[0] } @argv or _exit(127);
+            exec { $argv[0] } @argv or exit(127);
         }
         close $_ for ($ready_w, $go);
-        waitpid($payload, 0) == $payload or _exit(125);
+        waitpid($payload, 0) == $payload or exit(125);
         syswrite($status_w, pack('N', $?), 4);
         close $status_w;
         # The supervisor sends group KILL before reaping this member.
@@ -113,13 +116,12 @@ sub run_owned {
     }
 
     close $_ for ($ready_w, $go, $status_w);
-    my $group = defined(setpgid($anchor, $anchor));
+    my $group = setpgrp($anchor, $anchor);
     my $permitted = $group && syswrite($go_w, 'P', 1) == 1;
     my $rc = 125;
     my $seen = 0;
     my ($expiry, $wanted) = ($start, 0);
-    my $ready_from = IO::Select->new($ready);
-    my $completed = IO::Select->new($status);
+    my $starting = 1;
     eval {
         while ($permitted) {
             my $observed = locked($dir, sub { (undef, [$_[1], $_[2]]) });
@@ -128,8 +130,8 @@ sub run_owned {
                 $rc = 137;
                 last;
             }
-            if ($ready_from && $ready_from->can_read(0.025)) {
-                $ready_from = undef;
+            if ($starting && readable($ready, 0.025)) {
+                $starting = 0;
                 my $n = sysread($ready, my $byte, 1);
                 last if !$n || $byte ne 'R';
                 if ($wanted) {
@@ -139,11 +141,11 @@ sub run_owned {
                 syswrite($go_w, 'G', 1) == 1 or last;
                 close $go_w;
             }
-            if (!$ready_from && $wanted > $seen) {
+            if (!$starting && $wanted > $seen) {
                 kill($wanted == 1 ? 'INT' : 'TERM', -$anchor);
                 $seen = $wanted;
             }
-            if ($completed->can_read(0.025)) {
+            if (readable($status, 0.025)) {
                 my $n = sysread($status, my $packet, 4);
                 if ($n && $n == 4) {
                     my $wait_status = unpack('N', $packet);
@@ -166,19 +168,31 @@ sub run_owned {
         select undef, undef, undef, 0.025;
     }
     my $receipt_deadline = clock_ms() + 5000;
+    my $recorded;
     while (clock_ms() < $receipt_deadline) {
-        my $recorded = locked($dir, sub {
+        $recorded = locked($dir, sub {
             return ([1, $_[1], $_[2], $reaped && $gone ? "done:$rc" : 'unconfirmed'], 1);
         });
         last if $recorded;
         select undef, undef, undef, 0.025;
     }
+    die "worker cleanup was not proved" unless $reaped && $gone && $recorded;
     return $rc;
+}
+
+sub exit_owned {
+    my $status = eval { run_owned(@_) };
+    exit $status if defined $status;
+    # OpenSSH must report exit-signal, never a successful cleanup status.
+    # The controller may still obtain the terminal receipt over control.
+    kill 'KILL', $$;
+    exit(125);
 }
 
 my $mode = shift @ARGV // die "no mode";
 if ($mode eq 'init') {
-    print tempdir('marathon-supervisor-XXXXXXXXXX', DIR => '/tmp', CLEANUP => 0), "\n";
+    require File::Temp;
+    print File::Temp::tempdir('marathon-supervisor-XXXXXXXXXX', DIR => '/tmp', CLEANUP => 0), "\n";
     exit 0;
 }
 my ($root, $lease) = splice @ARGV, 0, 2;
@@ -197,11 +211,12 @@ if ($mode eq 'rsync') {
     my ($token, $program) = splice @ARGV, 0, 2;
     $token =~ /\A[a-f0-9]{32}\z/ && $program =~ /\A[A-Za-z0-9+\/=]+\z/
         && @ARGV >= 2 && $ARGV[0] eq '--server' && $ARGV[1] eq '--sender' or die "invalid rsync sender";
-    exit run_owned("$root/$token", $lease, '/bin/sh', '-c', decode_base64($program) . ' "$@"', 'rsync', @ARGV);
+    require MIME::Base64;
+    exit_owned("$root/$token", $lease, '/bin/sh', '-c', MIME::Base64::decode_base64($program) . ' "$@"', 'rsync', @ARGV);
 }
 if ($mode eq 'run') {
     my $token = shift @ARGV;
     $token =~ /\A[a-f0-9]{32}\z/ && @ARGV or die "invalid run";
-    exit run_owned("$root/$token", $lease, @ARGV);
+    exit_owned("$root/$token", $lease, @ARGV);
 }
 die "invalid mode";

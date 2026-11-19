@@ -1,8 +1,9 @@
 use strict;
 use warnings;
-use POSIX qw(setpgid);
+use POSIX qw(setpgid _exit);
 use Time::HiRes qw(clock_gettime CLOCK_MONOTONIC);
 use Fcntl qw(:DEFAULT :flock);
+use Errno qw(ESRCH EAGAIN EWOULDBLOCK);
 use File::Temp qw(tempdir);
 use IO::Select;
 use MIME::Base64 qw(decode_base64);

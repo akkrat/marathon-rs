@@ -226,10 +226,11 @@ def d96_native_golden(lanes):
 
 def _d96_probe(session):
     wire = session['wire']
-    if not wire.startswith('/usr/bin/perl -e '):
+    if not wire.startswith('/usr/bin/perl -MMIME::Base64 -e '):
         return False
     source = Path(__file__).resolve().parents[2] / 'crates/marathon-apple/src/cmd/remote/ssh/sshj/supervisor'
-    expected = ['/usr/bin/perl', '-e', (source / 'bootstrap.pl').read_text(), '--',
+    expected = ['/usr/bin/perl', '-MMIME::Base64', '-e', 'eval decode_base64 shift; die $@ if $@', '--',
+                base64.b64encode((source / 'bootstrap.pl').read_bytes()).decode(),
                 base64.b64encode((source / 'worker.pl').read_bytes()).decode()]
     e.require(_d96_words(wire) == expected, 'D96 unexpected worker probe')
     return True
@@ -250,7 +251,8 @@ def _d96_words(wire):
 def _d96_fallback_bootstrap(session):
     if not _d96_probe(session):
         return False
-    e.require(_d96_recorder_reply(session, 127), 'D96 unexpected worker probe response')
+    e.require(isinstance(session['exit'], int) and 0 < session['exit'] <= 255 and
+              session['end'] == 'completed' and not session['stdin'], 'D96 unexpected worker probe response')
     return True
 
 
@@ -278,7 +280,7 @@ def d96_worker_sessions(sessions, signals):
         if _d96_probe(session):
             e.require(key[0] not in boots and not signals[key], 'D96 duplicate or signalled worker probe')
             boots.add(key[0])
-            if session['exit'] == 127:
+            if session['exit'] != 0:
                 _d96_fallback_bootstrap(session)
             else:
                 root = re.fullmatch(rb'MARATHON_D96_1 (' + D96_ROOT.encode() + rb')\n', session['stdout'])
@@ -288,8 +290,8 @@ def d96_worker_sessions(sessions, signals):
                 e.require(root not in roots, 'D96 duplicate supervisor root')
                 roots[root] = (key[0], session['seq'])
             del sessions[key]
-        elif wire.startswith('/usr/bin/perl /tmp/marathon-supervisor-'):
-            argv = _d96_words(wire)
+        elif wire.removeprefix('exec ').startswith('/usr/bin/perl /tmp/marathon-supervisor-'):
+            argv = _d96_words(wire.removeprefix('exec '))
             root, lease = _d96_header(argv)
             e.require(not signals[key], 'D96 unexpected SSH signal on supervisor channel')
             if argv[2] == 'control':
@@ -307,9 +309,15 @@ def d96_worker_sessions(sessions, signals):
                           'D96 invalid wrapped sender framing')
                 session['wire'] = shlex.join(['/usr/bin/rsync', *remote])
             else:
-                e.require(argv[2] == 'run' and len(argv) == 9 and argv[6:8] == ['/bin/sh', '-c'] and argv[8],
-                          'D96 invalid supervised command')
-                session['wire'] = argv[8]
+                e.require(wire.startswith('exec ') and argv[2] == 'run', 'D96 invalid supervised command')
+                if argv[6:8] == ['/bin/sh', '-c']:
+                    e.require(len(argv) == 9 and argv[8], 'D96 invalid supervised shell command')
+                    session['wire'] = argv[8]
+                else:
+                    e.require(len(argv) >= 7 and argv[6].startswith('/') and
+                              all(re.fullmatch(r'[a-zA-Z0-9/._-]+', part) for part in argv[6:]),
+                              'D96 invalid supervised literal command')
+                    session['wire'] = ' '.join(argv[6:])
             commands[token] = (key, session, root, lease, sender)
     proofs = set()
     for key, session, root, lease, request in requests:
@@ -336,7 +344,8 @@ def d96_worker_sessions(sessions, signals):
     for token, (key, session, root, _, sender) in commands.items():
         e.require(root in roots and roots[root][1] < session['seq'], 'D96 worker token has no installed supervisor')
         e.require(sender != (key[0] == roots[root][0]), 'D96 wrong supervisor transport for payload')
-        e.require(token in proofs, 'D96 missing worker exit proof')
+        e.require(token in proofs or (not sender and session['end'] == 'completed' and session['exit'] is not None),
+                  'D96 missing worker exit proof')
     return {(root, lease, token) for token, (_, _, root, lease, sender) in commands.items() if sender}
 
 
