@@ -134,14 +134,19 @@ impl ScreenRecordingListener {
             .remote_video_for_test(test, &self.c.batch.id)
             .to_owned();
         let test = test.clone();
+        let source = src.clone();
         let collected = self.pending.submit(
             runtime.as_ref(),
             self.c.context.cancellation.clone(),
             Box::pin(async move {
-                if let Some(stop) = stop {
-                    stop.finalization().await?;
+                let result = match stop {
+                    Some(stop) => stop.finalization().await,
+                    None => Ok(RecordingFinalization::NotStarted),
+                };
+                if media.recording_deliverable(&source, media.c.policy(failed), result)? {
+                    media.collect(&test, failed).await?;
                 }
-                media.collect(&test, failed).await
+                Ok(())
             }),
         );
         self.collecting
@@ -152,35 +157,98 @@ impl ScreenRecordingListener {
     }
 }
 impl Media {
+    fn recording_deliverable(
+        &self,
+        src: &str,
+        requested: bool,
+        result: VendorResult<RecordingFinalization>,
+    ) -> VendorResult<bool> {
+        let reason = match result {
+            Ok(RecordingFinalization::Finalized) => return Ok(true),
+            Ok(RecordingFinalization::NotStarted) => "the recording did not start",
+            Ok(RecordingFinalization::Unfinalized) => "the recording did not finalize",
+            Ok(RecordingFinalization::Unconfirmed) => "recorder cleanup could not be confirmed",
+            Err(error) => {
+                if requested {
+                    self.undelivered(src, &error.failure().to_string());
+                }
+                return match error {
+                    VendorError::Transfer(_) => Ok(false),
+                    other => Err(other),
+                };
+            }
+        };
+        if requested {
+            self.undelivered(src, reason);
+        }
+        Ok(false)
+    }
     async fn collect(&self, test: &Test, failed: bool) -> VendorResult<()> {
         self.catch_transfer(
             async {
                 let remote = self.c.device.remote_file_manager();
                 let src = remote.remote_video_for_test(test, &self.c.batch.id).to_owned();
                 if !remote.test(&src, &self.c.context).await? {
+                    if self.c.policy(failed) {
+                        self.undelivered(&src, "the movie is missing on the worker");
+                    }
                     return Ok(());
                 }
-                if self.c.policy(failed) {
-                    if self.transcoding() {
-                        self.transcode(
-                            &src,
-                            &remote.remote_temp_video_for_test(test, &self.c.batch.id).to_owned(),
-                        )
-                        .await?;
-                    }
-                    self.pull(&src, Some(test)).await?;
+                if !self.c.policy(failed) {
+                    return self.remove(&src).await;
                 }
-                self.remove(&src).await
+                let temp = remote.remote_temp_video_for_test(test, &self.c.batch.id);
+                self.deliver(&src, &temp, Some(test)).await
             }
             .await,
         )
     }
-    async fn transcode(&self, src: &str, temp: &str) -> VendorResult<()> {
-        self.c
+    async fn deliver(&self, src: &str, temp: &str, test: Option<&Test>) -> VendorResult<()> {
+        let received = async {
+            let source = if self.transcoding() && !self.transcode(src, temp).await? {
+                temp
+            } else {
+                src
+            };
+            self.pull(source, test)
+                .await
+                .map(|delivered| delivered.then_some(source))
+        }
+        .await;
+        match received {
+            Ok(Some(source)) => self.remove(source).await,
+            Ok(None) => {
+                self.undelivered(src, "the receive did not complete");
+                Ok(())
+            }
+            Err(error) => {
+                self.undelivered(src, &error.failure().to_string());
+                match error {
+                    VendorError::Transfer(_) => Ok(()),
+                    other => Err(other),
+                }
+            }
+        }
+    }
+    fn undelivered(&self, src: &str, reason: &str) {
+        self.c.log(
+            &self.logger,
+            Level::ERROR,
+            format!("Video {src} was not delivered: {reason}"),
+        );
+    }
+    async fn transcode(&self, src: &str, temp: &str) -> VendorResult<bool> {
+        let moved = self
+            .c
             .device
-            .remote_file_manager()
-            .move_file(src, temp, &self.c.context)
+            .execute_worker_command(vec!["mv".into(), "-f".into(), src.into(), temp.into()], &self.c.context)
             .await?;
+        if !moved.is_some_and(|result| result.successful()) {
+            return Err(VendorError::Transfer(marathon_apple::cmd::failure(
+                marathon_error::FailureKind::Transfer,
+                format!("Could not stage video {src} for transcoding"),
+            )));
+        }
         let start = self.c.millis("ios.ScreenRecordingListener.transcode")?;
         let config = &self
             .c
@@ -194,6 +262,7 @@ impl Media {
             .device
             .execute_worker_command(transcode_command(config, src, temp), &self.c.context)
             .await?;
+        let succeeded = result.as_ref().is_some_and(|result| result.successful());
         if let Some(result) = result.filter(|r| !r.successful()) {
             self.c.log(
                 &self.logger,
@@ -205,19 +274,20 @@ impl Media {
                 ),
             );
         }
-        self.c.log(
-            &self.logger,
-            Level::DEBUG,
-            format!(
-                "Transcoding finished in {}ms {src}",
-                self.c
-                    .millis("ios.ScreenRecordingListener.transcode")?
-                    .wrapping_sub(start)
-            ),
-        );
-        Ok(())
+        let elapsed = self
+            .c
+            .millis("ios.ScreenRecordingListener.transcode")?
+            .wrapping_sub(start);
+        if succeeded {
+            self.c.log(
+                &self.logger,
+                Level::DEBUG,
+                format!("Transcoding finished in {elapsed}ms {src}"),
+            );
+        }
+        Ok(succeeded)
     }
-    async fn pull(&self, src: &str, test: Option<&Test>) -> VendorResult<()> {
+    async fn pull(&self, src: &str, test: Option<&Test>) -> VendorResult<bool> {
         let local = self.c.file(FileType::Video, test).await?;
         let label = if test.is_some() {
             "ios.ScreenRecordingListener.pullTestVideo"
@@ -225,7 +295,9 @@ impl Media {
             "ios.ScreenRecordingListener.pullLastBatchVideo"
         };
         let start = self.c.millis(label)?;
-        self.c.device.pull_file(src, &local, &self.c.context).await?;
+        if !self.c.device.pull_file(src, &local, &self.c.context).await? {
+            return Ok(false);
+        }
         self.c.log(
             &self.logger,
             Level::DEBUG,
@@ -244,7 +316,7 @@ impl Media {
                 },
             )?;
         }
-        Ok(())
+        Ok(true)
     }
     async fn remove(&self, src: &str) -> VendorResult<()> {
         let start = self.c.millis("ios.ScreenRecordingListener.removeRemoteVideo")?;
@@ -403,30 +475,32 @@ impl AppleTestRunListener for ScreenRecordingListener {
             let media = self.media();
             media.catch_transfer(
                 async {
-                    if !self.healthy().await {
+                    let healthy = self.healthy().await;
+                    if !healthy {
                         self.c.log(
                             &self.logger,
                             Level::WARN,
                             "Device is unhealthy, can't pull batch fail video".into(),
                         );
-                        return Ok(());
                     }
-                    stopped?;
                     let src = self
                         .recordings
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
                         .last_path
-                        .clone();
-                    if let Some(src) = src {
-                        if !self.c.device.remote_file_manager().test(&src, &self.c.context).await? {
+                        .take();
+                    if let Some(src) = src
+                        && media.recording_deliverable(&src, true, stopped)?
+                    {
+                        if !healthy {
+                            media.undelivered(&src, "the device is unhealthy");
                             return Ok(());
                         }
-                        if media.transcoding() {
-                            media.transcode(&src, &format!("{src}.tmp")).await?;
+                        if !self.c.device.remote_file_manager().test(&src, &self.c.context).await? {
+                            media.undelivered(&src, "the movie is missing on the worker");
+                            return Ok(());
                         }
-                        media.pull(&src, None).await?;
-                        media.remove(&src).await?;
+                        media.deliver(&src, &format!("{src}.tmp"), None).await?;
                     }
                     Ok(())
                 }

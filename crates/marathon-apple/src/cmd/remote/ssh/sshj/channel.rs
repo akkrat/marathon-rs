@@ -539,6 +539,14 @@ impl ExecChannel {
         cutoff: fn(SignalFinish) -> i64,
         work: impl Future<Output = T>,
     ) -> Option<T> {
+        self.close_window(cutoff, self.bounded(millis, work)).await
+    }
+
+    async fn close_window<T>(
+        &self,
+        cutoff: fn(SignalFinish) -> i64,
+        timed: impl Future<Output = Option<T>>,
+    ) -> Option<T> {
         async fn wait(signal: Option<&Arc<SignalDeadline>>, clock: &dyn VendorClock, cutoff: fn(SignalFinish) -> i64) {
             match signal {
                 Some(signal) => signal.wait_for_signal(clock, cutoff).await,
@@ -546,7 +554,7 @@ impl ExecChannel {
             }
         }
         tokio::select! { biased;
-            result = self.bounded(millis, work) => result,
+            result = timed => result,
             _ = wait(self.signal_finish.get(), self.clock.as_ref(), cutoff) => None,
             _ = wait(self.shared.provider_signal.get(), self.clock.as_ref(), cutoff) => None,
         }
@@ -561,16 +569,22 @@ impl ExecChannel {
                 lease.proof(),
             )
         };
-        let proof = if self.update(|s| std::mem::replace(&mut s.escalating, true)) {
-            wait(TIMEOUT_MILLIS).await
+        let already_closing = self.update(|s| std::mem::replace(&mut s.escalating, true));
+        let first_wait = if already_closing {
+            TIMEOUT_MILLIS
         } else {
-            match wait(TERM_WAIT_MILLIS).await {
-                Some(result) => Some(result),
-                None => {
-                    lease.signal(&Sig::KILL);
-                    wait(CLOSE_WAIT_MILLIS).await
-                }
+            TERM_WAIT_MILLIS
+        };
+        let proof = match self
+            .close_window(|finish| finish.receipts.saturating_sub(1_000), wait(first_wait))
+            .await
+        {
+            None if !already_closing || self.has_signal_deadline() => {
+                lease.signal(&Sig::KILL);
+                self.close_window(|finish| finish.receipts, wait(CLOSE_WAIT_MILLIS))
+                    .await
             }
+            result => result,
         };
         // A wedged data channel can be discarded once worker cleanup is
         // settled. A channel CLOSE does not settle the worker receipt.

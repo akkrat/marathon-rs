@@ -422,6 +422,7 @@ fn the_worker_sender_uses_the_original_server_arguments_d96() -> Result<(), Box<
 struct SupervisorWorker {
     sibling_token: std::sync::Mutex<Option<String>>,
     resistant_token: std::sync::Mutex<Option<String>>,
+    stall_term: bool,
     recordings: std::sync::Mutex<std::collections::HashMap<String, bool>>,
     batches: std::sync::Mutex<std::collections::HashSet<String>>,
 }
@@ -467,6 +468,9 @@ impl fake_worker::router::Handler for SupervisorWorker {
                     if self.batches.lock().unwrap().contains(token) {
                         let proof = if operation == "3" { "done:137" } else { "running:100000" };
                         return Ok(Some(Action::output(&format!("{token} {proof}\n"), 0)));
+                    }
+                    if operation == "2" && self.stall_term {
+                        return Ok(Some(ssh::hang(vec![])));
                     }
                     let proof = if self.sibling_token.lock().unwrap().as_deref() == Some(token) {
                         "done:0"
@@ -792,6 +796,21 @@ async fn d30_escalation_joins_worker_proof_without_a_data_close_d96() {
     .unwrap();
     assert!(!closing.is_finished());
 
+    support::bounded(5, async {
+        loop {
+            if fake
+                .events("channel_end")
+                .await
+                .iter()
+                .any(|end| end["connection"] == term["connection"] && end["channel"] == term["channel"])
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+
     tokio::time::pause();
     tokio::time::advance(std::time::Duration::from_secs(21)).await;
     tokio::time::resume();
@@ -810,6 +829,79 @@ async fn d30_escalation_joins_worker_proof_without_a_data_close_d96() {
     assert_ne!(term["connection"], run["connection"]);
     assert!(kill["seq"].as_u64().unwrap() > term["seq"].as_u64().unwrap());
     // Neither escalation request consumed the original SSH session's acknowledgement or CLOSE.
+    assert!(fake.events("signal").await.is_empty());
+    executor.close().await.unwrap();
+    fake.worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn d97_signal_deadline_kills_the_worker_token_while_term_is_waiting() {
+    use marathon_apple::cmd::remote::ssh::sshj::SshjCommandExecutorFactory;
+    use marathon_core::signal_finish::{SignalDeadline, SignalFinish};
+    let fake = ssh::fake_with_handlers(
+        ssh::script(vec![]),
+        3,
+        |_| {},
+        vec![Arc::new(SupervisorWorker {
+            stall_term: true,
+            ..Default::default()
+        })],
+    )
+    .await;
+    let (logging, _) = ssh::logging(false);
+    let clock = Arc::new(support::Clock::default());
+    let factory = SshjCommandExecutorFactory::new(logging, Arc::new(support::Runtime), clock.clone());
+    let executor = factory
+        .connect_worker("127.0.0.1", fake.port(), ssh::password(), None, false, Arc::default())
+        .await
+        .unwrap();
+    let finish = Arc::new(SignalDeadline::default());
+    executor.set_provider_signal_deadline(finish.clone());
+    let command = executor
+        .execute(CommandRequest::new(["echo", "resistant"], duration(120_000)), context())
+        .await
+        .unwrap();
+    assert_eq!(command.base.stdout.receive().await.unwrap().as_deref(), Some("ready"));
+    let closing = tokio::spawn(async move { command.close().await });
+    let term = support::bounded(5, async {
+        loop {
+            if let Some(row) = fake
+                .events("exec")
+                .await
+                .into_iter()
+                .find(|row| matches_operation(row, ":2"))
+            {
+                break row;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+
+    // Start the close late in the run's signal window. Keep the virtual clock
+    // at 17 s while the network delivers KILL and proof, before TERM can time out.
+    tokio::time::pause();
+    finish.set(SignalFinish::from_start(clock.now() - 16_000));
+    tokio::time::advance(std::time::Duration::from_millis(1_030)).await;
+    let watchdog = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let kill = loop {
+        if let Some(kill) = fake
+            .events("exec")
+            .await
+            .into_iter()
+            .find(|row| matches_operation(row, ":3"))
+        {
+            break kill;
+        }
+        assert!(
+            std::time::Instant::now() < watchdog,
+            "the token must be killed at the signal cutoff"
+        );
+        tokio::task::yield_now().await;
+    };
+    tokio::time::resume();
+    support::bounded(5, closing).await.unwrap().unwrap();
+    assert_eq!(kill["connection"], term["connection"]);
     assert!(fake.events("signal").await.is_empty());
     executor.close().await.unwrap();
     fake.worker.shutdown().await.unwrap();

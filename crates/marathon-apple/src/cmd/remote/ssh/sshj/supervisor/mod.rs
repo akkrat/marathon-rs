@@ -222,6 +222,15 @@ impl ExchangeError {
     }
 }
 
+// A KILL may interrupt an earlier control exchange. Return its channel slot.
+struct ProtocolChannel(Arc<super::channel::ExecChannel>);
+
+impl Drop for ProtocolChannel {
+    fn drop(&mut self) {
+        self.0.request_close();
+    }
+}
+
 async fn exchange(
     connection: &SshConnection,
     wire: String,
@@ -232,7 +241,9 @@ async fn exchange(
         .await
         .map_err(|_| ExchangeError::Timeout("Worker supervisor channel open timed out"))?
         .map_err(|error| ExchangeError::Command(error.into_vendor()))?;
-    let result = tokio::time::timeout_at(deadline, async {
+    let closing = ProtocolChannel(channel);
+    let channel = &closing.0;
+    tokio::time::timeout_at(deadline, async {
         channel
             .exec(wire)
             .await
@@ -252,11 +263,9 @@ async fn exchange(
         let output = String::from_utf8(out).map_err(|_| protocol_error("Worker supervisor response was not UTF-8"))?;
         Ok((code, output))
     })
-    .await;
-    channel.request_close();
-    result
-        .map_err(|_| ExchangeError::Timeout("Worker supervisor command timed out"))?
-        .map_err(ExchangeError::Command)
+    .await
+    .map_err(|_| ExchangeError::Timeout("Worker supervisor command timed out"))?
+    .map_err(ExchangeError::Command)
 }
 
 #[derive(Default)]
@@ -505,6 +514,7 @@ pub(super) struct Lease {
     detached: bool,
     stop: Mutex<Stop>,
     changed: Notify,
+    kill_requested: Notify,
     proof: watch::Sender<Option<Result<Proof, Failure>>>,
 }
 
@@ -526,6 +536,7 @@ impl Lease {
             detached,
             stop: Mutex::default(),
             changed: Notify::new(),
+            kill_requested: Notify::new(),
             proof: watch::channel(None).0,
         }
     }
@@ -566,6 +577,9 @@ impl Lease {
             _ => 2,
         };
         let mut state = self.stop.lock().unwrap_or_else(|error| error.into_inner());
+        if rank == 3 && state.signal < 3 {
+            self.kill_requested.notify_one();
+        }
         state.signal = state.signal.max(rank);
         self.changed.notify_one();
     }
@@ -660,7 +674,15 @@ impl Lease {
             } else {
                 "status".to_string()
             };
-            match self.peer.ask(&self.token, &operation).await {
+            let response = tokio::select! {
+                biased;
+                _ = self.kill_requested.notified(), if wanted < 3 => {
+                    delay = WallDuration::ZERO;
+                    continue;
+                }
+                response = self.peer.ask(&self.token, &operation) => response,
+            };
+            match response {
                 Ok((Reply::Proof(proof), _)) => return Ok(proof),
                 Ok((Reply::Unconfirmed, _)) => {
                     return Err(protocol_error("Worker process group disappearance was not confirmed"));
