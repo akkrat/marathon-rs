@@ -2298,24 +2298,24 @@ the run. Other unexpected ends still left the run hanging, or ended it without s
   lease is not released while its preparation still runs, within the same bound; past it, the wait was logged at WARN
   and the lease released. Since [D93](#d93--an-apple-devices-stop-has-one-window-and-its-disposal-needs-proof-that-its-work-ended)
   the Mac's stop also stops that preparation, and a lease whose Mac's work did not end in its window is quarantined, not
-  released. Then every
-  pool, and then every queue, takes what was already delivered to it, so a result a device had reported before the
-  failure, or had completed when it was cancelled, reaches the reports, in the failed pool's queue as in every other
-  one. Only then are the pools and queues stopped, and the run finishes as any failed run: the reports hold every result
-  the queues took, the provider is terminated, `Marathon run failed` is logged with the first cause, and the exit status
-  is the existing one for a failed run: 1, or 0 with `ignoreFailures: true`. A queue failure (D68) takes this path too.
+  released. The pools then forward their delivered results to their queues, with one shared 65 s deadline under
+  [D94](#d94--scheduler-drains-and-interrupted-ios-artifact-waits-have-deadlines). The Scheduler interrupts handlers
+  still draining at the deadline. The reports hold every result committed to the report pipeline, the provider is
+  terminated, and `Marathon run failed` is logged with the first cause. The exit status is 1, or 0 with
+  `ignoreFailures: true`. A queue failure (D68) takes this path too.
 - **What can be lost.** A pool or queue whose own handler failed (a panic, or a D68 queue error) loses what was still
   in its own mailbox: for a failed queue, the results delivered to it after the one it failed on; for a failed pool,
-  results its devices had sent it that it had not yet passed to its queue. A batch still running when the run stops is
-  cancelled, as at a D52 cancel; its tests are not reported as run.
+  results its devices had sent it that it had not yet passed to its queue. The same applies at the D94 deadline,
+  which can also interrupt an active handler before it commits its result. A batch still running when the run stops
+  is cancelled, as at a D52 cancel; its tests are not reported as run.
 - **The finish settles the run first.** The run's finish begins by settling the Scheduler, before analytics close,
   before the provider terminates and before the reports are written: admission closes for good, the device listener is
-  stopped, and pools or devices still running (a pool a device connecting after D65's boundary started, or a pool
-  whose devices are still cleaning up after it ended) stop after their queues take what was delivered to them. A
+  stopped within its D94 allowance, and pools or devices still running (a pool a device connecting after D65's
+  boundary started, or a pool whose devices are still cleaning up after it ended) drain within their shared deadline. A
   stop under way is waited for. After that nothing of the run's machinery runs, so no failure can come after the
   reports, and no device work runs while the provider terminates other than a device past its bound. Each finish
   step then runs even if an earlier one failed: a step's own failure or cancellation is logged at ERROR and the next
-  steps, the reports among them, still run, so the results the queues took always reach the report files. Only a
+  steps, the reports among them, still run, so committed results reach the report files. Only a
   requested cancellation of the finish (a signal) stops it, and a run's protected finish completes it. Qualifications:
   admission closes when the Scheduler settles, which is after the finish's first console flush; while the settle
   waits for the listener to end, a device disconnection it had already read can still reach the pools; and a batch
@@ -2340,8 +2340,8 @@ the run. Other unexpected ends still left the run hanging, or ended it without s
 - **Changes in runs without a failure.** A device that connects while the run finishes is not admitted: its
   connection, and any device event still waiting when the run settles, is dropped, so no pool starts for it and its
   device is not in the reports' device data. A pool a device started after D65's boundary is stopped when the run
-  settles, and every result that had already reached its queue is now always in the reports (raw JSON, JUnit, HTML),
-  where before it was there only if the queue took it before the reports' snapshot; D65 still aggregates only the
+  settles, and results it commits within the D94 deadline appear in the reports (raw JSON, JUnit, HTML).
+  Previously a late pool could race the report snapshot. D65 still aggregates only the
   pools it joined, so the exit status is unchanged. A provider termination that fails, or ends with a cancellation of
   its own, no longer skips the reports.
 - A run task that panics fails the run with the panic as its cause; if the Scheduler is running then, it stops the same
@@ -2935,6 +2935,49 @@ Approved 2026-11-18 (project owner's decision). See
 [x92 findings](wp/x92-findings.md).
 
 **Migration action:** none.
+
+## D94 — Scheduler drains and interrupted iOS artifact waits have deadlines
+
+D84 added ordered pool and queue drains so that a failure would leave completed tests in the reports. A handler
+that stayed pending could hold its barrier and its job's final join forever. In iOS, a failed run could also wait
+for the ordinary artifact drain before disposing of its simulators.
+
+- After device cleanup, all pools begin draining together against one 65 s Scheduler deadline. A pool forwards its
+  results before its queue receives its barrier. The allowance is the greater of D51's 30 s analytics send limit and
+  D67's 60 s console completion limit, plus D84's 5 s margin. A pool already querying its queue gives up that query
+  when the drain begins. At the deadline the Scheduler logs one WARN per stall naming the pool or queue and
+  interrupts its handler. A cancelled device subscription gets its own 65 s to exit.
+- The reports keep results already committed and results processed before the deadline. A blocked handler may lose
+  work it has yet to commit, along with messages still in its mailbox. The first run failure and D52's signal path
+  keep their existing precedence and deadlines.
+- Only an internal run failure or an owner cancellation selects the shorter iOS artifact drain. It has a separate
+  70 s window with 30 s to drain and up to 40 s for cancellation. A suite that completes with failed test assertions
+  uses routine provider termination and keeps the full 300 s artifact drain. D52's signal path also uses routine
+  provider termination, subject to its own signal deadline.
+- On either iOS path, the worker joins and final receipt share one cancellation allowance. Routine artifact
+  finalization now waits at most 360 s, with 300 s to drain and 60 s for both cancellation waits. Previously
+  each cancellation wait could take 60 s, for a total of 420 s. Unfinished bundles are reported as undelivered
+  and simulator disposal proceeds.
+
+With default budgets, the bounded waits for iOS simulators sealed at run stop total up to 215 s. The Scheduler
+can spend 75 s joining device work and 65 s draining all pools and queues. The provider then spends up to 70 s
+on interrupted artifact finalization before disposal. Once the device window is exhausted, a confirmed simulator
+gets D93's 5 s lifecycle floor. Its lease-release wait uses the original device deadline. D93's 80 s covers
+the device waits in this sum. The sum excludes other finish steps, including provider monitoring and report
+generation. A simulator first sealed for disposal or provider termination starts its own device window and
+follows the ordinary lifecycle command limits.
+
+The artifact drain can still pull from a sealed device. When disposal snapshots the pull receipts, it
+closes pull admission. A live or unconfirmed pull at that point quarantines the device under D93.
+Disposal requests cancellation of live pulls and leaves their D91 cleanup to the transfer owners,
+skipping the on-dispose lifecycle and lease release. A command already handed to a transport also needs
+confirmation that it ended. Marking an SSH connection dead leaves its outstanding command receipts live.
+
+Approved 2026-11-18 (project owner's decision). See the witnesses and finish audit in
+[x93 findings](wp/x93-findings.md).
+
+**Migration action:** none. Check the named pool or queue if a drain warning accompanies missing test results.
+The iOS artifact log identifies bundles left undelivered after interruption.
 
 ## Other accepted text differences
 

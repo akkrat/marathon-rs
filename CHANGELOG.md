@@ -100,6 +100,13 @@ The section for a version becomes the text of its GitHub release, which carries 
   its disposal also keeps the lifecycle and the release from running beside it, and is stopped; so does a command the
   device sent just before it stopped, until it has ended. Healthy runs, results and exit codes are unchanged.
 
+- **Pool and queue drains share 65 seconds (D94).** The scheduler interrupts stalled handlers at the deadline and
+  keeps committed test results. An internal run failure or owner cancellation gives iOS artifacts 30 seconds to
+  drain and 40 seconds for cancellation. A suite with failed test assertions keeps the routine 300-second drain.
+  On routine runs, the worker joins and final receipt share one 60-second cancellation allowance, reducing the
+  maximum artifact wait from 420 to 360 seconds. Both drains are separate from D93's device waits. The log
+  identifies undelivered bundles.
+
 ## 0.14.0
 
 This release fixes run-stability and Android, iOS and macOS device-handling bugs found after 0.13.0, with the approved
