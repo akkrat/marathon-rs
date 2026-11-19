@@ -941,6 +941,25 @@ impl MacosDevice {
         }
         marathon_apple::cmd::send_stop(self.binary.command_executor.as_ref(), context).owned_by(receipt)
     }
+    /// D93: a send that this Mac's seal or disposal stopped, or refused, while its caller was not cancelled, is a device
+    /// failure for that caller, as a session's refusal is: discovery then takes another device (D53). A caller that was
+    /// cancelled keeps its cancellation.
+    fn leaving_send(&self, error: VendorError, context: &VendorContext) -> VendorError {
+        match error {
+            VendorError::Cancelled(reason)
+                if context.cancellation.reason().is_none()
+                    && self
+                        .execution
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .refusal(&self.serial)
+                        .is_some() =>
+            {
+                lost(reason.failure().clone())
+            }
+            other => other,
+        }
+    }
     /// D54: a receive from it ends only when that connection is lost.
     fn receive_stop(&self) -> marathon_apple::cmd::TransferStop {
         marathon_apple::cmd::receive_stop(self.binary.command_executor.as_ref())
@@ -1365,6 +1384,7 @@ impl AppleDevice for MacosDevice {
                     self.bridge.send_with(src, dst, self.send_stop(context)),
                 )
                 .await
+                .map_err(|error| self.leaving_send(error, context))
         })
     }
     fn pull_file<'a>(&'a self, src: &'a str, dst: &'a Path, _context: &'a VendorContext) -> VendorFuture<'a, bool> {
@@ -1385,6 +1405,7 @@ impl AppleDevice for MacosDevice {
                     self.bridge.send_with(src, dst, self.send_stop(context)),
                 )
                 .await
+                .map_err(|error| self.leaving_send(error, context))
         })
     }
     fn pull_folder<'a>(&'a self, src: &'a str, dst: &'a Path, _context: &'a VendorContext) -> VendorFuture<'a, bool> {

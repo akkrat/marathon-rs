@@ -701,16 +701,18 @@ async fn a_send_to_a_disposed_simulator_is_stopped_before_it_starts_d91() -> Tes
     let dir = tempfile::tempdir()?;
     let context = h.services.context.clone();
     let sent = d.push_file(dir.path(), "/tmp/marathon/late", &context).await;
+    // D93 (round 6): its caller not cancelled, the refusal is a device failure (D53 takes another device), whose cause is
+    // the refusal.
     match sent {
-        Err(VendorError::Cancelled(reason)) => {
+        Err(VendorError::DeviceLost(failure)) => {
             assert!(
-                reason
-                    .failure()
-                    .message
-                    .as_deref()
+                failure
+                    .cause
+                    .as_ref()
+                    .and_then(|cause| cause.message.as_deref())
                     .unwrap_or_default()
                     .ends_with("has been disposed"),
-                "{reason:?}"
+                "{failure:?}"
             )
         }
         other => panic!("{other:?}"),
@@ -1102,7 +1104,8 @@ async fn a_local_send_after_the_seal_copies_nothing_d93() -> TestResult {
     let dst = dir.path().join("dst");
     Device::seal_for_stop(&*d);
     let sent = d.push_file(&src, dst.to_str().unwrap(), &h.services.context).await;
-    assert!(matches!(sent, Err(VendorError::Cancelled(_))), "{sent:?}");
+    // Round 6: a device failure for a caller that was not cancelled.
+    assert!(matches!(sent, Err(VendorError::DeviceLost(_))), "{sent:?}");
     assert!(!dst.exists(), "a sealed simulator's local send copied its file");
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())

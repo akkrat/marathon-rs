@@ -2786,7 +2786,8 @@ known limit).
   (D91; a Mac now registers its sends as an iOS simulator does) and every xcodebuild session registered and not
   confirmed to have ended: a session registers under the same lock as a batch, a preparation and a send, so a sealed
   device opens none (discovery asking for one is refused with a device failure, so that D53 takes another device, never
-  with a cancellation it would read as an empty test list); a registered session is live from then on, before its
+  with a cancellation it would read as an empty test list; a send the seal or disposal stops or refuses is a device
+  failure in the same way for a caller that was not cancelled); a registered session is live from then on, before its
   producer has started, and a seal that comes before it opens its command keeps it from opening one; and a session leaves the device's
   list only once it has ended confirmed, so one whose exec or close could not be confirmed keeps the device unconfirmed
   for the rest of the run, whatever session follows it (a session whose open failed so also counts as not closed, and

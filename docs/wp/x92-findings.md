@@ -276,6 +276,11 @@ run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo 
 | Availability (D44) recovery waited 70 s more for the session after the disposal | `recovery.rs`: the recovery no longer runs its own `await_session_closed(70 s)`; the disposal's verdict covers the parsing session within the one window, and a simulator whose session it could not confirm is retired by its quarantine. Siblings are set up again after that window. | `simulator_admission.rs::a_parsing_session_open_at_the_recovery_disposal_keeps_the_simulator_out_and_quarantined_d93` now asserts the sibling is set up within 70 s of the quarantine (on the base the recovery's own 70 s wait ran past the 60 s watchdog) |
 
 Not reproduced end to end: discovery refused on a removed simulator with a healthy sibling through the real binary
-(the chain is device refusal → parser propagation → core D53 retry, each witnessed or pinned separately). The send
-refusals a sealed device gives (D91's receipts) are still cancellations; a removal that lands during discovery's sends,
-rather than between them and its session, can so still end that discovery attempt as a cancellation.
+(the chain is device refusal → parser propagation → core D53 retry, each witnessed or pinned separately).
+
+The same holds for discovery's sends: a send that the device's seal or disposal stopped or refused, its caller not
+cancelled, is now a device failure too (`leaving_send`, iOS and Mac `push_file`/`push_folder`), so a removal during
+discovery's sends also takes the parse to another device. A batch's or a preparation's sends, whose callers the stop
+cancels, keep their cancellation. This changes x90's `simulator_dispose.rs::a_send_to_a_disposed_simulator_is_stopped_before_it_starts_d91`
+(now a `DeviceLost` whose cause is the `has been disposed` refusal; nothing starts, as before) and
+`a_local_send_after_the_seal_copies_nothing_d93`; both fail on d20ecdcc as they stand.
