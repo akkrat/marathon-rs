@@ -29,6 +29,10 @@ impl Reaper {
             }
         }
         let (reader, writer) = pipe()?;
+        // The helper reports on this pipe once it leads its own process group. The parent
+        // waits for that report instead of setting the group itself: on macOS the parent's
+        // setpgid can fail with EPERM while the child is changing its own group.
+        let (ready_reader, ready_writer) = pipe()?;
         // Enumerate in the parent, where directory I/O and allocation are safe. The
         // directory's own descriptor will already be closed when the helper forks.
         #[cfg(target_os = "linux")]
@@ -39,10 +43,11 @@ impl Reaper {
             .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().parse::<RawFd>().ok()))
             .collect::<io::Result<Vec<_>>>()?;
         let reader_fd = reader.as_raw_fd();
+        let ready_fd = ready_writer.as_raw_fd();
         let inherited = inherited
             .into_iter()
             .flatten()
-            .filter(|&fd| fd != reader_fd)
+            .filter(|&fd| fd != reader_fd && fd != ready_fd)
             .collect::<Vec<_>>();
         let signals = [libc::SIGINT, libc::SIGTERM, libc::SIGHUP, libc::SIGPIPE];
         // SAFETY: no other thread can change the fd table or receive these signals while
@@ -59,17 +64,22 @@ impl Reaper {
             }
             let child = libc::fork();
             if child == 0 {
-                run(reader_fd, &inherited, signals);
+                run(reader_fd, ready_fd, &inherited, signals);
             }
-            // Put the helper out of reach of group-directed KILL even if the
-            // parent runs first. macOS can reject the call after the child won.
             let start_error = if child < 0 {
                 Some(io::Error::last_os_error())
-            } else if libc::setpgid(child, child) != 0 {
-                let error = io::Error::last_os_error();
-                (libc::getpgid(child) != child).then_some(error)
             } else {
-                None
+                // Only the helper keeps the write end: an exit before its report reads as EOF.
+                drop(ready_writer);
+                let report = await_report(ready_reader.as_raw_fd());
+                if report.is_err() {
+                    // The helper is exiting, or the report could not be read: end it either
+                    // way (it cannot ignore KILL) and don't leave a zombie behind.
+                    libc::kill(child, libc::SIGKILL);
+                    let mut status = 0;
+                    libc::waitpid(child, &mut status, 0);
+                }
+                report.err()
             };
             libc::sigprocmask(libc::SIG_SETMASK, &previous, std::ptr::null_mut());
             if let Some(error) = start_error {
@@ -136,26 +146,71 @@ fn pipe() -> io::Result<(OwnedFd, OwnedFd)> {
     }
 }
 
-unsafe fn run(reader: RawFd, inherited: &[RawFd], signals: [i32; 4]) -> ! {
+/// The helper's startup report: it leads its own process group and ignores the signals.
+const READY: u8 = 0;
+const NO_GROUP: u8 = 1;
+const NO_SIGNALS: u8 = 2;
+
+unsafe fn run(reader: RawFd, ready: RawFd, inherited: &[RawFd], signals: [i32; 4]) -> ! {
     // SAFETY: this is the single-threaded fork child. Do not unwind, allocate, or
     // touch Rust runtime state. These signals stay blocked as well as ignored.
     unsafe {
-        libc::setpgid(0, 0); // The parent also establishes and verifies our group.
+        // Out of reach of group-directed KILL before the parent goes on.
+        if libc::setpgid(0, 0) != 0 {
+            fail(ready, NO_GROUP);
+        }
         let mut action: libc::sigaction = std::mem::zeroed();
         action.sa_sigaction = libc::SIG_IGN;
         libc::sigemptyset(&mut action.sa_mask);
         for signal in signals {
             if libc::sigaction(signal, &action, std::ptr::null_mut()) != 0 {
-                libc::_exit(1);
+                fail(ready, NO_SIGNALS);
             }
         }
         for &fd in inherited {
             libc::close(fd);
         }
+        libc::write(ready, (&READY as *const u8).cast(), 1);
+        libc::close(ready);
         drain(reader, |address| {
             libc::kill(address, libc::SIGKILL);
         });
         libc::_exit(0);
+    }
+}
+
+/// Reports a startup failure from the fork child and exits it.
+unsafe fn fail(ready: RawFd, report: u8) -> ! {
+    // SAFETY: write and _exit are async-signal-safe; the byte lives on the stack.
+    unsafe {
+        libc::write(ready, (&report as *const u8).cast(), 1);
+        libc::_exit(1)
+    }
+}
+
+/// Waits for the helper's startup report. EOF means it exited before reporting.
+fn await_report(ready: RawFd) -> io::Result<()> {
+    let mut report = 0u8;
+    loop {
+        // SAFETY: the parent owns this fd; the buffer is one byte on the stack.
+        let len = unsafe { libc::read(ready, (&mut report as *mut u8).cast(), 1) };
+        if len < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error);
+        }
+        return match (len, report) {
+            (1, READY) => Ok(()),
+            (1, NO_GROUP) => Err(io::Error::other(
+                "the process reaper could not lead its own process group",
+            )),
+            (1, _) => Err(io::Error::other(
+                "the process reaper could not ignore termination signals",
+            )),
+            _ => Err(io::Error::other("the process reaper exited during startup")),
+        };
     }
 }
 

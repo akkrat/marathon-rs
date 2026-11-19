@@ -927,3 +927,40 @@ fn inherited_ignored_sigquit_stays_ignored_d66() -> Result<(), Box<dyn std::erro
     assert_eq!(status.code(), Some(143), "{status:?}");
     Ok(())
 }
+
+/// D96: the reaper starts on every launch. Its parent used to set the helper's process group too,
+/// and on macOS that call could fail with EPERM while the helper was changing its own group: the
+/// CLI then warned and ran without its backstop. Launch the binary many times, several at once.
+#[test]
+fn the_reaper_starts_on_every_launch_d96() -> Result<(), Box<dyn std::error::Error>> {
+    let workers = (0..4)
+        .map(|_| {
+            std::thread::spawn(|| -> Result<Vec<String>, String> {
+                let mut failures = Vec::new();
+                for _ in 0..50 {
+                    let output = Command::new(env!("CARGO_BIN_EXE_marathon"))
+                        .arg("version")
+                        .stdin(Stdio::null())
+                        .output()
+                        .map_err(|error| error.to_string())?;
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    if !output.status.success() || stderr.contains("process reaper") {
+                        failures.push(format!("{}: {stderr}", output.status));
+                    }
+                }
+                Ok(failures)
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut failures = Vec::new();
+    for worker in workers {
+        failures.extend(worker.join().map_err(|_| "a launcher thread panicked")??);
+    }
+    assert!(
+        failures.is_empty(),
+        "{} of 200 launches failed: {:?}",
+        failures.len(),
+        failures.first()
+    );
+    Ok(())
+}
