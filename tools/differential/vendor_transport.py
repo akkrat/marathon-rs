@@ -257,7 +257,7 @@ def _d96_fallback_bootstrap(session):
 
 
 def _d96_header(argv):
-    e.require(len(argv) >= 6 and re.fullmatch(D96_ROOT, argv[3]) and
+    e.require(len(argv) >= 5 and re.fullmatch(D96_ROOT, argv[3]) and
               argv[:2] == ['/usr/bin/perl', argv[3] + '/supervisor.pl'] and
               re.fullmatch(r'[0-9]{5,7}', argv[4]), 'D96 invalid supervisor argv')
     lease = int(argv[4])
@@ -267,14 +267,14 @@ def _d96_header(argv):
 
 def _d96_sender(argv):
     root, lease = _d96_header(argv)
-    e.require(argv[2] == 'rsync' and re.fullmatch(D96_TOKEN, argv[5]) and argv[6:7] == [D96_RSYNC],
+    e.require(len(argv) >= 7 and argv[2] == 'rsync' and re.fullmatch(D96_TOKEN, argv[5]) and argv[6] == D96_RSYNC,
               'D96 invalid supervisor rsync sender')
     return root, lease, argv[5]
 
 
 def d96_worker_sessions(sessions, signals, fallback_connections=None):
     """Validate the envelope and receipts before comparing the original payloads."""
-    boots, roots, commands, requests = set(), {}, {}, []
+    boots, roots, commands, requests, retirement = set(), {}, {}, [], []
     for key, session in list(sessions.items()):
         wire = session['wire']
         if _d96_probe(session):
@@ -300,6 +300,11 @@ def d96_worker_sessions(sessions, signals, fallback_connections=None):
                 e.require(len(argv) == 6, 'D96 unexpected control arguments')
                 requests.append((key, session, root, lease, argv[5]))
                 continue
+            if argv[2] == 'retire':
+                e.require(len(argv) == 5 and not wire.startswith('exec '), 'D96 unexpected retirement arguments')
+                retirement.append((key, session, root, lease))
+                continue
+            e.require(len(argv) >= 6, 'D96 supervisor token missing')
             token = argv[5]
             e.require(re.fullmatch(D96_TOKEN, token) and token not in commands,
                       'D96 invalid or reused supervised exec token')
@@ -355,6 +360,25 @@ def d96_worker_sessions(sessions, signals, fallback_connections=None):
                   'D96 missing worker exit proof')
         if mode == 'detach':
             session['exit'] = proofs[token]
+    retired = set()
+    for key, session, root, lease in retirement:
+        e.require(root in roots and root not in retired and session['seq'] > roots[root][1],
+                  'D96 retirement has no active installation')
+        requests_on_root = [(k[0], s) for k, s, worker, _, _ in requests if worker == root]
+        e.require(key[0] == roots[root][0] or any(key[0] == connection for connection, _ in requests_on_root),
+                  'D96 retirement used an unrelated connection')
+        payloads = [(s, period) for _, s, worker, period, _ in commands.values() if worker == root]
+        e.require(all(period == lease for _, period in payloads), 'D96 retirement addresses another lease')
+        response = session['stdout']
+        e.require(response in (b'MARATHON_D96_1 busy\n', b'MARATHON_D96_1 retired\n') and
+                  _d96_recorder_reply(session, 0, stdout=response), 'D96 invalid retirement response')
+        if response == b'MARATHON_D96_1 retired\n':
+            e.require(all(s['seq'] < session['seq'] for s, _ in payloads) and
+                      all(s['seq'] < session['seq'] for _, s in requests_on_root),
+                      'D96 supervisor retired before its commands')
+            retired.add(root)
+        del sessions[key]
+    e.require(retired == {root for _, _, root, _ in retirement}, 'D96 supervisor retirement did not finish')
     return {(root, lease, token) for token, (_, _, root, lease, mode) in commands.items() if mode == 'rsync'}
 
 

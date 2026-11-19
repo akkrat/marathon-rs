@@ -131,6 +131,22 @@ impl Supervisor {
         }))
     }
 
+    pub(super) async fn retire(&self) {
+        let Some(peer) = self.peer.get() else {
+            return;
+        };
+        let result = tokio::time::timeout(CONTROL_TIMEOUT, peer.retire()).await;
+        if !matches!(result, Ok(Ok(()))) {
+            let logger = self.logging.component(TARGET);
+            self.logging.log(
+                &logger,
+                Level::DEBUG,
+                || "SSH worker supervisor state could not be retired on close".into(),
+                None,
+            );
+        }
+    }
+
     async fn peer(&self, connection: &Arc<SshConnection>) -> VendorResult<Option<Arc<Peer>>> {
         let capability = self.capability.get_or_try_init(|| async {
             let install = format!(
@@ -299,6 +315,34 @@ impl Reply {
 }
 
 impl Peer {
+    async fn retire(&self) -> VendorResult<()> {
+        let connection = if self.data.is_connected() {
+            self.data.clone()
+        } else {
+            self.control
+                .lock()
+                .await
+                .active
+                .clone()
+                .filter(|active| active.is_connected())
+                .ok_or_else(|| protocol_error("Worker supervisor has no remaining connection"))?
+        };
+        let wire = format!(
+            "/usr/bin/perl {}/supervisor.pl retire {} {}",
+            self.root, self.root, self.timing.lease_ms
+        );
+        loop {
+            let (status, output) = exchange(&connection, wire.clone(), CONTROL_TIMEOUT)
+                .await
+                .map_err(ExchangeError::into_vendor)?;
+            match (status, output.as_str()) {
+                (0, "MARATHON_D96_1 retired\n") => return Ok(()),
+                (0, "MARATHON_D96_1 busy\n") => tokio::time::sleep(WallDuration::from_millis(100)).await,
+                _ => return Err(protocol_error("Worker supervisor retirement failed")),
+            }
+        }
+    }
+
     async fn connection(&self) -> VendorResult<Arc<SshConnection>> {
         let deadline = tokio::time::Instant::now() + CONTROL_TIMEOUT;
         let mut control = tokio::time::timeout_at(deadline, self.control.lock())

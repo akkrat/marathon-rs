@@ -165,6 +165,253 @@ line of the version response. The real password rsync round trip passed in
 1.75 s. Its argv witness also verifies that the key-authenticated path carries
 no password prompt limit.
 
+## x95b password transport
+
+The controller probes the SSH client selected by rsync once, on first password transfer.
+OpenSSH 8.4 or newer can force askpass without `DISPLAY`. The CLI uses its own binary as
+the helper, with the secret in the child environment and no public command or flag.
+Embedded callers use a mode-0700 helper inside a private temporary directory. The
+helper accepts password prompts and rejects confirmation prompts. Rsync remains the
+owned leader and retains its exit status. Older SSH clients use the existing `sshpass`
+cleanup path and warn once per run. The `-e` option keeps the fallback secret out of argv too.
+[OpenSSH 8.4 release notes](https://www.openssh.org/txt/release-8.4).
+
+The real password roundtrip to the fake SSH worker passed with rsync and OpenSSH,
+including send and receive, with display variables unset and a deliberately missing
+`sshpass`. The built CLI also completed a password-authenticated iOS run against
+the fake worker in 3.59 s for the smoke suite. The smoke uses the fixture's SSH
+shim to isolate known hosts from previous loopback runs. The legacy transport
+witness confirms one SSH version probe and one warning across queued transfers.
+The TERM and KILL witness checked both actual process IDs and the
+transfer's confirmed cleanup receipt. It passed 50 times and once under CPU load.
+In a scratch checkout at the x95a head, both witnesses failed because the legacy
+transport needed `sshpass`. The KILL witness also exposed a macOS race where
+`waitid(WNOWAIT)` could observe exit before a nonblocking reap succeeded. The
+launcher now checks the terminal event code and retries a delayed reap within a
+bound. The follow-up launcher measurement for 1,000 commands was **0.951 s direct**
+and **0.861 s owned** in one macOS sample.
+
+The differential comparator permits removal of the unconditional rsync4j warning
+only on live native SSH captures. The JVM and pinned native captures keep their
+existing warning check. No result golden or oracle recording changed.
+
+## x95b recorder ownership
+
+The listener opens a foreground `xcrun simctl io … recordVideo` session. The
+simulator registers the handle before launch and includes unconfirmed handles
+in its D93 shutdown receipt. The batch, unhealthy-device callback and disposer
+shorten or join one detached stop. A cancelled waiter cannot abandon the stop.
+The recorder has up to 15 s after the first stop request, limited by the device
+window. INT receives the first two thirds. TERM and KILL use the remainder.
+
+`Recording::finalization` and `ScreenRecordingListener::stop` expose the recorder's
+outcome to the caller. A zero exit status before escalation reports `Finalized`.
+An observed failure or escalated exit reports `Unfinalized`. A refused start
+reports `NotStarted`, and an unavailable exit report leaves the device
+`Unconfirmed`. D93 skips lifecycle and quarantines that lease at disposal. A
+later recording does not start while an earlier one's stop remains unconfirmed.
+The existing media transfer and attachment calls still own their current policy.
+
+The local test runs a real signal-handling foreground child. The iOS tests also
+cover the shared stop across batch cancellation, an unhealthy callback and
+disposal, and the missing-exit quarantine after KILL. D80 still waits for a previous
+stop before starting the next recorder, and waits for a previous transfer if the
+next recorder reuses its destination.
+
+The recorder listeners, the real-process witness and the D80 video suite passed
+50 repetitions and one run under CPU load. Both new listener witnesses failed
+in a scratch checkout that sent TERM in place of the initial INT.
+
+The D96 iOS media comparison validates the recorded pidfile command sequence
+and the new recorder's INT and successful exit before comparing the movie's
+command and the other evidence. It preserves unrelated commands and all result
+goldens. The deprecated pidfile wait tests are marked `n/a` in the parity matrix.
+
+## x95b worker exec leases (4a)
+
+An Apple SSH data connection probes stock Perl and installs the worker
+supervisor in a private directory on first exec. Concurrent calls share the
+result. If the worker lacks the interpreter or a required core module, the
+connector warns once per worker and continues with the existing commands. A
+transport error or invalid successful bootstrap response fails the command.
+
+Each handed exec has a unique token. The worker writes the token's state
+before letting the payload past the group-ready handshake. An unreaped anchor
+pins the group ID until KILL. The worker writes a receipt after reaping the
+anchor and seeing the group disappear. A stop that reaches the worker before
+the exec publishes a terminal token which prevents late launch. The controller
+uses worker proof for a supervised command's exit status and D93 receipt.
+The device-log process now runs in a foreground session on supervised workers,
+since the background log would otherwise be killed when its launcher exits.
+
+This step renews and stops tokens over spare channels on the data connection.
+If the connection stalls or cannot open another channel, lack of renewal
+causes the worker to kill the group. The default lease is 79 s. At most one
+already-issued renewal can extend the last expiry the controller observed.
+Confirmation can still be lost in a partition. This slice retains the worker's
+private token directory after the connection ends.
+
+A loopback OpenSSH session with real Perl returns status 23 after the payload
+runs past its initial lease. After loss of the connection, a second payload is
+observed gone. A fake worker covers one probe per connection and one warning for
+two connections. The Perl witness for stop before launch runs on Linux and macOS.
+Each witness passed 50 macOS repetitions and once under CPU load. All eight prototype protocol witnesses also passed against the production
+script. Scratch copies with expiry enforcement or the pre-launch stop check
+removed failed their respective witnesses. The comparator allows only the
+exact probe and completed fallback response on live native captures, with
+negative cases for altered programs and results. No result golden changed.
+
+## x95b independent worker control (4b)
+
+A successful Perl probe opens a second, authenticated SSH connection before
+handing off any payload. One control connection belongs to each data connection.
+The control connection uses the same credentials and host-key verification,
+with 4 s for the dial and 4 s for each exchange. Commands on the same worker can stop and
+renew independently by token. A failure of an entire control connection
+interrupts renewal of every token using it. Devices on other connections can
+continue. A control connection that is known dead refuses new work and makes that
+data connection ineligible for reuse.
+
+The worker lease starts before exec and is not renewed while its exec reply
+is missing. A device seal requests token KILL if the data channel has yet to acknowledge
+launch. A recorder caught there can remain unfinalized. For a session that opened, D30 sends TERM and
+then KILL through control, and waits for worker proof within the existing
+window. A stuck data channel can be discarded after proof. When the worker
+cannot return proof, D93 retains its unconfirmed receipt and quarantine rules.
+
+A loopback OpenSSH worker limited to one session per connection completes a
+command that outlives its initial lease, then confirms cleanup within the
+bound when the data connection is severed. Fake-worker tests cover the lost
+launch reply with a successful sibling command, and D30 escalation on virtual
+time when the data channel withholds CLOSE. Both fake-worker tests run on Linux
+and macOS. Scratch reverts of stopped launch and receipt-based D30 close failed
+the corresponding tests. The five witnesses passed 50 repetitions and under
+CPU load on macOS. The Apple, iOS and macOS suites passed 1,138 tests with
+26 ignored. The CLI vendor differential, real-SSH iOS smoke and shutdown
+report tests passed. No result golden changed.
+
+## x95b rsync senders and recovery (4c)
+
+Artifact pulls give the bridge the device's executor. The remote sender runs
+under a token with the same worker account as the executor, and the bridge
+joins worker proof before ending the D91/D93 receipt. Local rsync still
+determines the transfer status. On macOS, openrsync removes shell quotes when
+building its SSH command. The sender envelope therefore carries the remote
+program as base64 and the original server arguments as individual arguments.
+A real OpenSSH loopback pull copied the expected bytes, and cancelling a pull
+killed a real remote sender that ignored TERM and HUP.
+
+A lost control connection wakes the lease watchers. They share one bounded
+dial with 1 s spacing after failures. They can renew through the data connection
+when it can execute a request on the worker. The fallback needs a free SSH
+session. With both routes unavailable, the worker handles expiry and the
+device keeps the unconfirmed receipt. The existing keep-alive settings still
+set the lease, with a floor of the renewal interval plus 26 s. The migration
+guide gives the expiry bound, including one in-flight renewal.
+
+The virtual-time worker tests cut the control socket and verify a fresh
+connection renews leases before expiry. Another blocks reconnection and
+verifies that the command connection renews two healthy groups. The partition
+case cuts both connections, observes worker expiry and an unconfirmed device
+receipt, and verifies that a sibling on another connection keeps running.
+All four new concurrency witnesses passed 50 repetitions and under CPU load.
+Scratch reverts of reconnect, data-path renewal, sender ownership and the
+worker expiry check failed their witnesses.
+
+The comparator requires the exact bootstrap, installed root, token, lease,
+expected sender framing and matching terminal receipt for each supervised
+command. Host rsync and SSH invocations must use the observed sender token.
+It compares the original payload and its result. Successful wrappers have
+positive and negative projection tests. The live vendor differential fixtures
+exercise the Perl fallback. Pinned recordings and result goldens stayed intact.
+
+The package suites passed 1,268 tests with 33 ignored and one known
+`simulator_world` watchdog timeout. All seven tests in that target passed
+serially. The scratch build reused the Cargo target and invalidated artifacts
+needed by rustdoc. The isolated doctest rerun rebuilt them and passed.
+Formatting, scoped Clippy, 115 evidence tests, registry, source and plan checks
+passed.
+
+Linux and real-device gates remain for the orchestrator. Before launch
+acknowledgement, token KILL can leave a recorder unfinalized and D97 reports
+its movie as undelivered.
+
+## x95b round 1 SSH latency and probe corrections
+
+The reference loopback used one-slot OpenSSH data connections on macOS,
+with three warmups and 30 commands per case after bootstrap. Times are
+medians in milliseconds from execute through result.
+
+| Command | Plain before | Supervised before | Plain after | Supervised after |
+| --- | ---: | ---: | ---: | ---: |
+| \`/usr/bin/true\` | 13.60 | 104.31 | 13.52 | 21.24 |
+| \`/bin/sleep 0.3\` | 339.23 | 411.62 | 339.77 | 333.33 |
+
+Normal foreground exits use the SSH data channel and avoid both result polling
+and the control request. The Perl wrapper can emit a normal status only after
+writing its cleanup receipt. It is exec'ed directly so an unconfirmed wrapper
+stop reaches SSH as a signal. D30 and D93 still join proof when necessary.
+Short commands open no control transport. Renewal starts at the normal interval.
+Control starts lazily and uses the small Perl command path, which avoids loading
+the launch-only modules for each exchange. The connection retries with capped
+exponential backoff and renews over a reachable data connection at the normal cadence.
+A signalled payload keeps the wrapper's numeric status, 128 plus the signal number.
+
+The single-line bootstrap ran through \`/bin/csh\` on stock Perl 5.34.
+A fake worker verified fallback and one warning for filter, import and temporary
+directory failures. It also rejected and returned malformed success for first
+probes, and accepted the next probe on the same connection. Scratch controls
+and transport witnesses cover retained D30 and D93 behavior.
+
+The askpass transport limits OpenSSH to one password prompt and scans each
+line of the version response. The real password rsync round trip passed in
+1.75 s. Its argv witness also verifies that the key-authenticated path carries
+no password prompt limit.
+
+## x95b round 1 recorder ownership
+
+A supervised iOS recorder acknowledges launch and closes its data session
+while the worker still owns the recording group. Its exit receipt, read over
+token control, supplies the finalization result. The worker renews a recorder's
+lease during its healthy INT window. Workers without a usable supervisor run
+the legacy nohup and pidfile commands. Local recording remains foreground.
+
+The loopback fake worker capped the shared connection at 10 sessions. Five batch
+and recorder pairs opened in 26.6 ms. Five health checks and five INT finalizations
+finished by 52.2 ms. With foreground recording restored, the first health check
+failed with the session-cap refusal. The stock Perl test observed a live payload after the detaching
+launcher returned at 19.5 ms and confirmed the INT exit by 54.4 ms. A virtual-time
+listener test reported finalization after a 24 s INT handler with a 30 s shell
+timeout. Restoring the old 10 s INT window made that test report an unfinalized
+movie. A second stop reported no new recording, and events after sealing
+returned normally.
+
+On a disposable iOS 18.6 simulator, real `simctl recordVideo` exited 0 after
+INT. The 66,184-byte output contained complete `mdat` and `moov` boxes.
+The simulator was shut down and deleted. The live vendor comparison passed with
+the legacy pidfile wire, and the supervised comparator rejects an acknowledgement
+without the recorder's own INT and successful terminal receipt.
+
+## x95b round 1 worker state retirement
+
+A terminal token sheds its mutable state and lock, retaining one receipt for
+late proof requests and replay protection. A stock Perl witness let a detached
+lease expire, matched its KILL receipt, and verified that a sibling succeeded.
+It also observed that retirement waits while the group is owned and removes
+the whole root after the last operation exits. A separate SSH witness verified
+that healthy close reuses the data transport for retirement. A partition can
+leave the installed script and compact receipts under `/tmp`.
+
+The final one-slot OpenSSH run used the same 30-sample method. Median
+`/usr/bin/true` took 13.31 ms plain and 19.39 ms supervised. Median
+`/bin/sleep 0.3` took 336.82 ms plain and 330.97 ms supervised. Closing took
+0.13 ms plain and 18.11 ms with the one-time retirement exchange.
+
+The recorder capacity, stock Perl detachment, healthy stop window and
+retirement witnesses each passed 50 repetitions and one run under CPU load.
+Isolated negative controls reproduced the capacity refusal, early escalation,
+missing retirement request and leftover mutable state.
+
 ## Incidental bugs
 
 No additional bug outside x95 was pursued.

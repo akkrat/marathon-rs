@@ -2,7 +2,7 @@ use strict;
 use warnings;
 use Time::HiRes qw(clock_gettime CLOCK_MONOTONIC);
 use Fcntl qw(:DEFAULT :flock);
-use Errno qw(ESRCH EAGAIN EWOULDBLOCK);
+use Errno qw(ENOENT ESRCH EAGAIN EWOULDBLOCK);
 
 sub clock_ms { int(clock_gettime(CLOCK_MONOTONIC) * 1000) }
 
@@ -14,33 +14,47 @@ sub readable {
 }
 
 sub read_state {
-    my ($dir) = @_;
-    return (0, 0, 0, '-') if !-e "$dir/state";
-    open my $file, '<', "$dir/state" or die "read state: $!";
+    my ($path) = @_;
+    my $file;
+    if (!open $file, '<', $path) {
+        return () if $! == ENOENT;
+        die "read state: $!";
+    }
     my $state = <$file>;
     defined($state) && $state =~ /\A([01]) (\d+) ([0-3]) ([-a-z0-9:]+)\n\z/
         or die "invalid state";
     return ($1, $2, $3, $4);
 }
 
-sub write_state {
-    my ($dir, @state) = @_;
-    open my $file, '>', "$dir/pending" or die "write state: $!";
-    print {$file} join(' ', @state), "\n" or die "write state: $!";
-    close $file or die "close state: $!";
-    rename "$dir/pending", "$dir/state" or die "commit state: $!";
-}
-
 sub locked {
-    my ($dir, $op) = @_;
-    mkdir $dir, 0700 unless -d $dir;
-    sysopen my $lock, "$dir/lock", O_RDWR|O_CREAT|O_NOFOLLOW, 0600 or die "open lock: $!";
+    my ($token, $op) = @_;
+    my @receipt = read_state("$token.receipt");
+    if (@receipt) {
+        return ($op->(@receipt))[1];
+    }
+    sysopen my $lock, "$token.lock", O_RDWR|O_CREAT|O_NOFOLLOW, 0600 or die "open lock: $!";
     if (!flock($lock, LOCK_EX | LOCK_NB)) {
         return undef if $! == EAGAIN || $! == EWOULDBLOCK;
         die "lock token: $!";
     }
-    my ($new, $result) = $op->(read_state($dir));
-    write_state($dir, @$new) if defined $new;
+    # A late caller can open a fresh lock inode after a terminal writer unlinks
+    # its lock. Check the immutable receipt again before reading mutable state.
+    @receipt = read_state("$token.receipt");
+    if (@receipt) {
+        unlink "$token.lock";
+        return ($op->(@receipt))[1];
+    }
+    my @state = read_state("$token.state");
+    my ($new, $result) = $op->(@state ? @state : (0, 0, 0, '-'));
+    if (defined $new) {
+        open my $file, '>', "$token.pending" or die "write state: $!";
+        print {$file} join(' ', @$new), "\n" or die "write state: $!";
+        close $file or die "close state: $!";
+        my $done = $new->[3] ne '-';
+        my $suffix = $done ? 'receipt' : 'state';
+        rename "$token.pending", "$token.$suffix" or die "commit state: $!";
+        unlink "$token.state", "$token.lock" if $done;
+    }
     close $lock or die "close lock: $!";
     return $result;
 }
@@ -205,6 +219,30 @@ $root =~ m{\A/tmp/marathon-supervisor-[A-Za-z0-9_-]+\z} or die "invalid root";
 my @stat = lstat($root);
 -d _ && $stat[4] == $< && ($stat[2] & 0777) == 0700 or die "invalid private root";
 $lease =~ /\A[1-9][0-9]*\z/ && $lease <= 3600000 or die "invalid lease";
+# Every operation pins the installed script. Retirement with an exclusive
+# lock cannot remove state while a detached recorder or rsync sender owns it.
+sysopen my $root_lock, "$root/supervisor.pl", O_RDONLY|O_NOFOLLOW or die "open supervisor: $!";
+if ($mode eq 'retire') {
+    @ARGV == 0 or die "invalid retirement request";
+    if (!flock($root_lock, LOCK_EX | LOCK_NB)) {
+        ($! == EAGAIN || $! == EWOULDBLOCK) or die "lock supervisor: $!";
+        print "MARATHON_D96_1 busy\n";
+        exit 0;
+    }
+    opendir my $dir, $root or die "open root: $!";
+    my @files = grep { $_ ne '.' && $_ ne '..' && $_ ne 'supervisor.pl' } readdir $dir;
+    closedir $dir or die "close root: $!";
+    !grep { !/\A[a-f0-9]{32}\.(?:state|lock|pending|receipt)\z/ } @files or die "unexpected root entries";
+    unlink(map { "$root/$_" } @files) == @files or die "remove token state: $!";
+    unlink "$root/supervisor.pl" or die "remove supervisor: $!";
+    rmdir $root or die "remove root: $!";
+    print "MARATHON_D96_1 retired\n";
+    exit 0;
+}
+flock($root_lock, LOCK_SH | LOCK_NB) or die "supervisor is retiring: $!";
+# A process that opened the old script before retirement might acquire its
+# shared lock after the retire process exits. Require the installation to exist.
+-f "$root/supervisor.pl" or die "supervisor retired";
 if ($mode eq 'control') {
     for my $item (@ARGV) {
         $item =~ /\A([a-f0-9]{32}):(renew-[0-9]{1,16}|status|[1-3])\z/ or die "invalid request";

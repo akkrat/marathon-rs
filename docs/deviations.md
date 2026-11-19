@@ -3061,10 +3061,80 @@ cannot stop it on output. Other tools are background groups from the terminal's 
 With `stty tostop`, inherited terminal output can stop a background tool. An SSH process that
 tries to read a password or key passphrase on `/dev/tty` can also stop.
 
+Password-based rsync with OpenSSH 8.4 or newer uses forced askpass without
+a display or terminal. The controller supplies the password through the helper's
+environment. Rsync and its SSH client stay in the owned group, and the transfer
+uses rsync's exit status. The first password transfer probes the SSH version.
+An older or unrecognized client uses the legacy `sshpass` transport and logs
+one warning per run. That transport starts a separate session, which limits
+cleanup to the previously observed processes in that session.
+
+The controller registers one handle per iOS movie before launching the recorder.
+A supervised SSH recorder detaches under its own token and releases the data
+session as soon as the worker acknowledges launch. Local video keeps its
+foreground session. An SSH worker without a usable supervisor uses the legacy
+`nohup` launcher and pidfile-based stop.
+
+Batch cancellation, an unhealthy device and simulator disposal can join the
+same stop. An owned stop sends INT to finalize the movie, then TERM and KILL
+if needed. A healthy stop allows the larger of 15 s and the configured shell
+timeout for INT, with up to 5 s for escalation. Cancellation and disposal can
+shorten the stop to 15 s, clipped to the device's remaining window. Status 0
+before escalation confirms finalization. An SSH launch acknowledgement frees
+the session and the worker exit receipt confirms the outcome. An unconfirmed
+stop prevents disposal from releasing the device under D93. A stop before
+worker acknowledgement can use token KILL and leave the recorder unfinalized.
+D97 reports that movie as undelivered.
+
+Apple SSH exec probes for usable stock Perl once per connection. When available,
+a worker supervisor records the token before starting the payload in an owned
+group and writes an exit receipt after cleanup. It covers SSH commands,
+detached video, foreground device logs and remote rsync senders. A pull joins the local rsync cleanup and the
+worker's receipt. A successful pull still needs a successful local rsync exit.
+A nonzero bootstrap exit means the supervisor is unavailable. The worker warns
+once and keeps the existing command and transfer paths. Transport and malformed
+success responses fail that command. A later command can retry the probe.
+The probe is one shell line and has a 12 s bound.
+Each terminal token, including one that expires, keeps one compact receipt
+until the connection closes. The receipt can still answer a delayed proof
+request and fences reuse of the token. Closing the connection attempts to
+remove the private root within 4 s. Retirement waits for active worker operations
+and uses the data connection or an already connected control path. After an
+abrupt loss of both paths, the root can retain the supervisor and compact
+receipts. Lease expiry still kills the owned group.
+The worker wrapper reports a signalled payload as status 128 plus its signal
+number. A signal on the wrapper itself still uses SSH signal semantics.
+
+Foreground commands finish from the data channel's exit status. The wrapper
+emits a normal status only after it has written its cleanup proof. The first
+renewal is at the configured interval. The controller opens the independent
+connection only when it needs renewal or control. The dial and each request
+have a 4 s bound. Failed dials back off exponentially from 1 s to 60 s.
+Renewal through the data connection uses the normal interval.
+While it reconnects, it can renew over the device's command connection if a
+request on that connection reaches the worker and receives a valid response.
+That path needs an available session. A partition that cuts both paths ends
+renewals and the worker kills the group at lease expiry. D30 sends TERM before
+KILL on a started command. D93 quarantines a device whose worker cleanup
+remains unconfirmed. Stopping one token leaves the other tokens alone.
+
+The renewal interval is the SSH keep-alive interval, clamped to 1–60 s, or
+15 s if disabled. The lease is the larger of the interval times one more than
+the keep-alive count (clamped to 1–20) plus 4 s, and the interval plus 26 s.
+The 26 s budgets the previous reply, a wait on a shared dial, a failed request,
+a reconnect, a new request and a command-path request at 4 s each, plus 1 s
+of retry spacing for the first retry and 1 s of margin. The default lease remains 79 s.
+
 **Migration action:** Keep a command session open until any background work it intentionally started
 in the same process group has finished. Configure SSH to authenticate without an interactive
 terminal prompt, and redirect terminal output for tools that inherit it if `stty tostop` is set.
 Sending a cancellation signal to Marathon's process group still works for registered tools.
+`sshpass` is optional on controllers with OpenSSH 8.4 or newer.
+Workers can enable containment with stock `/usr/bin/perl` and its core modules.
+SSH command filters must allow supervised launches, including detached video,
+and token control requests. Without Perl, allow the legacy video launcher,
+pidfile commands and PID-based stop commands. OpenSSH rejects channel signals
+for forced commands and subsystems.
 
 ## D97 — Publish complete artifacts and reserve time for signal cleanup
 

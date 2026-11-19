@@ -13,8 +13,17 @@ defined($encoded) && $encoded =~ m{\A[A-Za-z0-9+/=]+\z} or die "invalid supervis
 defined(clock_gettime(CLOCK_MONOTONIC)) or die "monotonic clock unavailable";
 my $root = tempdir('marathon-supervisor-XXXXXXXXXX', DIR => '/tmp', CLEANUP => 0);
 my $path = "$root/supervisor.pl";
-sysopen my $script, $path, O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, 0600
-    or die "create supervisor: $!";
-print {$script} decode_base64($encoded) or die "write supervisor: $!";
-close $script or die "close supervisor: $!";
+my $installed = eval {
+    sysopen my $script, $path, O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, 0600
+        or die "create supervisor: $!";
+    print {$script} decode_base64($encoded) or die "write supervisor: $!";
+    close $script or die "close supervisor: $!";
+    1;
+};
+if (!$installed) {
+    my $error = $@;
+    unlink $path;
+    rmdir $root;
+    die $error;
+}
 print "MARATHON_D96_1 $root\n";

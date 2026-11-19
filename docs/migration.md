@@ -112,6 +112,8 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 | rely on an empty `/sdcard` ([D27](deviations.md#d27--prepare-no-longer-wipes-external-storage)) | Prepare no longer runs `rm -r $EXTERNAL_STORAGE`. Videos from an aborted run, or cut short by a lost connection in a run that still exits 0, stay on the device. | Clear what your tests need in the tests or in your device setup. |
 | set `socketIdleTimeout` ([D21](deviations.md#d21--socketidletimeout-means-what-it-says)) | It is now real milliseconds. It bounds only four requests: the adb server's version, a device's features, the property reads after boot and the removal of port forwards when a device is disposed. Kotlin read it as seconds, so `PT30S` lasted 30,000 s. | Remove it, or keep it at 30 s or more. `PT2S` now fails those requests on a slow adb server. |
 | start controller tools that fork background work ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)) | Local tools run in private groups. Cleanup ends registered groups, and a reaper covers controller death. ADB servers keep their independent lifetime. | Keep sessions open for background work that must finish. Use noninteractive SSH authentication and redirect inherited terminal output if `stty tostop` is set. [See below](#cancelling-a-run). |
+| use SSH passwords for Apple transfers ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)) | OpenSSH 8.4 or newer keeps the transfer and SSH client in the controller's process group. The controller warns once when it falls back to `sshpass`. | Older SSH clients still need `sshpass`. |
+| filter iOS video commands on the worker ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)) | A supervised recorder detaches and releases its SSH session after launch. Token control sends INT to finalize it and can escalate to TERM and KILL. `timeoutConfiguration.video` bounds the open. | Allow the supervisor bootstrap, detached launcher and token controls. Without Perl, allow the legacy `nohup` launcher, pidfile commands and PID-based stop. OpenSSH rejects channel signals for forced commands and subsystems. |
 | have a forced command or wrapper on an iOS or macOS worker ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails), [D32](deviations.md#d32--xcodebuild-on-a-worker-runs-unbuffered)) | xcodebuild is sent as `env NSUnbufferedIO=YES xcrun xcodebuild …`. Sends and pulls carry `--timeout=300` ([D43](deviations.md#d43--an-rsync-receive-has-a-limit-on-progress)). On a host with rsync 3 the worker's `rsync --server` gets it too, and so does a wrapper set with `RSYNC4J_RSYNC`. | Match `env NSUnbufferedIO=YES xcrun xcodebuild` at the start of `SSH_ORIGINAL_COMMAND`, keep `env` on the worker's `PATH`, and accept the new flag. |
 | run iOS 16 or 17 simulators on a slow host or link ([D38](deviations.md#d38--a-failed-readiness-probe-means-not-running)) | On runtimes 16 and 17 a readiness probe still returns about 20 MB, and a failed or timed-out probe now means "not running". It must arrive within `shell` (30 s by default). From runtime 18 on the probe is about 100 KB ([D46](deviations.md#d46--the-readiness-probe-is-launchctl-print-userforeground-from-runtime-18)). | Raise `shell` on 16 and 17. The time a simulator can then spend is in [D38](deviations.md#d38--a-failed-readiness-probe-means-not-running). |
 | have a forced command or filter on an iOS worker that allows the readiness probe ([D46](deviations.md#d46--the-readiness-probe-is-launchctl-print-userforeground-from-runtime-18)) | On iOS 18 and later the probe is `xcrun simctl spawn <udid> launchctl print user/foreground`, where it was `… launchctl dumpstate user/foreground/com.apple.SpringBoard`. Runtimes 16 and 17 still send `dumpstate`. | Allow the new command too. A filter that refuses it makes every probe fail, and the simulator leaves the run after its setups (D38). |
@@ -539,6 +541,28 @@ batch that rejected a test.
   [deviations guide](deviations.md#d39--a-tests-own-text-does-not-abort-its-batch) lists the known misses.
 
 ## Other Apple worker behaviour changes
+
+- **Supervised Apple SSH commands and rsync senders use a second SSH connection**
+  ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)).
+  Stock \`/usr/bin/perl\` with its core modules is optional and recommended.
+  Allow the bootstrap, token control and supervised requests in worker command
+  filters, including the supervisor retirement request. A dropped control
+  connection reconnects on a bounded retry. During
+  a control outage, a spare session on the command connection can carry renewals
+  and return cleanup proof.
+- **A partition expires Apple worker leases** ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)).
+  The default lease is 79 s. The lease reserves at least the renewal interval
+  plus 26 s for control recovery. One already issued renewal can extend the
+  last observed deadline once, so an already-running group can survive up to
+  two lease periods plus the worker poll interval, normally 50 ms. A queued
+  exec whose stop cannot reach the worker starts its lease when the worker
+  admits it. A frozen worker can act after it runs again. If both paths stay
+  down, the private supervisor directory and one small receipt per finished
+  token can remain under `/tmp`. Ordinary close attempts to remove the
+  directory while the worker is reachable.
+- **Stopping an iOS recorder before launch acknowledgement can leave an undelivered movie.**
+  Marathon sends token KILL when it cannot reach an acknowledged recorder session.
+  If its movie cannot be confirmed finalized, D97 reports it as undelivered.
 
 These fix bugs that Kotlin has, and need no configuration change.
 

@@ -300,6 +300,76 @@ async fn stock_perl_detaches_the_recorder_and_returns_its_own_exit_proof_d96() -
     Ok(())
 }
 
+#[tokio::test]
+async fn worker_expiry_compacts_its_receipt_and_retirement_waits_for_owned_groups_d96()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::{os::unix::fs::PermissionsExt, time::Duration};
+    if !Path::new("/usr/bin/perl").is_file() {
+        eprintln!("worker witness requires stock Perl");
+        return Ok(());
+    }
+    let root = tempfile::Builder::new()
+        .prefix("marathon-supervisor-")
+        .rand_bytes(10)
+        .tempdir_in("/tmp")?;
+    std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700))?;
+    let supervisor = root.path().join("supervisor.pl");
+    std::fs::write(
+        &supervisor,
+        include_bytes!("../src/cmd/remote/ssh/sshj/supervisor/worker.pl"),
+    )?;
+    let invoke = |mode: &str, args: &[&str]| {
+        let mut command = tokio::process::Command::new("/usr/bin/perl");
+        command
+            .arg(&supervisor)
+            .arg(mode)
+            .arg(root.path())
+            .arg("2200")
+            .args(args);
+        command.kill_on_drop(true);
+        command.output()
+    };
+    let live = "0123456789abcdef0123456789abcdef";
+    let sibling = "fedcba9876543210fedcba9876543210";
+    assert!(invoke("detach", &[live, "/bin/sleep", "30"]).await?.status.success());
+    assert_eq!(invoke("retire", &[]).await?.stdout, b"MARATHON_D96_1 busy\n");
+    assert!(root.path().join(format!("{live}.state")).is_file());
+
+    assert!(invoke("run", &[sibling, "/usr/bin/true"]).await?.status.success());
+    assert_eq!(
+        invoke("control", &[&format!("{sibling}:status")]).await?.stdout,
+        format!("{sibling} done:0\n").as_bytes()
+    );
+    tokio::time::timeout(Duration::from_secs(8), async {
+        loop {
+            if invoke("control", &[&format!("{live}:status")]).await?.stdout == format!("{live} done:137\n").as_bytes()
+            {
+                return Ok::<_, std::io::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(40)).await;
+        }
+    })
+    .await??;
+    let mut states = std::fs::read_dir(root.path())?
+        .map(|entry| entry.map(|entry| entry.file_name()))
+        .collect::<Result<Vec<_>, _>>()?;
+    states.sort();
+    assert_eq!(
+        states,
+        [
+            format!("{live}.receipt"),
+            format!("{sibling}.receipt"),
+            "supervisor.pl".to_owned()
+        ]
+        .map(std::ffi::OsString::from)
+    );
+    // The compact receipt still fences attempts to run the same token again.
+    assert_eq!(invoke("run", &[live, "/usr/bin/true"]).await?.status.code(), Some(125));
+    assert_eq!(invoke("retire", &[]).await?.stdout, b"MARATHON_D96_1 retired\n");
+    assert!(!root.path().exists());
+    Ok(())
+}
+
 #[test]
 fn the_worker_sender_uses_the_original_server_arguments_d96() -> Result<(), Box<dyn std::error::Error>> {
     if !Path::new("/usr/bin/perl").is_file() {
@@ -373,6 +443,11 @@ impl fake_worker::router::Handler for SupervisorWorker {
             match argv.as_slice() {
                 ["/usr/bin/perl", "-MMIME::Base64", "-e", _, "--", _, _] => {
                     Ok(Some(Action::output(&format!("MARATHON_D96_1 {root}\n"), 0)))
+                }
+                ["/usr/bin/perl", program, "retire", directory, _]
+                    if *directory == root && *program == format!("{root}/supervisor.pl") =>
+                {
+                    Ok(Some(Action::output("MARATHON_D96_1 retired\n", 0)))
                 }
                 ["/usr/bin/perl", program, "control", directory, _, control]
                     if *directory == root && *program == format!("{root}/supervisor.pl") =>
@@ -593,6 +668,17 @@ async fn short_worker_commands_finish_without_a_control_connection_d96() {
     assert_eq!(fake.events("connection").await.len(), 1);
     assert_eq!(fake.events("exec").await.len(), 5);
     executor.close().await.unwrap();
+    let commands = fake.events("exec").await;
+    assert_eq!(commands.len(), 6);
+    let retirement = STANDARD
+        .decode(commands[5]["detail"]["base64"].as_str().unwrap())
+        .unwrap();
+    assert!(
+        String::from_utf8(retirement)
+            .unwrap()
+            .contains("/supervisor.pl retire ")
+    );
+    assert_eq!(fake.events("connection").await.len(), 1);
     fake.worker.shutdown().await.unwrap();
 }
 
@@ -888,6 +974,11 @@ async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::err
                     elapsed.len()
                 );
             }
+        }
+        for (mode, commands) in [("plain", &plain), ("supervised", &executor)] {
+            let closing = std::time::Instant::now();
+            commands.close().await.map_err(|error| error.failure().to_string())?;
+            println!("{mode} close: {:.2} ms", closing.elapsed().as_secs_f64() * 1_000.0);
         }
         daemon.kill().await?;
         return Ok(());

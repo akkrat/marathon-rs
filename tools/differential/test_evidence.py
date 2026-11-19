@@ -969,12 +969,14 @@ class VendorEvidenceTests(unittest.TestCase):
         transfer = (3, 1)
         proof = (2, 1)
         sender_proof = (4, 1)
+        retirement = (1, 3)
         expected = {
             install: session(1, probe, f'MARATHON_D96_1 {root}\n'.encode()),
             run: session(2, ['exec'] + envelope('run', token) + ['/bin/sh', '-c', shlex.join(command)], b'payload\n'),
             transfer: session(3, envelope('rsync', sender) + [t.D96_RSYNC] + ['--server', '--sender', '-r', '.', '/source']),
             proof: session(4, envelope('control', token + ':3'), f'{token} done:0\n'.encode()),
             sender_proof: session(5, envelope('control', sender + ':3'), f'{sender} done:0\n'.encode()),
+            retirement: session(6, envelope('retire', '')[:-1], b'MARATHON_D96_1 retired\n'),
         }
         actual = {key: row.copy() for key, row in expected.items()}
         t.d96_worker_sessions(actual, defaultdict(list))
@@ -985,6 +987,10 @@ class VendorEvidenceTests(unittest.TestCase):
         for key, invalid in (
             (install, None),
             (sender_proof, None),
+            (retirement, dict(expected[retirement], seq=3)),
+            (retirement, dict(expected[retirement], stdout=b'unknown\n')),
+            (retirement, dict(expected[retirement], stdout=b'MARATHON_D96_1 busy\n')),
+            (retirement, dict(expected[retirement], wire=expected[retirement]['wire'].replace('79000', '80000'))),
             (proof, dict(expected[proof], stdout=f'{sender} done:0\n'.encode())),
             (proof, dict(expected[proof], stdout=f'{token} done:1\n'.encode())),
             (proof, dict(expected[proof], wire=expected[proof]['wire'].replace('79000', '80000'))),

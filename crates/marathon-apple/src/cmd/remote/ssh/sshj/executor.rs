@@ -514,6 +514,15 @@ impl CommandExecutor for SshCommandExecutor {
     }
     fn close(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
+            if let Some(supervisor) = self.supervisor.clone() {
+                let (completed, retired) = oneshot::channel();
+                self.runtime.spawn(Box::pin(async move {
+                    supervisor.retire().await;
+                    let _ = completed.send(());
+                    Ok(())
+                }));
+                let _ = retired.await;
+            }
             if let Err(error) = self.connection.close().await
                 && error.is_io()
             {
