@@ -555,7 +555,10 @@ batch that rejected a test.
 ## Other Apple worker behaviour changes
 
 - **A partition expires Apple worker leases** ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)).
-  The default lease is 79 s. The lease reserves at least the renewal interval
+  With or without SSH keep-alive, two consecutive 4 s windows without a control
+  reply cause a reconnect. That takes at least 8 s plus the 1 s retry delay after a
+  failed command-path fallback. A detached recorder's held INT is excluded from
+  this count. The default lease is 79 s. The lease reserves at least the renewal interval
   plus 26 s for control recovery. One already issued renewal can extend the
   last observed deadline once, so an already-running group can survive up to
   two lease periods plus the worker poll interval, normally 50 ms. A recorder

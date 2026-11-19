@@ -293,6 +293,7 @@ async fn stock_perl_detaches_the_recorder_and_returns_its_own_exit_proof_d96() -
         include_bytes!("../src/cmd/remote/ssh/sshj/supervisor/worker.pl"),
     )?;
     let marker = root.path().join("payload.pid");
+    let release = root.path().join("release");
     let token = "0123456789abcdef0123456789abcdef";
     let command = |mode: &str| {
         let mut command = tokio::process::Command::new("/usr/bin/perl");
@@ -302,16 +303,18 @@ async fn stock_perl_detaches_the_recorder_and_returns_its_own_exit_proof_d96() -
     };
     let start = Instant::now();
     let launcher = tokio::time::timeout(
-        Duration::from_secs(3),
+        Duration::from_secs(60),
         command("detach")
             .args([
                 token,
                 "/usr/bin/perl",
                 "-e",
-                r#"$SIG{INT} = sub { exit 0 }; open my $pid, '>', shift or die $!; print $pid "$$\n"; close $pid;
-while (1) { select undef, undef, undef, .01 }"#,
+                r#"my $interrupted; $SIG{INT} = sub { $interrupted = 1 };
+open my $pid, '>', shift or die $!; print $pid "$$\n"; close $pid; my $release = shift;
+while (!$interrupted || !-f $release) { select undef, undef, undef, .01 }"#,
             ])
             .arg(&marker)
+            .arg(&release)
             .output(),
     )
     .await??;
@@ -321,7 +324,7 @@ while (1) { select undef, undef, undef, .01 }"#,
         String::from_utf8_lossy(&launcher.stderr)
     );
     let detached = start.elapsed();
-    let pid = tokio::time::timeout(Duration::from_secs(3), async {
+    let pid = tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             if let Ok(text) = tokio::fs::read_to_string(&marker).await
                 && let Ok(pid) = text.trim().parse::<i32>()
@@ -343,12 +346,27 @@ while (1) { select undef, undef, undef, .01 }"#,
     stdin
         .write_all(format!("1 {token}:1\n2 {sibling}:status\n").as_bytes())
         .await?;
-    let answers = tokio::time::timeout(Duration::from_secs(3), async {
-        Ok::<_, std::io::Error>([replies.next_line().await?.unwrap(), replies.next_line().await?.unwrap()])
+    let sibling_reply = tokio::time::timeout(Duration::from_secs(60), replies.next_line()).await??;
+    stdin
+        .write_all(format!("3 {token}:1\n4 {sibling}:status\n").as_bytes())
+        .await?;
+    let superseded = tokio::time::timeout(Duration::from_secs(60), replies.next_line()).await??;
+    std::fs::write(&release, b"")?;
+    let receipt = tokio::time::timeout(Duration::from_secs(60), async {
+        while let Some(line) = replies.next_line().await? {
+            if line.starts_with("3 ") {
+                return Ok::<_, std::io::Error>(Some(line));
+            }
+        }
+        Ok(None)
     })
     .await??;
-    assert!(answers.contains(&format!("1 {token} done:0")));
-    assert!(answers.contains(&format!("2 {sibling} unknown")));
+    assert_eq!(sibling_reply, Some(format!("2 {sibling} unknown")));
+    assert_eq!(receipt, Some(format!("3 {token} done:0")));
+    assert!(
+        superseded.is_some_and(|line| line.starts_with(&format!("1 {token} running:"))),
+        "the retry must reply to the superseded INT while the recorder is still running"
+    );
 
     let foreground_token = "1234567890abcdef0123456789abcdef";
     let mut foreground = command("run")
@@ -365,16 +383,16 @@ while (1) { select undef, undef, undef, .01 }"#,
     let ready = tokio::time::timeout(Duration::from_secs(60), foreground_stdout.next_line()).await??;
     assert_eq!(ready.as_deref(), Some("ready"));
     stdin
-        .write_all(format!("3 {foreground_token}:1\n4 {sibling}:status\n").as_bytes())
+        .write_all(format!("5 {foreground_token}:1\n6 {sibling}:status\n").as_bytes())
         .await?;
     let first = tokio::time::timeout(Duration::from_secs(60), replies.next_line()).await??;
-    stdin.write_all(format!("5 {foreground_token}:2\n").as_bytes()).await?;
+    stdin.write_all(format!("7 {foreground_token}:2\n").as_bytes()).await?;
     assert!(
         tokio::time::timeout(Duration::from_secs(60), foreground.wait())
             .await??
             .success()
     );
-    assert!(first.is_some_and(|line| line.starts_with(&format!("3 {foreground_token} running:"))));
+    assert!(first.is_some_and(|line| line.starts_with(&format!("5 {foreground_token} running:"))));
 
     drop(stdin);
     assert!(control.wait().await?.success());

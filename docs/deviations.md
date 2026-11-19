@@ -3135,13 +3135,17 @@ The independent connection keeps a single control exec open and exchanges
 numbered requests over its stdin and stdout. The controller opens it on
 demand and starts it in the background for a detached recorder. Only a detached
 recorder's INT request can wait for the completed receipt on that same stream.
+If INT is retried while the recorder is running, the worker replies to the
+superseded request with the running state and holds the new request for the receipt.
 Other tokens proceed, and a higher-rank signal can preempt a pending request.
 Failed dials back off exponentially from 1 s to 60 s.
 At 4 s without a reply, the controller can use a short one-shot request
 on a reachable data connection. SSH keep-alive detects transport loss when
-enabled. With or without keep-alive, two consecutive request timeouts with
-no reply cause a reconnect. The second request must have started after the
-first timeout, and a late reply clears the timeout count. A token request
+enabled. With or without keep-alive, two consecutive unanswered 4 s request
+windows (`CONTROL_TIMEOUT`) cause a reconnect. The second request must start
+after the first timeout, so detection takes at least 8 s plus the 1 s retry
+delay after a failed data-path fallback. A late reply clears the timeout count.
+A held recorder INT does not count toward reconnect. A token request
 has up to 8 s in total, clipped to the remaining cleanup budget. An opening
 control stream that stays silent for 8 s also causes a reconnect. The worker
 watcher stops waiting for exit proof 32 s after cleanup begins even during a

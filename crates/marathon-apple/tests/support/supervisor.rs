@@ -159,7 +159,7 @@ impl Handler for Worker {
                     }
                     let group = self.groups.lock().unwrap().get(token).cloned();
                     let reply = if let Some(group) = group {
-                        if group.name == "recorder" && op == "1" {
+                        if group.name == "recorder" && op == "1" && matches!(*group.state.borrow(), State::Running(_)) {
                             return Ok(Some(ssh::hang(vec![])));
                         }
                         group.state.send_if_modified(|state| match *state {
@@ -548,34 +548,91 @@ async fn exit_proof_is_bounded_while_the_data_path_is_down_d96() {
     fake.worker.shutdown().await.unwrap();
 }
 
-#[tokio::test]
-async fn recorder_term_preempts_an_unanswered_int_d96() {
+async fn open_recorder(executor: Arc<SshCommandExecutor>) -> CommandSession {
     use marathon_apple::bin::{
         Tools,
         xcrun::simctl::{SimctlService, service::IoService},
     };
     use marathon_config::vendor::{AppleTimeoutParameters, Codec, Display, Mask, apple_timeout_configuration};
-    let worker = Worker::new();
-    let fake = ssh::fake_with_handlers(ssh::script(vec![]), 1, |_| {}, vec![worker]).await;
-    let executor = Arc::new(executor_with_keep_alive(fake.port(), 0).await);
     let (logging, _) = ssh::logging(false);
     let io = IoService::new(SimctlService::new(Tools {
-        executor: executor.clone(),
+        executor,
         timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
         runtime: Arc::new(super::support::Runtime),
         logging,
     }));
-    let recorder = io
-        .record_video(
-            "fixture",
-            "/tmp/marathon/video.mp4",
-            Codec::H264,
-            Display::Internal,
-            Mask::Black,
-            &context(),
-        )
+    io.record_video(
+        "fixture",
+        "/tmp/marathon/video.mp4",
+        Codec::H264,
+        Display::Internal,
+        Mask::Black,
+        &context(),
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn slow_recorder_int_retries_keep_the_same_control_connection_d96() {
+    let worker = Worker::new();
+    let fake = ssh::fake_with_handlers(ssh::script(vec![]), 1, |_| {}, vec![worker.clone()]).await;
+    let proxy = Proxy::start(fake.port()).await;
+    let executor = Arc::new(executor_with_keep_alive(proxy.port, 0).await);
+    let recorder = open_recorder(executor.clone()).await;
+    // The probe and detached launcher must release the only data session
+    // before the foreground command takes it.
+    super::support::watchdog(async {
+        while fake.events("exit_status").await.len() < 2 {
+            io_tick().await;
+        }
+    })
+    .await;
+    let busy = open(executor.as_ref(), "busy").await;
+    with_paused_time(async {
+        recorder.interrupt().unwrap();
+        let requests = async || {
+            fake.events("supervisor_request")
+                .await
+                .into_iter()
+                .filter(|row| super::matches_operation(row, ":1"))
+                .collect::<Vec<_>>()
+        };
+        // Keep finalization gated through the first two attempts and data-path
+        // rejections. The third attempt must still use the original stream.
+        advance_until(Duration::from_secs(13), async || {
+            proxy.count() > 2 || requests().await.len() >= 3
+        })
+        .await;
+        assert_eq!(proxy.count(), 2, "waiting for recorder finalization must not redial");
+        assert_eq!(fake.events("session_rejected").await.len(), 2);
+        let requests = requests().await;
+        assert!(
+            requests.iter().all(|row| {
+                row["connection"] == requests[0]["connection"] && row["channel"] == requests[0]["channel"]
+            })
+        );
+        worker.complete(&fake.worker.fs, "recorder").await;
+        advance_until(Duration::from_secs(6), async || recorder.base.exit_code.is_completed()).await;
+    })
+    .await;
+    let result = super::support::watchdog(recorder.await_result(&context()))
         .await
         .unwrap();
+    assert_eq!(result.exit_code, Some(0));
+    assert_eq!(proxy.count(), 2);
+    recorder.close().await.unwrap();
+    finish(&worker, &fake, "busy", busy).await;
+    executor.close().await.unwrap();
+    fake.worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn recorder_term_preempts_an_unanswered_int_d96() {
+    let worker = Worker::new();
+    let fake = ssh::fake_with_handlers(ssh::script(vec![]), 1, |_| {}, vec![worker]).await;
+    let executor = Arc::new(executor_with_keep_alive(fake.port(), 0).await);
+    let recorder = open_recorder(executor.clone()).await;
     with_paused_time(async {
         recorder.interrupt().unwrap();
         let requests = async || fake.events("supervisor_request").await;

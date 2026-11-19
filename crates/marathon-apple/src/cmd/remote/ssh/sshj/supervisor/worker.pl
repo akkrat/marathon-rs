@@ -126,6 +126,9 @@ sub control_stream {
             if ($recorder && $op eq '1' && $state =~ /\Arunning:/) {
                 # INT for a recorder can return its completed receipt on the
                 # same request without stalling other tokens on this stream.
+                if (my $previous = $waiting{$token}) {
+                    push @replies, "$previous $token $state\n";
+                }
                 $waiting{$token} = $id;
             } else {
                 push @replies, "$id $token $state\n";

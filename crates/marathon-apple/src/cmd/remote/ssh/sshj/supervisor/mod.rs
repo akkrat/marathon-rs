@@ -579,7 +579,13 @@ impl Peer {
         Ok((active, (*stream).clone()))
     }
 
-    async fn control_request(&self, token: &str, operation: &str, deadline: Instant) -> VendorResult<String> {
+    async fn control_request(
+        &self,
+        token: &str,
+        operation: &str,
+        deadline: Instant,
+        may_hold_reply: bool,
+    ) -> VendorResult<String> {
         let first_timeout = Instant::now() + CONTROL_TIMEOUT;
         let fallback = || async {
             let wire = format!(
@@ -612,7 +618,9 @@ impl Peer {
             Ok(Err(_)) if self.data.is_connected() && Instant::now() < deadline => return fallback().await,
             Ok(Err(error)) => return Err(error),
             Err(_) if Instant::now() >= deadline => return Err(stalled()),
-            Err(_) => request.timed_out(&connection),
+            Err(_) if !may_hold_reply => request.timed_out(&connection),
+            // A detached recorder holds INT until it can report an exit receipt.
+            Err(_) => {}
         }
         if !self.data.is_connected() {
             if !connection.is_connected() {
@@ -632,8 +640,8 @@ impl Peer {
         }
     }
 
-    async fn ask(&self, token: &str, operation: &str, deadline: Instant) -> VendorResult<Reply> {
-        let output = self.control_request(token, operation, deadline).await?;
+    async fn ask(&self, token: &str, operation: &str, deadline: Instant, may_hold_reply: bool) -> VendorResult<Reply> {
+        let output = self.control_request(token, operation, deadline, may_hold_reply).await?;
         let (reply, diagnostic) = Reply::parse(&output, token)
             .ok_or_else(|| protocol_error("Worker supervisor returned an invalid token receipt"))?;
         if let Some(stderr) = diagnostic {
@@ -907,6 +915,7 @@ impl Lease {
             };
             let request_end = now + REQUEST_TIMEOUT;
             let request_end = proof_deadline.map_or(request_end, |deadline| request_end.min(deadline));
+            let may_hold_reply = self.detached && operation == "1";
             let response = tokio::select! {
                 biased;
                 _ = self.stop_upgraded(wanted), if wanted < 3 => {
@@ -924,7 +933,7 @@ impl Lease {
                 _ = sleep_until(proof_deadline.unwrap_or(request_end)), if proof_deadline.is_some() => {
                     return Err(protocol_error("Worker exit proof did not arrive during cleanup"));
                 }
-                response = self.peer.ask(&self.token, &operation, request_end) => response,
+                response = self.peer.ask(&self.token, &operation, request_end, may_hold_reply) => response,
             };
             match response {
                 Ok(Reply::Proof(proof)) => return Ok(proof),
