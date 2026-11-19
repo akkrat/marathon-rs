@@ -69,13 +69,54 @@ struct State {
     window: u32,
 }
 
+/// D93 (round 10): the device's receipt for the command whose exec request was handed to the transport. It ends once the
+/// channel has closed (the peer's CLOSE, or the transport's end: nothing more reaches the worker over it) or the exec was
+/// refused (nothing started). Shared by the channel, its writer and its pump, so that a channel let go of before its close
+/// still ends it when the close comes; one whose close never comes stays live, and its device unconfirmed.
+#[derive(Default)]
+struct Handed {
+    receipt: Option<Arc<crate::cmd::TransferReceipt>>,
+    closed: bool,
+}
+type HandedSlot = Arc<Mutex<Handed>>;
+fn hold(slot: &HandedSlot, receipt: Arc<crate::cmd::TransferReceipt>) {
+    let mut handed = slot.lock().unwrap_or_else(|e| e.into_inner());
+    if handed.closed {
+        receipt.end(crate::cmd::TransferCleanup::Confirmed);
+    } else {
+        handed.receipt = Some(receipt);
+    }
+}
+fn end_handed(slot: &HandedSlot, closed: bool) {
+    let mut handed = slot.lock().unwrap_or_else(|e| e.into_inner());
+    handed.closed |= closed;
+    if let Some(receipt) = handed.receipt.take() {
+        receipt.end(crate::cmd::TransferCleanup::Confirmed);
+    }
+}
+
+/// Test support: what holds an exec request (by its command line) after its device has admitted it and before the
+/// transport writes it.
+#[cfg(feature = "test-support")]
+pub type OutboundPause = Arc<dyn Fn(&str) -> Option<Pin<Box<dyn Future<Output = ()> + Send>>> + Send + Sync>;
+#[cfg(feature = "test-support")]
+static OUTBOUND_PAUSE: Mutex<Option<OutboundPause>> = Mutex::new(None);
+/// Test support, D93 (round 10): holds the exec requests `pause` picks between their admission and the transport's write,
+/// as russh holds outbound requests during a key exchange. `None` removes it.
+#[cfg(feature = "test-support")]
+pub fn pause_outbound_exec(pause: Option<OutboundPause>) {
+    *OUTBOUND_PAUSE.lock().unwrap_or_else(|e| e.into_inner()) = pause;
+}
+
 /// Writes reach the wire in call order: TERM, CLOSE and window adjustments share one queue.
 enum Op {
-    /// D93 (round 9): the exec request, and the gate the writer looks at as it writes it; if the gate has closed the writer
-    /// sends CLOSE instead and says so through `withheld`.
+    /// D93 (rounds 9, 10): the exec request, the caller's context the writer looks at as it comes to write it, and the
+    /// device's admission, which registers the command with the device as the writer hands it to the transport; if
+    /// either refuses, the writer sends CLOSE instead and says so through `withheld`.
     Exec {
         command: String,
         gate: Option<Arc<dyn marathon_core::runtime::CancellationSignal>>,
+        admission: Option<Arc<crate::cmd::device_commands::CommandAdmission>>,
         withheld: tokio::sync::oneshot::Sender<marathon_core::error::Cancellation>,
     },
     Signal(Sig),
@@ -92,6 +133,7 @@ pub struct ExecChannel {
     shared: Arc<ConnectionShared>,
     clock: Arc<dyn VendorClock>,
     scope: Arc<SessionScope>,
+    handed: HandedSlot,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -116,15 +158,22 @@ impl ExecChannel {
             shared: connection.shared.clone(),
             clock: connection.clock.clone(),
             scope: connection.scope(),
+            handed: HandedSlot::default(),
         });
         let runtime: &Arc<dyn VendorRuntime> = &connection.runtime;
-        runtime.spawn(Box::pin(pump(Arc::downgrade(&this), read, connection.shared.clone())));
+        runtime.spawn(Box::pin(pump(
+            Arc::downgrade(&this),
+            read,
+            connection.shared.clone(),
+            this.handed.clone(),
+        )));
         runtime.spawn(Box::pin(writer(
             write,
             queue,
             connection.handle(),
             id,
             connection.shared.clone(),
+            this.handed.clone(),
         )));
         this
     }
@@ -186,15 +235,17 @@ impl ExecChannel {
     /// closes the channel the request was sent on, so that it does not hold a `MaxSessions` slot. U154 does the same for
     /// a request with no reply, with Kotlin's expiry still the error, and one line that names the command.
     pub async fn exec(&self, command: String) -> Result<(), SshFailure> {
-        self.exec_gated(command, None).await
+        self.exec_gated(command, None, None).await
     }
-    /// D93 (round 9): the exec request is written only if `gate` has not closed by the moment the writer comes to write it,
-    /// the last point before the command can start; otherwise the channel is closed instead, nothing is started, and
-    /// [`ExecChannel::exec_withheld`] says why.
+    /// D93 (rounds 9, 10): the exec request is written only if `gate` has not closed and `admission` admits it at the
+    /// moment the writer hands it to the transport; the admission registers it with its device in the same step, so a
+    /// request the transport sends later (russh holds outbound requests during a key exchange) is the device's live work.
+    /// Otherwise the channel is closed instead, nothing is started, and [`ExecChannel::exec_withheld`] says why.
     pub async fn exec_gated(
         &self,
         command: String,
         gate: Option<Arc<dyn marathon_core::runtime::CancellationSignal>>,
+        admission: Option<Arc<crate::cmd::device_commands::CommandAdmission>>,
     ) -> Result<(), SshFailure> {
         let promise = format!("chan#{} / chanreq for exec", self.number);
         self.update(|s| s.command = command.clone());
@@ -204,6 +255,7 @@ impl ExecChannel {
             .send(Op::Exec {
                 command,
                 gate,
+                admission,
                 withheld,
             })
             .is_err()
@@ -421,7 +473,11 @@ impl ExecChannel {
                 self.update(|s| s.exit_signal = Some(signal_text(&signal_name)))
             }
             ChannelMsg::Success => self.update(|s| s.exec_reply = s.exec_reply.or(Some(true))),
-            ChannelMsg::Failure => self.update(|s| s.exec_reply = s.exec_reply.or(Some(false))),
+            ChannelMsg::Failure => {
+                // D93 (round 10): a refused exec started nothing.
+                end_handed(&self.handed, false);
+                self.update(|s| s.exec_reply = s.exec_reply.or(Some(false)))
+            }
             ChannelMsg::Close => {
                 self.finish(Ok(()));
                 return false;
@@ -534,6 +590,7 @@ async fn pump(
     channel: std::sync::Weak<ExecChannel>,
     mut read: ChannelReadHalf,
     shared: Arc<ConnectionShared>,
+    handed: HandedSlot,
 ) -> marathon_core::error::VendorResult<()> {
     loop {
         let message = tokio::select! {
@@ -545,6 +602,7 @@ async fn pump(
         // or the transport ends, so that russh's queue never holds up the connection.
         let Some(target) = channel.upgrade() else {
             if matches!(message, None | Some(ChannelMsg::Close)) {
+                end_handed(&handed, true);
                 return Ok(());
             }
             continue;
@@ -552,11 +610,13 @@ async fn pump(
         match message {
             Some(message) => {
                 if !target.deliver(message) {
+                    end_handed(&handed, true);
                     return Ok(());
                 }
             }
             None => {
                 target.finish(Err(shared.channel_failure()));
+                end_handed(&handed, true);
                 return Ok(());
             }
         }
@@ -569,6 +629,7 @@ async fn writer(
     handle: HandleRef,
     id: ChannelId,
     shared: Arc<ConnectionShared>,
+    handed: HandedSlot,
 ) -> marathon_core::error::VendorResult<()> {
     while let Some(op) = queue.recv().await {
         if shared.is_dead() {
@@ -579,15 +640,35 @@ async fn writer(
             Op::Exec {
                 command,
                 gate,
+                admission,
                 withheld,
-            } => match gate.as_ref().and_then(|gate| gate.reason()) {
-                // D93 (round 9): the last look before the command can start.
-                Some(reason) => {
-                    let _ = withheld.send(reason);
-                    write.close().await
+            } => {
+                // D93 (rounds 9, 10): the last look before the command is handed to the transport, and its registration
+                // with the device in the same step as the device's gate is looked at.
+                let admitted = match gate.as_ref().and_then(|gate| gate.reason()) {
+                    Some(reason) => Err(reason),
+                    None => admission.map_or(Ok(None), |admission| admission.hand_over()),
+                };
+                match admitted {
+                    Err(reason) => {
+                        let _ = withheld.send(reason);
+                        write.close().await
+                    }
+                    Ok(receipt) => {
+                        if let Some(receipt) = receipt {
+                            hold(&handed, receipt);
+                        }
+                        #[cfg(feature = "test-support")]
+                        {
+                            let pause = OUTBOUND_PAUSE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                            if let Some(paused) = pause.and_then(|pause| pause(&command)) {
+                                paused.await;
+                            }
+                        }
+                        write.exec(true, command).await
+                    }
                 }
-                None => write.exec(true, command).await,
-            },
+            }
             Op::Signal(signal) => write.signal(signal).await,
             Op::Close => write.close().await,
             Op::Adjust(bytes) => handle.adjust_window(id, bytes).await,
@@ -736,6 +817,7 @@ mod tests {
             shared: ConnectionShared::new(PerformanceDefaultConfig::new(false, logging).loggers()),
             clock: Arc::new(NoClock),
             scope: Arc::new(SessionScope::default()),
+            handed: HandedSlot::default(),
         })
     }
 
@@ -879,6 +961,7 @@ mod tests {
             shared: shared.clone(),
             clock: Arc::new(NoClock),
             scope: Arc::new(SessionScope::default()),
+            handed: HandedSlot::default(),
         };
         let packet = vec![b'x'; MAX_PACKET_SIZE as usize];
         let fit = (MAX_BUFFER - 1) / packet.len();

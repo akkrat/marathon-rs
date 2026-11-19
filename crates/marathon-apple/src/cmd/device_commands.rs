@@ -133,6 +133,47 @@ tokio::task_local! {
     /// D93: work that passes a sealed device's gate: its own on-dispose lifecycle, and the batch it ran when it was
     /// sealed (its cleanup and result collection, which the seal's receipt waits for).
     static GATE_PASS: ();
+    /// D93 (round 10): the admission of the command the current task is executing through its device, read by the
+    /// executor in the caller's task and carried to where the command is handed to its transport.
+    static ADMISSION: Arc<CommandAdmission>;
+}
+/// D93 (round 10): the admission of the command being executed through a device by the current task, if any.
+pub(crate) fn admission() -> Option<Arc<CommandAdmission>> {
+    ADMISSION.try_with(Arc::clone).ok()
+}
+/// D93 (round 10): a command's admission to its device's transport, taken by the executor at the moment it hands the
+/// command over (the SSH channel's writer, as it writes the exec request; the local executor, just before the process
+/// starts). The gate's contract: nothing is handed to the transport after the seal (unless the task holds a pass), and
+/// everything handed before it is registered with the device in the same step, under the gate's lock, so that the
+/// device's verdict waits for it to end.
+pub struct CommandAdmission {
+    gate: Weak<DeviceCommands>,
+    /// The caller held a pass (the lifecycle, the registered batch) when it asked.
+    pass: bool,
+}
+impl CommandAdmission {
+    /// Admits the command, registering it with the device (the receipt the executor ends once the command has ended), or
+    /// refuses it with the gate's cancellation.
+    pub(crate) fn hand_over(&self) -> Result<Option<Arc<super::TransferReceipt>>, Cancellation> {
+        let Some(gate) = self.gate.upgrade() else {
+            return Ok(None);
+        };
+        let sealed = gate.sealed.lock().unwrap_or_else(|e| e.into_inner());
+        let cause = sealed.as_ref().map_or(SealCause::Disposal, |(cause, _)| *cause);
+        if let Some(why) = gate.revoked.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+            return Err(gate_cancellation(cause.refusal(why).failure().clone()));
+        }
+        if let Some((cause, why)) = sealed.as_ref()
+            && !self.pass
+        {
+            return Err(gate_cancellation(cause.refusal(why.clone()).failure().clone()));
+        }
+        let receipt = super::TransferReceipt::new();
+        let mut handed = gate.handed.lock().unwrap_or_else(|e| e.into_inner());
+        handed.retain(|r| r.ended() != Some(super::TransferCleanup::Confirmed));
+        handed.push(receipt.clone());
+        Ok(Some(receipt))
+    }
 }
 /// D93: runs `body` as the device's on-dispose lifecycle, whose commands pass the sealed gate (not a revoked one).
 pub async fn as_lifecycle<T>(body: impl Future<Output = T>) -> T {
@@ -157,6 +198,10 @@ pub struct DeviceCommands {
     sealed: Mutex<Option<(SealCause, Failure)>>,
     /// The provider's quarantine for the lease, and whether it has been applied.
     quarantine: Mutex<(Option<LeaseQuarantine>, bool)>,
+    /// D93 (round 10): the commands handed to the transport and not confirmed to have ended (`CommandAdmission`).
+    handed: Mutex<Vec<Arc<super::TransferReceipt>>>,
+    /// D93 (round 10): closed by the disposal as it takes its look at the device's pulls, whatever the seal's cause.
+    pulls_closed: Mutex<Option<Failure>>,
 }
 impl DeviceCommands {
     pub fn new(lease: super::super::device::connection_factory::Executor) -> Arc<Self> {
@@ -167,6 +212,8 @@ impl DeviceCommands {
             changed: tokio::sync::Notify::new(),
             sealed: Mutex::new(None),
             quarantine: Mutex::new((None, false)),
+            handed: Mutex::new(Vec::new()),
+            pulls_closed: Mutex::new(None),
         })
     }
     /// D93 (round 7): closes the gate, once: from now on a command of this device is refused as `cause` says, with `why`,
@@ -193,10 +240,13 @@ impl DeviceCommands {
             _ => None,
         }
     }
-    /// D93 (round 8): why a pull from this device is refused now, if it is: a quarantine, or a seal whose cause closes
-    /// pulls (a disposal outside a run's stop).
+    /// D93 (round 8): why a pull from this device is refused now, if it is: a quarantine, a seal whose cause closes
+    /// pulls (a disposal outside a run's stop), or (round 10) the disposal's look at its pulls.
     fn pull_refusal(&self) -> Option<Failure> {
         if let Some(why) = self.revoked.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+            return Some(why);
+        }
+        if let Some(why) = self.pulls_closed.lock().unwrap_or_else(|e| e.into_inner()).clone() {
             return Some(why);
         }
         self.sealed()
@@ -230,6 +280,66 @@ impl DeviceCommands {
                 .message
                 .as_deref()
                 .is_some_and(|message| message.starts_with(GATE_PREFIX))
+    }
+    /// D93 (round 10): the commands this device handed to its transport that are not confirmed to have ended: still
+    /// running, or ended without that being confirmed. The device's verdict waits for them.
+    pub fn handed_commands(&self) -> Vec<Arc<super::TransferReceipt>> {
+        self.handed
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter(|r| r.ended() != Some(super::TransferCleanup::Confirmed))
+            .cloned()
+            .collect()
+    }
+    /// D93 (round 10): closes the device's pulls with `why`, whatever its seal's cause: the disposal calls it under the
+    /// lock its pulls register under, in the same step as it takes its look at them, so that a pull is either in that
+    /// look or refused as it starts. Once; the first reason stays.
+    pub fn close_pulls(&self, why: Failure) {
+        self.pulls_closed
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_or_insert(why);
+        self.changed.notify_waiters();
+    }
+    /// D93 (round 10): whether every command this device handed to its transport has ended (confirmed or not).
+    pub fn handed_ended(&self) -> bool {
+        self.handed_commands().iter().all(|c| c.ended().is_some())
+    }
+    /// D93 (round 10): waits for the commands this device handed to its transport to end, looking again once they have (a
+    /// registered batch's command passes the sealed gate and counts too); `signal` ends the wait, not the commands.
+    pub async fn wait_handed(&self, signal: Arc<dyn CancellationSignal>) -> marathon_core::error::VendorResult<()> {
+        loop {
+            let live: Vec<_> = self
+                .handed_commands()
+                .into_iter()
+                .filter(|c| c.ended().is_none())
+                .collect();
+            if live.is_empty() {
+                return Ok(());
+            }
+            for command in live {
+                if let Err(VendorError::Cancelled(reason)) = command.wait_in(signal.clone()).await
+                    && command.ended().is_none()
+                {
+                    return Err(VendorError::Cancelled(reason));
+                }
+            }
+        }
+    }
+    /// D93 (round 10): what keeps the device's handed commands from being confirmed ended, for its verdict.
+    pub fn handed_left(&self) -> Vec<String> {
+        self.handed_commands()
+            .iter()
+            .filter_map(|c| match c.ended() {
+                None => Some("a command it handed to the worker has not ended".to_owned()),
+                Some(super::TransferCleanup::Unconfirmed(why)) => Some(format!(
+                    "a command's end was not confirmed ({})",
+                    why.message.as_deref().unwrap_or_default()
+                )),
+                Some(super::TransferCleanup::Confirmed) => None,
+            })
+            .collect()
     }
     /// The seal's cause and reason, once sealed.
     pub fn sealed(&self) -> Option<(SealCause, Failure)> {
@@ -317,9 +427,13 @@ impl CommandExecutor for DeviceCommands {
                 ..context
             }
         };
+        let admission = Arc::new(CommandAdmission {
+            gate: self.me.clone(),
+            pass: GATE_PASS.try_with(|_| ()).is_ok(),
+        });
         let executing = self.lease.execute(request, gated);
         Box::pin(async move {
-            match executing.await {
+            match ADMISSION.scope(admission, executing).await {
                 Err(VendorError::Cancelled(reason)) if self.is_gate_cancellation(&reason) => {
                     // Refused before the command was sent: it started nothing.
                     super::exec_outcome::record(true);
@@ -362,13 +476,17 @@ impl GateSignal {
         } else {
             gate.command_refusal()?.failure().clone()
         };
-        let mut reason = failure(
-            FailureKind::IllegalState,
-            format!("{GATE_PREFIX}: {}", why.message.as_deref().unwrap_or_default()),
-        );
-        reason.cause = Some(Box::new(why));
-        Some(Cancellation::Requested(reason))
+        Some(gate_cancellation(why))
     }
+}
+/// The cancellation a closed gate reports, with `why` as its cause ([`DeviceCommands::is_gate_cancellation`]).
+fn gate_cancellation(why: Failure) -> Cancellation {
+    let mut reason = failure(
+        FailureKind::IllegalState,
+        format!("{GATE_PREFIX}: {}", why.message.as_deref().unwrap_or_default()),
+    );
+    reason.cause = Some(Box::new(why));
+    Cancellation::Requested(reason)
 }
 impl CancellationSignal for GateSignal {
     fn reason(&self) -> Option<Cancellation> {

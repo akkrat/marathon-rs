@@ -184,6 +184,7 @@ async fn execute(
     context: VendorContext,
     capacity: usize,
     config: PerformanceDefaultConfig,
+    admission: Option<Arc<crate::cmd::device_commands::CommandAdmission>>,
 ) -> Result<CommandSession, ExecFailure> {
     if let Some(reason) = context.cancellation.reason() {
         return Err((VendorError::Cancelled(reason), true));
@@ -209,7 +210,10 @@ async fn execute(
         None,
     );
     // D93 (round 9): the writer looks at the context (the caller's, with its device's gate) once more as it writes the exec.
-    if let Err(error) = channel.exec_gated(command, Some(context.cancellation.clone())).await {
+    if let Err(error) = channel
+        .exec_gated(command, Some(context.cancellation.clone()), admission)
+        .await
+    {
         if let Some(reason) = channel.exec_withheld() {
             return Err((VendorError::Cancelled(reason), true));
         }
@@ -371,8 +375,10 @@ impl CommandExecutor for SshCommandExecutor {
             // the caller takes it (an abandoned execute closes it there).
             let (tx, rx) = oneshot::channel();
             let (accepted, acceptance) = oneshot::channel::<()>();
+            // D93 (round 10): read in the caller's task, where its device set it.
+            let admission = crate::cmd::device_commands::admission();
             runtime.spawn(Box::pin(async move {
-                match execute(connection, request, context, capacity, config).await {
+                match execute(connection, request, context, capacity, config, admission).await {
                     Ok(session) => {
                         let pending = Arc::new(Mutex::new(Some(session)));
                         if tx.send(Ok(pending.clone())).is_ok() {

@@ -655,6 +655,8 @@ impl MacosDevice {
                 Some(true) => {}
             }
         }
+        // D93 (round 10): every command it handed to the worker before the seal (or its batch's after it).
+        left.extend(self.device_commands.handed_left());
         if !in_time {
             if left.is_empty() {
                 left.push("its work was not seen to end before its window ended".to_owned());
@@ -681,6 +683,7 @@ impl MacosDevice {
                 && shutdown.preparation.as_ref().is_none_or(|p| p.completed().is_some())
                 && shutdown.transfers.iter().all(|t| t.ended().is_some())
                 && device.receipt_sessions(shutdown).iter().all(|s| s.ended().is_some())
+                && device.device_commands.handed_ended()
         };
         if ended(self) {
             // A look after the deadline counts for nothing.
@@ -720,7 +723,7 @@ impl MacosDevice {
                                 _ = session.wait_ended() => {}
                             }
                         }
-                        Ok(())
+                        self.device_commands.wait_handed(signal).await
                     })
                 }),
             )
@@ -862,8 +865,14 @@ impl MacosDevice {
                     // D93 (round 9): a pull still running keeps the lease from being released beside it, as unconfirmed
                     // work does; one left after a run's stop or the termination is stopped (D91's bound).
                     let verdict = device.finish_work().await;
+                    // D93 (round 10): the look at its pulls closes them, under the lock they register under: a pull asked
+                    // for after it is refused as it starts (an undelivered artifact), whatever the seal's cause.
                     let (pulls, cause) = {
                         let execution = device.execution.lock().unwrap_or_else(|e| e.into_inner());
+                        device.device_commands.close_pulls(failure(
+                            FailureKind::IllegalState,
+                            format!("Device {} is being disposed", device.serial),
+                        ));
                         let cause = execution.shutdown.as_ref().map_or(SealCause::Disposal, |s| s.cause);
                         (execution.pulls.clone(), cause)
                     };

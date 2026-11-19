@@ -118,18 +118,38 @@ fn program_with_parent_path(
     Err(io_error(std::io::Error::from(std::io::ErrorKind::NotFound)))
 }
 
+/// D93 (round 10): the device's receipt for a process this executor started, ended once the process has been reaped
+/// (or confirmed never started); one let go of before that is unconfirmed.
+struct HandedProcess(Option<Arc<crate::cmd::TransferReceipt>>);
+impl HandedProcess {
+    fn end(&mut self, cleanup: crate::cmd::TransferCleanup) {
+        if let Some(receipt) = self.0.take() {
+            receipt.end(cleanup);
+        }
+    }
+}
+impl Drop for HandedProcess {
+    fn drop(&mut self) {
+        self.end(crate::cmd::TransferCleanup::Unconfirmed(failure(
+            FailureKind::IllegalState,
+            "The process was let go of before it was reaped",
+        )));
+    }
+}
+
 async fn execute(
     runtime: Arc<dyn VendorRuntime>,
     request: CommandRequest,
     context: VendorContext,
     destroy_forcibly: bool,
     capacity: usize,
+    admission: Option<Arc<crate::cmd::device_commands::CommandAdmission>>,
 ) -> VendorResult<CommandSession> {
     if let Some(reason) = context.cancellation.reason() {
         return Err(VendorError::Cancelled(reason));
     }
     let last_look = context.cancellation.clone();
-    let mut child = blocking(runtime.as_ref(), move || {
+    let (mut child, mut handed) = blocking(runtime.as_ref(), move || {
         let command = request.command.iter().map(|arg| strip_quotes(arg)).collect::<Vec<_>>();
         let (program, args) = command
             .split_first()
@@ -144,12 +164,24 @@ async fn execute(
         if let Some(path) = &request.workdir {
             builder.current_dir(path);
         }
-        // D93 (rounds 8, 9): the last look before the process starts, after it is built: the caller (or its device's
-        // command gate, which the context carries) may have stopped meanwhile.
+        // D93 (rounds 8, 9, 10): the last look before the process starts, after it is built: the caller (or its device's
+        // command gate, which the context carries) may have stopped meanwhile. The device's admission registers the
+        // process with the device in the same step as it looks at the gate.
         if let Some(reason) = last_look.reason() {
             return Err(VendorError::Cancelled(reason));
         }
-        builder.spawn().map_err(io_error)
+        let mut handed = HandedProcess(match admission.map(|admission| admission.hand_over()) {
+            Some(Err(reason)) => return Err(VendorError::Cancelled(reason)),
+            Some(Ok(receipt)) => receipt,
+            None => None,
+        });
+        match builder.spawn() {
+            Ok(child) => Ok((child, handed)),
+            Err(error) => {
+                handed.end(crate::cmd::TransferCleanup::Confirmed);
+                Err(io_error(error))
+            }
+        }
     })
     .await?;
     let stdout = child
@@ -196,6 +228,10 @@ async fn execute(
             }
         };
         alive_monitor.store(false, Ordering::SeqCst);
+        if result.is_ok() {
+            handed.end(crate::cmd::TransferCleanup::Confirmed);
+        }
+        drop(handed);
         match result {
             Ok((code, termination)) => {
                 actual.complete_observed(Ok(code), Some(termination));
@@ -341,8 +377,10 @@ impl CommandExecutor for KotlinProcessCommandExecutor {
             // This bridge never polls process/pipe plumbing on the core executor.
             let (tx, rx) = oneshot::channel();
             let (accepted, acceptance) = oneshot::channel();
+            // D93 (round 10): read in the caller's task, where its device set it.
+            let admission = crate::cmd::device_commands::admission();
             runtime.spawn(Box::pin(async move {
-                match execute(worker, request, context, force, capacity).await {
+                match execute(worker, request, context, force, capacity, admission).await {
                     Ok(session) => {
                         // Retain ownership until the caller takes the session, including
                         // cancellation after send succeeds but before receive is polled.

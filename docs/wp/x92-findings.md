@@ -474,3 +474,70 @@ slot copied in), each for the reason in the table. Stress, each alone: the four 
 each and 20/20 each with 12 busy processes. `cargo fmt --check`; `cargo clippy` of core, apple, ios, macos, android, cli
 and test-support with `-D warnings`; `cargo test --no-fail-fast` of those crates: 2,485 passed, 0 failed, 34 ignored.
 Not run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test --workspace`.
+
+## Review round 10 (Sol 6.2 high at 8fc45806: pull admission on removal and the local command closed; two P2s)
+
+### The gate's contract (round 10)
+
+The seal cannot be made atomic with the network: russh queues an exec request the writer has given it, and holds
+outbound requests during a key exchange, so a request given to it before the seal can reach the worker after it. The
+contract is therefore stated at the hand-over, not at the wire:
+
+- **Nothing is handed to the transport after the seal** (unless the task holds a pass: the lifecycle, the registered
+  batch). The hand-over is the executor's last step: over SSH, the channel's writer giving the exec request to russh;
+  locally, `spawn()`.
+- **Everything handed over before the seal is the device's live work.** The hand-over takes the device's
+  `CommandAdmission`, which looks at the gate and registers the command (a receipt in `DeviceCommands::handed`) in one
+  step under the gate's lock, the lock the seal takes. The verdict waits for every handed command to end, re-reading the
+  list (a registered batch's command handed after the seal counts too); a command not ended by the window's end, or
+  ended without confirmation, makes the verdict unconfirmed (no lifecycle, no lease release, quarantine).
+- **Ended** means: over SSH, the channel closed (the peer's CLOSE, also for a channel let go of before it, since the
+  pump keeps draining it) or the exec refused (nothing started); locally, the process reaped, or its spawn failed. A
+  channel let go of with no CLOSE ever coming stays live. A local process let go of before it is reaped is
+  unconfirmed. A lost connection ends its channels: nothing more reaches the worker over it, and D44 recovers its
+  simulators as before (counting a loss as unconfirmed would have kept every simulator with a command in flight out of
+  the run after a connection loss).
+
+### Every command and transfer entry point of an Apple device, and where its gate is checked (after round 10)
+
+Rows changed in round 10 are marked **(r10)**; the others are as in round 9.
+
+| Entry point | Path | Where the seal is enforced |
+|---|---|---|
+| Command over SSH | `DeviceCommands::execute` (sets the task's `CommandAdmission`) → `SshCommandExecutor::execute` (reads it in the caller's task) → `start_session` → `exec_gated` → the channel's writer | (1) `DeviceCommands::execute` refuses at once if sealed; (2) the executor rechecks the gate-carrying context after the channel is accepted; **(r10)** (3) the writer looks at the context and then takes the admission: refused → CLOSE instead of the exec (started nothing); admitted → the command is registered with the device in the same step, and its receipt is held by the channel (ended when it closes or the exec is refused) before the exec request is given to russh. |
+| Command run locally | `DeviceCommands::execute` → `KotlinProcessCommandExecutor::execute` | (1) as above; **(r10)** (2) immediately before `spawn()`, the context and then the admission: refused → nothing spawned; admitted → registered, the receipt ended when the reaper reaps the process (or the spawn fails). |
+| xcodebuild session | as in round 8 | as in round 8; its command is also a handed command (r10). |
+| Send | as in round 8 | as in round 8. |
+| Pull (`pull_file`, `pull_folder`; artifact jobs) | `receive_stop` registers a receipt under the seal's lock → bridge | Admission by the pull gate as in round 9, which **(r10)** the disposal's look at the device's pulls also closes (`DeviceCommands::close_pulls`, called under the lock pulls register under, whatever the seal's cause): a pull is either in the look or refused as it starts (WARN, `false`). The look: one still running, or unconfirmed, makes the verdict unconfirmed; after `RunStop`/`Termination` it is also stopped (D91's 40 s). |
+| On-dispose lifecycle | `run_on_dispose` | Runs only if the verdict (which now includes every handed command) is confirmed and no pull is left; its commands pass the gate (`as_lifecycle`) and are registered as handed too, after the verdict. |
+| Mac lease release | `release_after_disposal` | As in round 9, with the same verdict. |
+| Batch work, preparation, setup, recovery, termination | as in round 8 | as in round 8. |
+
+### Round 10 changes and witnesses
+
+| Item | Change | Witness (fails on 8fc45806) |
+|---|---|---|
+| 1 (a queued exec) | `CommandAdmission` (task-local from `DeviceCommands::execute`, read by the executor in the caller's task); `DeviceCommands::handed`, `handed_commands`, `wait_handed`, `handed_left`; the SSH channel's `Handed` slot shared by the channel, writer and pump; the local executor's `HandedProcess`; the iOS and Mac verdicts wait for and report handed commands. Test support: `channel::pause_outbound_exec`, a hold between the admission and russh's write. | `simulator_world.rs::a_command_the_transport_sends_after_the_seal_is_live_work_of_its_simulator_d93`: a simulator over the real SSH executor and the fake worker; its command is admitted and held by the pause (as during a key exchange), the run's stop seals it, the pause ends and the worker runs the command after the seal; the 3 s window ends with the command running: WARN naming it, no `simctl shutdown`. On the base (given the same pause, after its gate look) the lifecycle ran beside the command. |
+| 2 (a late pull) | `DeviceCommands::close_pulls`, called by the iOS and Mac disposal as it takes its look at the pulls, under the lock they register under. | `simulator_provider.rs::a_pull_asked_for_after_the_disposals_look_at_the_pulls_is_refused_d93`: an artifact job stalled before it asks for its pull, past the drain; it resumes during the on-dispose `simctl shutdown`, which waits for its outcome: refused as it starts, `Ok(false)`, a WARN, nothing started. On the base the pull started beside the lifecycle. |
+
+**Choices (for the reviewer):**
+
+- **The base check for item 1 needed the pause.** 8fc45806 has no hold point between its gate look and russh, so the
+  revert check adds only the `pause_outbound_exec` hook (at the same point, after the writer's gate look) to the scratch
+  worktree; nothing else of round 10.
+- **A lost connection ends its commands** (above). The alternative breaks D44 for every simulator with a command in
+  flight when its worker drops; the process left running is the worker's, as before.
+- **A pull registered before the look but not yet started is refused too** (the look closes admission; it has not
+  passed it). One that has started finishes, as the ported Kotlin artifact test requires.
+- **Known limit (non-blocking, for x94):** rsync's no-progress watchdog (300 s) bounds a stalled pull, not one that
+  keeps moving; a progressing pull has no total duration bound. At disposal such a pull is stopped after a run's stop or
+  the termination (D91's 40 s), but under an ordinary removal it runs on and keeps the simulator quarantined.
+
+**Round 10 verification.** Each round-10 witness fails on 8fc45806 (scratch worktree, new tests copied in; for item 1
+only the pause hook added, as above), each for the reason in the table. Stress, each alone: the two witnesses, round 9's
+writer and drain witnesses, the ported `real_device_dispose_leaves_active_artifact_work_alive_and_rejects_subsequent_batches`
+and round 8's SSH witness, 50/50 each and 20/20 each with 12 busy processes. `cargo fmt --check`; `cargo clippy` of core,
+apple, ios, macos, android, cli and test-support with `-D warnings`; `cargo test --no-fail-fast` of those crates: 2,488
+passed, 0 failed, 34 ignored (17 differential and parse tests first failed for a YAML helper missing from `target/`,
+`cargo build -p snakeyaml --example yaml_tree`; core and cli were then run again in full: 1,016 passed, 0 failed). Not
+run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test --workspace`.

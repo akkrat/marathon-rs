@@ -2775,13 +2775,19 @@ known limit).
   once what the device registered before it (its batch, preparations, sends, and sessions that have not begun to open):
   every command the device would send after it is refused as it executes, whoever asked for it, so nothing that was
   registered before the seal starts after it. Only the device's on-dispose lifecycle and the work of the batch it ran
-  when sealed (its cleanup and results, which the window waits for) pass; a session's start never does. The gate is
-  looked at again at the last moment before a command is sent: over SSH after its channel is accepted, and once more by
-  the channel's writer as it writes the exec request (the channel is closed instead), locally just before the process
-  starts. A device's pulls (xcresults, logs, videos from the artifact queue) are refused as they start (rsync's admission,
-  or a local copy on its own thread just before it copies) once a disposal outside a run's stop or a quarantine has
-  closed them, and are then undelivered artifacts, with a WARN; a pull under way finishes, and a run's stop leaves pulls
-  open for its artifact drain, but a pull still running at its device's disposal counts as unfinished work (below).
+  when sealed (its cleanup and results, which the window waits for) pass; a session's start never does. **The gate's
+  contract:** nothing is handed to the transport after the seal, and everything handed to it before the seal is the
+  device's live work. A command is handed over by its executor's last step (over SSH, the channel's writer giving the
+  exec request to the SSH library, after the channel is accepted; locally, just before the process starts); there the
+  gate is looked at and, in the same step under the gate's lock, the command is registered with the device. The network
+  cannot be made atomic with the seal: the SSH library may send a request it holds during a key exchange after the seal.
+  So a command handed over before the seal is waited for by the window until it has ended (its channel closed, or its
+  process reaped); one that has not is unconfirmed. A device's pulls (xcresults, logs, videos from the artifact queue)
+  are refused as they start (rsync's admission, or a local copy on its own thread just before it copies) once a disposal
+  outside a run's stop or a quarantine has closed them, and are then undelivered artifacts, with a WARN; a pull under
+  way finishes, and a run's stop leaves pulls open for its artifact drain. The disposal's look at the device's pulls
+  closes them too, in the same step and under the lock pulls register under, whatever the seal's cause: a pull is either
+  in that look or refused as it starts. A pull in the look that still runs counts as unfinished work (below).
   An open xcodebuild session that the window's reserve stops gives its reader the seal's refusal, not a cancellation.
   The seal records its cause, and that alone decides what a refusal is: after the run's stop (the Scheduler's, a failure,
   the owner's cancel, a signal) or the provider's termination at the run's end, a cancellation, orderly, with no retry;
@@ -2812,7 +2818,9 @@ known limit).
   xcodebuild without acknowledging it). A failure known to have started nothing does not count against it: over SSH, a
   channel the worker refused or never opened, or an exec request it refused, before which no command reached a shell
   (a transient `MaxSessions` refusal then leaves the simulator confirmed, its lifecycle run and its lease released, and
-  D44 sets it up again as before). A pull registers with its device as a send does, and one still running when the device
+  D44 sets it up again as before). Every command the device handed to the transport counts the same way: one not yet
+  ended, or ended without that being confirmed (a channel let go of before its close, a process not reaped), keeps the
+  verdict unconfirmed; a refused exec started nothing. A pull registers with its device as a send does, and one still running when the device
   is disposed of makes the verdict unconfirmed. After the run's stop or the provider's termination (on iOS, once the
   artifact drain is over or has given up on it) the disposal also stops it, and it ends on D91's path for a stopped
   transfer, within 40 s: killed and reaped, or unconfirmed. A disposal outside them leaves it to finish.
@@ -2860,7 +2868,10 @@ still open when a lost simulator is disposed of is now in its receipt: the dispo
 cannot confirm its end, quarantines the simulator within its window; D44's recovery reads that verdict and no longer
 waits another 70 s for the session before it sets up the worker's other simulators. A simulator removed while one of its
 artifact pulls is under way is now quarantined (no lifecycle, its lease kept) while the pull finishes, where its
-lifecycle ran beside the pull.
+lifecycle ran beside the pull. A command whose connection is lost counts as ended: nothing more reaches the worker over
+that connection, and D44 recovers its simulators as before; a process the lost connection left running is the
+worker's. rsync's watchdog stops a pull that has made no progress for 300 s; a pull that keeps moving has no total
+limit (WP x94 may cap it), and keeps its device quarantined at the disposal while it runs.
 
 Evidence, each failing on 3d945010 where it can be built there:
 `crates/marathon-ios/tests/simulator_dispose.rs::one_window_from_the_runs_stop_and_lifecycle_only_after_confirmed_termination_d93`
@@ -2910,6 +2921,8 @@ and `a_sealed_mac_opens_no_session_d93`. Round 6, failing on d20ecdcc:
 `simulator_dispose.rs::a_local_pull_that_waits_for_a_thread_across_a_removal_copies_nothing_d93` and
 `an_rsync_pull_refused_by_its_admission_after_a_removal_is_undelivered_d93`, and
 `crates/marathon-ios/tests/simulator_provider.rs::a_pull_left_running_by_the_artifact_drain_keeps_its_simulator_from_the_lifecycle_d93`.
+Round 10, failing on 8fc45806 (the base given the test's outbound pause): `simulator_world.rs::a_command_the_transport_sends_after_the_seal_is_live_work_of_its_simulator_d93`
+and `simulator_provider.rs::a_pull_asked_for_after_the_disposals_look_at_the_pulls_is_refused_d93`.
 Amends D74 and D84.
 
 Approved 2026-11-18 (project owner's decision). See

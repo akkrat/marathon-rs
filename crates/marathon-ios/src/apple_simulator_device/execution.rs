@@ -484,6 +484,8 @@ impl AppleSimulatorDevice {
                 Some(true) => {}
             }
         }
+        // D93 (round 10): every command it handed to the worker before the seal (or its batch's after it).
+        left.extend(self.commands.handed_left());
         if !in_time {
             if left.is_empty() {
                 left.push("its work was not seen to end before its window ended".to_owned());
@@ -536,6 +538,7 @@ impl AppleSimulatorDevice {
                 && receipt.preparations.iter().all(|p| p.done.completed().is_some())
                 && receipt.transfers.iter().all(|t| t.ended().is_some())
                 && receipt.sessions.iter().all(|s| s.ended().is_some())
+                && self.commands.handed_ended()
         };
         if ended() {
             // A look after the deadline counts for nothing.
@@ -552,6 +555,7 @@ impl AppleSimulatorDevice {
             .collect();
         let sends = receipt.transfers.clone();
         let sessions = receipt.sessions.clone();
+        let commands = self.commands.clone();
         // Joining observes completion, not the jobs' results; the timeout only bounds this wait.
         let finished = self
             .services
@@ -583,7 +587,7 @@ impl AppleSimulatorDevice {
                                 _ = session.wait_ended() => {}
                             }
                         }
-                        Ok(())
+                        commands.wait_handed(signal).await
                     })
                 }),
             )
@@ -848,7 +852,16 @@ impl AppleSimulatorDevice {
                         // D93 (round 9): a pull still running keeps the lifecycle from running beside it, as unconfirmed work
                         // does; one left after the artifact drain is stopped (D91's bound).
                         let verdict = device.finish_work().await;
-                        let pulls = device.state().pulls.clone();
+                        // D93 (round 10): the look at its pulls closes them, under the lock they register under: a pull
+                        // asked for after it is refused as it starts (an undelivered artifact), whatever the seal's cause.
+                        let pulls = {
+                            let state = device.state();
+                            device.commands.close_pulls(failure(
+                                FailureKind::IllegalState,
+                                format!("Device {} is being disposed", device.serial),
+                            ));
+                            state.pulls.clone()
+                        };
                         let pulls_left = marathon_apple::cmd::device_commands::settle_pulls(
                             &pulls,
                             &device.serial,

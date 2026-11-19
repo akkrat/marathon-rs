@@ -239,6 +239,124 @@ async fn a_pull_left_running_by_the_artifact_drain_keeps_its_simulator_from_the_
     );
     Ok(())
 }
+/// A pull that starts unless its stop refuses it at once (its device's pull admission), counting those that started.
+#[derive(Default)]
+struct CountsStartedPulls {
+    started: Arc<AtomicUsize>,
+}
+impl marathon_apple::cmd::FileBridge for CountsStartedPulls {
+    fn send<'a>(&'a self, _: &'a std::path::Path, _: &'a str) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        Box::pin(async { Ok(true) })
+    }
+    fn receive<'a>(&'a self, _: &'a str, _: &'a std::path::Path) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        self.started.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async { Ok(true) })
+    }
+    fn receive_with<'a>(
+        &'a self,
+        src: &'a str,
+        dst: &'a std::path::Path,
+        mut stop: marathon_apple::cmd::TransferStop,
+    ) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        match stop.now() {
+            Some(stopped) => Box::pin(async move { Err(stopped.into_error()) }),
+            None => self.receive(src, dst),
+        }
+    }
+}
+
+/// D93 (round 10, finding 2): an artifact job stalls before it asks for its pull (as one does creating its output folder
+/// on a filesystem that no longer answers), past the provider's artifact drain at the run's end. The simulator's
+/// disposal takes its look at the simulator's pulls (none) and runs its on-dispose lifecycle; the job resumes during that
+/// lifecycle (`simctl shutdown`) and asks for its pull. The look closed the simulator's pulls, whatever the seal's cause:
+/// the pull is refused as it starts, an undelivered artifact with a WARN, and nothing is pulled beside the lifecycle or
+/// the release of the lease. Before, the termination's seal left pulls open and the pull started then.
+#[tokio::test(start_paused = true)]
+async fn a_pull_asked_for_after_the_disposals_look_at_the_pulls_is_refused_d93() -> TestResult {
+    let p = ProviderHarness::new(|v| {
+        v.lifecycle_configuration.on_dispose = vec![marathon_config::vendor::LifecycleAction::Shutdown];
+    })?;
+    p.h.services
+        .logging
+        .registry
+        .lock()
+        .unwrap()
+        .set_level("marathon_ios::apple_simulator_device", marathon_logging::Level::WARN);
+    let bridge = Arc::new(CountsStartedPulls::default());
+    *p.connections.bridge.lock().unwrap() = Some(bridge.clone());
+    p.update(&["a"]).await.map_err(test_error)?;
+    let device = p.connected(1).await.remove(0);
+    let (stalled, resume, pulled) = (SharedDeferred::new(), SharedDeferred::new(), SharedDeferred::new());
+    {
+        let (stalled, resume, pulled) = (stalled.clone(), resume.clone(), pulled.clone());
+        let (device, context) = (device.clone(), p.h.services.context.clone());
+        p.h.services
+            .artifacts
+            .submit(
+                "a@local".into(),
+                "bundle".into(),
+                "local".into(),
+                None,
+                Arc::new(move |_| {
+                    let (stalled, resume, pulled) = (stalled.clone(), resume.clone(), pulled.clone());
+                    let (device, context) = (device.clone(), context.clone());
+                    // The stall is not the job's to cancel: it goes on after the drain has given the job up.
+                    let job = tokio::spawn(async move {
+                        stalled.complete(Ok(()));
+                        let _ = resume.wait().await;
+                        let outcome = device
+                            .pull_folder("/tmp/marathon/a.xcresult", &std::env::temp_dir(), &context)
+                            .await;
+                        pulled.complete(Ok(outcome));
+                    });
+                    Box::pin(async move {
+                        let _ = job.await;
+                        Ok(())
+                    })
+                }),
+                p.h.services.context.clone(),
+            )
+            .await
+            .map_err(test_error)?;
+    }
+    stalled.wait().await.map_err(test_error)?;
+    // The job resumes as the lifecycle shuts the simulator down, which waits for its pull's outcome.
+    let boot = p.h.boot.clone();
+    {
+        let (resume, pulled) = (resume.clone(), pulled.clone());
+        *p.h.worker.before.lock().unwrap() = Arc::new(move |c| {
+            let lifecycle = c == ["xcrun", "simctl", "shutdown", "a"];
+            let answer = boot.answer(&c);
+            let (resume, pulled) = (resume.clone(), pulled.clone());
+            Box::pin(async move {
+                if lifecycle {
+                    resume.complete(Ok(()));
+                    let _ = pulled.wait().await;
+                }
+                Ok(answer)
+            })
+        });
+    }
+    p.h.boot.state.store(3, Ordering::SeqCst);
+    p.provider.terminate().await.map_err(test_error)?;
+    assert_eq!(count(&p.h.worker, &["xcrun", "simctl", "shutdown", "a"]), 1);
+    let outcome = pulled.wait().await.map_err(test_error)?;
+    assert_eq!(
+        bridge.started.load(Ordering::SeqCst),
+        0,
+        "the pull started beside the lifecycle"
+    );
+    assert!(matches!(*outcome, Ok(false)), "{outcome:?}");
+    assert!(
+        p.h.logs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.1 == marathon_logging::Level::WARN && r.2.starts_with("Not receiving ")),
+        "no WARN for the refused pull"
+    );
+    Ok(())
+}
 #[tokio::test(start_paused = true)]
 async fn a_worker_planning_failure_releases_its_connection_and_does_not_cancel_healthy_workers() -> TestResult {
     let p = ProviderHarness::new(|_| {})?;

@@ -276,6 +276,7 @@ async fn start_wire_worker_with(
     let script = Script {
         rules: [
             ("healthy", hang(false)),
+            ("rekeyed", hang(false)),
             ("stubborn", hang(true)),
             ("probe", Action::output("ok\n", 0)),
         ]
@@ -714,6 +715,145 @@ async fn a_command_whose_channel_is_accepted_after_the_seal_is_not_sent_d93() ->
         );
         factory.dispose(executor).await.map_err(describe)?;
         factory.join_pending().await.map_err(describe)?;
+        TestResult::Ok(())
+    })
+    .await
+}
+
+/// D93 (round 10, finding 1): a simulator's command is admitted and handed to the SSH transport, which holds it (here the
+/// test's pause, as russh holds outbound requests during a key exchange) while the run's stop seals the simulator; the
+/// transport then sends it and the worker runs it, after the seal. The seal cannot be made atomic with the network, so the
+/// command is the simulator's live work from the moment it was handed over: it is in the receipt, the window waits for
+/// it, and as it does not end in time the verdict is unconfirmed: one WARN, no on-dispose lifecycle beside it. Before, a
+/// command that passed the gate was nobody's once handed over, and the lifecycle ran while it ran.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_command_the_transport_sends_after_the_seal_is_live_work_of_its_simulator_d93() -> TestResult {
+    use marathon_apple::cmd::remote::ssh::sshj::channel::pause_outbound_exec;
+    use marathon_core::{executor::shared::SharedDeferred, vendor::Device};
+    watchdog(async {
+        let mut h = Harness::new(|v| v.lifecycle_configuration.on_dispose = vec![LifecycleAction::Shutdown])?;
+        h.services.timeouts.cancelled_batch_millis = 3_000;
+        h.services
+            .logging
+            .registry
+            .lock()
+            .unwrap()
+            .set_level("marathon_ios::apple_simulator_device", Level::WARN);
+        let (wire, world) = start_wire_worker(&h).await?;
+        let transport = Transport::Ssh {
+            addr: "127.0.0.1".into(),
+            port: i32::from(wire.worker.ready.endpoint.port()),
+            authentication: Some(SshAuthentication::Password {
+                username: "fixture".into(),
+                password: "fake-password".into(),
+            }),
+            check_reachability: false,
+        };
+        let mut ssh = h.services.vendor.ssh.clone();
+        ssh.keep_alive_interval = duration(0);
+        let factory = ConnectionFactory::new(
+            false,
+            ssh,
+            h.services.vendor.rsync.clone(),
+            duration(60_000),
+            h.services.runtime.clone(),
+            Arc::new(Clock::default()),
+            h.services.logging.clone(),
+        )
+        .map_err(|e| describe(e.into_vendor()))?;
+        let executor = factory
+            .connect_worker(transport.clone(), context())
+            .await
+            .map_err(ConnectionError::into_vendor)
+            .map_err(describe)?;
+        let bridge = WorldExecutor::new(
+            h.services.runtime.clone(),
+            &mut h.services.logging.registry.lock().unwrap(),
+            Router {
+                script: Script::default(),
+                rsync_remote: "/usr/bin/rsync".into(),
+                rsync_binary: "/usr/bin/rsync".into(),
+                extensions: vec![Arc::new(world)],
+            },
+            wire.worker.fs.clone(),
+            h.dir.path().to_owned(),
+        );
+        let device = h
+            .device_on_bridge(
+                executor.clone(),
+                fake_worker::apple::UDID,
+                Arc::new(WorkerProvisioningContext::new(transport.clone(), h.clock.clone())),
+                Arc::new(bridge.file_bridge()),
+            )
+            .await?;
+        // Booted, so that the on-dispose lifecycle, if it runs, shuts it down.
+        marathon_apple::apple_device::AppleDevice::execute_worker_command(
+            &*device,
+            vec![
+                "xcrun".into(),
+                "simctl".into(),
+                "boot".into(),
+                fake_worker::apple::UDID.into(),
+            ],
+            &h.services.context,
+        )
+        .await
+        .map_err(describe)?;
+        let (held, release) = (SharedDeferred::new(), SharedDeferred::new());
+        {
+            let (held, release) = (held.clone(), release.clone());
+            pause_outbound_exec(Some(Arc::new(move |command| {
+                (command == "rekeyed").then(|| {
+                    let (held, release) = (held.clone(), release.clone());
+                    Box::pin(async move {
+                        held.complete(Ok(()));
+                        let _ = release.wait().await;
+                    }) as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+                })
+            })));
+        }
+        let running = {
+            let (device, context) = (device.clone(), h.services.context.clone());
+            tokio::spawn(async move {
+                marathon_apple::apple_device::AppleDevice::execute_worker_command(
+                    &*device,
+                    vec!["rekeyed".into()],
+                    &context,
+                )
+                .await
+            })
+        };
+        held.wait().await.map_err(|e| format!("{e:?}"))?;
+        Device::seal_for_stop(&*device);
+        release.complete(Ok(()));
+        pause_outbound_exec(None);
+        // The worker gets the request after the seal, and runs the command.
+        let rekeyed = fake_worker::transcript::hash(b"rekeyed");
+        wire.wait_for("exec", |line| line["detail"]["sha256"] == rekeyed)
+            .await?;
+        Device::dispose(&*device).await.map_err(describe)?;
+        let shutdown =
+            fake_worker::transcript::hash(format!("xcrun simctl shutdown {}", fake_worker::apple::UDID).as_bytes());
+        let lifecycle = wire
+            .events("exec")
+            .await?
+            .iter()
+            .any(|line| line["detail"]["sha256"] == shutdown);
+        let warned = h.logs.lock().unwrap().iter().any(|r| {
+            r.1 == Level::WARN
+                && r.2.contains("not confirmed to have ended")
+                && r.2.contains("a command it handed to the worker has not ended")
+        });
+        running.abort();
+        factory.dispose(executor).await.map_err(describe)?;
+        factory.join_pending().await.map_err(describe)?;
+        bridge.close().await.map_err(describe)?;
+        assert!(!lifecycle, "the on-dispose lifecycle ran beside the command");
+        assert!(
+            warned,
+            "the simulator was not quarantined for the command: {:?}",
+            h.logs.lock().unwrap()
+        );
         TestResult::Ok(())
     })
     .await

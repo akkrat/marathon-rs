@@ -97,8 +97,8 @@ The section for a version becomes the text of its GitHub release, which carries 
   The decision is made once and holds for every later step. A Mac's preparation is now stopped when the Mac stops, its
   transfers are waited for like an iOS simulator's, and a transfer to a worker on this host no longer starts once its
   device is stopping. A pull from the device (an artifact the run's end left running past its drain) still running at
-  its disposal also keeps the lifecycle and the release from running beside it, and is stopped. Healthy runs, results
-  and exit codes are unchanged.
+  its disposal also keeps the lifecycle and the release from running beside it, and is stopped; so does a command the
+  device sent just before it stopped, until it has ended. Healthy runs, results and exit codes are unchanged.
 
 ## 0.14.0
 
