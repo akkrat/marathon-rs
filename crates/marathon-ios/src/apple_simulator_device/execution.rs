@@ -84,14 +84,14 @@ impl AppleSimulatorDevice {
         });
         let rejected = {
             let mut state = self.state();
-            let refusal = state.refusal(&self.serial);
+            let refusal = state.refusal_error(&self.serial);
             if refusal.is_none() {
                 state.running = Some(job.clone());
             }
             refusal
         };
         if let Some(refusal) = rejected {
-            return Err(BatchLoss::new(failure(FailureKind::IllegalState, refusal)).into_vendor());
+            return Err(refusal);
         }
         let device = self.this()?;
         let running = job.clone();
@@ -351,6 +351,12 @@ impl AppleSimulatorDevice {
         let mut state = self.state();
         self.seal_locked(&mut state, SealCause::RunStop)
     }
+    /// D93 (round 8): the provider's termination at the run's end, just before it disposes of the simulator: a refusal after
+    /// it is an orderly cancellation; the disposal keeps its own limits (not a run's stop).
+    pub fn seal_for_termination(&self) {
+        let mut state = self.state();
+        self.seal_locked(&mut state, SealCause::Termination);
+    }
     /// The run's stop: its window also bounds the on-dispose lifecycle and the lease's release (D93's 75 s).
     pub(super) fn seal_for_run_stop(&self) {
         let mut state = self.state();
@@ -439,8 +445,12 @@ impl AppleSimulatorDevice {
             let forced = shutdown.sessions.iter().filter(|s| s.ended().is_none()).map(|session| {
                 let protected = protected.clone();
                 async move {
+                    let refusal = shutdown.cause.refusal(failure(
+                        FailureKind::IllegalState,
+                        format!("Device {} is being disposed", self.serial),
+                    ));
                     let _ = session
-                        .stop(marathon_apple::bin::java_duration_of_millis(left), &protected)
+                        .stop_refusing(marathon_apple::bin::java_duration_of_millis(left), &protected, refusal)
                         .await;
                 }
             });

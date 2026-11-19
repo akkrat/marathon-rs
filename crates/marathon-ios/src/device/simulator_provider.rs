@@ -1274,6 +1274,8 @@ impl AppleSimulatorProvider {
         let ours = |handle: &Simulator| !handed_back.iter().any(|h| Arc::ptr_eq(h, handle));
         join_all(self.devices().into_iter().map(|device| async move {
             let lease = ours(&device.handle).then(|| device.handle.executor());
+            // D93 (round 8): the run's end, not a removal: a refusal after it is an orderly cancellation.
+            device.handle.seal_for_termination();
             dispose_then_release(device.device.0.dispose(), async {
                 match lease {
                     Some(executor) => self.release_lease(&device.handle, executor).await,

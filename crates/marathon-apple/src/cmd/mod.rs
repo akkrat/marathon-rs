@@ -239,6 +239,9 @@ pub struct TransferStop {
     /// lets go, with `unconfirmed` if its owner could not confirm the cleanup.
     receipt: Option<Arc<TransferReceipt>>,
     unconfirmed: Option<Failure>,
+    /// D93 (round 8): a device's admission for the transfer: looked at as the transfer starts, never while it runs (a
+    /// disposal closes a device's pulls to new ones, and leaves one under way to finish, as Kotlin's disposal does).
+    admission: Option<Arc<dyn CancellationSignal>>,
 }
 impl Drop for TransferStop {
     fn drop(&mut self) {
@@ -276,7 +279,19 @@ impl TransferStop {
             lost_with: None,
             receipt: None,
             unconfirmed: None,
+            admission: None,
         }
+    }
+    /// D93 (round 8): also refused as it starts once `admission` is cancelled; a transfer under way is not stopped by it.
+    pub fn admitted_by(mut self, admission: Arc<dyn CancellationSignal>) -> Self {
+        self.admission = Some(admission);
+        self
+    }
+    /// D93 (round 8): what refuses the transfer as it starts: its admission, then a stop.
+    pub(crate) fn start_check(&self) -> impl Fn() -> Option<Cancellation> + Send + 'static {
+        let admission = self.admission.clone();
+        let stopped = self.cancellation_check();
+        move || admission.as_ref().and_then(|a| a.reason()).or_else(&stopped)
     }
     /// Never stops: the transfer ends only by itself, or by D31's and D43's limits.
     pub fn never() -> Self {
@@ -316,7 +331,7 @@ impl TransferStop {
     }
     /// The stop that has already come, if any, without waiting. A cancellation comes first.
     pub fn now(&mut self) -> Option<TransferStopped> {
-        if let Some(reason) = self.cancellation_check()() {
+        if let Some(reason) = self.start_check()() {
             return Some(TransferStopped::Cancelled(reason));
         }
         if self.lost_with.is_none()
@@ -372,6 +387,13 @@ pub fn send_stop(executor: &dyn CommandExecutor, context: &VendorContext) -> Tra
 /// finish. Kotlin's receive finishes then, and so does this one.
 pub fn receive_stop(executor: &dyn CommandExecutor) -> TransferStop {
     TransferStop::never().or_lost(connection_loss(executor))
+}
+/// D93 (round 8): `receive_stop` for a device whose pulls `gate` can close (its seal by a disposal, its quarantine): the
+/// receive is not started once it has, and is stopped if it comes while the receive runs.
+pub fn receive_stop_gated(executor: &dyn CommandExecutor, gate: Arc<dyn CancellationSignal>) -> TransferStop {
+    TransferStop::never()
+        .or_lost(connection_loss(executor))
+        .admitted_by(gate)
 }
 fn connection_loss(executor: &dyn CommandExecutor) -> impl Future<Output = Failure> + Send + 'static {
     let lost = executor.connection_lost();

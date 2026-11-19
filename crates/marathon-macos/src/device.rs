@@ -95,14 +95,11 @@ struct Execution {
 }
 impl Execution {
     /// U210, D93: why no new batch, preparation or send may start, if none may.
-    /// D93 (round 7): the refusal as an error, by the seal's cause alone: a cancellation for the run's stop, a device loss
-    /// (as a batch on a disposed Mac) for a disposal outside it.
+    /// D93 (rounds 7, 8): the refusal as an error, built by the seal's cause alone (`SealCause::refusal`).
     fn refusal_error(&self, serial: &str) -> Option<VendorError> {
         let why = failure(FailureKind::IllegalState, self.refusal(serial)?);
-        Some(match self.shutdown.as_ref().map(|s| s.cause) {
-            Some(SealCause::RunStop) => VendorError::Cancelled(marathon_core::error::Cancellation::Requested(why)),
-            _ => lost(why),
-        })
+        let cause = self.shutdown.as_ref().map_or(SealCause::Disposal, |s| s.cause);
+        Some(cause.refusal(why))
     }
     fn refusal(&self, serial: &str) -> Option<String> {
         if self.disposal.is_some() {
@@ -479,6 +476,12 @@ impl MacosDevice {
         let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
         self.seal_locked(&mut execution, SealCause::RunStop)
     }
+    /// D93 (round 8): the provider's termination at the run's end, just before it disposes of the Mac: a refusal after it
+    /// is an orderly cancellation; the disposal keeps its own limits (not a run's stop).
+    pub fn seal_for_termination(&self) {
+        let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
+        self.seal_locked(&mut execution, SealCause::Termination);
+    }
     /// A window too long for millis has no end; deciding then fails as `window_millis` says, which is `Unconfirmed`.
     /// D93 (round 7): records the seal with its cause, closes the Mac's command gate in the same critical section, and stops
     /// at once what it registered before it (`stop_all`): nothing registered before the seal starts after it.
@@ -610,8 +613,12 @@ impl MacosDevice {
                 .map(|session| {
                     let context = context.clone();
                     async move {
+                        let refusal = shutdown.cause.refusal(failure(
+                            FailureKind::IllegalState,
+                            format!("Device {} is being disposed", self.serial),
+                        ));
                         let _ = session
-                            .stop(marathon_apple::bin::java_duration_of_millis(left), &context)
+                            .stop_refusing(marathon_apple::bin::java_duration_of_millis(left), &context, refusal)
                             .await;
                     }
                 });
@@ -973,15 +980,38 @@ impl MacosDevice {
     /// cancellation after the run's stop.
     fn leaving_send(&self, error: VendorError) -> VendorError {
         match error {
-            VendorError::Cancelled(reason) if self.seal_cause() == Some(SealCause::Disposal) => {
-                lost(reason.failure().clone())
-            }
+            VendorError::Cancelled(reason) => match self.seal_cause() {
+                Some(cause) => cause.refusal(reason.failure().clone()),
+                None => VendorError::Cancelled(reason),
+            },
             other => other,
         }
     }
     /// D54: a receive from it ends only when that connection is lost.
+    /// D93 (round 8): also the Mac's pull gate, closed by a disposal's seal or a quarantine.
     fn receive_stop(&self) -> marathon_apple::cmd::TransferStop {
-        marathon_apple::cmd::receive_stop(self.binary.command_executor.as_ref())
+        marathon_apple::cmd::receive_stop_gated(
+            self.binary.command_executor.as_ref(),
+            self.device_commands.pull_signal(),
+        )
+    }
+    /// D93 (round 8): a pull the Mac's pull gate refused or stopped is an undelivered artifact, with a WARN.
+    fn gated_pull(&self, received: VendorResult<bool>, src: &str) -> VendorResult<bool> {
+        match received {
+            Err(VendorError::Cancelled(reason)) if self.device_commands.is_gate_cancellation(&reason) => {
+                self.log(
+                    Level::WARN,
+                    format!(
+                        "Not receiving {src} from {}: {}",
+                        self.serial,
+                        reason.failure().for_log()
+                    ),
+                    None,
+                );
+                Ok(false)
+            }
+            other => other,
+        }
     }
     fn measurement(&self) -> TransferMeasurement {
         let logging = self.options.logging.clone();
@@ -1122,10 +1152,8 @@ impl Device for MacosDevice {
                 // preparation, and `join_preparation` after a disposal sees every preparation there is. A cancellation,
                 // as iOS refuses a disposed simulator's (U179): the device actor does not retry it.
                 let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
-                if let Some(refusal) = execution.refusal(&self.serial) {
-                    return Err(VendorError::Cancelled(marathon_core::error::Cancellation::Requested(
-                        failure(FailureKind::IllegalState, refusal),
-                    )));
+                if let Some(refusal) = execution.refusal_error(&self.serial) {
+                    return Err(refusal);
                 }
                 execution.preparation = Some(done.clone());
                 execution.preparation_stop = Some(stop);
@@ -1413,12 +1441,14 @@ impl AppleDevice for MacosDevice {
     }
     fn pull_file<'a>(&'a self, src: &'a str, dst: &'a Path, _context: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
-            self.measurement()
+            let received = self
+                .measurement()
                 .measure_file_transfer(
                     PathBuf::from(dst.to_string_lossy().into_owned()),
                     self.bridge.receive_with(src, dst, self.receive_stop()),
                 )
-                .await
+                .await;
+            self.gated_pull(received, src)
         })
     }
     fn push_folder<'a>(&'a self, src: &'a Path, dst: &'a str, context: &'a VendorContext) -> VendorFuture<'a, bool> {
@@ -1434,12 +1464,14 @@ impl AppleDevice for MacosDevice {
     }
     fn pull_folder<'a>(&'a self, src: &'a str, dst: &'a Path, _context: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
-            self.measurement()
+            let received = self
+                .measurement()
                 .measure_folder_transfer(
                     PathBuf::from(dst.to_string_lossy().into_owned()),
                     self.bridge.receive_with(src, dst, self.receive_stop()),
                 )
-                .await
+                .await;
+            self.gated_pull(received, src)
         })
     }
     fn push_shared<'a>(&'a self, src: &'a Path, dst: &'a str, context: &'a VendorContext) -> VendorFuture<'a, bool> {

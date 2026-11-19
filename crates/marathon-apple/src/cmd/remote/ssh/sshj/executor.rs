@@ -193,6 +193,13 @@ async fn execute(
         .start_session()
         .await
         .map_err(|error| (error.into_vendor(), true))?;
+    // D93 (round 8): the last look before the command is sent. The channel can take long to be accepted, and the caller
+    // (or its device's command gate, which the context carries) may have stopped meanwhile: then the channel is closed
+    // and no exec is sent, which starts nothing.
+    if let Some(reason) = context.cancellation.reason() {
+        let _ = channel.close().await;
+        return Err((VendorError::Cancelled(reason), true));
+    }
     let command = exec_string(&request);
     let channel_logger = config.logger_for_class(Some("PatchedExecChannel"));
     config.logging.log(

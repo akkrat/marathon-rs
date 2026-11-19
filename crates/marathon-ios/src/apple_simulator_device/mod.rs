@@ -141,16 +141,14 @@ struct State {
 }
 impl State {
     /// U179, D91, D93: why no new batch, preparation or send may start, if none may: disposal, or the run's stop.
-    /// D93 (round 7): the refusal as an error, by the seal's cause alone: a cancellation for the run's stop, a device loss
-    /// (as a batch on a disposed simulator) for a disposal outside it.
+    /// D93 (rounds 7, 8): the refusal as an error, built by the seal's cause alone (`SealCause::refusal`).
     fn refusal_error(&self, serial: &str) -> Option<VendorError> {
         let why = marathon_apple::cmd::failure(FailureKind::IllegalState, self.refusal(serial)?);
-        Some(match self.shutdown.as_ref().map(|s| s.cause) {
-            Some(marathon_apple::cmd::SealCause::RunStop) => {
-                VendorError::Cancelled(marathon_core::error::Cancellation::Requested(why))
-            }
-            _ => marathon_apple::device::batch_failure_policy::BatchLoss::new(why).into_vendor(),
-        })
+        let cause = self
+            .shutdown
+            .as_ref()
+            .map_or(marathon_apple::cmd::SealCause::Disposal, |s| s.cause);
+        Some(cause.refusal(why))
     }
     fn refusal(&self, serial: &str) -> Option<String> {
         if self.disposal.is_some() {

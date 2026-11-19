@@ -106,6 +106,29 @@ impl FileBridge for JvmFileBridge {
             .await
         })
     }
+    /// D93 (round 8): a local copy honours a receive's stop as a send's: one already stopped (the device's pulls closed)
+    /// does not start, and one in progress ends at the next chunk; the copy owns the stop to its end.
+    fn receive_with<'a>(&'a self, src: &'a str, dst: &'a Path, mut stop: TransferStop) -> VendorFuture<'a, bool> {
+        if let Some(stopped) = stop.now() {
+            return Box::pin(async move { Err(stopped.into_error()) });
+        }
+        let filename = src.split('/').next_back().unwrap_or_default().to_owned();
+        let src = PathBuf::from(src);
+        let dst = dst.to_owned();
+        let overwrite = self.overwrite;
+        let check = stop.cancellation_check();
+        Box::pin(async move {
+            blocking(self.runtime.as_ref(), move || {
+                let _owner = stop;
+                let destination = if dst.is_dir() { dst.join(filename) } else { dst };
+                if !src.exists() {
+                    return Ok(false);
+                }
+                copy_recursively(&src, &destination, overwrite, &check)
+            })
+            .await
+        })
+    }
     fn receive<'a>(&'a self, src: &'a str, dst: &'a Path) -> VendorFuture<'a, bool> {
         let filename = src.split('/').next_back().unwrap_or_default().to_owned();
         let src = PathBuf::from(src);

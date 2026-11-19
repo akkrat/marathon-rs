@@ -354,3 +354,67 @@ Stress, each alone: the four witnesses and the two Mac tests the gate first brok
 of those crates: 2,476 passed, 0 failed, 34 ignored, among them the D52 (17) and signal (25) tests, x90's D91 witnesses
 (14) and every D93 witness (37). Not run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo
 test --workspace`.
+
+## Review round 8 (Sol 6.2 xhigh at 9a87cf86: design accepted; four enforcement gaps)
+
+### Every command and transfer entry point of an Apple device, and where its gate is checked (after round 8)
+
+| Entry point | Path | Where the seal is enforced |
+|---|---|---|
+| Command over SSH (any worker command: `simctl`, `xcrun`, `mkdir`, the installer, xcresulttool, grants) | `DeviceCommands::execute` → `SshCommandExecutor::execute` → `start_session` → `exec` | (1) `DeviceCommands::execute` refuses at once if sealed; (2) it passes the SSH executor a context whose cancellation includes the gate, and the executor rechecks that context **after the channel is accepted and before `exec` is sent**; if closed it closes the channel and sends no exec. Either refusal is pre-exec (started nothing) and is turned into the cause's error by `DeviceCommands`. |
+| Command run locally | `DeviceCommands::execute` → `KotlinProcessCommandExecutor::execute` | (1) as above; (2) the local executor rechecks the gate-carrying context **inside the blocking closure, immediately before `Command::spawn`**. |
+| xcodebuild session (batch, discovery) | `execute_test_request` → `XcodebuildSession::produce` → opener → command execute | Registration under the seal's lock (refused after the seal; `claim()` makes it live); a session not yet opening is refused at the seal (`refuse_unopened`); its opener's command meets the command gate (rows above). An **open** session is stopped by the window's force reserve with the cause's error (`stop_refusing`), so its reader gets that error, not a generic cancellation. |
+| Send (`push_file`, `push_folder`, `push_shared`, generated files over rsync) | `send_stop` registration → bridge | Registration under the seal's lock; a refused send's stop is already stopped. The seal stops every registered receipt at once. rsync checks the stop as it spawns and watches it for the whole transfer; the local bridge checks it before the copy and every 1 MiB. `write_file` (small generated files over a command) goes through the command gate. |
+| Pull (`pull_file`, `pull_folder`; artifact-queue jobs: xcresult, logs, videos) | `receive_stop` → bridge | **New in round 8:** the receive stop carries the device's pull gate as its cancellation, closed by a `Disposal` seal and by a quarantine; rsync checks it as it spawns and watches it; the local bridge checks it before the copy and between chunks. A refused or stopped pull is an undelivered artifact (`false`), with a WARN naming the device. A run stop (`RunStop`, `Termination`) leaves pulls open: see the departure below. |
+| On-dispose lifecycle | `run_on_dispose` → `handle_lifecycle` | Passes the command gate inside `as_lifecycle`; a quarantine (revoked commands) refuses it. |
+| The batch the device ran when sealed (its cleanup, results) | the batch's task | Passes the command gate inside `as_registered_batch` (its receipt is waited for); anything it spawns (a session's producer, listener tasks) does not. |
+| Preparation (iOS simulator, Mac) | `prepare` admission → its retained task | Admission under the seal's lock (refused by cause); the seal cancels its signal at once; its commands meet the command gate; its sends and pulls as above. |
+| Setup | provider → device `setup` | Before registration and the seal; its commands meet the command gate. |
+| Recovery, removal, replacement | provider → `dispose` (`Disposal`) | The old device is sealed with `Disposal`; recovery sets up a **new** device object with its own gate. Provider planning commands (simctl list on the worker) do not belong to a device and are not gated. |
+| Provider termination | provider → seal (`Termination`) → `dispose` | **New in round 8:** the provider seals each device with `Termination` before disposing of it (after the iOS artifact drain), so a late actor's refusal is an orderly cancellation, not a device loss; it is not bounded like a run's stop (owner's decision: disposal outside a run's stop keeps its own limits). |
+
+Every refusal is built by `SealCause::refusal` (`RunStop` and `Termination` → cancellation, `Disposal` → device loss).
+
+### Round 8 changes and witnesses
+
+| Item | Change | Witness (fails on 9a87cf86) |
+|---|---|---|
+| A (finding 1) | `DeviceCommands::execute` passes the executor a context that carries the gate (`GateSignal`, unless the task holds a pass); the SSH executor rechecks it after the channel is accepted and before `exec` (closing the channel instead), the local executor inside the blocking closure before `spawn`. A gate refusal there is pre-exec (`exec_outcome` records started nothing) and `DeviceCommands` turns it into the cause's error. | `simulator_world.rs::a_command_whose_channel_is_accepted_after_the_seal_is_not_sent_d93` (real SSH executor, the fake worker accepts the channel 2 s late, the seal comes meanwhile: on the base the worker ran the command) |
+| B (finding 2) | Pulls carry the device's pull gate as their **admission** (`TransferStop::admitted_by`, checked as the transfer starts: rsync's spawn check and `now()`, the local bridge before copying; not while it runs). A `Disposal` seal or a quarantine closes it; the device turns a refused pull into an undelivered artifact (`false`) with a WARN. | `simulator_dispose.rs::a_pull_from_a_removed_simulator_starts_nothing_and_is_undelivered_d93` (on the base a fresh receive started) |
+| C (finding 3) | `SealCause::refusal` builds every refusal: batch, preparation and session admission (`refusal_error`), the gate, a refused or stopped send (`leaving_send`), a session refused before it opens, the force reserve's stop. A disposal's device loss has the refusal as its cause (the shape a batch on a disposed device has, which the ported Mac test pins). | `a_batch_admitted_after_the_runs_stop_is_a_cancellation_d93` (on the base `DeviceLost`), `a_device_that_is_being_disposed_of_starts_no_preparation_u179` and `batch.rs::a_preparation_after_an_ordinary_disposal_is_a_device_loss_d93` (on the base a hardcoded cancellation) |
+| D (finding 4) | `XcodebuildSession::stop_refusing`: the force reserve stops an open session with the cause's refusal, which its reader gets instead of a cancellation (whatever the stop interrupted). | `an_open_discovery_session_on_a_removed_simulator_ends_in_a_device_loss_d93` (on the base `Job was cancelled`, which discovery reads as the end of its list) |
+
+Grep (C), at the round-8 head: every error a refusal returns is `cause.refusal(..)` or `refusal_error(..)`, which is
+`cause.refusal(..)`:
+
+```
+ios  mod.rs        refusal_error → cause.refusal(why)
+ios  execution.rs  batch admission → refusal_error; force reserve → shutdown.cause.refusal; refuse_unopened(shutdown.cause.refusal)
+ios  prepare.rs    preparation admission → refusal_error
+ios  worker.rs     session admission → refusal_error; leaving_send → cause.refusal
+mac  device.rs     refusal_error → cause.refusal; batch, preparation and session admission → refusal_error;
+                   force reserve → shutdown.cause.refusal; refuse_unopened(shutdown.cause.refusal); leaving_send → cause.refusal
+apple device_commands.rs  command_refusal → cause.refusal (gate and revoked)
+```
+
+The remaining `refusal(&self.serial)` calls build the refusal's **text** (the seal's reason; the stop a refused send's
+receipt gets, whose error `leaving_send` then builds with the helper).
+
+**Departures and choices (for the reviewer):**
+
+- **A run's stop does not close pulls.** Item B asked for a pull refused after `RunStop` to be a cancellation. The iOS
+  provider drains the artifact queue at the run's end, before it disposes of any simulator, and a run that stops after a
+  failure or a signal still wants its xcresults and videos; refusing them would drop those artifacts from every failed
+  run. The invariant (no lifecycle or lease release beside live work) is not at stake: the drain ends before disposal. So
+  only a `Disposal` seal (removal, recovery, replacement) and a quarantine close pulls. One line in `SealCause::closes_pulls`
+  changes this if the owner prefers the brief's rule.
+- **Pull admission only.** The ported Kotlin `real_device_dispose_leaves_active_artifact_work_alive_and_rejects_subsequent_batches`
+  pins that a disposal leaves a pull under way to finish; the gate is checked as a pull starts, not watched while it runs.
+- **The provider's termination seals with a new cause, `Termination`** (refusals are cancellations, the disposal keeps
+  its own limits). Without it the end of an ordinary run sealed devices as `Disposal`, and a late actor's refusal was a
+  device loss, logged at ERROR.
+
+Changed tests (Rust-only unless said): `a_device_that_is_being_disposed_of_starts_no_preparation_u179` (now the witness:
+a device loss); the U179 tests whose stopped preparation's next command meets the gate accept the device loss as well
+as the cancellation; x90's `a_send_to_a_disposed_simulator_is_stopped_before_it_starts_d91` is unchanged (its device loss's
+cause is the refusal, as round 6 had it).

@@ -128,7 +128,13 @@ async fn execute(
     if let Some(reason) = context.cancellation.reason() {
         return Err(VendorError::Cancelled(reason));
     }
+    let last_look = context.cancellation.clone();
     let mut child = blocking(runtime.as_ref(), move || {
+        // D93 (round 8): the last look before the process starts: the caller (or its device's command gate, which the
+        // context carries) may have stopped while this waited for a blocking thread.
+        if let Some(reason) = last_look.reason() {
+            return Err(VendorError::Cancelled(reason));
+        }
         let command = request.command.iter().map(|arg| strip_quotes(arg)).collect::<Vec<_>>();
         let (program, args) = command
             .split_first()

@@ -175,6 +175,8 @@ struct State {
     refused: Option<VendorError>,
     /// D93: the opener has been called, so a refusal can no longer stop it.
     opening: bool,
+    /// D93 (round 8): what the session's reader gets when its device stops it (`stop_refusing`), instead of a cancellation.
+    stop_refusal: Option<VendorError>,
     task: Option<Arc<dyn VendorTask>>,
     observation: Option<SessionObservation>,
 }
@@ -322,6 +324,17 @@ impl XcodebuildSession {
                 }
                 Err(error) => Err(error),
             };
+            // D93 (round 8): a stop by the device's seal is the seal's refusal, whatever it interrupted.
+            let stop_refusal = this
+                .state
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .stop_refusal
+                .clone();
+            let result = match (result, stop_refusal) {
+                (Err(VendorError::Cancelled(_)), Some(refusal)) => Err(refusal),
+                (result, _) => result,
+            };
             this.state.lock().unwrap_or_else(|e| e.into_inner()).observation = Some(SessionObservation {
                 elapsed_millis: clock.now_millis().saturating_sub(started).max(0),
                 command_opened: command.is_some(),
@@ -405,6 +418,21 @@ impl XcodebuildSession {
             )
             .await?
             .is_some())
+    }
+    /// D93 (round 8): `stop`, by the device whose seal `refusal` is: the session's reader gets `refusal` (a device loss
+    /// after a disposal, so that discovery takes another device), not a cancellation it would read as the end of its list.
+    pub async fn stop_refusing(
+        &self,
+        timeout: Duration,
+        context: &VendorContext,
+        refusal: VendorError,
+    ) -> Option<Failure> {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .stop_refusal
+            .get_or_insert(refusal);
+        self.stop(timeout, context).await
     }
     pub async fn stop(&self, timeout: Duration, context: &VendorContext) -> Option<Failure> {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).stopped = true;

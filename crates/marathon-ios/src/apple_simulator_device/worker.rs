@@ -80,18 +80,35 @@ impl AppleSimulatorDevice {
     /// a cancellation after the run's stop.
     fn leaving_send(&self, error: VendorError) -> VendorError {
         match error {
-            VendorError::Cancelled(reason)
-                if self.state().shutdown.as_ref().map(|s| s.cause)
-                    == Some(marathon_apple::cmd::SealCause::Disposal) =>
-            {
-                marathon_apple::device::batch_failure_policy::BatchLoss::new(reason.failure().clone()).into_vendor()
-            }
+            VendorError::Cancelled(reason) => match self.state().shutdown.as_ref().map(|s| s.cause) {
+                Some(cause) => cause.refusal(reason.failure().clone()),
+                None => VendorError::Cancelled(reason),
+            },
             other => other,
         }
     }
     /// D54: a receive from it ends only when that connection is lost.
+    /// D93 (round 8): also the simulator's pull gate, closed by a disposal's seal or a quarantine.
     fn receive_stop(&self) -> marathon_apple::cmd::TransferStop {
-        marathon_apple::cmd::receive_stop(self.executor.as_ref())
+        marathon_apple::cmd::receive_stop_gated(self.executor.as_ref(), self.commands.pull_signal())
+    }
+    /// D93 (round 8): a pull the simulator's pull gate refused or stopped is an undelivered artifact, with a WARN.
+    fn gated_pull(&self, received: VendorResult<bool>, src: &str) -> VendorResult<bool> {
+        match received {
+            Err(VendorError::Cancelled(reason)) if self.commands.is_gate_cancellation(&reason) => {
+                self.log(
+                    Level::WARN,
+                    format!(
+                        "Not receiving {src} from {}: {}",
+                        self.serial,
+                        reason.failure().for_log()
+                    ),
+                    None,
+                );
+                Ok(false)
+            }
+            other => other,
+        }
     }
     fn measurement(&self) -> TransferMeasurement {
         let logging = self.services.logging.clone();
@@ -280,12 +297,14 @@ impl AppleDevice for AppleSimulatorDevice {
     }
     fn pull_file<'a>(&'a self, src: &'a str, dst: &'a Path, _: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
-            self.measurement()
+            let received = self
+                .measurement()
                 .measure_file_transfer(
                     jcompat::file_manager::file_path(dst.to_string_lossy().as_ref()),
                     self.bridge.receive_with(src, dst, self.receive_stop()),
                 )
-                .await
+                .await;
+            self.gated_pull(received, src)
         })
     }
     fn push_folder<'a>(&'a self, src: &'a Path, dst: &'a str, context: &'a VendorContext) -> VendorFuture<'a, bool> {
@@ -301,12 +320,14 @@ impl AppleDevice for AppleSimulatorDevice {
     }
     fn pull_folder<'a>(&'a self, src: &'a str, dst: &'a Path, _: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
-            self.measurement()
+            let received = self
+                .measurement()
                 .measure_folder_transfer(
                     jcompat::file_manager::file_path(dst.to_string_lossy().as_ref()),
                     self.bridge.receive_with(src, dst, self.receive_stop()),
                 )
-                .await
+                .await;
+            self.gated_pull(received, src)
         })
     }
     fn push_generated_file<'a>(

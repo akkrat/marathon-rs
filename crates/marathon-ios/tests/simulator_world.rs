@@ -245,6 +245,13 @@ async fn refusal(executor: &Executor) -> VendorResult<()> {
 }
 
 async fn start_wire_worker(h: &Harness) -> TestResult<(WireWorker, World)> {
+    start_wire_worker_with(h, None).await
+}
+/// `start_wire_worker`, whose first session open of a connection is answered `late_open` late (D93 round 8).
+async fn start_wire_worker_with(
+    h: &Harness,
+    late_open: Option<fake_worker::script::LateOpen>,
+) -> TestResult<(WireWorker, World)> {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
     let mut scenario: Scenario = serde_json::from_slice(&std::fs::read(
         fixtures.join("fake-worker/apple/ios-smoke/script/world.json"),
@@ -281,6 +288,7 @@ async fn start_wire_worker(h: &Harness) -> TestResult<(WireWorker, World)> {
         .collect(),
         faults: Faults {
             hold_withheld_session_slots: true,
+            late_open,
             ..Default::default()
         },
         ..Default::default()
@@ -543,6 +551,79 @@ async fn a_session_refused_before_its_exec_is_confirmed_ended_over_ssh_d93() -> 
         );
         finish_healthy(first).await.map_err(describe)?;
         finish_healthy(second).await.map_err(describe)?;
+        factory.dispose(executor).await.map_err(describe)?;
+        factory.join_pending().await.map_err(describe)?;
+        TestResult::Ok(())
+    })
+    .await
+}
+
+/// D93 (round 8, finding 1): a device's command over the real SSH executor whose channel the worker accepts only after
+/// 2 s; the run's stop seals the device meanwhile. After the channel is accepted the executor looks at the device's
+/// command gate again, closes the channel and sends no exec: the worker never runs the command, and the refusal is the
+/// seal's (a cancellation) with nothing started. Before, the gate was looked at only before the channel was asked for,
+/// and the worker ran the command after the seal.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_command_whose_channel_is_accepted_after_the_seal_is_not_sent_d93() -> TestResult {
+    watchdog(async {
+        let h = Harness::new(|_| {})?;
+        let (wire, _world) = start_wire_worker_with(
+            &h,
+            Some(fake_worker::script::LateOpen {
+                delay_millis: 2_000,
+                reject: false,
+            }),
+        )
+        .await?;
+        let transport = Transport::Ssh {
+            addr: "127.0.0.1".into(),
+            port: i32::from(wire.worker.ready.endpoint.port()),
+            authentication: Some(SshAuthentication::Password {
+                username: "fixture".into(),
+                password: "fake-password".into(),
+            }),
+            check_reachability: false,
+        };
+        let mut ssh = h.services.vendor.ssh.clone();
+        ssh.keep_alive_interval = duration(0);
+        let factory = ConnectionFactory::new(
+            false,
+            ssh,
+            h.services.vendor.rsync.clone(),
+            duration(60_000),
+            h.services.runtime.clone(),
+            Arc::new(Clock::default()),
+            h.services.logging.clone(),
+        )
+        .map_err(|e| describe(e.into_vendor()))?;
+        let executor = factory
+            .connect_worker(transport.clone(), context())
+            .await
+            .map_err(ConnectionError::into_vendor)
+            .map_err(describe)?;
+        let commands = marathon_apple::cmd::DeviceCommands::new(executor.clone());
+        let sent = {
+            let commands = commands.clone();
+            tokio::spawn(async move { commands.execute(held("probe"), context()).await })
+        };
+        // The channel open is on the wire (the worker logs it as it takes it) and waits for its late reply.
+        wire.wait_for("session_open", |_| true).await?;
+        assert!(
+            wire.events("late_open_reply").await?.is_empty(),
+            "the late reply came before the seal"
+        );
+        commands.seal(
+            marathon_apple::cmd::SealCause::RunStop,
+            marathon_apple::cmd::failure(marathon_error::FailureKind::IllegalState, "Device x is stopping"),
+        );
+        let outcome = sent.await?;
+        assert!(matches!(outcome, Err(VendorError::Cancelled(_))), "{:?}", outcome.err());
+        let probe = fake_worker::transcript::hash(b"probe");
+        let execs = wire.events("exec").await?;
+        assert!(
+            execs.iter().all(|line| line["detail"]["sha256"] != probe),
+            "the worker ran the command after the seal: {execs:?}"
+        );
         factory.dispose(executor).await.map_err(describe)?;
         factory.join_pending().await.map_err(describe)?;
         TestResult::Ok(())

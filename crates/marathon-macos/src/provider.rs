@@ -317,6 +317,8 @@ impl AppleMacosProvider {
                     device.udid()
                 ),
             );
+            // D93 (round 8): the run's end, not a removal: a refusal after it is an orderly cancellation.
+            device.seal_for_termination();
             let disposed = device.dispose().await;
             self.release_after_disposal_logged(&device).await;
             return disposed;
@@ -482,6 +484,8 @@ impl DeviceProvider for AppleMacosProvider {
             };
             let results = futures_util::future::join_all(devices.into_values().map(|device| async move {
                 // A82 for macOS (D74): the release follows the disposal whatever its outcome; the disposal's error wins.
+                // D93 (round 8): the run's end, not a removal: a refusal after it is an orderly cancellation.
+                device.seal_for_termination();
                 let disposed = device.dispose().await;
                 // D84 (R3-2): not under a preparation the run left running, within the Mac's bound.
                 let _ = device.join_preparation().await;

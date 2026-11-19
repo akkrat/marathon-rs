@@ -328,7 +328,11 @@ async fn disposal_stops_waiting_for_a_preparation_that_has_not_ended_in_time_u17
     );
     let before = sent(&h);
     gate.release.complete(Ok(()));
-    assert!(matches!(preparation.await?, Err(VendorError::Cancelled(_))));
+    // D93 (round 8): or the device loss the sealed gate gives the stopped preparation's next command (a disposal).
+    assert!(matches!(
+        preparation.await?,
+        Err(VendorError::Cancelled(_) | VendorError::DeviceLost(_))
+    ));
     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
     // Stopped by disposal, the preparation sends no further command to the simulator it was disposed of.
     assert_eq!(sent(&h), before);
@@ -351,7 +355,11 @@ async fn concurrent_disposals_both_wait_for_the_stopped_preparation_u179() -> Te
     let (a, b) = tokio::join!(first, second);
     a.unwrap();
     b.unwrap();
-    assert!(matches!(preparation.await?, Err(VendorError::Cancelled(_))));
+    // D93 (round 8): or the device loss the sealed gate gives the stopped preparation's next command (a disposal).
+    assert!(matches!(
+        preparation.await?,
+        Err(VendorError::Cancelled(_) | VendorError::DeviceLost(_))
+    ));
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }
@@ -400,7 +408,9 @@ async fn a_device_that_is_being_disposed_of_starts_no_preparation_u179() -> Test
     let d = h.device().await?;
     d.dispose().await.unwrap();
     let before = sent(&h);
-    assert!(matches!(h.prepare(&d).await, Err(VendorError::Cancelled(_))));
+    // D93 (round 8): refused as the seal's cause says: an ordinary disposal (not a run's stop) is a device loss.
+    let prepared = h.prepare(&d).await;
+    assert!(matches!(prepared, Err(VendorError::DeviceLost(_))), "{prepared:?}");
     assert_eq!(sent(&h), before);
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
@@ -1776,6 +1786,113 @@ async fn a_batch_refused_by_the_runs_stop_is_a_cancellation_d93() -> TestResult 
     let (outcome, _) = batch.await?;
     assert!(matches!(outcome, Err(VendorError::Cancelled(_))), "{outcome:?}");
     Device::join_cancelled_work(&*d).await.unwrap();
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+// ---- D93 review round 8: the gate enforced everywhere ---------------------------------------------------------------
+
+/// A bridge that records each receive it starts, and starts none whose stop has come (as rsync and the local copy check
+/// their stop as they start).
+#[derive(Default)]
+struct ReceivesUnlessStopped {
+    started: Arc<AtomicUsize>,
+}
+impl marathon_apple::cmd::FileBridge for ReceivesUnlessStopped {
+    fn send<'a>(&'a self, _: &'a std::path::Path, _: &'a str) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        Box::pin(async { Ok(true) })
+    }
+    fn receive<'a>(&'a self, _: &'a str, _: &'a std::path::Path) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        self.started.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async { Ok(true) })
+    }
+    fn receive_with<'a>(
+        &'a self,
+        src: &'a str,
+        dst: &'a std::path::Path,
+        mut stop: marathon_apple::cmd::TransferStop,
+    ) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        match stop.now() {
+            Some(stopped) => Box::pin(async move { Err(stopped.into_error()) }),
+            None => self.receive(src, dst),
+        }
+    }
+}
+
+/// D93 (round 8, finding 2): a pull (an artifact job's xcresult, say) asked of a simulator removed outside a run's stop
+/// meets the simulator's pull gate: nothing is received, and it is an undelivered artifact (`false`), with no hang.
+/// Before, receives carried only the connection's loss, and a pull after the removal started a fresh transfer.
+#[tokio::test(start_paused = true)]
+async fn a_pull_from_a_removed_simulator_starts_nothing_and_is_undelivered_d93() -> TestResult {
+    use marathon_apple::apple_device::AppleDevice;
+    let h = long_bound()?;
+    let bridge = Arc::new(ReceivesUnlessStopped::default());
+    let d = on_bridge(&h, bridge.clone()).await?;
+    d.dispose().await.unwrap();
+    let dir = tempfile::tempdir()?;
+    let pulled = d
+        .pull_folder("/tmp/marathon/a.xcresult", dir.path(), &h.services.context)
+        .await;
+    assert!(matches!(pulled, Ok(false)), "{pulled:?}");
+    assert_eq!(
+        bridge.started.load(Ordering::SeqCst),
+        0,
+        "a receive started after the removal"
+    );
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+/// D93 (round 8, finding 3): a batch whose call reaches the simulator only after the run's stop has sealed it is refused
+/// as the seal's cause says: a cancellation (no ERROR in the actor), not a device loss.
+#[tokio::test(start_paused = true)]
+async fn a_batch_admitted_after_the_runs_stop_is_a_cancellation_d93() -> TestResult {
+    let h = harness(70_000)?;
+    let (d, _) = prepared(&h).await?;
+    Device::seal_for_stop(&*d);
+    let (outcome, _) = spawn_batch(&h, d.clone(), h.services.context.clone()).await?;
+    assert!(matches!(outcome, Err(VendorError::Cancelled(_))), "{outcome:?}");
+    Device::join_cancelled_work(&*d).await.unwrap();
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+/// D93 (round 8, finding 4): discovery's xcodebuild session is open and has not yet given all its names when its
+/// simulator is removed (an ordinary disposal). The window's force reserve stops the open session with the seal's
+/// refusal: discovery's reader gets a device loss, so that it takes another device (D53), not the cancellation it would
+/// read as the end of a short list.
+#[tokio::test(start_paused = true)]
+async fn an_open_discovery_session_on_a_removed_simulator_ends_in_a_device_loss_d93() -> TestResult {
+    use marathon_apple::{apple_device::AppleDevice, test::TestRequest, xcodebuild_session::XcodebuildSession};
+    let h = harness(1_000)?;
+    let (d, script) = prepared(&h).await?;
+    *script.plan.lock().unwrap() = OutputPlan {
+        hang: true,
+        ..Default::default()
+    };
+    let context = h.services.context.clone();
+    let session = XcodebuildSession::new(h.services.runtime.clone(), h.services.logging.clone());
+    let events = d
+        .execute_test_request(
+            TestRequest::new("/tmp/marathon", "/tmp/marathon/parse.xctestrun", false),
+            session.clone(),
+            &context,
+        )
+        .await
+        .map_err(|e| e.failure().to_string().to_owned())?;
+    script.opened.wait().await.unwrap();
+    let disposal = {
+        let d = d.clone();
+        tokio::spawn(async move { d.dispose().await })
+    };
+    let received = loop {
+        match events.receive(&context).await {
+            Ok(Some(_)) => continue,
+            other => break other,
+        }
+    };
+    assert!(matches!(received, Err(VendorError::DeviceLost(_))), "{received:?}");
+    disposal.await?.unwrap();
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }

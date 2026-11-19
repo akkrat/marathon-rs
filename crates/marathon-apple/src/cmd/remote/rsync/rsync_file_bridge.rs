@@ -810,7 +810,8 @@ impl Inner {
         stop: &mut TransferStop,
     ) -> VendorResult<bool> {
         let stopping = Stopping::new(stop.receipt());
-        let cancelled = stop.cancellation_check();
+        // D93 (round 8): as rsync starts, its admission too (a device's closed pulls).
+        let cancelled = stop.start_check();
         let mut unconfirmed = None;
         let result = {
             let clock = self.clock.clone();

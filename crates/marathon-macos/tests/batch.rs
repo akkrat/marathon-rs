@@ -971,3 +971,19 @@ async fn a_preparation_sends_nothing_after_the_runs_stop_seals_the_mac_d93() -> 
     v(timeout(Duration::from_secs(60), d.dispose()).await?)?;
     Ok(())
 }
+
+/// D93 (round 8, finding 3) on a Mac: a preparation asked of a Mac disposed of outside a run's stop is refused as the
+/// seal's cause says: a device loss, not a hardcoded cancellation.
+#[tokio::test]
+async fn a_preparation_after_an_ordinary_disposal_is_a_device_loss_d93() -> R {
+    let h = Harness::new("")?;
+    let d = h.device();
+    v(d.setup(&h.context).await)?;
+    v(timeout(Duration::from_secs(60), d.dispose()).await?)?;
+    let prepared = d
+        .prepare(h.options.dependencies.configuration.clone(), h.context.clone())
+        .await;
+    assert!(matches!(prepared, Err(VendorError::DeviceLost(_))), "{prepared:?}");
+    v(d.join_pending().await)?;
+    Ok(())
+}

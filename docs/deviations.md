@@ -2775,10 +2775,16 @@ known limit).
   once what the device registered before it (its batch, preparations, sends, and sessions that have not begun to open):
   every command the device would send after it is refused as it executes, whoever asked for it, so nothing that was
   registered before the seal starts after it. Only the device's on-dispose lifecycle and the work of the batch it ran
-  when sealed (its cleanup and results, which the window waits for) pass; a session's start never does. The seal records
-  its cause, and that alone decides what a refusal is: after the run's stop (the Scheduler's, a failure, the owner's
-  cancel, a signal) a cancellation, orderly, with no retry; after a disposal outside a run's stop (removal, recovery, a
-  replaced Mac) a device loss, so that discovery takes another device (D53) and a batch is retried as for a lost device.
+  when sealed (its cleanup and results, which the window waits for) pass; a session's start never does. The gate is
+  looked at again at the last moment before a command is sent: over SSH after its channel is accepted and before the exec
+  (the channel is closed instead), locally just before the process starts. A device's pulls (xcresults, logs, videos from
+  the artifact queue) are refused as they start once a disposal outside a run's stop or a quarantine has closed them, and
+  are then undelivered artifacts; a pull under way finishes, and a run's stop leaves pulls open for its artifact drain.
+  An open xcodebuild session that the window's reserve stops gives its reader the seal's refusal, not a cancellation.
+  The seal records its cause, and that alone decides what a refusal is: after the run's stop (the Scheduler's, a failure,
+  the owner's cancel, a signal) or the provider's termination at the run's end, a cancellation, orderly, with no retry;
+  after a disposal outside them (removal, recovery, a replaced Mac) a device loss, so that discovery takes another device
+  (D53) and a batch is retried as for a lost device.
   A batch call its own caller cancelled before such a disposal stays a cancellation, as before.
 - **One verdict.** What the device ran when it was sealed is its receipt, and its verdict is decided once, by one task:
   when all of it has ended, or at the window's end, whichever comes first. The verdict is the outcome of that wait: work
@@ -2885,7 +2891,13 @@ and `a_sealed_mac_opens_no_session_d93`. Round 6, failing on d20ecdcc:
 `simulator_dispose.rs::a_producer_released_between_the_seal_and_any_cleanup_starts_nothing_d93`,
 `a_held_producer_on_a_removed_simulator_is_a_device_loss_after_the_force_reserve_d93`,
 `a_batch_refused_by_the_runs_stop_is_a_cancellation_d93` and
-`crates/marathon-macos/tests/batch.rs::a_preparation_sends_nothing_after_the_runs_stop_seals_the_mac_d93`.
+`crates/marathon-macos/tests/batch.rs::a_preparation_sends_nothing_after_the_runs_stop_seals_the_mac_d93`. Round 8, failing on 9a87cf86:
+`crates/marathon-ios/tests/simulator_world.rs::a_command_whose_channel_is_accepted_after_the_seal_is_not_sent_d93`,
+`simulator_dispose.rs::a_pull_from_a_removed_simulator_starts_nothing_and_is_undelivered_d93`,
+`a_batch_admitted_after_the_runs_stop_is_a_cancellation_d93`,
+`an_open_discovery_session_on_a_removed_simulator_ends_in_a_device_loss_d93`,
+`a_device_that_is_being_disposed_of_starts_no_preparation_u179` and
+`batch.rs::a_preparation_after_an_ordinary_disposal_is_a_device_loss_d93`.
 Amends D74 and D84.
 
 Approved 2026-11-18 (project owner's decision). See
