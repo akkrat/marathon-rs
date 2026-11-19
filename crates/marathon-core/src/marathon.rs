@@ -75,8 +75,8 @@ pub type SignalRegistration = Arc<dyn Fn(i32) -> std::io::Result<SignalStream> +
 pub struct SignalHooks {
     /// Production emergency exit, which bypasses output draining on the second signal.
     pub immediate_exit: Option<Arc<dyn Fn(i32) + Send + Sync>>,
-    /// Notifies the CLI watchdog when the cleanup allowance expires. The callback does not wait on core.
-    pub cleanup_expired: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// Notifies the CLI watchdog at signal cleanup handoff. The callback does not wait on core.
+    pub cleanup_finished: Option<Arc<dyn Fn() + Send + Sync>>,
     /// Replaces the tokio registration (failure injection).
     pub registration: Option<SignalRegistration>,
     /// Called once all registrations have been attempted.
@@ -1383,24 +1383,30 @@ impl Marathon {
                         .copied()
                         .unwrap_or_else(|| task.clock.now_millis());
                     let finish = crate::signal_finish::SignalFinish::from_start(at);
-                    if marathon.hook_installed.get() {
-                        let finished = race(
-                            marathon.finish_cancelled(number, &task, finish),
-                            task.clock
-                                .delay(finish.exit.saturating_sub(task.clock.now_millis()), task.job.clone()),
+                    let expired = if marathon.hook_installed.get() {
+                        matches!(
+                            race(
+                                marathon.finish_cancelled(number, &task, finish),
+                                task.clock
+                                    .delay(finish.exit.saturating_sub(task.clock.now_millis()), task.job.clone()),
+                            )
+                            .await,
+                            futures_util::future::Either::Right(_)
                         )
-                        .await;
-                        if let futures_util::future::Either::Right(_) = finished {
-                            if let Some(expired) = &waiting.hooks.cleanup_expired {
-                                expired();
-                            }
-                            marathon.log(
-                                LOGGER,
-                                Level::ERROR,
-                                "Cleanup ran out of time; exiting anyway".into(),
-                                None,
-                            );
-                        }
+                    } else {
+                        false
+                    };
+                    // Queue the process sweep ahead of the final console allowance, even when cleanup ended early.
+                    if let Some(finished) = &waiting.hooks.cleanup_finished {
+                        finished();
+                    }
+                    if expired {
+                        marathon.log(
+                            LOGGER,
+                            Level::ERROR,
+                            "Cleanup ran out of time; exiting anyway".into(),
+                            None,
+                        );
                     }
                     // The live CLI drains the shared output tail in its exit callback, within its one-second watchdog.
                     // A manual relay owns no console watchdog.

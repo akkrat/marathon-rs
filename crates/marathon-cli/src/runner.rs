@@ -154,7 +154,7 @@ impl ProductionRunner {
         let mut signal_hooks = self.signal_hooks.clone();
         signal_hooks.immediate_exit = Some(Arc::new(|status| crate::tracing_output::exit_once(status)));
         let watchdog = exit_console.clone();
-        signal_hooks.cleanup_expired = Some(Arc::new(move || watchdog.sweep_processes()));
+        signal_hooks.cleanup_finished = Some(Arc::new(move || watchdog.sweep_processes()));
         #[cfg(feature = "test-seams")]
         let exit_prepare = self.exit_prepare.clone();
         #[cfg(not(feature = "test-seams"))]

@@ -3098,7 +3098,8 @@ The first SIGINT, SIGTERM or SIGHUP seals devices and starts reports. The initia
 report head start. Provider and history finish start after the reports or at 10 s, whichever comes first. Eligible
 artifacts drain through 12 s. SSH command closes on device and provider connections still waiting on TERM request
 KILL by 17 s. Transfer cancellation and receipt collection end by 18 s. Device verdicts, lifecycle on confirmed
-devices and lease release get the time left through 23 s. Cleanup hands off to the exit path by 24 s. D96 sweeps
-registered local groups at expiry and exit, with up to 1 s for console output. Healthy work can advance immediately.
+devices and lease release get the time left through 23 s. Cleanup hands off to the exit path by 24 s. The D96 sweep
+starts at handoff, including when cleanup ends early. The exit watchdog counts the remaining console allowance
+from handoff and gives it at most 1 s. Healthy work can advance immediately.
 A signal tightens waits that are already running. Routine completion keeps the 300 s drain and shared 60 s cancellation
 window. Internal failure keeps the 30 s drain and shared 40 s cancellation window.

@@ -107,10 +107,14 @@ includes the upstream fix that serializes users of that hook.
 
 ## D96 rebase
 
-- The signal relay retains the D96 expiry hook and recognizes SIGHUP with status 129. D97 retains the 23 s device
-  bound and 24 s handoff. The CLI's D96 exit sweep and console allowance continue to run off core.
+- The signal relay retains the D96 expiry sweep and recognizes SIGHUP with status 129. D97 retains the 23 s device
+  bound and 24 s handoff. The CLI also queues the sweep at an early handoff. The watchdog counts the remaining console
+  allowance from the handoff, including time on its sweep queue. The blocked-console witness observes the group
+  disappear after provider completion while the CLI is still alive. It passed 50 isolated runs and one further run
+  under six busy CPU workers.
 - A successful rsync receive publishes when D96 cleans up a pipe holder in the managed group. A detached holder
-  keeps the receive unconfirmed and the staged bytes private. Both paths use the staged receive in the witness.
+  keeps the receive unconfirmed and the staged bytes private. Both staged-receive witnesses passed 50 isolated runs
+  and one further run under six busy CPU workers.
 - The connection factory shares the provider's deadline with its SSH connections as soon as they open. Channel
   closes also observe any device admission deadline. A fake-worker witness starts a provisioning command without
   device admission, waits for TERM to be ignored, and observes KILL when the provider's clock reaches the cutoff.

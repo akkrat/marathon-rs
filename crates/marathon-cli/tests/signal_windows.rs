@@ -200,7 +200,7 @@ fn hooks(mode: &str) -> SignalHooks {
     let repeat = mode == "run-repeat";
     SignalHooks {
         immediate_exit: None,
-        cleanup_expired: None,
+        cleanup_finished: None,
         registration: Some(Arc::new(move |number| {
             if Some(number) == failing {
                 return Err(std::io::Error::other("injected registration failure"));
@@ -234,7 +234,7 @@ fn signal_child() {
         marathon_cli::tracing_output::sweep_at_ordinary_exit();
         std::process::exit(RETURNED); // Leave the owned handle live for the sweep.
     }
-    if mode == "expiry-sweep" {
+    if matches!(mode.as_str(), "expiry-sweep" | "handoff-sweep") {
         let mut process = owned.take().unwrap();
         // Observe and reap the tool while the controller is still alive.
         std::thread::spawn(move || {
@@ -249,13 +249,17 @@ fn signal_child() {
     }
     let mut factory = ConfigurationFactory::new();
     factory.configuration.debug = mode == "run-debug";
-    let stdout: Box<dyn Write + Send> = if mode.starts_with("stuck-console") || mode == "expiry-sweep" {
-        Box::new(StuckConsole)
-    } else {
-        Box::new(std::io::sink())
-    };
+    let stdout: Box<dyn Write + Send> =
+        if mode.starts_with("stuck-console") || matches!(mode.as_str(), "expiry-sweep" | "handoff-sweep") {
+            Box::new(StuckConsole)
+        } else {
+            Box::new(std::io::sink())
+        };
     let stamp = Box::new(|wall: Option<i64>| marathon_cli::application::day_stamp(wall.unwrap_or(0)));
-    let cli = if matches!(mode.as_str(), "stuck-console-long-watchdog" | "expiry-sweep") {
+    let cli = if matches!(
+        mode.as_str(),
+        "stuck-console-long-watchdog" | "expiry-sweep" | "handoff-sweep"
+    ) {
         // Holds the first signal's watchdog open far beyond the test: only the
         // second signal's immediate exit can end this child, at any host speed.
         CliOutput::new_with_exit_flush(
@@ -311,7 +315,7 @@ fn signal_child() {
 fn owns_group(mode: &str) -> bool {
     matches!(
         mode,
-        "ordinary-sweep" | "expiry-sweep" | "stuck-console-long-watchdog" | "run-hup"
+        "ordinary-sweep" | "expiry-sweep" | "handoff-sweep" | "stuck-console-long-watchdog" | "run-hup"
     )
 }
 
@@ -652,6 +656,27 @@ fn cleanup_expiry_sweeps_a_running_group_before_cli_exit_d96() {
     stderr.assert_owned_group_ended();
     // The blocked console and held exit watchdog preclude any eventual exit sweep.
     assert!(child.try_wait().unwrap().is_none());
+    let status = signalled(&mut child, Signal::SIGINT, PATIENCE);
+    assert_eq!(status.and_then(|status| status.code()), Some(130));
+}
+
+#[test]
+fn signal_handoff_sweeps_a_running_group_before_the_console_d96_d97() {
+    if inherited_ignored(Signal::SIGTERM) || inherited_ignored(Signal::SIGINT) {
+        return;
+    }
+    let (mut child, mut stderr) = started_with_stderr("handoff-sweep", None);
+    kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM).unwrap();
+    assert!(stderr.saw("MARKER terminate"));
+    assert!(
+        stderr.saw("MARKER owned group ended"),
+        "the process group survived cleanup handoff"
+    );
+    stderr.assert_owned_group_ended();
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "the console should still be blocked"
+    );
     let status = signalled(&mut child, Signal::SIGINT, PATIENCE);
     assert_eq!(status.and_then(|status| status.code()), Some(130));
 }

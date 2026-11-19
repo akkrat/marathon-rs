@@ -168,7 +168,7 @@ impl Drop for OutputGuard {
 type FilterHandle = reload::Handle<Targets, tracing_subscriber::Registry>;
 enum ExitRequest {
     Sweep,
-    Exit(i32, mpsc::Receiver<()>),
+    Exit(i32, mpsc::Receiver<()>, Instant),
 }
 type ExitWork = (i32, mpsc::Sender<()>, Box<dyn FnOnce() + Send>);
 #[derive(Clone)]
@@ -243,8 +243,12 @@ impl TracingOutput {
                         ExitRequest::Sweep => {
                             marathon_process::seal_and_kill();
                         }
-                        ExitRequest::Exit(status, drained) => {
-                            if drained.recv_timeout(exit_flush).is_err() {
+                        ExitRequest::Exit(status, drained, requested_at) => {
+                            // A preceding process sweep spends time from the same final allowance.
+                            if drained
+                                .recv_timeout(exit_flush.saturating_sub(requested_at.elapsed()))
+                                .is_err()
+                            {
                                 exit_once(status);
                             }
                             break;
@@ -372,7 +376,7 @@ impl TracingOutput {
         self.writer.0.phase.store(DRAINING, Ordering::SeqCst);
         let (send, receive) = mpsc::channel();
         self.exit
-            .send(ExitRequest::Exit(status, receive))
+            .send(ExitRequest::Exit(status, receive, Instant::now()))
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "exit watchdog stopped"))?;
         self.prepare_exit
             .send((status, send, prepare))
