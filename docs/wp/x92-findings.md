@@ -198,3 +198,8 @@ is awaited.
 
 Behaviour to note: a batch whose xcodebuild could not be opened now makes the device's disposal unconfirmed (no
 lifecycle, lease quarantined), outside a run's stop too; recorded in D93's limits.
+
+**Round 2 verification.** Each witness above fails on 58288ef2 (scratch worktree, new tests copied in). Stress, each alone:
+50/50, and 20/20 with 12 busy processes, for all four. `cargo fmt --check`; `cargo clippy` of apple, ios, macos, core, cli
+and test-support with `-D warnings`; `cargo test --no-fail-fast` of those crates: 2,118 passed, 0 failed, 34 ignored. Not
+run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test --workspace`.
