@@ -268,7 +268,8 @@ x86_64 (glibc 2.35) remains the gnu gate platform. Linux builds need `ldd` and
 `version` and help need no Java, configuration, device or external executable.
 Running tests requires tools appropriate to the configured vendor: an ADB server and
 devices for Android; Apple's development tools on Apple workers; `rsync`, and
-`sshpass` for password-based rsync.
+`sshpass` for password-based rsync with an SSH client older than OpenSSH 8.4
+([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)).
 
 Packaging checks validate the archive and entry point; they do not establish parity.
 The whole-run evidence is in the findings of [WP 7.2](wp/7.2-findings.md) and

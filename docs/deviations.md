@@ -12,7 +12,7 @@ PLAN §3.11 records no per-row approval dates for D55–D65. Its heading date,
 2026-10-12, is the section's original approval date. D68–D81 ship in 0.14.0 (D68–D72 and D74–D77
 first in 0.14.0-rc.1, D78–D81 in 0.14.0-rc.2); they fix run-stability and device-handling bugs, add a native-only
 flakiness strategy (D72), and change JUnit retry elements, the iOS boot wait and video transfers, and Android coverage
-without `run-as`. D82–D97 come after 0.14.0 and are not yet in a release. D82 sends Android retries to another device
+without `run-as`. D82–D88 and D90–D97 ship in 0.15.0-rc.1, the first release candidate of 0.15.0. D82 sends Android retries to another device
 and D83 gives copies of different tests turns in the queue. D84–D90 improve run stability, D91–D95 bound teardown,
 D96 establishes process ownership, and D97 publishes complete artifacts and reserves time for signal cleanup.
 See the [changelog](../CHANGELOG.md).
@@ -299,6 +299,9 @@ Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [N16](known-kotlin-bugs.md) and the [x12](wp/x12-findings.md) and [x18](wp/x18-findings.md) findings.
 
+**Amended by [D85](#d85--android-checks-the-boot-before-resuming-tests):** an emulator that restarted during the outage is set up again when its kernel boot ID
+changed or marathon's preparation marker is gone. The known limit above remains only for a restart that keeps both.
+
 ## D23 — Waiting for a pushed file has a limit
 
 With verification on, Kotlin polls a pushed file's md5 with no limit of its own, so a
@@ -500,6 +503,10 @@ ssh, holds up the receive for at most 5 s more. The process's status decides the
 **Amended by [D91](#d91--a-stopped-rsync-transfer-ends-within-40-s-and-its-device-waits-for-it):** the reap after
 KILL, a failed wait and the readers' last join each have a limit now, and a cleanup that cannot be confirmed keeps the
 destination from further transfers.
+
+**Amended by [D96](#d96--the-controller-owns-its-local-process-groups):** rsync now runs in a process group of its own, which its cleanup ends and the
+run's reaper covers; a terminal's Ctrl-C or a CI job's cancel reaches marathon, which ends it. Under `sshpass` (an SSH
+client older than OpenSSH 8.4) the listings above still decide what is stopped.
 
 ## D32 — xcodebuild on a worker runs unbuffered
 
@@ -719,6 +726,10 @@ retried, as in any lost connection. A device that returns keeps its actor, with 
 A server outage takes over from a grace, and a device still `offline` when the outage's window closes gets no further grace.
 Approved 2026-11-07 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [N40](known-kotlin-bugs.md) and the [x19 findings](wp/x19-findings.md).
+
+**Amended by [D85](#d85--android-checks-the-boot-before-resuming-tests):** a device that returns from an `offline` having finished a reboot, or rolled back to a snapshot
+from before its preparation, is set up again when its boot ID changed or its preparation marker is gone, instead of
+being taken for a blip.
 
 **Migration action:** none; no configuration is needed. A killed emulator reaches the retry path about 3.25 s after it dies, not at once.
 
@@ -2701,9 +2712,12 @@ simulators' included, since one bridge serves all the devices of a worker.
 and at the stop). A process that rsync's ssh starts and that exits its parent between two listings becomes an orphan the
 bridge never saw: it is neither signalled nor counted in the check, so the check can call a cleanup confirmed while such
 an orphan runs. Containing every descendant would need rsync to run under a process group or a reaper of the bridge's
-own, which is a separate design. The quarantine covers the exact destination path, not a folder around it or inside it.
-A Mac's sends are not registered with the Mac (its preparation runs under a context that is never cancelled); they get
-the bound and the quarantine, and the Mac's disposal is left to a later change. What a remote `rsync --server` does
+own, which is a separate design; [D96](#d96--the-controller-owns-its-local-process-groups) has since put rsync in a
+process group of its own, which leaves this only to the `sshpass` transport. The quarantine covers the exact destination
+path, not a folder around it or inside it. A Mac's sends are not registered with the Mac (its preparation runs under a
+context that is never cancelled); they get the bound and the quarantine, and the Mac's disposal is left to a later
+change ([D93](#d93--an-apple-devices-stop-has-one-window-and-its-disposal-needs-proof-that-its-work-ended) has since
+registered them). What a remote `rsync --server` does
 after the local processes end is the worker's. A device deadline given after the bridge's cleanup has started also
 shortens it.
 
@@ -2741,8 +2755,8 @@ removal and recorder stop attempts share the remaining time, with at most eight 
 cleanup commands at once. Provider termination reuses a cleanup already started. Active siblings retain their own
 connections. Healthy pulls and video chunks keep their normal timeouts, including D21's idle policy and the partial
 file left by an ordinary pull timeout. Pulls stage in the run's private `.marathon-staging` directory under
-`outputDir` and publish by rename. If staging is unavailable, pulls write directly to the destination and the
-runner warns once. Normal teardown removes the staging directory. A hard kill can leave it until the next run's
+`outputDir` and publish by rename. If staging is unavailable, the pull is not delivered (since [D97](#d97--publish-complete-artifacts-and-reserve-time-for-signal-cleanup); D92 wrote
+directly to the destination and warned once). Normal teardown removes the staging directory. A hard kill can leave it until the next run's
 output wipe. Reports and the output manifest exclude it.
 
 D84 adds five seconds to its wait for the device, so the default Scheduler device wait is at most 65 seconds from the
