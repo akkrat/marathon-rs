@@ -187,3 +187,330 @@ async fn built_binary_runs_and_parses_ios_through_real_ssh_provider_parser_and_l
     }
     Ok(())
 }
+
+const SUPERVISOR_ROOT: &str = "/tmp/marathon-supervisor-0123456789";
+
+struct LatencySupervisor {
+    plain: fake_worker::router::Router,
+    movies: tokio::sync::Mutex<std::collections::HashMap<String, Vec<fake_worker::script::PublishedFile>>>,
+}
+
+impl fake_worker::router::Handler for LatencySupervisor {
+    fn name(&self) -> &str {
+        "latency-supervisor"
+    }
+
+    fn route<'a>(
+        &'a self,
+        request: &'a fake_worker::router::Request,
+        fs: &'a fake_worker::fs::VirtualFs,
+    ) -> fake_worker::router::HandlerFuture<'a> {
+        use fake_worker::{
+            router::{Plan, Request},
+            script::Action,
+        };
+        Box::pin(async move {
+            let argv: Vec<_> = request.argv.iter().map(String::as_str).collect();
+            match argv.as_slice() {
+                ["/usr/bin/perl", "-MMIME::Base64", "-e", _, "--", _, _] => {
+                    Ok(Some(Action::output(&format!("MARATHON_D96_1 {SUPERVISOR_ROOT}\n"), 0)))
+                }
+                ["/usr/bin/perl", _, "retire", SUPERVISOR_ROOT, _] => {
+                    Ok(Some(Action::output("MARATHON_D96_1 retired\n", 0)))
+                }
+                ["/usr/bin/perl", _, "control", SUPERVISOR_ROOT, _, item] => {
+                    let (token, operation) = item
+                        .split_once(':')
+                        .ok_or_else(|| std::io::Error::other("invalid item"))?;
+                    if operation == "1" {
+                        let files = self
+                            .movies
+                            .lock()
+                            .await
+                            .remove(token)
+                            .ok_or_else(|| std::io::Error::other("missing recorder"))?;
+                        for file in files {
+                            fs.write(
+                                &file.path,
+                                base64::engine::general_purpose::STANDARD.decode(file.base64)?,
+                                0o600,
+                            )
+                            .await?;
+                        }
+                    }
+                    let status = if self.movies.lock().await.contains_key(token) {
+                        "running:1000000"
+                    } else {
+                        "done:0"
+                    };
+                    Ok(Some(Action::output(&format!("{token} {status}\n"), 0)))
+                }
+                [
+                    "exec",
+                    "/usr/bin/perl",
+                    _,
+                    mode @ ("run" | "detach"),
+                    SUPERVISOR_ROOT,
+                    _,
+                    token,
+                    payload @ ..,
+                ] => {
+                    let wire = match payload {
+                        ["/bin/sh", "-c", command] => (*command).to_owned(),
+                        _ => payload.join(" "),
+                    };
+                    let routed = self.plain.route(&Request::parse(wire.as_bytes())?, fs).await?;
+                    if routed.unmatched {
+                        return Err(std::io::Error::other(format!("unexpected supervised payload {wire}")).into());
+                    }
+                    match (mode, routed.plan) {
+                        (&"run", Plan::Action(action)) => Ok(Some(action)),
+                        (&"detach", Plan::Action(Action::Publish { files, started, .. })) => {
+                            self.movies.lock().await.insert((*token).to_owned(), files);
+                            for file in started {
+                                fs.write(
+                                    &file.path,
+                                    base64::engine::general_purpose::STANDARD.decode(file.base64)?,
+                                    0o600,
+                                )
+                                .await?;
+                            }
+                            Ok(Some(Action::output("", 0)))
+                        }
+                        _ => Err(std::io::Error::other(format!("unsupported supervised payload {wire}")).into()),
+                    }
+                }
+                _ => Ok(None),
+            }
+        })
+    }
+}
+
+async fn delayed_ssh(port: u16) -> Result<(u16, tokio::task::JoinHandle<()>)> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    async fn relay(
+        mut input: tokio::net::tcp::OwnedReadHalf,
+        mut output: tokio::net::tcp::OwnedWriteHalf,
+    ) -> std::io::Result<()> {
+        let mut buf = [0u8; 32768];
+        loop {
+            let count = input.read(&mut buf).await?;
+            if count == 0 {
+                return output.shutdown().await;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            output.write_all(&buf[..count]).await?;
+        }
+    }
+    let listen = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
+    let listen_port = listen.local_addr()?.port();
+    Ok((
+        listen_port,
+        tokio::spawn(async move {
+            let mut connections = tokio::task::JoinSet::new();
+            loop {
+                tokio::select! {
+                    Some(_) = connections.join_next(), if !connections.is_empty() => {}
+                    accepted = listen.accept() => {
+                        let Ok((left, _)) = accepted else { break };
+                        connections.spawn(async move {
+                            let right = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
+                            left.set_nodelay(true)?;
+                            right.set_nodelay(true)?;
+                            let (from_left, to_left) = left.into_split();
+                            let (from_right, to_right) = right.into_split();
+                            tokio::try_join!(relay(from_left, to_right), relay(from_right, to_left))
+                        });
+                    }
+                }
+            }
+        }),
+    ))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn six_video_batches_keep_ssh_supervision_off_the_healthy_path_d96() -> Result {
+    use std::time::{Duration, Instant};
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let scratch = tempfile::tempdir()?;
+    let host = scratch.path().join("host");
+    let auth = scratch.path().join("key");
+    key(&host).await?;
+    key(&auth).await?;
+    let mut timings = Vec::new();
+    for supervised in [false, true] {
+        let dir = tempfile::tempdir_in(scratch.path())?;
+        let root = dir.path();
+        bundle(root, "App", "app")?;
+        bundle(root, "Tests", "xctest")?;
+        let mut scenario: Scenario = serde_json::from_slice(&std::fs::read(
+            repo.join("fixtures/fake-worker/apple/ios-media/script/world.json"),
+        )?)?;
+        scenario.expectations.clear();
+        scenario.target = "Tests".into();
+        scenario.tests = (1..=6)
+            .map(|index| fake_worker::apple::Test {
+                class: "SampleTests".into(),
+                method: format!("testCase{index}"),
+                status: "passed".into(),
+            })
+            .collect();
+        let world = World::new(scenario).map_err(|e| e.to_string())?;
+        let mut handlers: Vec<Arc<dyn fake_worker::router::Handler>> = vec![Arc::new(world.clone())];
+        if supervised {
+            handlers.insert(
+                0,
+                Arc::new(LatencySupervisor {
+                    plain: fake_worker::router::Router {
+                        script: Default::default(),
+                        rsync_remote: "/usr/bin/rsync".into(),
+                        rsync_binary: "/usr/bin/rsync".into(),
+                        extensions: handlers.clone(),
+                    },
+                    movies: Default::default(),
+                }),
+            );
+        }
+        let transcript = root.join("transcript.jsonl");
+        let worker = fake_worker::start(
+            Config {
+                listen: "127.0.0.1:0".parse()?,
+                root: root.join("worker"),
+                transcript: transcript.clone(),
+                host_key: host.clone(),
+                auth: AuthPolicy {
+                    user: "fixture".into(),
+                    password: None,
+                    authorized_keys: vec![auth.with_extension("pub")],
+                    keyboard_interactive: false,
+                    password_auth: false,
+                },
+                max_sessions: 10,
+                rsync_binary: "/usr/bin/rsync".into(),
+                rsync_remote: "/usr/bin/rsync".into(),
+                script: Default::default(),
+                fixtures: repo.join("fixtures/fake-worker"),
+                run: "ios-supervisor-latency".into(),
+            },
+            handlers,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        let (port, proxy) = delayed_ssh(worker.ready.endpoint.port()).await?;
+        std::fs::write(
+            root.join("Marathondevices"),
+            format!(
+                "workers:\n- transport: {{type: ssh, addr: 127.0.0.1, port: {port}, checkReachability: false}}\n  devices: [{{type: simulator, udid: {UDID}}}]\n"
+            ),
+        )?;
+        std::fs::write(
+            root.join("Marathonfile"),
+            format!(
+                "name: ios-latency\noutputDir: report\ndebug: true\nanalyticsTracking: false\nbugsnagReporting: false\nuncompletedTestRetryQuota: 0\nretryStrategy: {{type: no-retry}}\nbatchingStrategy: {{type: fixed-size, size: 1, lastMileLength: 0}}\nscreenRecordingPolicy: ON_ANY\nvendorConfiguration:\n  type: iOS\n  bundle:\n    application: App.app\n    testApplication: Tests.xctest\n    testType: xctest\n  ssh:\n    authentication: {{type: publicKey, username: fixture, key: '{}'}}\n    keepAliveInterval: PT15S\n    shareWorkerConnection: true\n  lifecycle:\n    shutdownUnused: false\n    onPrepare: []\n    onDispose: [SHUTDOWN]\n  deviceLog: false\n  xcresult:\n    pullingPolicy: ALWAYS\n    remoteClean: true\n  screenRecordConfiguration:\n    preferableRecorderType: VIDEO\n    videoConfiguration:\n      enabled: true\n      transcoding: {{enabled: false}}\n    screenshotConfiguration: {{enabled: false}}\n",
+                auth.display()
+            ),
+        )?;
+        let started = Instant::now();
+        let output = tokio::time::timeout(
+            Duration::from_secs(120),
+            tokio::process::Command::new(env!("CARGO_BIN_EXE_marathon"))
+                .current_dir(root)
+                .kill_on_drop(true)
+                .env("FW_REAL_SSH", "/usr/bin/ssh")
+                .env("FW_ARGV_LOG", root.join("host-argv.jsonl"))
+                .env(
+                    "PATH",
+                    format!(
+                        "{}:{}",
+                        repo.join("tools/fake-worker/shims").display(),
+                        std::env::var("PATH").unwrap_or_default()
+                    ),
+                )
+                .output(),
+        )
+        .await??;
+        let elapsed = started.elapsed();
+        proxy.abort();
+        let trace = std::fs::read_to_string(transcript)?;
+        let rows: Vec<serde_json::Value> = trace
+            .lines()
+            .map(serde_json::from_str)
+            .collect::<std::result::Result<_, _>>()?;
+        let wire = |row: &serde_json::Value| {
+            let raw = row["detail"]["base64"].as_str().unwrap();
+            let wire = base64::engine::general_purpose::STANDARD.decode(raw).unwrap();
+            String::from_utf8(wire).unwrap()
+        };
+        let execs = rows
+            .iter()
+            .filter(|row| row["event"] == "exec")
+            .map(wire)
+            .collect::<Vec<_>>();
+        worker.shutdown().await.map_err(|e| e.to_string())?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "{stdout}\n{}\n{}",
+            String::from_utf8_lossy(&output.stderr),
+            execs.join("\n")
+        );
+        assert_eq!(
+            execs.iter().filter(|cmd| cmd.contains("test-without-building")).count(),
+            6
+        );
+        let media = root
+            .join("report/video")
+            .read_dir()?
+            .flat_map(|pool| pool.unwrap().path().read_dir().unwrap())
+            .flat_map(|device| device.unwrap().path().read_dir().unwrap())
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .unwrap()
+                    .path()
+                    .extension()
+                    .is_some_and(|ext| ext == "mp4")
+            })
+            .count();
+        assert_eq!(media, 6, "{stdout}");
+        assert_eq!(
+            execs
+                .iter()
+                .filter(|cmd| cmd.contains("--sender") && cmd.contains(".xcresult"))
+                .count(),
+            6
+        );
+        if supervised {
+            assert_eq!(execs.iter().filter(|cmd| cmd.contains(" control-stream ")).count(), 1);
+            assert!(!execs.iter().any(|cmd| cmd.contains("/supervisor.pl control ")));
+            let requests = rows
+                .iter()
+                .filter(|row| row["event"] == "supervisor_request")
+                .map(wire)
+                .collect::<Vec<_>>();
+            assert_eq!(requests.iter().filter(|request| request.ends_with(":1")).count(), 6);
+            for sender in execs.iter().filter(|cmd| cmd.contains("/supervisor.pl rsync ")) {
+                let token = sender.split_ascii_whitespace().nth(5).unwrap();
+                assert!(!requests.iter().any(|request| request.contains(token)));
+            }
+        } else {
+            assert!(stdout.contains("has no usable /usr/bin/perl"));
+        }
+        let preparation = execs
+            .iter()
+            .take_while(|cmd| !cmd.contains("test-without-building"))
+            .count();
+        println!(
+            "50 ms RTT, supervised={supervised}, elapsed={elapsed:?}, {} SSH execs ({preparation} before the first batch)",
+            execs.len()
+        );
+        timings.push(elapsed);
+    }
+    assert!(
+        timings[1].as_secs_f64() <= timings[0].as_secs_f64() * 1.05,
+        "plain {:?}, supervised {:?}",
+        timings[0],
+        timings[1]
+    );
+    Ok(())
+}

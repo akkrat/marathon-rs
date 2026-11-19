@@ -43,6 +43,7 @@ pub enum Plan {
     SignalPid { pid: u64, signal: String, wait: bool },
     Action(Action),
     Rsync(Vec<String>),
+    SupervisorControl(String),
     Background { pidfile: String, request: Request },
     BackgroundLog { request: Request },
 }
@@ -93,6 +94,35 @@ impl Router {
     }
     async fn builtin(&self, r: &Request, fs: &VirtualFs) -> Result<Option<Plan>> {
         let a = r.argv.iter().map(String::as_str).collect::<Vec<_>>();
+        if let ["/usr/bin/perl", program, "control-stream", root, lease] = a.as_slice()
+            && root.starts_with("/tmp/marathon-supervisor-")
+            && *program == format!("{root}/supervisor.pl")
+            && lease.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return Ok(Some(Plan::SupervisorControl(format!(
+                "/usr/bin/perl {program} control {root} {lease}"
+            ))));
+        }
+        if let [
+            "/usr/bin/perl",
+            program,
+            "rsync",
+            root,
+            lease,
+            token,
+            encoded,
+            args @ ..,
+        ] = a.as_slice()
+            && root.starts_with("/tmp/marathon-supervisor-")
+            && *program == format!("{root}/supervisor.pl")
+            && lease.bytes().all(|byte| byte.is_ascii_digit())
+            && token.len() == 32
+            && token.bytes().all(|byte| byte.is_ascii_hexdigit())
+            && BASE64_STANDARD.decode(encoded)? == self.rsync_remote.as_bytes()
+            && args.get(1) == Some(&"--sender")
+        {
+            return Ok(Some(Plan::Rsync(rsync_args(args)?)));
+        }
         // Pinned pre-supervision fixtures model a worker without the optional interpreter.
         if let [
             "/usr/bin/perl",

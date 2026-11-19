@@ -98,6 +98,49 @@ sub drain_errors {
     }
 }
 
+sub control_stream {
+    my ($root, $lease, $lock) = @_;
+    my $buffer = '';
+    my %waiting;
+    local $| = 1;
+    # Only requests hold the shared installation lock. An idle channel must
+    # not stop a separate session from retiring this worker root.
+    flock($lock, LOCK_UN) or die "unlock supervisor: $!";
+    while (1) {
+        if (readable(\*STDIN, %waiting ? 0.05 : undef)) {
+            my $count = sysread(STDIN, my $bytes, 4096);
+            return unless $count;
+            $buffer .= $bytes;
+        }
+        flock($lock, LOCK_SH | LOCK_NB) or die "supervisor is retiring: $!";
+        -f "$root/supervisor.pl" or die "supervisor retired";
+        my @replies;
+        while ($buffer =~ s/\A([^\n]*)\n//) {
+            my $frame = $1;
+            $frame =~ /\A([1-9][0-9]{0,19}) ([a-f0-9]{32}):(renew-[0-9]{1,16}|status|[1-3])\z/
+                or die "invalid control frame";
+            my ($id, $token, $op) = ($1, $2, $3);
+            my $state = control("$root/$token", $op, $lease);
+            if ($op eq '1' && $state =~ /\Arunning:/) {
+                # INT for a recorder can return its completed receipt on the
+                # same request without stalling other tokens on this stream.
+                $waiting{$token} = $id;
+            } else {
+                push @replies, "$id $token $state\n";
+            }
+        }
+        length($buffer) < 256 or die "control frame too large";
+        for my $token (keys %waiting) {
+            my $state = control("$root/$token", 'status', $lease);
+            next if $state =~ /\A(?:running:|busy)/;
+            my $id = delete $waiting{$token};
+            push @replies, "$id $token $state\n";
+        }
+        flock($lock, LOCK_UN) or die "unlock supervisor: $!";
+        print @replies or die "write control reply: $!" if @replies;
+    }
+}
+
 sub run_owned {
     my ($dir, $lease, $announce, @argv) = @_;
     my $recorder = defined $announce;
@@ -303,6 +346,11 @@ flock($root_lock, LOCK_SH | LOCK_NB) or die "supervisor is retiring: $!";
 # A process that opened the old script before retirement might acquire its
 # shared lock after the retire process exits. Require the installation to exist.
 -f "$root/supervisor.pl" or die "supervisor retired";
+if ($mode eq 'control-stream') {
+    @ARGV == 0 or die "invalid control stream request";
+    control_stream($root, $lease, $root_lock);
+    exit 0;
+}
 if ($mode eq 'control') {
     for my $item (@ARGV) {
         $item =~ /\A([a-f0-9]{32}):(renew-[0-9]{1,16}|status|[1-3])\z/ or die "invalid request";

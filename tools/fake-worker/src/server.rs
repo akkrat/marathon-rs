@@ -749,6 +749,7 @@ async fn run_channel(ctx: Context, channel: Channel<Msg>, plan: Plan) -> Result<
     let execute = async {
         match plan {
             Plan::Rsync(args) => run_rsync(&ctx, &output, args, &mut signal_rx, &mut stdin_rx).await,
+            Plan::SupervisorControl(wire) => run_supervisor_control(&ctx, &output, &wire, &mut stdin_rx).await,
             plan => {
                 let execution = crate::execution::Execution {
                     router: ctx.shared.router.clone(),
@@ -784,6 +785,42 @@ async fn run_channel(ctx: Context, channel: Channel<Msg>, plan: Plan) -> Result<
     .await?;
     result
 }
+async fn run_supervisor_control(
+    ctx: &Context,
+    output: &ChannelWriteHalf<Msg>,
+    wire: &str,
+    stdin: &mut mpsc::Receiver<Vec<u8>>,
+) -> Result<()> {
+    let mut buffer = Vec::new();
+    while let Some(chunk) = stdin.recv().await {
+        buffer.extend_from_slice(&chunk);
+        while let Some(end) = buffer.iter().position(|byte| *byte == b'\n') {
+            let frame = String::from_utf8(buffer.drain(..=end).collect())?;
+            let (id, operation) = frame
+                .trim_end()
+                .split_once(' ')
+                .ok_or_else(|| anyhow::anyhow!("invalid control frame"))?;
+            let request = Request::parse(format!("{wire} {operation}").as_bytes())?;
+            ctx.event("supervisor_request", transcript::bytes(&request.raw)).await?;
+            match ctx.shared.router.route(&request, &ctx.shared.fs).await?.plan {
+                Plan::Action(Action::Output { hang: true, .. }) => {}
+                Plan::Action(Action::Output { chunks, status: 0, .. }) => {
+                    let reply = chunks.into_iter().map(|chunk| chunk.data).collect::<String>();
+                    send_chunk(ctx, output, format!("{id} {reply}").into_bytes(), None).await?;
+                    ctx.event("supervisor_reply", transcript::bytes(&request.raw)).await?;
+                }
+                Plan::Action(Action::DropTransport) => {
+                    ctx.transport.cancel();
+                    return Ok(());
+                }
+                _ => anyhow::bail!("unsupported supervisor reply"),
+            }
+        }
+        ensure!(buffer.len() < 256, "supervisor request exceeded its limit");
+    }
+    Ok(())
+}
+
 async fn drain_control(
     mut input: ChannelReadHalf,
     signals: mpsc::Sender<String>,

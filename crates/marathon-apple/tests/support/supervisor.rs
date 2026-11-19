@@ -157,6 +157,9 @@ impl Handler for Worker {
                     };
                     Ok(Some(Action::output(&format!("{token} {reply}\n"), 0)))
                 }
+                ["/usr/bin/perl", PROGRAM, "retire", ROOT, _] => {
+                    Ok(Some(Action::output("MARATHON_D96_1 retired\n", 0)))
+                }
                 _ => Ok(None),
             }
         })
@@ -321,6 +324,50 @@ async fn control_reconnects_before_healthy_groups_expire_d96() {
 async fn an_alive_command_connection_renews_during_control_outage_d96() {
     super::support::watchdog(control_loss(false)).await;
 }
+
+#[tokio::test]
+async fn the_only_control_session_can_retire_the_worker_after_data_loss_d96() {
+    super::support::watchdog(async {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        let worker = Worker::new();
+        let fake = ssh::fake_with_handlers(ssh::script(vec![]), 1, |_| {}, vec![worker.clone()]).await;
+        let proxy = Proxy::start(fake.port()).await;
+        let executor = executor(proxy.port).await;
+        let session = open(&executor, "retiring").await;
+        let group = worker.group("retiring");
+        let start = stamp(&group);
+        advance(2).await;
+        wait_for(
+            group.state.subscribe(),
+            |state| matches!(state, State::Running(stamp) if *stamp > start),
+        )
+        .await;
+        finish(&worker, &fake, "retiring", session).await;
+        let request = fake.events("supervisor_request").await.remove(0);
+        proxy.cut(0);
+        super::support::bounded(5, async {
+            while executor.connected() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        executor.close().await.unwrap();
+        let execs = fake.events("exec").await;
+        let retire = execs
+            .iter()
+            .find(|row| {
+                let wire = STANDARD.decode(row["detail"]["base64"].as_str().unwrap()).unwrap();
+                wire.windows(b"/supervisor.pl retire ".len())
+                    .any(|bytes| bytes == b"/supervisor.pl retire ")
+            })
+            .unwrap();
+        assert_eq!(retire["connection"], request["connection"]);
+        assert_ne!(retire["channel"], request["channel"]);
+        fake.worker.shutdown().await.unwrap();
+    })
+    .await;
+}
+
 #[tokio::test]
 async fn a_partition_expires_only_the_unreachable_worker_leases_d96() {
     super::support::watchdog(async {

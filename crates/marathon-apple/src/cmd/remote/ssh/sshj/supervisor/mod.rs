@@ -1,8 +1,11 @@
 //! D96 worker lease and process-group receipts.
 
+mod control;
+
 use super::{channel::Stream, client::SshConnection, config::SshLogging};
 use crate::cmd::{TransferCleanup, TransferReceipt, failure};
 use base64::{Engine, engine::general_purpose::STANDARD};
+use control::ControlSession;
 use jcompat::jtime::Duration;
 use marathon_core::{
     error::{Failure, VendorError, VendorResult},
@@ -360,6 +363,7 @@ async fn exchange(
 #[derive(Default)]
 struct Control {
     active: Option<Arc<SshConnection>>,
+    stream: Option<Arc<SharedDeferred<Arc<ControlSession>>>>,
     next_dial: Option<tokio::time::Instant>,
     retry_delay: Option<WallDuration>,
 }
@@ -436,13 +440,22 @@ impl Peer {
         let connection = if self.data.is_connected() {
             self.data.clone()
         } else {
-            self.control
-                .lock()
-                .await
-                .active
-                .clone()
-                .filter(|active| active.is_connected())
-                .ok_or_else(|| protocol_error("Worker supervisor has no remaining connection"))?
+            let (active, stream) = {
+                let mut control = self.control.lock().await;
+                let active = control
+                    .active
+                    .clone()
+                    .filter(|active| active.is_connected())
+                    .ok_or_else(|| protocol_error("Worker supervisor has no remaining connection"))?;
+                (active, control.stream.take())
+            };
+            // A worker can allow only one session on this connection.
+            if let Some(stream) = stream
+                && let Ok(open) = stream.wait().await
+            {
+                open.close().await?;
+            }
+            active
         };
         let wire = format!(
             "/usr/bin/perl {}/supervisor.pl retire {} {}",
@@ -484,74 +497,117 @@ impl Peer {
             .map_err(|_| protocol_error("Worker supervisor control connection timed out"))?
             .map_err(super::error::SshFailure::into_vendor)?;
         control.active = Some(active.clone());
+        control.stream = None;
         Ok(active)
     }
 
     async fn control_lost(&self) {
-        let active = self
-            .control
-            .try_lock()
-            .ok()
-            .and_then(|control| control.active.as_ref().filter(|active| active.is_connected()).cloned());
-        match active {
-            Some(active) => active.shared.wait_dead().await,
-            None => std::future::pending().await,
+        let control = self.control.try_lock().ok().and_then(|control| {
+            let active = control.active.as_ref()?.clone();
+            let stream = control.stream.as_ref().and_then(|stream| stream.completed()?.ok());
+            Some((active, stream))
+        });
+        match control {
+            Some((active, Some(stream))) if active.is_connected() && stream.is_open() => {
+                tokio::select! {
+                    _ = active.shared.wait_dead() => {}
+                    _ = stream.wait_closed() => {}
+                }
+            }
+            Some((active, _)) if active.is_connected() => active.shared.wait_dead().await,
+            _ => std::future::pending().await,
         }
     }
 
-    async fn exchange_control(
-        &self,
-        active: &Arc<SshConnection>,
-        wire: String,
-    ) -> Result<(i32, String), ExchangeError> {
-        let result = exchange(active, wire, CONTROL_TIMEOUT).await;
-        if result.is_ok()
+    async fn stream(&self) -> VendorResult<Arc<ControlSession>> {
+        let active = self.connection().await?;
+        let opening = {
+            let mut control = self.control.lock().await;
+            if !control
+                .active
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, &active))
+            {
+                return Err(protocol_error("Worker supervisor control reconnected"));
+            }
+            if let Some(opening) = &control.stream
+                && match opening.completed() {
+                    None => true,
+                    Some(Ok(stream)) => stream.is_open(),
+                    Some(Err(_)) => false,
+                }
+            {
+                opening.clone()
+            } else {
+                let opening = SharedDeferred::new();
+                control.stream = Some(opening.clone());
+                let wire = format!(
+                    "/usr/bin/perl {}/supervisor.pl control-stream {} {}",
+                    self.root, self.root, self.timing.lease_ms
+                );
+                let opened = opening.clone();
+                let connection = active.clone();
+                active.runtime.spawn(Box::pin(async move {
+                    opened.complete(
+                        crate::cmd::retained_tasks::panic_as_error(ControlSession::open(&connection, wire)).await,
+                    );
+                    Ok(())
+                }));
+                opening
+            }
+        };
+        let stream = opening.wait().await?;
+        if stream.is_open()
             && let Ok(mut control) = self.control.try_lock()
             && control
                 .active
                 .as_ref()
-                .is_some_and(|current| Arc::ptr_eq(current, active))
+                .is_some_and(|current| Arc::ptr_eq(current, &active))
         {
             control.retry_delay = None;
             control.next_dial = None;
         }
-        result
+        Ok((*stream).clone())
     }
 
-    async fn ask(&self, token: &str, operation: &str) -> VendorResult<(Reply, bool)> {
-        let wire = format!(
-            "/usr/bin/perl {}/supervisor.pl control {} {} {token}:{operation}",
-            self.root, self.root, self.timing.lease_ms
-        );
-        let control = async {
-            let active = self.connection().await?;
-            match self.exchange_control(&active, wire.clone()).await {
-                Ok(response) => Ok(response),
-                Err(error) if matches!(error, ExchangeError::Timeout(_)) || !active.is_connected() => {
-                    // Replace only the generation this request observed. Never
-                    // abandon the data transport or a newer control connection.
-                    active.abandon();
-                    let retry = self.connection().await?;
-                    self.exchange_control(&retry, wire.clone())
-                        .await
-                        .map_err(ExchangeError::into_vendor)
-                }
-                Err(error) => Err(error.into_vendor()),
+    async fn ask(&self, token: &str, operation: &str) -> VendorResult<Reply> {
+        let fallback = || async {
+            let wire = format!(
+                "/usr/bin/perl {}/supervisor.pl control {} {} {token}:{operation}",
+                self.root, self.root, self.timing.lease_ms
+            );
+            let (status, output) = exchange(&self.data, wire, CONTROL_TIMEOUT)
+                .await
+                .map_err(ExchangeError::into_vendor)?;
+            if status != 0 {
+                return Err(protocol_error("Worker supervisor control request failed"));
             }
-        }
-        .await;
-        let ((status, output), fallback) = match control {
-            Ok(response) => (response, false),
-            Err(_) if self.data.is_connected() => (
-                exchange(&self.data, wire, CONTROL_TIMEOUT)
-                    .await
-                    .map_err(ExchangeError::into_vendor)?,
-                true,
-            ),
-            Err(error) => return Err(error),
+            Ok(output)
+        };
+        let primary = async { self.stream().await?.ask(token, operation).await };
+        let mut primary = std::pin::pin!(primary);
+        let output = match tokio::time::timeout(CONTROL_TIMEOUT, &mut primary).await {
+            Ok(Ok(response)) => response,
+            Ok(Err(_)) if self.data.is_connected() => fallback().await?,
+            Ok(Err(error)) => return Err(error),
+            Err(_) if self.data.is_connected() => {
+                // A slow application exchange is no reason to redial a
+                // transport. The fallback bounds the wait for lease renewal.
+                let mut secondary = std::pin::pin!(fallback());
+                tokio::select! {
+                    biased;
+                    response = &mut primary => match response {
+                        Ok(output) => output,
+                        Err(_) => secondary.await?,
+                    },
+                    response = &mut secondary => response?,
+                }
+            }
+            Err(_) => tokio::time::timeout(CLOSE_GRACE, &mut primary)
+                .await
+                .map_err(|_| protocol_error("Worker supervisor did not respond on its control stream"))??,
         };
         let (reply, diagnostic) = Reply::parse(&output, token)
-            .filter(|_| status == 0)
             .ok_or_else(|| protocol_error("Worker supervisor returned an invalid token receipt"))?;
         if let Some(stderr) = diagnostic {
             let logger = self.logging.component(TARGET);
@@ -570,7 +626,7 @@ impl Peer {
                 None,
             );
         }
-        Ok((reply, fallback))
+        Ok(reply)
     }
 }
 
@@ -670,6 +726,15 @@ impl Lease {
     }
 
     pub(super) fn start(self: &Arc<Self>, receipt: Option<Arc<TransferReceipt>>) {
+        if self.detached {
+            // Set up the independent stream while the recorder is running,
+            // before its first stop needs a receipt.
+            let peer = self.peer.clone();
+            self.peer.data.runtime.spawn(Box::pin(async move {
+                let _ = peer.stream().await;
+                Ok(())
+            }));
+        }
         let lease = self.clone();
         self.peer.data.runtime.spawn(Box::pin(async move {
             let outcome = tokio::select! {
@@ -806,11 +871,11 @@ impl Lease {
                 response = self.peer.ask(&self.token, &operation) => response,
             };
             match response {
-                Ok((Reply::Proof(proof), _)) => return Ok(proof),
-                Ok((Reply::Unconfirmed, _)) => {
+                Ok(Reply::Proof(proof)) => return Ok(proof),
+                Ok(Reply::Unconfirmed) => {
                     return Err(protocol_error("Worker process group disappearance was not confirmed"));
                 }
-                Ok((Reply::Running(expiry), _)) => {
+                Ok(Reply::Running(expiry)) => {
                     signalled = wanted;
                     if operation.starts_with("renew-") {
                         next_renewal = now + self.peer.timing.interval;
@@ -825,7 +890,7 @@ impl Lease {
                         self.peer.timing.interval
                     };
                 }
-                Ok((Reply::Busy | Reply::Unknown, _)) => delay = WallDuration::from_millis(100),
+                Ok(Reply::Busy | Reply::Unknown) => delay = WallDuration::from_millis(100),
                 Err(_) => delay = WallDuration::from_secs(1),
             }
             if ending.is_some_and(|start| now - start >= CLOSE_GRACE + 3 * CONTROL_TIMEOUT) {

@@ -115,8 +115,8 @@ impl World {
             );
         }
         ensure!(
-            scenario.media == Media::None || scenario.tests.len() == 1,
-            "media profile requires one test"
+            scenario.media != Media::Screenshot || scenario.tests.len() == 1,
+            "screenshot profile requires one test"
         );
         let mut names = std::collections::BTreeSet::new();
         for e in &scenario.expectations {

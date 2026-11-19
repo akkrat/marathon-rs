@@ -274,8 +274,10 @@ async fn stock_perl_detaches_the_recorder_and_returns_its_own_exit_proof_d96() -
     use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
     use std::{
         os::unix::fs::PermissionsExt,
+        process::Stdio,
         time::{Duration, Instant},
     };
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     if !Path::new("/usr/bin/perl").is_file() {
         eprintln!("worker witness requires stock Perl");
         return Ok(());
@@ -306,7 +308,8 @@ async fn stock_perl_detaches_the_recorder_and_returns_its_own_exit_proof_d96() -
                 token,
                 "/usr/bin/perl",
                 "-e",
-                r#"$SIG{INT} = sub { exit 0 }; open my $pid, '>', shift or die $!; print $pid "$$\n"; close $pid; sleep 60"#,
+                r#"$SIG{INT} = sub { exit 0 }; open my $pid, '>', shift or die $!; print $pid "$$\n"; close $pid;
+while (1) { select undef, undef, undef, .01 }"#,
             ])
             .arg(&marker)
             .output(),
@@ -330,19 +333,24 @@ async fn stock_perl_detaches_the_recorder_and_returns_its_own_exit_proof_d96() -
     })
     .await?;
     assert_eq!(kill(pid, None), Ok(()));
-    let status = command("control").arg(format!("{token}:1")).output().await?;
-    assert!(status.status.success());
-    assert!(status.stdout.starts_with(format!("{token} running:").as_bytes()));
-    tokio::time::timeout(Duration::from_secs(3), async {
-        loop {
-            let receipt = command("control").arg(format!("{token}:status")).output().await?;
-            if receipt.stdout == format!("{token} done:0\n").as_bytes() {
-                return Ok::<_, std::io::Error>(());
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+    let mut control = command("control-stream")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()?;
+    let mut stdin = control.stdin.take().unwrap();
+    let mut replies = BufReader::new(control.stdout.take().unwrap()).lines();
+    let sibling = "00000000000000000000000000000000";
+    stdin
+        .write_all(format!("1 {token}:1\n2 {sibling}:status\n").as_bytes())
+        .await?;
+    let answers = tokio::time::timeout(Duration::from_secs(3), async {
+        Ok::<_, std::io::Error>([replies.next_line().await?.unwrap(), replies.next_line().await?.unwrap()])
     })
     .await??;
+    assert!(answers.contains(&format!("1 {token} done:0")));
+    assert!(answers.contains(&format!("2 {sibling} unknown")));
+    drop(stdin);
+    assert!(control.wait().await?.success());
     println!(
         "worker detached in {detached:?} and gave INT proof by {:?}",
         start.elapsed()
@@ -919,10 +927,10 @@ async fn a_sealed_device_stops_a_token_when_the_exec_reply_is_missing_d96() {
     assert_eq!(command.unwrap().stdout, ["sibling"]);
     assert_eq!(proof, TransferCleanup::Confirmed);
     assert!(executing.await.unwrap().is_err());
-    let execs = fake.events("exec").await;
     let launch = wire(waiting);
     let token = launch.split_ascii_whitespace().nth(6).unwrap();
-    let stopped: Vec<_> = execs
+    let requests = fake.events("supervisor_request").await;
+    let stopped: Vec<_> = requests
         .iter()
         .filter(|row| wire(row).ends_with(&format!("{token}:3")))
         .collect();
@@ -960,7 +968,7 @@ async fn d30_escalation_joins_worker_proof_without_a_data_close_d96() {
     let closing = tokio::spawn(async move { session.close().await });
     let term = tokio::time::timeout(std::time::Duration::from_secs(4), async {
         loop {
-            let events = fake.events("exec").await;
+            let events = fake.events("supervisor_request").await;
             if let Some(term) = events.into_iter().find(|row| matches_operation(row, ":2")) {
                 break term;
             }
@@ -974,10 +982,10 @@ async fn d30_escalation_joins_worker_proof_without_a_data_close_d96() {
     support::bounded(5, async {
         loop {
             if fake
-                .events("channel_end")
+                .events("supervisor_reply")
                 .await
                 .iter()
-                .any(|end| end["connection"] == term["connection"] && end["channel"] == term["channel"])
+                .any(|end| end["connection"] == term["connection"] && end["detail"] == term["detail"])
             {
                 break;
             }
@@ -986,7 +994,7 @@ async fn d30_escalation_joins_worker_proof_without_a_data_close_d96() {
     })
     .await;
 
-    // The worker's channel_end record can precede receipt of the TERM reply.
+    // The worker's send record can precede receipt of the TERM reply.
     // Expire only the D30 grace so an in-flight control exchange stays live.
     expire_grace.notify_one();
     tokio::time::timeout(std::time::Duration::from_secs(5), closing)
@@ -995,13 +1003,15 @@ async fn d30_escalation_joins_worker_proof_without_a_data_close_d96() {
         .unwrap()
         .unwrap();
     let execs = fake.events("exec").await;
-    let kill = execs.iter().find(|row| matches_operation(row, ":3")).unwrap();
+    let requests = fake.events("supervisor_request").await;
+    let kill = requests.iter().find(|row| matches_operation(row, ":3")).unwrap();
     let run = execs
         .iter()
         .find(|row| matches_operation(row, "echo resistant'"))
         .unwrap();
     assert_ne!(kill["connection"], run["connection"]);
     assert_ne!(term["connection"], run["connection"]);
+    assert_eq!(kill["channel"], term["channel"]);
     assert!(kill["seq"].as_u64().unwrap() > term["seq"].as_u64().unwrap());
     // Neither escalation request consumed the original SSH session's acknowledgement or CLOSE.
     assert!(fake.events("signal").await.is_empty());
@@ -1041,7 +1051,7 @@ async fn d97_signal_deadline_kills_the_worker_token_while_term_is_waiting() {
     let term = support::bounded(5, async {
         loop {
             if let Some(row) = fake
-                .events("exec")
+                .events("supervisor_request")
                 .await
                 .into_iter()
                 .find(|row| matches_operation(row, ":2"))
@@ -1061,7 +1071,7 @@ async fn d97_signal_deadline_kills_the_worker_token_while_term_is_waiting() {
     let watchdog = std::time::Instant::now() + std::time::Duration::from_secs(5);
     let kill = loop {
         if let Some(kill) = fake
-            .events("exec")
+            .events("supervisor_request")
             .await
             .into_iter()
             .find(|row| matches_operation(row, ":3"))
@@ -1077,6 +1087,7 @@ async fn d97_signal_deadline_kills_the_worker_token_while_term_is_waiting() {
     tokio::time::resume();
     support::bounded(5, closing).await.unwrap().unwrap();
     assert_eq!(kill["connection"], term["connection"]);
+    assert_eq!(kill["channel"], term["channel"]);
     assert!(fake.events("signal").await.is_empty());
     executor.close().await.unwrap();
     fake.worker.shutdown().await.unwrap();
@@ -1087,6 +1098,61 @@ fn matches_operation(row: &serde_json::Value, suffix: &str) -> bool {
         .decode(row["detail"]["base64"].as_str().unwrap())
         .unwrap()
         .ends_with(suffix.as_bytes())
+}
+
+#[tokio::test]
+async fn a_slow_control_exchange_keeps_its_transport_d96() {
+    use marathon_apple::cmd::remote::ssh::sshj::SshjCommandExecutorFactory;
+    let fake = ssh::fake_with_handlers(
+        ssh::script(vec![]),
+        3,
+        |_| {},
+        vec![Arc::new(SupervisorWorker {
+            stall_term: true,
+            ..Default::default()
+        })],
+    )
+    .await;
+    let (logging, _) = ssh::logging(false);
+    let expire_grace = Arc::new(tokio::sync::Notify::new());
+    let clock = support::Clock::with_gated_delay(20_000, expire_grace.clone());
+    let executor = SshjCommandExecutorFactory::new(logging, Arc::new(support::Runtime), Arc::new(clock))
+        .connect_worker("127.0.0.1", fake.port(), ssh::password(), None, false, Arc::default())
+        .await
+        .unwrap();
+    let session = executor
+        .execute(CommandRequest::new(["echo", "resistant"], duration(120_000)), context())
+        .await
+        .unwrap();
+    assert_eq!(session.base.stdout.receive().await.unwrap().as_deref(), Some("ready"));
+    let closing = tokio::spawn(async move { session.close().await });
+    let term = fake.events_at_least("supervisor_request", 1).await.remove(0);
+    assert!(matches_operation(&term, ":2"));
+    tokio::time::pause();
+    tokio::time::advance(std::time::Duration::from_millis(4_100)).await;
+    tokio::time::resume();
+    support::bounded(5, async {
+        loop {
+            if fake
+                .events("exec")
+                .await
+                .iter()
+                .any(|event| matches_operation(event, ":2"))
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    expire_grace.notify_one();
+    support::bounded(5, closing).await.unwrap().unwrap();
+    let requests = fake.events("supervisor_request").await;
+    let kill = requests.iter().find(|event| matches_operation(event, ":3")).unwrap();
+    assert_eq!(kill["connection"], term["connection"]);
+    assert_eq!(kill["channel"], term["channel"]);
+    executor.close().await.unwrap();
+    fake.worker.shutdown().await.unwrap();
 }
 
 #[cfg(target_os = "macos")]

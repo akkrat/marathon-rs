@@ -520,7 +520,7 @@ INT. KILL during the next confirmed recording left the service busy. A new
 The old supervisor reproduced this after lease expiry with `done:137`.
 After rebooting that same throwaway simulator, the fixed supervisor expired
 with `done:0` and a readable movie. The next recording also finalized and
-was readable. Both throwaway simulators were deleted. The earlier acceptance
+was readable. All throwaway simulators were deleted. The earlier acceptance
 discarded stderr, so its six original errors cannot be identified verbatim.
 
 The worker gives a started detached recorder up to 2 s after INT and 1 s
@@ -539,6 +539,47 @@ The successful receive takes its proof from that status, removing two
 serial SSH round trips on a warm control connection. Interrupted and
 failed receives still wait for independent proof. The real OpenSSH witness
 also checks that a sender failure after transferring bytes blocks publication.
+
+### Healthy SSH round trips
+
+The acceptance trace puts 6.74 s between the final pull's first status request
+and a request on another control socket. The old four-second application
+timeout could abandon a healthy transport. The full 38.77 s acceptance delta
+also includes staging, media and sampling costs and does not measure SSH
+overhead in isolation.
+
+Round trips below count serial request exchanges. A channel-open reply and
+an exec reply each count once. Common SSH authentication and rsync payload
+exchanges are outside the added-proof counts.
+
+| Operation | Before x95e | After x95e |
+| --- | --- | --- |
+| Warm foreground command | 2 on the data channel, with exit and proof from that channel | 2, with the same data proof |
+| Device preparation | 2 per serial command plus 2 once for the connection's Perl probe | Same, with token renewal off the command path |
+| Successful rsync receive | Normal transfer plus 2 for a separate proof channel and request, or more on redial | Normal transfer, with 0 additional proof exchanges |
+| Detached recorder start | 2 on the data channel | 2, with control setup running concurrently |
+| Recorder stop with a warm control connection | 2 for INT and 2 for each follow-up status poll if the recorder is still running | 1 for INT and the terminal receipt on the stream |
+
+The independent control socket now runs one Perl exec. Numbered requests can
+overlap and the worker batches replies. A slow reply can trigger a bounded
+one-shot data-path request without redialling the control connection. A lost
+transport still reconnects. A recorder's normal INT waits for its receipt on
+the same stream while other tokens keep progressing. The stopped and
+unreachable paths still use token-scoped proof and lease expiry.
+
+With 25 ms injected in each direction, the CLI performed preparation, six
+single-test batches, six video publications and six xcresult pulls. On macOS
+the pinned pre-fix supervised executable took 24.12 s and issued 107 execs.
+The revised supervised runs took 21.87–22.42 s and issued 90 execs. The
+matched no-Perl runs took 30.89–30.96 s and issued 130 execs. In the repeat,
+36 supervised execs and 37 fallback execs preceded the first batch. On
+Linux the paired runs took 21.02 s supervised and 28.29 s without Perl.
+The fake worker models the application workload and receipt outcomes.
+Real OpenSSH and the stock Perl tests separately exercise the supervisor
+and data-path failure propagation. The four concurrency witnesses for the
+slow control path, recorder proof, retirement after data loss, and forced
+recorder stops each passed 50 loaded runs.
+The pre-release real forwarded-worker acceptance was not rerun here.
 
 ## Incidental bugs
 

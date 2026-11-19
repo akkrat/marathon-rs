@@ -3129,11 +3129,16 @@ number. A signal on the wrapper itself still uses SSH signal semantics.
 Foreground commands finish from the data channel's exit status. Once the
 payload starts, the wrapper emits a normal status after writing its cleanup
 proof. A failure before payload launch is reported with the wrapper's own
-status, such as 255, 2 or 125. The first
-renewal is at the configured interval. The controller opens the independent
-connection only when it needs renewal or control. The dial and each request
-have a 4 s bound. Failed dials back off exponentially from 1 s to 60 s.
-Renewal through the data connection uses the normal interval.
+status, such as 255, 2 or 125. The first renewal is at the configured interval.
+The independent connection keeps a single control exec open and exchanges
+numbered requests over its stdin and stdout. The controller opens it on
+demand and starts it in the background for a detached recorder. A recorder's
+INT request can return the completed receipt on that same stream while
+other tokens proceed. Failed dials back off exponentially from 1 s to 60 s.
+At 4 s without a reply, the controller can use a short one-shot request
+on a reachable data connection. A slow reply does not close or redial
+the control transport. Renewal through the data connection uses the normal
+interval.
 While it reconnects, it can renew over the device's command connection if a
 request on that connection reaches the worker and receives a valid response.
 That path needs an available session. A partition that cuts both paths ends
@@ -3155,7 +3160,8 @@ Sending a cancellation signal to Marathon's process group still works for regist
 `sshpass` is optional on controllers with OpenSSH 8.4 or newer.
 Workers can enable containment with stock `/usr/bin/perl` and its core modules.
 SSH command filters must allow supervised launches, including detached video,
-and token control requests. An SSH command filter must `exec` the original
+the `control-stream` command with stdin intact, and fallback token control
+requests. An SSH command filter must `exec` the original
 supervised command. A filter that stays in front of the wrapper can turn the
 wrapper's failure signal into status 137, which the controller can read as
 a confirmed exit. Without Perl, allow the legacy video launcher,

@@ -129,6 +129,7 @@ enum Op {
         worker_lease: Option<Arc<Lease>>,
     },
     Signal(Sig),
+    Data(Vec<u8>),
     Close,
     Adjust(u32),
 }
@@ -628,6 +629,13 @@ impl ExecChannel {
             stream,
         }
     }
+
+    pub(super) fn write_data(&self, data: Vec<u8>) -> Result<(), SshFailure> {
+        if !self.is_open() || self.shared.is_dead() || self.ops.send(Op::Data(data)).is_err() {
+            return Err(self.shared.write_failure());
+        }
+        Ok(())
+    }
     fn deliver(&self, message: ChannelMsg) -> bool {
         match message {
             ChannelMsg::Data { data } => self.receive(Stream::Stdout, &data),
@@ -872,6 +880,7 @@ async fn writer(
                 }
             }
             Op::Signal(signal) => write.signal(signal).await,
+            Op::Data(data) => write.data_bytes(data).await,
             Op::Close => write.close().await,
             Op::Adjust(bytes) => handle.adjust_window(id, bytes).await,
         };

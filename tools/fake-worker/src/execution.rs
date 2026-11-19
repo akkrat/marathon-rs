@@ -45,6 +45,7 @@ impl Execution {
         match plan {
             Plan::Action(action) => run_action(self, action, signals, stdin).await,
             Plan::Rsync(_) => anyhow::bail!("raw rsync is unavailable in process; use WorldFileBridge"),
+            Plan::SupervisorControl(_) => anyhow::bail!("a supervisor control stream requires SSH"),
             Plan::SignalPid { pid, signal, wait } => {
                 let success = tokio::select! {_=self.stop.cancelled()=>return Ok(()),r=self.processes.signal(pid,signal.clone(),wait)=>r?};
                 self.event("pid_signal", json!({"pid":pid,"signal":signal,"accepted":success}))
