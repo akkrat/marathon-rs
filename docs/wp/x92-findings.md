@@ -215,3 +215,12 @@ The reviewer's full chain (refusals on two generations, then recovery reprovisio
 acquisition) is not reproduced end to end: the recovery harness uses scripted connections, not the factory over SSH.
 The SSH witness covers the classification, the device witness the disposal that follows it, and the round-0 factory
 witness that a release (not a quarantine) frees the lease.
+
+**Round 3 verification.** On 661e4d88 (scratch worktree, new tests copied in): the SSH witness gives `Some(false)`, the
+lifecycle witness finds the command dropped; the device-level refusal witness needs the new report and is not buildable
+there. A first form of the SSH witness stopped the session before its opener ran (so the open was never tried) and
+passed on the base; it now waits for the open's failure to reach the reader first. Stress, each alone: the three new
+witnesses and the two round-2 witnesses whose mechanism changed, 50/50 each and 20/20 each with 12 busy processes.
+`cargo fmt --check`; `cargo clippy` of apple, ios, macos, core, cli and test-support with `-D warnings`; `cargo test
+--no-fail-fast` of those crates: 2,121 passed, 0 failed, 34 ignored. Not run, by the batch's rule: `scripts/check.sh`,
+`scripts/remote-check.sh`, `cargo test --workspace`.
