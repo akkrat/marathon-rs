@@ -135,7 +135,15 @@ impl RecoveryHarness {
         max: i32,
         pause: i64,
     ) -> TestResult<Self> {
-        let mut base = ProviderHarness::new(edit)?;
+        Self::settings_with_device_window(edit, max, pause, 200)
+    }
+    pub fn settings_with_device_window(
+        edit: impl FnOnce(&mut marathon_config::vendor::IosConfiguration),
+        max: i32,
+        pause: i64,
+        device_window: i64,
+    ) -> TestResult<Self> {
+        let mut base = ProviderHarness::with_device_window(edit, device_window)?;
         base.h.services.logging.registry.lock().unwrap().component_with_level(
             "marathon_ios::device::simulator_provider",
             marathon_logging::Level::DEBUG,

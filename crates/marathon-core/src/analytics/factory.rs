@@ -19,12 +19,21 @@ pub trait MetricsSetup: Send + Sync {
 pub struct MetricsProviderFactory {
     context: MetricsContext,
     setup: Arc<dyn MetricsSetup>,
+    limits: BackendLimits,
 }
 pub type AnalyticsFactory = MetricsProviderFactory;
 impl MetricsProviderFactory {
     pub fn new(context: MetricsContext, setup: Arc<dyn MetricsSetup>) -> OperationResult<Self> {
         context.register("marathon_core::analytics::factory")?;
-        Ok(Self { context, setup })
+        Ok(Self {
+            context,
+            setup,
+            limits: BackendLimits::default(),
+        })
+    }
+    pub(crate) fn with_limits(mut self, limits: BackendLimits) -> Self {
+        self.limits = limits;
+        self
     }
     pub async fn create(&self, configuration: &Configuration) -> OperationResult<Analytics> {
         self.create_for(&configuration.analytics_configuration, configuration.debug)
@@ -79,23 +88,24 @@ impl MetricsProviderFactory {
             AnalyticsConfiguration::Graphite(config) => {
                 let client = self.setup.graphite(&config.host).await?;
                 let prefix = config.prefix.clone();
-                return Ok(Analytics::new(MetricsProviderImpl::new(
-                    Arc::new(GraphiteDataSource {
-                        client,
-                        prefix,
-                        context: Some(self.context.clone()),
-                    }),
-                    config.defaults,
-                    self.context.clone(),
-                )?));
+                return Ok(Analytics::new(
+                    MetricsProviderImpl::new(
+                        Arc::new(GraphiteDataSource {
+                            client,
+                            prefix,
+                            context: Some(self.context.clone()),
+                        }),
+                        config.defaults,
+                        self.context.clone(),
+                    )?
+                    .with_limits(self.limits),
+                ));
             }
         };
         match source {
-            Ok(source) => Ok(Analytics::new(MetricsProviderImpl::new(
-                source,
-                defaults,
-                self.context.clone(),
-            )?)),
+            Ok(source) => Ok(Analytics::new(
+                MetricsProviderImpl::new(source, defaults, self.context.clone())?.with_limits(self.limits),
+            )),
             Err(error) => {
                 let cause = match error {
                     crate::error::OperationError::Failed(f) => f,

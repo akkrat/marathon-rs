@@ -22,6 +22,9 @@ use std::sync::Arc;
 pub type BinaryFactory = Arc<dyn Fn(Executor) -> Arc<AppleBinaryEnvironment> + Send + Sync>;
 /// 5.2 implements this with its concrete Arc; no setup method or cast is added to core Device.
 pub trait SimulatorSetup: Send + Sync {
+    fn lease_quarantined(&self) -> bool {
+        false
+    }
     fn setup<'a>(
         &'a self,
         record: &'a SimctlDevice,
@@ -166,6 +169,7 @@ impl<H: Clone + Send + Sync> SimulatorCreating for SimulatorFactory<H> {
                     if let Err(cleanup) = device.0.dispose().await {
                         original.suppressed.push(cleanup.into());
                     }
+                    original.lease_quarantined = built.setup.lease_quarantined();
                     Err(original)
                 }
             }

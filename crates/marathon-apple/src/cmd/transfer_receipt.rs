@@ -5,7 +5,7 @@
 use marathon_core::{
     error::{Cancellation, Failure, VendorResult},
     executor::shared::{SharedDeferred, Signal},
-    runtime::CancellationSignal,
+    runtime::{CancellationSignal, VendorClock},
 };
 use std::sync::{
     Arc,
@@ -28,6 +28,7 @@ pub enum TransferCleanup {
 /// dropped does not end the ownership.
 pub struct TransferReceipt {
     stop: Arc<Signal>,
+    pull_clock: Option<Arc<dyn VendorClock>>,
     /// An earlier end than the bridge's own for its cleanup, on the vendor clock; `i64::MAX` for none.
     by: AtomicI64,
     /// Told of every stop and deadline, so that a step of the cleanup already running sees an earlier deadline.
@@ -36,8 +37,12 @@ pub struct TransferReceipt {
 }
 impl TransferReceipt {
     pub fn new() -> Arc<Self> {
+        Self::with_clock(None)
+    }
+    fn with_clock(pull_clock: Option<Arc<dyn VendorClock>>) -> Arc<Self> {
         Arc::new(Self {
             stop: Signal::new(),
+            pull_clock,
             by: AtomicI64::new(i64::MAX),
             changed: tokio::sync::Notify::new(),
             ended: SharedDeferred::new(),
@@ -48,9 +53,13 @@ impl TransferReceipt {
     /// later stop and the cleanup is under way.
     pub fn stop(&self, reason: Cancellation, by: Option<i64>) {
         if let Some(by) = by {
-            self.by.fetch_min(by.min(i64::MAX - 1), Ordering::AcqRel);
+            self.limit_to(by);
         }
         self.stop.cancel(reason);
+        self.changed.notify_waiters();
+    }
+    fn limit_to(&self, deadline: i64) {
+        self.by.fetch_min(deadline.min(i64::MAX - 1), Ordering::AcqRel);
         self.changed.notify_waiters();
     }
     /// How it ended, once it has.
@@ -64,8 +73,43 @@ impl TransferReceipt {
     pub async fn wait_in(&self, signal: Arc<dyn CancellationSignal>) -> VendorResult<TransferCleanup> {
         Ok((*self.ended.wait_in(signal).await?).clone())
     }
-    pub(crate) fn stop_signal(&self) -> Arc<Signal> {
-        self.stop.clone()
+    fn pull_stop_at(&self) -> Option<i64> {
+        self.pull_clock.as_ref()?;
+        self.deadline()
+            .map(|by| by.saturating_sub(super::remote::rsync::rsync_file_bridge::STOP_CLEANUP_MILLIS))
+    }
+    pub(crate) fn pull_deadline_reason() -> Cancellation {
+        super::cancelled("Device shutdown window has no time left for the artifact pull")
+    }
+    pub(crate) fn stop_reason(&self) -> Option<Cancellation> {
+        self.stop.reason().or_else(|| {
+            let clock = self.pull_clock.as_ref()?;
+            (clock.now_millis() >= self.pull_stop_at()?).then(Self::pull_deadline_reason)
+        })
+    }
+    pub(crate) async fn stopped(&self) -> Cancellation {
+        loop {
+            let changed = self.changed.notified();
+            let mut changed = std::pin::pin!(changed);
+            changed.as_mut().enable();
+            if let Some(reason) = self.stop_reason() {
+                return reason;
+            }
+            if let (Some(clock), Some(at)) = (&self.pull_clock, self.pull_stop_at()) {
+                tokio::select! { biased;
+                    reason = self.stop.cancelled() => return reason,
+                    _ = &mut changed => {},
+                    _ = clock.delay(at.saturating_sub(clock.now_millis()), Signal::new()) => {
+                        return Self::pull_deadline_reason();
+                    }
+                }
+            } else {
+                tokio::select! { biased;
+                    reason = self.stop.cancelled() => return reason,
+                    _ = changed => {},
+                }
+            }
+        }
     }
     /// Ready at the next stop or deadline given; enable it before reading `deadline`, so that none is missed.
     pub(crate) fn changed(&self) -> tokio::sync::futures::Notified<'_> {
@@ -76,5 +120,36 @@ impl TransferReceipt {
     }
     pub(crate) fn end(&self, cleanup: TransferCleanup) {
         self.ended.complete(Ok(cleanup));
+    }
+}
+
+/// Registered under the device's seal lock so both existing and late artifact
+/// pulls share the stop's deadline. Receipts carry the clock only for pulls.
+#[derive(Default)]
+pub struct DevicePulls {
+    receipts: Vec<Arc<TransferReceipt>>,
+    deadline: Option<i64>,
+}
+impl DevicePulls {
+    pub fn register(&mut self, clock: Arc<dyn VendorClock>) -> Arc<TransferReceipt> {
+        self.receipts.retain(|r| r.ended() != Some(TransferCleanup::Confirmed));
+        let receipt = TransferReceipt::with_clock(Some(clock));
+        if let Some(by) = self.deadline {
+            receipt.limit_to(by);
+        }
+        self.receipts.push(receipt.clone());
+        receipt
+    }
+    pub fn limit_to(&mut self, deadline: i64) {
+        let by = self.deadline.map_or(deadline, |prior| prior.min(deadline));
+        if self.deadline != Some(by) {
+            self.deadline = Some(by);
+            for receipt in &self.receipts {
+                receipt.limit_to(by);
+            }
+        }
+    }
+    pub fn snapshot(&self) -> Vec<Arc<TransferReceipt>> {
+        self.receipts.clone()
     }
 }

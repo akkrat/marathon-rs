@@ -411,15 +411,8 @@ impl CommandExecutor for SshCommandExecutor {
         })
     }
     fn close(&self) -> VendorFuture<'_, ()> {
-        let connection = self.connection.clone();
-        let runtime = self.runtime.clone();
         Box::pin(async move {
-            let (tx, rx) = oneshot::channel();
-            runtime.spawn(Box::pin(async move {
-                let _ = tx.send(connection.close().await);
-                Ok(())
-            }));
-            if let Ok(Err(error)) = rx.await
+            if let Err(error) = self.connection.close().await
                 && error.is_io()
             {
                 // Kotlin's message really lacks a separator between address and port (kept under D5).
@@ -430,5 +423,8 @@ impl CommandExecutor for SshCommandExecutor {
             }
             Ok(())
         })
+    }
+    fn abandon(&self) {
+        self.connection.abandon();
     }
 }

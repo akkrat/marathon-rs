@@ -10,7 +10,7 @@ use marathon_apple::{
     apple_device_registry::AppleDeviceRegistry,
     bin::{AppleBinaryEnvironment, xcrun::xcresulttool::describe_timeout},
     cmd::{failure, retained_tasks::RetainedTasks},
-    device::connection_factory::{Bridge, ConnectionFactory, Executor, transport_text},
+    device::connection_factory::{Bridge, ConnectionFactory, Executor, bound_release, transport_text},
 };
 use marathon_config::{
     binding::{BindingContext, ConfigurationError, Profile},
@@ -21,7 +21,7 @@ use marathon_core::{
     analytics::track_device_operation,
     error::{Failure, VendorError, VendorResult},
     executor::shared::SharedChannel,
-    runtime::{EventChannel, VendorFuture},
+    runtime::{EventChannel, VendorClock, VendorFuture},
     vendor::{Device, DeviceEvent, DeviceProvider, DeviceRef, VendorContext},
 };
 use marathon_error::{ConfigKind, FailureKind};
@@ -38,6 +38,16 @@ pub trait MacosConnections: Send + Sync {
     }
     fn create(&self, transport: Transport, context: VendorContext) -> VendorFuture<'_, (Option<Executor>, Bridge)>;
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()>;
+    fn release_before(
+        &self,
+        executor: Executor,
+        deadline: Option<i64>,
+        clock: Arc<dyn VendorClock>,
+    ) -> VendorFuture<'_, ()> {
+        Box::pin(
+            async move { bound_release(clock.as_ref(), deadline, &executor, self.release(executor.clone())).await },
+        )
+    }
     /// D93: instead of `release`, for a Mac whose work could not be confirmed to have ended: its use of the connection is
     /// kept for the rest of the run and never handed to another acquisition. Keeping it is the default.
     fn quarantine(&self, executor: &Executor) {
@@ -57,6 +67,14 @@ impl MacosConnections for Arc<ConnectionFactory> {
     }
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()> {
         Box::pin(async move { self.dispose(executor).await })
+    }
+    fn release_before(
+        &self,
+        executor: Executor,
+        deadline: Option<i64>,
+        _: Arc<dyn VendorClock>,
+    ) -> VendorFuture<'_, ()> {
+        Box::pin(async move { self.dispose_before(executor, deadline).await })
     }
     fn quarantine(&self, executor: &Executor) {
         ConnectionFactory::quarantine(self, executor)
@@ -268,23 +286,13 @@ impl AppleMacosProvider {
             // Its disposal has quarantined the lease in the factory already.
             return Ok(());
         }
-        let release = self.connections.release(device.executor());
-        let Some(deadline) = device.shutdown_deadline() else {
-            return release.await;
-        };
-        // D93: the wait is held to the Mac's window; a close that outlasts it goes on in the factory's own task.
-        let clock = self.options.dependencies.clock.clone();
-        let left = deadline.saturating_sub(clock.now_millis()).max(0);
-        tokio::select! { biased;
-            released = release => released,
-            _ = clock.delay(left, marathon_core::executor::shared::Signal::new()) => {
-                self.log(
-                    Level::DEBUG,
-                    format!("Not waiting for the connection of {} to close beyond its window", device.udid()),
-                );
-                Ok(())
-            }
-        }
+        self.connections
+            .release_before(
+                device.executor(),
+                device.shutdown_deadline(),
+                self.options.dependencies.clock.clone(),
+            )
+            .await
     }
     async fn release_after_disposal_logged(&self, device: &MacosDevice) {
         let host = device.executor().host().id.clone();
@@ -507,6 +515,15 @@ impl DeviceProvider for AppleMacosProvider {
                 result?;
             }
             Ok(())
+        })
+    }
+    fn terminate_after_stop(&self) -> VendorFuture<'_, ()> {
+        Box::pin(async move {
+            let retained = self.retained.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            for device in retained {
+                device.seal_for_stop();
+            }
+            self.terminate().await
         })
     }
     fn subscribe(&self) -> Arc<dyn EventChannel<DeviceEvent>> {

@@ -128,12 +128,13 @@ struct State {
     transfers: Vec<Arc<marathon_apple::cmd::TransferReceipt>>,
     /// D93 (round 9): pulls from this simulator (artifact jobs, results), registered as its sends are: one still running at
     /// its disposal keeps the on-dispose lifecycle and the release of its lease from running beside it.
-    pulls: Vec<Arc<marathon_apple::cmd::TransferReceipt>>,
+    pulls: marathon_apple::cmd::DevicePulls,
     /// D87: the preparation that has not ended in a ready simulator.
     episode: Option<PreparationEpisode>,
     /// D93: the simulator is stopping, sealed by the run's stop or by its first disposal, whichever came first: when, on
     /// the vendor clock, its work is to have ended. Every wait for that work ends there; no new work starts.
     shutdown: Option<Arc<execution::Shutdown>>,
+    provider_deadline: Option<i64>,
     /// D93: its disposal could not confirm that its work had ended: its lease is quarantined, not released.
     quarantined: bool,
     last_session: Option<Arc<marathon_apple::xcodebuild_session::XcodebuildSession>>,
@@ -248,7 +249,8 @@ impl AppleSimulatorDevice {
             running: None,
             preparations: Vec::new(),
             transfers: Vec::new(),
-            pulls: Vec::new(),
+            pulls: Default::default(),
+            provider_deadline: None,
             episode: None,
             shutdown: None,
             quarantined: false,
@@ -382,6 +384,9 @@ impl AppleSimulatorDevice {
     }
 }
 impl SimulatorSetup for AppleSimulatorDevice {
+    fn lease_quarantined(&self) -> bool {
+        self.quarantined()
+    }
     fn setup<'a>(
         &'a self,
         record: &'a SimctlDevice,

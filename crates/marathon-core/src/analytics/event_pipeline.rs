@@ -171,8 +171,23 @@ impl TrackerInternal for ExecutionReportGenerator {
         Box::pin(async move {
             let report = self.snapshot();
             let mut first = None;
+            let interval = Duration::from_secs(60);
+            let mut next_notice = Deadline::now() + interval;
             for reporter in &self.reporters {
-                if let Err(error) = reporter.generate(&report).await {
+                let mut generate = reporter.generate(&report);
+                let result = loop {
+                    tokio::select! {
+                        biased;
+                        result = &mut generate => break result,
+                        _ = sleep_until(next_notice), if self.log.is_some() => {
+                            if let Some((log, logger)) = &self.log {
+                                log(logger, Level::WARN, &format!("reports are still being written ({})", reporter.name()), None);
+                            }
+                            next_notice = Deadline::now() + interval;
+                        }
+                    }
+                };
+                if let Err(error) = result {
                     close_failed(&mut first, error, &self.log)?;
                 }
             }
@@ -967,7 +982,16 @@ pub struct TrackerFactory {
     pub log: ServiceLog,
 }
 impl TrackerFactory {
-    pub async fn create(mut self) -> crate::error::OperationResult<EventPipeline> {
+    pub async fn create(self) -> crate::error::OperationResult<EventPipeline> {
+        let limits = self.limits();
+        self.create_with_limits(limits).await
+    }
+    pub(crate) fn limits(&self) -> BackendLimits {
+        self.backend
+            .as_ref()
+            .map_or_else(BackendLimits::default, |backend| backend.factory.limits())
+    }
+    pub(crate) async fn create_with_limits(mut self, limits: BackendLimits) -> OperationResult<EventPipeline> {
         let io = self.io.clone();
         on_io(
             io.as_ref(),
@@ -986,7 +1010,7 @@ impl TrackerFactory {
                     match backend.factory.create(request).await.map_err(vendor_error)? {
                         Ok(Some(tracker)) => delegates.push(Arc::new(RemoteTracker::new(
                             self.io.as_ref(),
-                            BackendGuard::new(tracker, self.log.clone(), self.logger.clone(), backend.factory.limits()),
+                            BackendGuard::new(tracker, self.log.clone(), self.logger.clone(), limits),
                             REMOTE_QUEUE_CAPACITY,
                         ))),
                         Ok(None) => {}
@@ -1029,6 +1053,46 @@ mod kind_tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     struct Unused;
     impl TrackerInternalAdapter for Unused {}
+
+    struct SlowReporter;
+    impl Reporter for SlowReporter {
+        fn generate<'a>(&'a self, _: &'a ExecutionReport) -> ServiceFuture<'a, ()> {
+            Box::pin(async {
+                tokio::time::sleep(Duration::from_secs(125)).await;
+                Ok(())
+            })
+        }
+    }
+    #[tokio::test(start_paused = true)]
+    async fn a_slow_reporter_warns_every_minute_and_still_completes_d95() {
+        let started = Deadline::now();
+        let notices = Arc::new(Mutex::new(Vec::new()));
+        let log: ServiceLog = {
+            let notices = notices.clone();
+            Arc::new(move |_, level, line, _| {
+                notices
+                    .lock()
+                    .unwrap()
+                    .push((level, started.elapsed().as_secs(), line.to_owned()))
+            })
+        };
+        ExecutionReportGenerator::new(vec![Arc::new(SlowReporter)])
+            .with_close_log(log, LogSettings::default().component("reports"))
+            .close()
+            .await
+            .unwrap();
+        assert_eq!(started.elapsed().as_secs(), 125);
+        let notices = notices.lock().unwrap();
+        assert_eq!(
+            notices.iter().map(|(level, at, _)| (*level, *at)).collect::<Vec<_>>(),
+            [(Level::WARN, 60), (Level::WARN, 120)]
+        );
+        assert!(
+            notices.iter().all(
+                |(_, _, line)| line.starts_with("reports are still being written") && line.contains("SlowReporter")
+            )
+        );
+    }
 
     #[test]
     fn backend_deduplication_keeps_class_and_message_equivalence() {

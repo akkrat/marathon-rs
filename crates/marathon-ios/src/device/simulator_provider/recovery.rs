@@ -71,6 +71,7 @@ pub struct SimulatorRecovery {
     state: Mutex<PolicyState>,
     recoveries: RetainedTasks,
     retries: RetainedTasks,
+    task_admission: Mutex<()>,
     recover_cancel: Arc<Signal>,
     retry_cancel: Arc<Signal>,
     permits: Semaphore,
@@ -87,6 +88,7 @@ impl SimulatorRecovery {
             state: Mutex::default(),
             recoveries: RetainedTasks::default(),
             retries: RetainedTasks::default(),
+            task_admission: Mutex::default(),
             recover_cancel: Signal::new(),
             retry_cancel: Signal::new(),
             permits: Semaphore::new(2),
@@ -96,6 +98,17 @@ impl SimulatorRecovery {
     }
     fn state(&self) -> MutexGuard<'_, PolicyState> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    fn spawn(
+        &self,
+        tasks: &RetainedTasks,
+        runtime: &dyn VendorRuntime,
+        work: impl Future<Output = VendorResult<()>> + Send + 'static,
+    ) {
+        let _admission = self.task_admission.lock().unwrap_or_else(|e| e.into_inner());
+        if self.recover_cancel.reason().is_none() {
+            tasks.spawn_interruptible(runtime, work);
+        }
     }
     fn provider(&self) -> VendorResult<Arc<AppleSimulatorProvider>> {
         self.state()
@@ -297,50 +310,49 @@ impl SimulatorRecovery {
             ..provider.services.context.clone()
         };
         let mut claims = provider.claim(targets.iter().map(|t| target_key(t, &transport)));
-        self.retries
-            .spawn(provider.services.runtime.clone().as_ref(), async move {
-                let result = this
-                    .retry(&provider, &transport, &pending, started, failure, caller, &mut claims)
-                    .await;
-                pending.close();
-                let mut returning = Vec::new();
-                if result.is_ok()
-                    && let Some(left) = pending.take()
-                {
-                    // D44: what the attempt that ended it acted for has been logged as out of the run, so no sibling's
-                    // plan takes it up. One offered after a re-add that attempt predates, or a returning simulator that
-                    // joined after it started, gets a retry of its own. A dead entry is nobody's.
-                    let mut covered = Vec::new();
-                    for entry in left {
-                        let key = target_key(&entry.target, &transport);
-                        match standing(&provider, &transport, &entry, &claims) {
-                            Standing::Dead => {}
-                            Standing::Newer => returning.push(entry.target),
-                            Standing::Own if !claims.0.contains_key(&key) && provider.parked_for_retry(&key) => {
-                                returning.push(entry.target)
-                            }
-                            Standing::Own => covered.push(entry.target),
+        self.spawn(&self.retries, provider.services.runtime.clone().as_ref(), async move {
+            let result = this
+                .retry(&provider, &transport, &pending, started, failure, caller, &mut claims)
+                .await;
+            pending.close();
+            let mut returning = Vec::new();
+            if result.is_ok()
+                && let Some(left) = pending.take()
+            {
+                // D44: what the attempt that ended it acted for has been logged as out of the run, so no sibling's
+                // plan takes it up. One offered after a re-add that attempt predates, or a returning simulator that
+                // joined after it started, gets a retry of its own. A dead entry is nobody's.
+                let mut covered = Vec::new();
+                for entry in left {
+                    let key = target_key(&entry.target, &transport);
+                    match standing(&provider, &transport, &entry, &claims) {
+                        Standing::Dead => {}
+                        Standing::Newer => returning.push(entry.target),
+                        Standing::Own if !claims.0.contains_key(&key) && provider.parked_for_retry(&key) => {
+                            returning.push(entry.target)
                         }
-                    }
-                    with_claims_sync(claims, || {
-                        provider.give_up_targets(&transport, &covered, ParkedFor::GivenUp)
-                    });
-                    let mut seen = IndexSet::new();
-                    returning.retain(|target| seen.insert(target_key(target, &transport)));
-                }
-                {
-                    let mut state = this.state();
-                    if state.pending.get(&transport).is_some_and(|p| Arc::ptr_eq(p, &pending)) {
-                        state.pending.shift_remove(&transport);
+                        Standing::Own => covered.push(entry.target),
                     }
                 }
-                if !returning.is_empty() {
-                    let claims = provider.claim_now(returning.iter().map(|t| target_key(t, &transport)));
-                    let failure = missing_failure(returning.len());
-                    with_claims_sync(claims, || this.retry_later(transport, returning, started, failure))?;
+                with_claims_sync(claims, || {
+                    provider.give_up_targets(&transport, &covered, ParkedFor::GivenUp)
+                });
+                let mut seen = IndexSet::new();
+                returning.retain(|target| seen.insert(target_key(target, &transport)));
+            }
+            {
+                let mut state = this.state();
+                if state.pending.get(&transport).is_some_and(|p| Arc::ptr_eq(p, &pending)) {
+                    state.pending.shift_remove(&transport);
                 }
-                result
-            });
+            }
+            if !returning.is_empty() {
+                let claims = provider.claim_now(returning.iter().map(|t| target_key(t, &transport)));
+                let failure = missing_failure(returning.len());
+                with_claims_sync(claims, || this.retry_later(transport, returning, started, failure))?;
+            }
+            result
+        });
         Ok(())
     }
     /// `claims` ends as those of the last attempt, which decide for what is left when the retry ends.
@@ -426,6 +438,7 @@ impl SimulatorRecovery {
                     continue;
                 }
             };
+            let lease = PendingLease::new(provider.services.connections.as_ref(), &executor);
             let result: VendorResult<bool> = with_claims(claims.clone(), async {
                 let connected = provider.services.timing.elapsed()?;
                 provider.log(Level::WARN, || format!("Connected to worker {worker} on attempt {attempt}, {} ms after the first one, setting up its devices", connected.wrapping_sub(started)), None);
@@ -478,7 +491,7 @@ impl SimulatorRecovery {
                     }
                 }
             }).await;
-            let released = provider.services.connections.release(executor).await;
+            let released = lease.release(executor).await;
             // Kotlin's finally releases even a denied admission or a failed setup.
             let retry = finish_retry_attempt(result, released, |error| {
                 provider.log(
@@ -709,14 +722,17 @@ impl SimulatorRecovery {
         let transport = transport.clone();
         let caller = caller.clone();
         let claims = provider.claim_now([apple_id(device.udid(), &transport)]);
-        self.recoveries
-            .spawn(provider.services.runtime.clone().as_ref(), async move {
+        self.spawn(
+            &self.recoveries,
+            provider.services.runtime.clone().as_ref(),
+            async move {
                 with_claims(
                     claims,
                     this.recover(&provider, &transport, &[device], loss, readded, true, caller),
                 )
                 .await
-            });
+            },
+        );
         Ok(())
     }
     /// D44: who takes what a worker-loss recovery couldn't set up. An unreachable worker has its connection retry, a
@@ -1086,28 +1102,32 @@ impl ProviderRecovery for SimulatorRecovery {
                 };
                 // D44: the recovery acts for these simulators at their generations now.
                 let claims = provider.claim_now(lost.iter().map(|d| apple_id(d.udid(), &transport)));
-                self.recoveries
-                    .spawn(provider.services.runtime.clone().as_ref(), async move {
+                self.spawn(
+                    &self.recoveries,
+                    provider.services.runtime.clone().as_ref(),
+                    async move {
                         with_claims(
                             claims,
                             this.recover(&provider, &transport, &lost, loss, readded, false, caller),
                         )
                         .await
-                    });
+                    },
+                );
             }
             Ok(())
         })
     }
     fn terminate(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
-            self.recover_cancel.cancel(requested("Provider terminated"));
-            for task in self.recoveries.take() {
-                let _ = task.join().await;
-            }
-            self.retry_cancel.cancel(requested("Provider terminated"));
-            for task in self.retries.take() {
-                let _ = task.join().await;
-            }
+            let tasks = {
+                let _admission = self.task_admission.lock().unwrap_or_else(|e| e.into_inner());
+                self.recover_cancel.cancel(requested("Provider terminated"));
+                self.retry_cancel.cancel(requested("Provider terminated"));
+                let mut tasks = self.recoveries.take();
+                tasks.extend(self.retries.take());
+                tasks
+            };
+            marathon_core::executor::bridge::JoiningTasks(tasks).join().await;
             Ok(())
         })
     }

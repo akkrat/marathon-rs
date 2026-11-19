@@ -31,8 +31,7 @@ impl Drop for InstalledLines<'_> {
 /// it was sealed. Sealed, it starts nothing new.
 pub(super) struct Shutdown {
     window: Arc<ShutdownWindow>,
-    /// Sealed by the run's stop, whose published bound the lifecycle and the release share; a disposal outside a stop
-    /// runs them under their own commands' limits, as before.
+    /// A run-stopped device can use the D93 lifecycle floor during provider teardown.
     by_run_stop: bool,
     /// D93 (round 7): why it was sealed, which alone classifies a refusal after it.
     pub(super) cause: SealCause,
@@ -349,22 +348,43 @@ impl AppleSimulatorDevice {
     /// no blocking: the run's stop calls it on the core thread.
     pub(super) fn seal(&self) -> Arc<Shutdown> {
         let mut state = self.state();
-        self.seal_locked(&mut state, SealCause::RunStop)
+        self.seal_locked(&mut state, SealCause::RunStop, None)
     }
     /// D93 (round 8): the provider's termination at the run's end, just before it disposes of the simulator: a refusal after
     /// it is an orderly cancellation; the disposal keeps its own limits (not a run's stop).
-    pub fn seal_for_termination(&self) {
+    pub(crate) fn seal_for_termination(&self, deadline: i64) {
         let mut state = self.state();
-        self.seal_locked(&mut state, SealCause::Termination);
+        state.provider_deadline = Some(deadline);
+        self.seal_locked(&mut state, SealCause::Termination, Some(deadline));
+    }
+    pub(crate) fn limit_pulls_for_provider_shutdown(&self, deadline: i64) {
+        let mut state = self.state();
+        let deadline = state
+            .shutdown
+            .as_ref()
+            .map_or(deadline, |s| s.window.deadline.min(deadline));
+        state.pulls.limit_to(deadline);
+    }
+    pub(crate) fn quarantine_after_provider_timeout(&self, deadline: i64) -> bool {
+        let mut state = self.state();
+        state.pulls.limit_to(deadline);
+        if let Some(shutdown) = &state.shutdown {
+            shutdown.window.decide(Termination::Unconfirmed(vec![
+                "provider work on it did not stop".to_owned(),
+            ]));
+        }
+        drop(state);
+        self.mark_quarantined("provider work on it did not stop")
     }
     /// The run's stop: its window also bounds the on-dispose lifecycle and the lease's release (D93's 75 s).
     pub(super) fn seal_for_run_stop(&self) {
         let mut state = self.state();
-        self.seal_locked(&mut state, SealCause::RunStop);
+        let shutdown = self.seal_locked(&mut state, SealCause::RunStop, None);
+        state.pulls.limit_to(shutdown.window.deadline);
     }
     /// D93 (round 7): records the seal with its cause, closes the device's command gate in the same critical section, and
     /// stops at once what the device registered before it (`stop_all`): nothing registered before the seal starts after it.
-    fn seal_locked(&self, state: &mut State, cause: SealCause) -> Arc<Shutdown> {
+    fn seal_locked(&self, state: &mut State, cause: SealCause, provider_deadline: Option<i64>) -> Arc<Shutdown> {
         if let Some(shutdown) = &state.shutdown {
             return shutdown.clone();
         }
@@ -375,7 +395,7 @@ impl AppleSimulatorDevice {
             .now_millis()
             .saturating_add(self.services.timeouts.cancelled_batch_millis.max(0));
         let shutdown = Arc::new(Shutdown {
-            window: ShutdownWindow::new(deadline),
+            window: ShutdownWindow::new(deadline.min(provider_deadline.unwrap_or(i64::MAX))),
             by_run_stop: cause == SealCause::RunStop,
             cause,
             batches: state.running.clone().into_iter().collect(),
@@ -598,10 +618,15 @@ impl AppleSimulatorDevice {
     /// D93: the simulator's lifecycle and lease are no longer safe: once, one WARN (`warning`), its commands revoked with
     /// `why`, its lease quarantined in its connection factory now, and the simulator retired.
     fn quarantine(&self, warning: String, why: String) {
+        if self.mark_quarantined(&why) {
+            self.log(Level::WARN, warning, None);
+        }
+    }
+    fn mark_quarantined(&self, why: &str) -> bool {
         {
             let mut state = self.state();
             if state.quarantined {
-                return;
+                return false;
             }
             state.quarantined = true;
             state.retired = true;
@@ -610,7 +635,7 @@ impl AppleSimulatorDevice {
             FailureKind::IllegalState,
             format!("Device {}: {why}", self.serial),
         ));
-        self.log(Level::WARN, warning, None);
+        true
     }
     /// D93: what could not be confirmed to have ended.
     fn quarantine_unconfirmed(&self, left: &[String]) {
@@ -627,20 +652,12 @@ impl AppleSimulatorDevice {
         );
     }
     /// D93: the on-dispose lifecycle of a simulator whose work was confirmed to have ended. After the run's stop, within
-    /// what is left of its window, and at least its force reserve (5 s of 70): a sibling that held the stop to the window's
-    /// end must not cost a confirmed simulator its lifecycle. A lifecycle that does not end in that time may have left a
-    /// command running: quarantined. Outside a stop it runs as before, each command within its own limit.
-    async fn run_on_dispose(&self, shutdown: &Shutdown) -> VendorResult<()> {
+    /// what is left of its window, and at least its force reserve (5 s of 70), within any provider deadline.
+    /// Outside a run stop the lifecycle shares the original device window. An unconfirmed command quarantines the lease.
+    async fn run_on_dispose(&self, shutdown: &Shutdown) -> VendorResult<VendorResult<()>> {
         let actions = &self.services.vendor.lifecycle_configuration.on_dispose;
         if actions.is_empty() || !self.connected() {
-            return Ok(());
-        }
-        if !shutdown.by_run_stop {
-            let context = VendorContext {
-                cancellation: Signal::new(),
-                ..self.services.context.clone()
-            };
-            return marathon_apple::cmd::device_commands::as_lifecycle(self.handle_lifecycle(actions, &context)).await;
+            return Ok(Ok(()));
         }
         let limit = marathon_core::error::duration_for_log(marathon_apple::bin::java_duration_of_millis(
             self.services.timeouts.cancelled_batch_millis,
@@ -657,7 +674,14 @@ impl AppleSimulatorDevice {
         let clock = self.services.context.clock.clone();
         let reserve =
             marathon_apple::cmd::device_commands::force_reserve_millis(self.services.timeouts.cancelled_batch_millis);
-        let left = shutdown.window.deadline.saturating_sub(clock.now_millis()).max(reserve);
+        let now = clock.now_millis();
+        let left = shutdown.window.deadline.saturating_sub(now);
+        let left = if shutdown.by_run_stop { left.max(reserve) } else { left };
+        let left = left.min(self.state().provider_deadline.unwrap_or(i64::MAX).saturating_sub(now));
+        if left <= 0 {
+            lifecycle_cut(self, "had no time left to run");
+            return Ok(Ok(()));
+        }
         // D93 (review rounds 2, 3): at the bound the disposal stops waiting for the lifecycle, and does not drop it: it runs
         // in a task of the simulator's own, cancelled there, so that a command whose reply is pending still gets its
         // executor's own bounded cleanup (D30's close; U154's CLOSE for an exec with no reply) rather than being cut off.
@@ -667,41 +691,50 @@ impl AppleSimulatorDevice {
             cancellation: signal.clone(),
             ..self.services.context.clone()
         };
+        // D84: a panic reported by the spawned lifecycle still belongs to the
+        // disposal. Ordinary command errors keep disposal's best-effort policy.
         let ran = SharedDeferred::new();
-        {
+        let task = {
             let (device, actions, ran) = (self.this()?, actions.clone(), ran.clone());
             self.retained
-                .spawn_published(self.services.runtime.as_ref(), ran, async move {
-                    marathon_apple::cmd::device_commands::as_lifecycle(device.handle_lifecycle(&actions, &context))
-                        .await
-                });
-        }
+                .spawn_published_interruptible(self.services.runtime.as_ref(), ran, async move {
+                    Ok(
+                        marathon_apple::cmd::device_commands::as_lifecycle(device.handle_lifecycle(&actions, &context))
+                            .await,
+                    )
+                })
+        };
         let ended = tokio::select! { biased;
             ended = ran.wait() => Some(ended),
             _ = clock.delay(left, Signal::new()) => None,
         };
         match ended {
             Some(ended) => {
-                ended?;
+                return Ok((*ended?).clone());
             }
             None => {
-                signal.cancel(marathon_core::error::Cancellation::Requested(failure(
+                let reason = marathon_core::error::Cancellation::Requested(failure(
                     FailureKind::JobCancelled,
                     format!("Device {}'s on-dispose lifecycle ran out of its window", self.serial),
-                )));
+                ));
+                signal.cancel(reason.clone());
                 lifecycle_cut(self, "did not end");
+                if !shutdown.by_run_stop {
+                    task.interrupt(reason);
+                }
             }
         }
-        Ok(())
+        Ok(Ok(()))
     }
-    /// D93: the window's end, on the vendor clock, if the run's stop sealed the simulator: its lease's release is held to
-    /// it (a disposal outside a stop waits for the release as before).
+    /// The earlier of the run stop's device deadline and provider termination's deadline.
     pub fn shutdown_deadline(&self) -> Option<i64> {
-        self.state()
+        let state = self.state();
+        let run_stop = state
             .shutdown
             .as_ref()
             .filter(|s| s.by_run_stop)
-            .map(|s| s.window.deadline)
+            .map(|s| s.window.deadline);
+        run_stop.into_iter().chain(state.provider_deadline).min()
     }
     /// Cancels the batch, the preparations and the sends given and waits for all of them within one bound, the cancelled
     /// batch's. U179: it waits on their completion cells, not on the retained tasks, which also hold disposal itself.
@@ -831,14 +864,14 @@ impl AppleSimulatorDevice {
     }
     pub async fn dispose_and_join(&self) -> VendorResult<()> {
         let started = SharedDeferred::new();
-        let (current, shutdown, owner) = {
+        let (current, shutdown, owner, provider_deadline) = {
             let mut state = self.state();
             let owner = state.disposal.is_none();
             let current = state.disposal.get_or_insert_with(|| started.clone()).clone();
             // U179: from here on no preparation starts (`prepare_device` checks `disposal` under this lock), and, D91, no
             // send (`send_stop`). D93: the window is the one the run's stop sealed, or starts with this first disposal.
-            let shutdown = self.seal_locked(&mut state, SealCause::Disposal);
-            (current, shutdown, owner)
+            let shutdown = self.seal_locked(&mut state, SealCause::Disposal, None);
+            (current, shutdown, owner, state.provider_deadline)
         };
         if owner {
             let device = self.this()?;
@@ -847,35 +880,34 @@ impl AppleSimulatorDevice {
             self.retained.spawn(self.services.runtime.as_ref(), async move {
                 // D84: a panic is published to every caller too; the device is then as disposed as the panic left it.
                 let outcome = panic_as_error(async {
-                    let disposed: VendorResult<()> = async {
-                        // D93: only work confirmed to have ended lets the on-dispose lifecycle run, within the window.
-                        // D93 (round 9): a pull still running keeps the lifecycle from running beside it, as unconfirmed work
-                        // does; one left after the artifact drain is stopped (D91's bound).
-                        let verdict = device.finish_work().await;
-                        // D93 (round 10): the look at its pulls closes them, under the lock they register under: a pull
-                        // asked for after it is refused as it starts (an undelivered artifact), whatever the seal's cause.
-                        let pulls = {
-                            let state = device.state();
-                            device.commands.close_pulls(failure(
-                                FailureKind::IllegalState,
-                                format!("Device {} is being disposed", device.serial),
-                            ));
-                            state.pulls.clone()
-                        };
-                        let pulls_left = marathon_apple::cmd::device_commands::settle_pulls(
-                            &pulls,
-                            &device.serial,
-                            shutdown.cause.stops_pulls(),
-                        );
-                        match verdict {
-                            Termination::Confirmed if pulls_left.is_empty() => device.run_on_dispose(&shutdown).await?,
-                            Termination::Confirmed => device.quarantine_unconfirmed(&pulls_left),
-                            Termination::Unconfirmed(left) => device.quarantine_unconfirmed(&left),
+                    // D93: only work confirmed to have ended lets the on-dispose lifecycle run, within the window.
+                    // D93 (round 9): a pull still running keeps the lifecycle from running beside it, as unconfirmed work
+                    // does; one left after the artifact drain is stopped (D91's bound).
+                    let verdict = device.finish_work().await;
+                    // D93 (round 10): the look at its pulls closes them, under the lock they register under: a pull
+                    // asked for after it is refused as it starts (an undelivered artifact), whatever the seal's cause.
+                    let pulls = {
+                        let state = device.state();
+                        device.commands.close_pulls(failure(
+                            FailureKind::IllegalState,
+                            format!("Device {} is being disposed", device.serial),
+                        ));
+                        state.pulls.snapshot()
+                    };
+                    let pulls_left = marathon_apple::cmd::device_commands::settle_pulls(
+                        &pulls,
+                        &device.serial,
+                        shutdown.cause.stops_pulls(),
+                    );
+                    match verdict {
+                        Termination::Confirmed if device.quarantined() => {}
+                        Termination::Confirmed if pulls_left.is_empty() => {
+                            return device.run_on_dispose(&shutdown).await;
                         }
-                        Ok(())
+                        Termination::Confirmed => device.quarantine_unconfirmed(&pulls_left),
+                        Termination::Unconfirmed(left) => device.quarantine_unconfirmed(&left),
                     }
-                    .await;
-                    Ok(disposed)
+                    Ok(Ok(()))
                 })
                 .await;
                 match outcome {
@@ -901,6 +933,19 @@ impl AppleSimulatorDevice {
                 }
                 Ok(())
             });
+        }
+        // A disposal already underway may have started before the provider supplied its deadline.
+        if !owner && let Some(deadline) = provider_deadline {
+            let clock = &self.services.context.clock;
+            return tokio::select! { biased;
+                result = current.wait() => result.map(|_| ()),
+                _ = clock.delay(deadline.saturating_sub(clock.now_millis()), Signal::new()) => {
+                    if self.quarantine_after_provider_timeout(deadline) {
+                        self.log(Level::WARN, format!("Device {} disposal timed out. Keeping its lease quarantined.", self.serial), None);
+                    }
+                    Ok(())
+                }
+            };
         }
         current.wait().await?;
         Ok(())

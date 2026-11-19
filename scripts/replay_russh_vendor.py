@@ -4,7 +4,7 @@ committed tree.
 
     python3 -I scripts/replay_russh_vendor.py <russh-0.64.1.crate> <empty output directory>
 
-The steps, in order: check the archive's SHA-256, unpack it, apply patches 1-4 with `git apply` (no fuzz), then the
+The steps, in order: check the archive's SHA-256, unpack it, apply patches 1-5 with `git apply` (no fuzz), then the
 adaptations below, each of which must match exactly where it expects to. LICENSE and README.marathon.md are not in the
 archive and are copied from the committed tree. Exits 1 with a list of differences if the result is not byte-for-byte the
 tracked files of vendor/russh. Not a gate step: run it after changing a patch or an adaptation.
@@ -26,6 +26,7 @@ PATCHES = [
     "tools/fake-worker/russh-server-hooks.patch",
     "crates/marathon-apple/russh-manual-window.patch",
     "crates/marathon-apple/russh-open-failure-description.patch",
+    "crates/marathon-apple/russh-abort-client.patch",
 ]
 REMOVED = [".cargo_vcs_info.json", "Cargo.lock"]
 COPIED = ["LICENSE", "README.marathon.md"]
@@ -42,7 +43,7 @@ HEADERS = {
     "src/client/encrypted.rs": "// Modified by marathon-rs (close after local close (R1/U1), manual window adjust, "
     f"open failure description): {NOTE}",
     "src/client/mod.rs": "// Modified by marathon-rs (close after local close (R1/U1), manual window adjust, "
-    f"open failure description): {NOTE}",
+    f"open failure description, client abort): {NOTE}",
     "src/client/session.rs": f"// Modified by marathon-rs (close after local close (R1/U1)): {NOTE}",
     "src/client/test.rs": f"// Modified by marathon-rs (tests for the client changes): {NOTE}",
     "src/helpers.rs": f"// Modified by marathon-rs (inline test strings moved to fixtures): {NOTE}",

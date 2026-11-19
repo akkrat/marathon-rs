@@ -38,6 +38,11 @@ pub const STOP_MARGIN_MILLIS: i64 = 5_000;
 /// D94: allow the larger of D51's backend send and D67's console allowance, plus the core's stop margin.
 const DRAIN_LIMIT_MILLIS: i64 = CONSOLE_COMPLETION_MILLIS + STOP_MARGIN_MILLIS;
 
+async fn wait_for_barriers(barriers: impl Future, timer: JobRef) {
+    barriers.await;
+    timer.cancel(requested("The pool and queue barriers have answered"));
+}
+
 /// D84 (x82b): whether the run was asked to stop, by its owner or by a signal (D52). The Scheduler's `fail` and the
 /// run's decision point read only this. It reads the owner's own job, which the owner's cancel reaches at once whatever
 /// the run's tasks are doing (the run task may have completed, the protected finish may be running), and never a job of
@@ -716,7 +721,12 @@ impl Inner {
         timer.cancel(requested("The devices have stopped"));
         let timer = self.parts.core.job(JobKind::Ordinary, None);
         let drain_by = clock.now_millis().saturating_add(DRAIN_LIMIT_MILLIS);
-        let deadline = async { clock.delay(drain_by.saturating_sub(clock.now_millis()), timer).await }.shared();
+        let deadline = async {
+            clock
+                .delay(drain_by.saturating_sub(clock.now_millis()), timer.clone())
+                .await
+        }
+        .shared();
         let drains = pools.iter().map(|(id, pool)| {
             let barrier = crate::execution::pool_message::DrainBarrier(SharedDeferred::new());
             let drain = DevicePoolMessage::FromScheduler(FromScheduler::Drain(barrier.clone()));
@@ -738,7 +748,8 @@ impl Inner {
                 }
             }
         });
-        futures_util::future::join_all(drains).await;
+        wait_for_barriers(futures_util::future::join_all(drains), timer.clone()).await;
+        drop(deadline);
         self.job.cancel(reason);
         for (_, pool) in &pools {
             let _ = pool.actor.job().join().await;
@@ -952,6 +963,27 @@ mod tests {
     use super::*;
     use futures_util::{FutureExt, task::noop_waker};
     use std::{future::Future, task::Context};
+
+    #[test]
+    fn answering_the_barriers_cancels_the_drain_timer_d95() {
+        CoreExecutor::run_virtual(|core, driver| {
+            Box::pin(async move {
+                let timer = core.job(JobKind::Ordinary, None);
+                let clock = core.clock();
+                let signal = timer.cancellation_signal();
+                let mut deadline = clock.delay(DRAIN_LIMIT_MILLIS, timer.clone());
+                assert!(futures_util::poll!(deadline.as_mut()).is_pending());
+                assert_eq!(driver.pending_timers(), 1);
+                wait_for_barriers(std::future::ready(()), timer).await;
+                assert!(signal.reason().is_some());
+                assert!(futures_util::poll!(deadline.as_mut()).is_ready());
+                assert_eq!(driver.pending_timers(), 0);
+                assert_eq!(clock.now_millis(), 0);
+                Ok(())
+            })
+        })
+        .unwrap();
+    }
 
     #[test]
     fn provider_terminal_state_precedes_receiver_cancellation() {

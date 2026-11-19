@@ -427,7 +427,7 @@ async fn build(
         (Some(request), Some(factory)) => Some(BackendRegistration { request, factory }),
         _ => None,
     };
-    let pipeline = TrackerFactory {
+    let tracker_factory = TrackerFactory {
         io: io.clone(),
         track,
         clock: wall,
@@ -435,14 +435,14 @@ async fn build(
         backend,
         logger: factory_logger,
         log,
-    }
-    .create()
-    .await
-    .map_err(vendor_error)?;
+    };
+    let limits = tracker_factory.limits();
+    let pipeline = tracker_factory.create_with_limits(limits).await.map_err(vendor_error)?;
     let analytics = match inputs.analytics {
         Some(analytics) => analytics(context.clone()).map_err(vendor_error)?,
         None => MetricsProviderFactory::new(context.clone(), metrics.setup)
             .map_err(vendor_error)?
+            .with_limits(limits)
             .create(&configuration)
             .await
             .map_err(vendor_error)?,

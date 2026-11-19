@@ -40,6 +40,32 @@ use std::{
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot, watch};
 
+/// Default for injected connection owners. The real factory decrements the lease first and
+/// applies this deadline only to the transport owned by the final release.
+pub async fn bound_release(
+    clock: &dyn VendorClock,
+    deadline: Option<i64>,
+    executor: &Executor,
+    release: impl Future<Output = VendorResult<()>>,
+) -> VendorResult<()> {
+    let left = release_deadline(clock, deadline).saturating_sub(clock.now_millis());
+    tokio::select! { biased;
+        result = release => result,
+        _ = clock.delay(left, marathon_core::executor::shared::Signal::new()) => {
+            tracing::warn!(worker = %executor.host().id, "Apple lease release timed out. Abandoning the connection.");
+            Ok(())
+        }
+    }
+}
+
+fn release_deadline(clock: &dyn VendorClock, deadline: Option<i64>) -> i64 {
+    deadline.unwrap_or(i64::MAX).min(
+        clock
+            .now_millis()
+            .saturating_add(crate::cmd::remote::rsync::rsync_file_bridge::STOP_CLEANUP_MILLIS),
+    )
+}
+
 pub type Executor = Arc<dyn CommandExecutor>;
 pub type Bridge = Arc<dyn FileBridge>;
 pub type ConnectionResult<T> = Result<T, ConnectionError>;
@@ -313,7 +339,7 @@ impl ConnectionFactory {
             let (ack_tx, ack_rx) = oneshot::channel();
             let delivered = tx.send((result, ack_tx)).is_ok() && ack_rx.await.is_ok();
             if !delivered && let Some(executor) = undelivered {
-                factory.dispose_inner(executor).await?;
+                factory.dispose_inner(executor, None).await?;
             }
             Ok(())
         });
@@ -413,7 +439,7 @@ impl ConnectionFactory {
                             lease.slot = None;
                         }
                     }
-                    self.dispose_inner(executor).await?;
+                    self.dispose_inner(executor, None).await?;
                     alive?;
                 }
                 SharedAcquire::Wait(mut rx) => {
@@ -501,11 +527,13 @@ impl ConnectionFactory {
         }
     }
     pub async fn dispose(self: &Arc<Self>, executor: Executor) -> VendorResult<()> {
+        self.dispose_before(executor, None).await
+    }
+    pub async fn dispose_before(self: &Arc<Self>, executor: Executor, deadline: Option<i64>) -> VendorResult<()> {
         let factory = self.clone();
-        let task = self.tasks.spawn(
-            self.runtime.as_ref(),
-            async move { factory.dispose_inner(executor).await },
-        );
+        let task = self.tasks.spawn(self.runtime.as_ref(), async move {
+            factory.dispose_inner(executor, deadline).await
+        });
         task.join().await
     }
     /// D93: instead of a release, for a device whose work could not be confirmed to have ended. Its use of the connection
@@ -538,7 +566,8 @@ impl ConnectionFactory {
             None,
         );
     }
-    async fn dispose_inner(&self, executor: Executor) -> VendorResult<()> {
+    async fn dispose_inner(&self, executor: Executor, deadline: Option<i64>) -> VendorResult<()> {
+        let deadline = release_deadline(self.clock.as_ref(), deadline);
         let released = {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             match state.leases.get_mut(&identity(&executor)) {
@@ -582,7 +611,29 @@ impl ConnectionFactory {
             || format!("Disposing of command executor for {}", executor.host().id),
             None,
         );
-        lease.executor.close().await
+        let closed = {
+            let left = deadline.saturating_sub(self.clock.now_millis());
+            tokio::select! { biased;
+                result = lease.executor.close() => Some(result),
+                _ = self.clock.delay(left, marathon_core::executor::shared::Signal::new()) => None,
+            }
+        };
+        if let Some(result) = closed {
+            return result;
+        }
+        lease.executor.abandon();
+        self.logging.log(
+            &self.logger,
+            Level::WARN,
+            || {
+                format!(
+                    "SSH lease release timed out. Abandoning the connection to {}.",
+                    executor.host().id
+                )
+            },
+            None,
+        );
+        Ok(())
     }
     async fn file_bridge(&self, transport: &Transport) -> ConnectionResult<Bridge> {
         let Transport::Ssh {

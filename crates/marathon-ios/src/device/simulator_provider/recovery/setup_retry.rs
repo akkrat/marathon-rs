@@ -183,12 +183,11 @@ impl SimulatorRecovery {
             let this = this.clone();
             let provider = provider.this()?;
             let transport = transport.clone();
-            self.retries
-                .spawn(provider.services.runtime.clone().as_ref(), async move {
-                    caller.clock.delay(pause, caller.cancellation.clone()).await?;
-                    this.setup_retry_due(&provider, &transport, batch, started, caller)
-                        .await
-                });
+            self.spawn(&self.retries, provider.services.runtime.clone().as_ref(), async move {
+                caller.clock.delay(pause, caller.cancellation.clone()).await?;
+                this.setup_retry_due(&provider, &transport, batch, started, caller)
+                    .await
+            });
         }
         Ok(())
     }
@@ -339,11 +338,12 @@ impl SimulatorRecovery {
                     .await;
             }
         };
+        let lease = PendingLease::new(provider.services.connections.as_ref(), &executor);
         // A removal during the connection takes the target out before anything is planned for it.
         let due = match wanted(provider, transport, current_generation(provider, due)) {
             Ok(due) => due,
             Err(error) => {
-                let _ = provider.services.connections.release(executor).await;
+                let _ = lease.release(executor).await;
                 return Err(error);
             }
         };
@@ -366,7 +366,7 @@ impl SimulatorRecovery {
                 .await
         };
         // A failed release costs this attempt's lease, not the retries of what it didn't set up.
-        if let Err(error) = provider.services.connections.release(executor).await {
+        if let Err(error) = lease.release(executor).await {
             provider.log(
                 Level::ERROR,
                 || format!("Failed to release connection to worker {worker}"),

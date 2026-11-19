@@ -31,7 +31,7 @@ use marathon_core::{
 };
 use remote::ssh::sshj::error::{CONNECTION_EXCEPTION, TRANSPORT_EXCEPTION, is_instance};
 use std::{collections::BTreeMap, future::Future, path::Path, pin::Pin, sync::Arc};
-pub use transfer_receipt::{TransferCleanup, TransferReceipt};
+pub use transfer_receipt::{DevicePulls, TransferCleanup, TransferReceipt};
 
 pub fn failure(kind: FailureKind, message: impl AsRef<str>) -> Failure {
     Failure::from_kind(kind, Some(message.as_ref().into()))
@@ -130,6 +130,8 @@ pub trait CommandExecutor: Send + Sync {
     }
     fn execute(&self, request: CommandRequest, context: VendorContext) -> VendorFuture<'_, CommandSession>;
     fn close(&self) -> VendorFuture<'_, ()>;
+    /// Force the transport closed when its graceful close runs out of time.
+    fn abandon(&self) {}
     /// D90: a capacity refusal followed a D30 abandonment on this transport.
     fn shared_ssh_is_saturated(&self) -> bool {
         false
@@ -313,11 +315,11 @@ impl TransferStop {
     /// starts, where `now` cannot be (it polls the loss).
     pub(crate) fn cancellation_check(&self) -> impl Fn() -> Option<Cancellation> + Send + 'static {
         let cancellation = self.cancellation.clone();
-        let receipt = self.receipt.as_ref().map(|r| r.stop_signal());
+        let receipt = self.receipt.clone();
         move || {
             cancellation
                 .reason()
-                .or_else(|| receipt.as_ref().and_then(|stop| stop.reason()))
+                .or_else(|| receipt.as_ref().and_then(|r| r.stop_reason()))
         }
     }
     /// D91: the device's hold on this transfer, through which it can ask for the cleanup after a stop to end sooner than
@@ -351,13 +353,13 @@ impl TransferStop {
             return stopped;
         }
         let cancellation = self.cancellation.clone();
-        let receipt = self.receipt.as_ref().map(|r| r.stop_signal());
+        let receipt = &self.receipt;
         let cancelled = async {
             match &receipt {
                 Some(stop) => tokio::select! {
                     biased;
                     reason = cancellation.cancelled() => reason,
-                    reason = stop.cancelled() => reason,
+                    reason = stop.stopped() => reason,
                 },
                 None => cancellation.cancelled().await,
             }

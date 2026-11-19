@@ -153,7 +153,14 @@ pub struct ProviderHarness {
 }
 impl ProviderHarness {
     pub fn new(edit: impl FnOnce(&mut marathon_config::vendor::IosConfiguration)) -> TestResult<Self> {
-        let h = Harness::new(edit)?;
+        Self::with_device_window(edit, 200)
+    }
+    pub fn with_device_window(
+        edit: impl FnOnce(&mut marathon_config::vendor::IosConfiguration),
+        millis: i64,
+    ) -> TestResult<Self> {
+        let mut h = Harness::new(edit)?;
+        h.services.timeouts.cancelled_batch_millis = millis;
         let connections = Arc::new(Connections {
             workers: Mutex::new(vec![(Transport::Local, h.worker.clone())]),
             acquired: 0.into(),

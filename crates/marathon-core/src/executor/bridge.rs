@@ -2,7 +2,7 @@
 //! (suspending vendor calls from core coroutines, `:170`, `:191`).
 use crate::{
     error::*,
-    runtime::{CancellationSignal, VendorFuture, VendorRuntime},
+    runtime::{CancellationSignal, VendorFuture, VendorRuntime, VendorTask},
 };
 use marathon_error::FailureKind;
 use std::{
@@ -15,6 +15,25 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::sync::{Notify, oneshot};
+
+/// Owns tasks during a bounded join. Dropping the join interrupts the tasks
+/// still outstanding, including tasks whose cooperative cancellation stalled.
+pub struct JoiningTasks(pub Vec<Arc<dyn VendorTask>>);
+impl JoiningTasks {
+    pub async fn join(mut self) {
+        while let Some(task) = self.0.last() {
+            let _ = task.join().await;
+            self.0.pop();
+        }
+    }
+}
+impl Drop for JoiningTasks {
+    fn drop(&mut self) {
+        for task in &self.0 {
+            task.interrupt(super::shared::requested("Shutdown abandoned the task"));
+        }
+    }
+}
 
 /// Runs a vendor call off core as Kotlin's suspending call does on its dispatcher.
 /// `cancellation` is the calling core task's signal, which the vendor observes

@@ -834,8 +834,22 @@ impl Inner {
         let mut unconfirmed = None;
         let result = {
             let clock = self.clock.clone();
+            let pull = remote.clone();
             let watching = async {
                 let why = stop.stopped().await;
+                if receive && why == TransferStopped::Cancelled(crate::cmd::TransferReceipt::pull_deadline_reason()) {
+                    self.logging.log(
+                        &self.logger,
+                        Level::WARN,
+                        || {
+                            format!(
+                                "Stopping artifact pull of {pull} from {} within the device shutdown window",
+                                self.target.addr
+                            )
+                        },
+                        None,
+                    );
+                }
                 stopping.stop(why, clock.now_millis());
                 std::future::pending::<()>().await
             };

@@ -62,6 +62,7 @@ struct Refresh {
 pub struct MetricsProviderImpl {
     shared: Arc<Shared>,
     serial: AsyncMutex<()>,
+    limits: super::BackendLimits,
 }
 struct Shared {
     source: Arc<dyn remote::RemoteDataSource>,
@@ -104,7 +105,12 @@ impl MetricsProviderImpl {
                 refresh: Mutex::default(),
             }),
             serial: AsyncMutex::new(()),
+            limits: super::BackendLimits::default(),
         })
+    }
+    pub(crate) fn with_limits(mut self, limits: super::BackendLimits) -> Self {
+        self.limits = limits;
+        self
     }
     /// A failed query never waits here for its refresh: the cached defaults answer until one lands.
     pub async fn prefetch(&self, keys: &[MetricsKey]) -> OperationResult<()> {
@@ -661,7 +667,102 @@ impl MetricsProvider for MetricsProviderImpl {
     fn close(&self) -> ServiceFuture<'_, ()> {
         Box::pin(async move {
             self.shared.stop_refresh().await;
-            self.shared.source.close().await
+            match tokio::time::timeout(self.limits.send, self.shared.source.close()).await {
+                Ok(result) => result,
+                Err(_) => {
+                    self.shared.context.log(
+                        "marathon_core::analytics::provider",
+                        Level::WARN,
+                        format!(
+                            "History analytics close timed out after {:?}. Abandoning the close.",
+                            self.limits.send
+                        ),
+                        None,
+                    );
+                    Ok(())
+                }
+            }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{executor::hooks::RuntimeHooks, logging::LogQueue};
+    use std::{future::pending, time::Duration};
+
+    struct ClosingSource {
+        stall: bool,
+        dropped: Arc<AtomicBool>,
+    }
+    impl remote::RemoteDataSource for ClosingSource {
+        fn request_all_success_rates(&self, _: Instant) -> ServiceFuture<'_, Vec<remote::SuccessRate>> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+        fn request_all_execution_times(&self, _: f64, _: Instant) -> ServiceFuture<'_, Vec<remote::ExecutionTime>> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+        fn close(&self) -> ServiceFuture<'_, ()> {
+            struct MarkDrop<'a>(&'a AtomicBool);
+            impl Drop for MarkDrop<'_> {
+                fn drop(&mut self) {
+                    self.0.store(true, Ordering::Release);
+                }
+            }
+            Box::pin(async {
+                let _receipt = MarkDrop(&self.dropped);
+                if self.stall { pending().await } else { Ok(()) }
+            })
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn history_close_drops_a_stalled_backend_at_the_delivery_allowance_d95() {
+        for (stall, allowance, expected) in [(true, 30, 30), (true, 8, 8), (false, 30, 0)] {
+            let log = LogQueue::default();
+            let dropped = Arc::new(AtomicBool::new(false));
+            let provider = MetricsProviderImpl::new(
+                Arc::new(ClosingSource {
+                    stall,
+                    dropped: dropped.clone(),
+                }),
+                Defaults {
+                    duration: jcompat::jtime::Duration::of_seconds(30),
+                    success_rate: 1.0,
+                    observed_duration_min_tests: None,
+                },
+                MetricsContext {
+                    clock: crate::executor::RuntimeClock::new(false).vendor(),
+                    vendor: Arc::new(crate::executor::vendor_on_current_runtime()),
+                    monotonic: RuntimeHooks::live(),
+                    cancellation: Signal::new(),
+                    registry: Arc::default(),
+                    logs: log.sender(),
+                    stamp: Arc::new(|| (0, 0)),
+                },
+            )
+            .unwrap()
+            .with_limits(BackendLimits {
+                send: Duration::from_secs(allowance),
+                ..BackendLimits::default()
+            });
+            let started = tokio::time::Instant::now();
+            tokio::time::timeout(Duration::from_secs(60), MetricsProvider::close(&provider))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(started.elapsed().as_secs(), expected);
+            assert!(dropped.load(Ordering::Acquire));
+            assert_eq!(
+                log.records()
+                    .iter()
+                    .filter(|record| {
+                        record.level == Level::WARN && record.message.contains("History analytics close timed out")
+                    })
+                    .count(),
+                usize::from(stall)
+            );
+        }
     }
 }

@@ -40,19 +40,47 @@ pub async fn panic_as_error<T>(body: impl Future<Output = VendorResult<T>>) -> V
 #[derive(Default)]
 pub struct RetainedTasks(Mutex<Vec<Retained>>);
 
+struct PublishOnDrop<T: Send + Sync + 'static>(Arc<SharedDeferred<T>>);
+impl<T: Send + Sync + 'static> Drop for PublishOnDrop<T> {
+    fn drop(&mut self) {
+        self.0
+            .cancel(marathon_core::executor::shared::requested("Retained task abandoned"));
+    }
+}
+
 impl RetainedTasks {
     pub fn spawn(
         &self,
         runtime: &dyn VendorRuntime,
         body: impl Future<Output = VendorResult<()>> + Send + 'static,
     ) -> Arc<dyn VendorTask> {
+        self.spawn_owned(runtime, body, false)
+    }
+    pub fn spawn_interruptible(
+        &self,
+        runtime: &dyn VendorRuntime,
+        body: impl Future<Output = VendorResult<()>> + Send + 'static,
+    ) -> Arc<dyn VendorTask> {
+        self.spawn_owned(runtime, body, true)
+    }
+    fn spawn_owned(
+        &self,
+        runtime: &dyn VendorRuntime,
+        body: impl Future<Output = VendorResult<()>> + Send + 'static,
+        interruptible: bool,
+    ) -> Arc<dyn VendorTask> {
         let succeeded = Arc::new(AtomicBool::new(false));
         let flag = succeeded.clone();
-        let task = runtime.spawn(Box::pin(async move {
+        let run = Box::pin(async move {
             let result = body.await;
             flag.store(result.is_ok(), Ordering::Release);
             result
-        }));
+        });
+        let task = if interruptible {
+            runtime.spawn_interruptible(run)
+        } else {
+            runtime.spawn(run)
+        };
         let mut tasks = self.0.lock().unwrap_or_else(|e| e.into_inner());
         tasks.retain(|retained| !retained.succeeded.load(Ordering::Acquire));
         tasks.push(Retained {
@@ -69,10 +97,33 @@ impl RetainedTasks {
         cell: Arc<SharedDeferred<T>>,
         work: impl Future<Output = VendorResult<T>> + Send + 'static,
     ) -> Arc<dyn VendorTask> {
-        self.spawn(runtime, async move {
-            cell.complete(panic_as_error(work).await);
-            Ok(())
-        })
+        self.publish(runtime, cell, work, false)
+    }
+    pub fn spawn_published_interruptible<T: Send + Sync + 'static>(
+        &self,
+        runtime: &dyn VendorRuntime,
+        cell: Arc<SharedDeferred<T>>,
+        work: impl Future<Output = VendorResult<T>> + Send + 'static,
+    ) -> Arc<dyn VendorTask> {
+        self.publish(runtime, cell, work, true)
+    }
+    fn publish<T: Send + Sync + 'static>(
+        &self,
+        runtime: &dyn VendorRuntime,
+        cell: Arc<SharedDeferred<T>>,
+        work: impl Future<Output = VendorResult<T>> + Send + 'static,
+        interruptible: bool,
+    ) -> Arc<dyn VendorTask> {
+        let publish = PublishOnDrop(cell);
+        self.spawn_owned(
+            runtime,
+            async move {
+                let result = panic_as_error(work).await;
+                publish.0.complete(result);
+                Ok(())
+            },
+            interruptible,
+        )
     }
     /// Cancellation-aware owners retain even work that outlives a bounded shutdown.
     pub fn spawn_cancellable(&self, runtime: &dyn VendorRuntime, body: VendorTaskBody) -> Arc<dyn VendorTask> {

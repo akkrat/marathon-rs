@@ -21,6 +21,7 @@ pub enum SetupError {
 pub struct ProvisioningError {
     pub original: SetupError,
     pub suppressed: Vec<ProvisioningError>,
+    pub(super) lease_quarantined: bool,
 }
 pub type ProvisioningResult<T> = Result<T, ProvisioningError>;
 pub type ProvisioningFuture<'a, T> = Pin<Box<dyn Future<Output = ProvisioningResult<T>> + Send + 'a>>;
@@ -106,6 +107,7 @@ impl From<ConnectionError> for ProvisioningError {
         Self {
             original: SetupError::Connection(Box::new(error)),
             suppressed: Vec::new(),
+            lease_quarantined: false,
         }
     }
 }
@@ -119,6 +121,7 @@ impl From<SetupDropped> for ProvisioningError {
         Self {
             original: SetupError::Dropped(error),
             suppressed: Vec::new(),
+            lease_quarantined: false,
         }
     }
 }

@@ -190,6 +190,9 @@ pub struct Summary {
     pub pools: Vec<PoolSummary>,
 }
 pub trait Reporter: Send + Sync {
+    fn name(&self) -> &'static str {
+        std::any::type_name::<Self>()
+    }
     fn generate<'a>(&'a self, report: &'a ExecutionReport) -> ServiceFuture<'a, ()>;
 }
 

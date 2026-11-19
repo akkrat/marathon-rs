@@ -7,7 +7,7 @@ Registry build metadata and the registry lockfile are not vendored. An empty
 `[workspace]` keeps direct crate tests independent of ancestor workspaces.
 The root workspace pins `=0.64.1` and patches crates.io to this directory.
 
-Applied changes, in order. The four patches apply to the unpacked archive itself,
+Applied changes, in order. The five patches apply to the unpacked archive itself,
 before any adaptation below, with `git apply -p1` and no fuzz:
 
 1. `spikes/ssh-russh/russh-close-after-local-close.patch` (R1/U1), unchanged.
@@ -45,6 +45,10 @@ before any adaptation below, with `git apply -p1` and no fuzz:
      openers skip it, so they still return `Error::ChannelOpenFailure(reason)`;
    - one client test (concurrent refusals each get their own text; the plain open
      is unchanged). The test server can refuse a list of session opens.
+
+5. `crates/marathon-apple/russh-abort-client.patch` (D95):
+   - client `Handle::abort()` drops the client session future and its socket when
+     the final lease exhausts its graceful shutdown deadline.
 
 Then the adaptations, in this order:
 

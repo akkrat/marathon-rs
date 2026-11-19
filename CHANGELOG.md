@@ -101,11 +101,12 @@ The section for a version becomes the text of its GitHub release, which carries 
   device sent just before it stopped, until it has ended. Healthy runs, results and exit codes are unchanged.
 
 - **Pool and queue drains share 65 seconds (D94).** The scheduler interrupts stalled handlers at the deadline and
-  keeps committed test results. An internal run failure or owner cancellation gives iOS artifacts 30 seconds to
-  drain and 40 seconds for cancellation. A suite with failed test assertions keeps the routine 300-second drain.
-  On routine runs, the worker joins and final receipt share one 60-second cancellation allowance, reducing the
-  maximum artifact wait from 420 to 360 seconds. Both drains are separate from D93's device waits. The log
-  identifies undelivered bundles.
+  keeps committed test results. After an internal run failure or owner cancellation, the iOS artifact drain
+  reserves up to 40 seconds for cancellation within the provider deadline. The log identifies undelivered bundles.
+
+- **Finish deadlines and report progress (D95).** Test runs cap the waits for device-provider shutdown, Apple worker
+  disconnects and history analytics close. Interrupted Apple artifact pulls use the device's remaining shutdown time.
+  Reports still finish writing and log the active reporter if writing takes longer than one minute.
 
 ## 0.14.0
 

@@ -1,7 +1,11 @@
 //! D92: private, same-filesystem staging for one Android run's pulls.
 
 use crate::{services::AndroidRuntime, support::*};
-use marathon_core::{error::*, executor::shared::requested};
+use marathon_core::{
+    error::*,
+    executor::shared::{Signal, requested},
+    runtime::CancellationSignal,
+};
 use marathon_logging::Level;
 use std::{
     fs,
@@ -28,6 +32,7 @@ pub(crate) struct PullStaging {
     path: PathBuf,
     state: Mutex<State>,
     warned: AtomicBool,
+    sealed: AtomicBool,
 }
 
 impl PullStaging {
@@ -36,6 +41,7 @@ impl PullStaging {
             path: output.join(DIRECTORY),
             state: Mutex::default(),
             warned: AtomicBool::new(false),
+            sealed: AtomicBool::new(false),
         }
     }
 
@@ -64,6 +70,9 @@ impl PullStaging {
 
     fn reserve(&self, destination: &Path) -> VendorResult<PathBuf> {
         let mut state = lock(&self.state);
+        if self.sealed.load(Ordering::Acquire) {
+            return Err(VendorError::Cancelled(requested("Android pull staging is closed")));
+        }
         let filesystem = match *state {
             State::Closed => return Err(VendorError::Cancelled(requested("Android pull staging is closed"))),
             State::Ready(filesystem) => filesystem,
@@ -88,10 +97,17 @@ impl PullStaging {
         Ok(self.path.join(uuid::Uuid::new_v4().to_string()))
     }
 
-    pub(crate) async fn close(self: &Arc<Self>, runtime: &AndroidRuntime) -> VendorResult<()> {
+    pub(crate) fn seal(&self) {
+        self.sealed.store(true, Ordering::Release);
+    }
+
+    pub(crate) async fn close(self: &Arc<Self>, runtime: &AndroidRuntime, stop: Arc<Signal>) -> VendorResult<()> {
         let staging = self.clone();
         blocking(runtime.dependencies.io.as_ref(), move || {
             let previous = std::mem::replace(&mut *lock(&staging.state), State::Closed);
+            if let Some(reason) = stop.reason() {
+                return Err(VendorError::Cancelled(reason));
+            }
             if matches!(previous, State::Ready(_)) {
                 return match fs::remove_dir_all(&staging.path) {
                     Ok(()) => Ok(()),

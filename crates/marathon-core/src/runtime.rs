@@ -4,7 +4,7 @@
 //! WP 3.1 implements these contracts. There is no executor hidden in a default
 //! method. See lifecycle.md for cancellation, ordering and replay requirements.
 
-use crate::error::{Cancellation, Failure, OperationResult, VendorResult};
+use crate::error::{Cancellation, Failure, OperationResult, VendorError, VendorResult};
 use crate::executor::CoreExecutor;
 use crate::time::SchedulerClock;
 use std::{future::Future, pin::Pin, rc::Rc, sync::Arc};
@@ -122,12 +122,67 @@ pub trait MailboxProbe {
 pub trait VendorRuntime: Send + Sync {
     /// The erased spawn future cannot receive its own cancellation context.
     fn spawn_cancellable(&self, body: VendorTaskBody) -> Arc<dyn VendorTask>;
+    /// The shutdown owner can drop these tasks after a cooperative wait.
+    fn spawn_cancellable_interruptible(&self, body: VendorTaskBody) -> Arc<dyn VendorTask> {
+        InterruptibleTask::start(|registration| {
+            self.spawn_cancellable(Box::new(move |signal| {
+                Box::pin(InterruptibleTask::run(async { body(signal).await }, registration))
+            }))
+        })
+    }
     fn spawn(&self, body: VendorFuture<'static, ()>) -> Arc<dyn VendorTask>;
+    fn spawn_interruptible(&self, body: VendorFuture<'static, ()>) -> Arc<dyn VendorTask> {
+        InterruptibleTask::start(|registration| self.spawn(Box::pin(InterruptibleTask::run(body, registration))))
+    }
     /// Blocking task completion remains joinable even if its awaiter cancels.
     fn spawn_blocking(&self, body: Box<dyn FnOnce() -> VendorResult<()> + Send>) -> Arc<dyn VendorTask>;
 }
+struct InterruptibleTask {
+    inner: Arc<dyn VendorTask>,
+    abort: futures_util::future::AbortHandle,
+}
+impl InterruptibleTask {
+    fn start(
+        spawn: impl FnOnce(futures_util::future::AbortRegistration) -> Arc<dyn VendorTask>,
+    ) -> Arc<dyn VendorTask> {
+        let (abort, registration) = futures_util::future::AbortHandle::new_pair();
+        Arc::new(Self {
+            inner: spawn(registration),
+            abort,
+        })
+    }
+    async fn run(
+        work: impl Future<Output = VendorResult<()>>,
+        registration: futures_util::future::AbortRegistration,
+    ) -> VendorResult<()> {
+        futures_util::future::Abortable::new(work, registration)
+            .await
+            .unwrap_or_else(|_| {
+                Err(VendorError::Cancelled(crate::executor::shared::requested(
+                    "Vendor task interrupted",
+                )))
+            })
+    }
+}
+impl VendorTask for InterruptibleTask {
+    fn cancel(&self, reason: Cancellation) {
+        self.inner.cancel(reason);
+    }
+    fn interrupt(&self, reason: Cancellation) {
+        self.cancel(reason);
+        self.abort.abort();
+    }
+    fn join(&self) -> VendorFuture<'_, ()> {
+        self.inner.join()
+    }
+}
 pub trait VendorTask: Send + Sync {
     fn cancel(&self, reason: Cancellation);
+    /// After a shutdown's cooperative wait expires, drop an async task's work.
+    /// Blocking operations can only be given up by their waiter.
+    fn interrupt(&self, reason: Cancellation) {
+        self.cancel(reason);
+    }
     fn join(&self) -> VendorFuture<'_, ()>;
 }
 

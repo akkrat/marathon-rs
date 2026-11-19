@@ -14,13 +14,17 @@ use marathon_core::{
     vendor::VendorContext,
 };
 use marathon_error::FailureKind;
-use std::{future::Future, sync::Arc};
+use std::{
+    future::Future,
+    sync::{Arc, Mutex},
+};
 use tokio::sync::oneshot;
 
 pub struct DetachedConnections {
     inner: Arc<dyn ProvisioningConnections>,
     runtime: Arc<dyn VendorRuntime>,
     tasks: RetainedTasks,
+    termination: Arc<Mutex<Option<(i64, VendorContext)>>>,
 }
 impl DetachedConnections {
     pub fn new(inner: Arc<dyn ProvisioningConnections>, runtime: Arc<dyn VendorRuntime>) -> Arc<Self> {
@@ -28,6 +32,7 @@ impl DetachedConnections {
             inner,
             runtime,
             tasks: RetainedTasks::default(),
+            termination: Arc::default(),
         })
     }
     async fn acquire<T: Send + 'static>(
@@ -40,6 +45,7 @@ impl DetachedConnections {
             return Err(VendorError::Cancelled(reason).into());
         }
         let inner = self.inner.clone();
+        let termination = self.termination.clone();
         let (tx, rx) = oneshot::channel();
         self.tasks.spawn(self.runtime.as_ref(), async move {
             let result = work.await;
@@ -47,7 +53,7 @@ impl DetachedConnections {
             let (ack, received) = oneshot::channel();
             let delivered = tx.send((result, ack)).is_ok() && received.await.is_ok();
             if !delivered && let Some(lease) = lease {
-                inner.release(lease).await?;
+                release(inner.as_ref(), &termination, lease).await?;
             }
             Ok(())
         });
@@ -63,7 +69,24 @@ impl DetachedConnections {
         }
     }
 }
+async fn release(
+    inner: &dyn ProvisioningConnections,
+    termination: &Mutex<Option<(i64, VendorContext)>>,
+    executor: Executor,
+) -> marathon_core::error::VendorResult<()> {
+    let limit = termination.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    match limit {
+        Some((deadline, context)) => inner.release_before(executor, Some(deadline), context).await,
+        None => inner.release(executor).await,
+    }
+}
 impl ProvisioningConnections for DetachedConnections {
+    fn seal_for_termination(&self, deadline: i64, context: VendorContext) {
+        self.termination
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_or_insert((deadline, context));
+    }
     fn transport_log_text(&self, transport: &Transport, local: &str) -> String {
         self.inner.transport_log_text(transport, local)
     }
@@ -92,7 +115,15 @@ impl ProvisioningConnections for DetachedConnections {
         ))
     }
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()> {
-        self.inner.release(executor)
+        Box::pin(release(self.inner.as_ref(), &self.termination, executor))
+    }
+    fn release_before(
+        &self,
+        executor: Executor,
+        deadline: Option<i64>,
+        context: VendorContext,
+    ) -> VendorFuture<'_, ()> {
+        self.inner.release_before(executor, deadline, context)
     }
     fn quarantine(&self, executor: &Executor) {
         self.inner.quarantine(executor)
@@ -119,6 +150,9 @@ impl ProvisioningConnections for ProviderConnections {
     }
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()> {
         Box::pin(async move { self.0.dispose(executor).await })
+    }
+    fn release_before(&self, executor: Executor, deadline: Option<i64>, _: VendorContext) -> VendorFuture<'_, ()> {
+        Box::pin(async move { self.0.dispose_before(executor, deadline).await })
     }
     fn quarantine(&self, executor: &Executor) {
         self.0.quarantine(executor)

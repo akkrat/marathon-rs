@@ -12,7 +12,7 @@ use marathon_apple::{
     bin::AppleBinaryEnvironment,
     cmd::{failure, remote::ssh::sshj::config::SshLogging},
     device::{
-        connection_factory::{Bridge, ConnectionFactory, ConnectionFuture, Executor},
+        connection_factory::{Bridge, ConnectionFactory, ConnectionFuture, Executor, bound_release},
         connection_failures::is_transient_connection_failure,
     },
 };
@@ -33,6 +33,7 @@ use tokio::sync::Semaphore;
 
 pub const DEFAULT_CONCURRENCY: i32 = 2;
 pub trait ProvisioningConnections: Send + Sync {
+    fn seal_for_termination(&self, _deadline: i64, _context: VendorContext) {}
     fn transport_log_text(&self, transport: &Transport, local: &str) -> String {
         transport_text(transport, local)
     }
@@ -46,10 +47,56 @@ pub trait ProvisioningConnections: Send + Sync {
         })
     }
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()>;
+    fn release_before(
+        &self,
+        executor: Executor,
+        deadline: Option<i64>,
+        context: VendorContext,
+    ) -> VendorFuture<'_, ()> {
+        Box::pin(async move {
+            bound_release(
+                context.clock.as_ref(),
+                deadline,
+                &executor,
+                self.release(executor.clone()),
+            )
+            .await
+        })
+    }
     /// D93: instead of `release`, for a simulator whose work could not be confirmed to have ended: its use of the
     /// connection is kept for the rest of the run and never handed to another acquisition. Keeping it is the default.
     fn quarantine(&self, executor: &Executor) {
         let _ = executor;
+    }
+}
+
+/// Until setup hands a lease to a registered device, a dropped setup cannot
+/// establish that its last command ended. Keep that generation out of reuse.
+pub(crate) struct PendingLease<'a> {
+    connections: &'a dyn ProvisioningConnections,
+    executor: Option<Executor>,
+}
+impl<'a> PendingLease<'a> {
+    pub(crate) fn new(connections: &'a dyn ProvisioningConnections, executor: &Executor) -> Self {
+        Self {
+            connections,
+            executor: Some(executor.clone()),
+        }
+    }
+    pub(crate) async fn release(mut self, executor: Executor) -> marathon_core::error::VendorResult<()> {
+        let result = self.connections.release(executor).await;
+        self.executor = None;
+        result
+    }
+    fn transferred(mut self) {
+        self.executor = None;
+    }
+}
+impl Drop for PendingLease<'_> {
+    fn drop(&mut self) {
+        if let Some(executor) = &self.executor {
+            self.connections.quarantine(executor);
+        }
     }
 }
 impl ProvisioningConnections for Arc<ConnectionFactory> {
@@ -64,6 +111,9 @@ impl ProvisioningConnections for Arc<ConnectionFactory> {
     }
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()> {
         Box::pin(async move { self.dispose(executor).await })
+    }
+    fn release_before(&self, executor: Executor, deadline: Option<i64>, _: VendorContext) -> VendorFuture<'_, ()> {
+        Box::pin(async move { self.dispose_before(executor, deadline).await })
     }
     fn quarantine(&self, executor: &Executor) {
         ConnectionFactory::quarantine(self, executor)
@@ -392,6 +442,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
         let Some(executor) = executor else {
             return Ok(Outcome::Unreachable);
         };
+        let lease = PendingLease::new(self.connections.as_ref(), &executor);
         let mut simulator = None;
         let result: ProvisioningResult<Outcome> = async {
             active(caller)?;
@@ -415,6 +466,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
             Ok(Outcome::SetUp)
         }
         .await;
+        let setup_quarantined = result.as_ref().err().is_some_and(|error| error.lease_quarantined);
         let mut result = match result {
             Err(error) if error.is_cancelled() => Err(error),
             Err(error) if matches!(error.original, SetupError::Dropped(_)) => {
@@ -442,14 +494,20 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
         };
         if !matches!(result, Ok(Outcome::SetUp)) {
             // Kotlin finally: dispose failure replaces the main result; release failure replaces either.
-            if let Some(simulator) = simulator
-                && let Err(error) = simulator.device.0.dispose().await
-            {
+            let mut quarantined = setup_quarantined;
+            if let Some(simulator) = simulator {
+                if let Err(error) = simulator.device.0.dispose().await {
+                    result = Err(error.into());
+                }
+                quarantined |= simulator.setup.lease_quarantined();
+            }
+            if quarantined {
+                drop(lease);
+            } else if let Err(error) = lease.release(executor).await {
                 result = Err(error.into());
             }
-            if let Err(error) = self.connections.release(executor).await {
-                result = Err(error.into());
-            }
+        } else {
+            lease.transferred();
         }
         result
     }

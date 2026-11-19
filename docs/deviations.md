@@ -2996,3 +2996,27 @@ block, including `Marathon run finished` and `\tRaw:`, keep their text format.
 These allowances are not additional numbered deviations.
 
 This guide records approved differences. Proposals that are still pending are not listed here.
+
+## D95 — Finish deadlines for providers, connections and history
+
+Approved 2026-11-18 (project owner's decision). WP x94. See [finish wait audit](wp/x94-findings.md).
+
+- **Apple lease release.** A final lease waits at most 40 s for SSH disconnect, keep-alive and transport close, clipped
+  to an earlier device or provider deadline. Expiry abandons the transport and warns once. Sibling leases still use
+  their generation, and D90 still governs acquisition of its replacement. A quarantined device skips release.
+- **History analytics.** The source close uses the D51 backend allowance (30 s by default). The D34 refresh join
+  still has its separate 3 s. Close expiry gives up the source future, warns once and preserves the run outcome.
+- **Android shutdown.** One provider deadline covers devices, monitor and setup tasks, staging cleanup and the
+  provider-owned ADB restart wait. It uses D92's allowance plus the core's 5 s margin, normally 65 s. The shared
+  factory stays available through device cleanup inside that deadline.
+- **iOS shutdown.** One 70 s provider deadline covers lifecycle locking, monitoring, setup, recovery, artifacts,
+  disposal and release. Artifacts retain up to 40 s of cancellation time after an interrupted run and up to 60 s on
+  routine termination, within the remaining window. A simulator needs confirmed work termination to run its on-dispose
+  lifecycle. A standalone disposal also gives its lifecycle the remaining time in the device's 70 s window.
+- **Apple pulls.** A device sealed at run stop gives current and later pulls the same finish deadline. It reserves
+  the last 40 s for D91 cleanup. Transfer duration on running devices is still governed by progress.
+- **Reports and drains.** Reporters still run to completion and preserve their output. A slow report logs its current
+  reporter after 60 s, with at least 60 s between subsequent notices. The scheduler releases the common D94 timer
+  once all barriers answer.
+
+The deadlines leave committed results, the run's first cause, and D52's signal exit rules in place.

@@ -11,7 +11,7 @@ use super::{
     error::{ProvisioningError, ProvisioningResult, clock_error},
     provisioning_plan::{CurrentDevices, PlanCalculator},
     simulator_factory::{BinaryFactory, ConstructedSimulator, SimulatorCreating},
-    simulator_provisioner::{FailedSetup, ProvisioningConnections, SimulatorProvisioner},
+    simulator_provisioner::{FailedSetup, PendingLease, ProvisioningConnections, SimulatorProvisioner},
     timing::{ProvisioningTiming, profile_text},
     worker_provisioning_context::WorkerProvisioningContext,
 };
@@ -36,8 +36,9 @@ use marathon_config::{
 };
 use marathon_core::{
     error::{VendorError, VendorResult},
+    executor::bridge::JoiningTasks,
     executor::shared::{SharedChannel, SharedDeferred, Signal, requested},
-    runtime::{EventChannel, VendorFuture, VendorRuntime, VendorTask},
+    runtime::{CancellationSignal, EventChannel, VendorFuture, VendorRuntime, VendorTask},
     vendor::{DeviceEvent, DeviceProvider, DeviceRef, VendorContext},
 };
 use marathon_logging::{Component, Level};
@@ -369,19 +370,20 @@ impl AppleSimulatorProvider {
         let channel = self.channel.clone();
         let logging = self.services.logging.clone();
         let logger = self.logger.clone();
-        self.events.spawn(self.services.runtime.as_ref(), async move {
-            let Some(Err(e)) = outbox.send_oldest(|event| channel.try_send(event)) else {
-                return Ok(());
-            };
-            let detail = e
-                .cause
-                .unwrap_or_else(|| failure(FailureKind::ChannelSendClosed, "Channel was closed"));
-            // A root launch reports a failed send independently of its registering caller.
-            if logging.enabled(&logger, Level::ERROR) {
-                (logging.sink)(&logger, Level::ERROR, String::new(), Some(detail.clone()));
-            }
-            Err(VendorError::Other(detail))
-        });
+        self.events
+            .spawn_interruptible(self.services.runtime.as_ref(), async move {
+                let Some(Err(e)) = outbox.send_oldest(|event| channel.try_send(event)) else {
+                    return Ok(());
+                };
+                let detail = e
+                    .cause
+                    .unwrap_or_else(|| failure(FailureKind::ChannelSendClosed, "Channel was closed"));
+                // A root launch reports a failed send independently of its registering caller.
+                if logging.enabled(&logger, Level::ERROR) {
+                    (logging.sink)(&logger, Level::ERROR, String::new(), Some(detail.clone()));
+                }
+                Err(VendorError::Other(detail))
+            });
     }
     pub async fn register(&self, id: String, device: ConstructedSimulator<Simulator>) -> ProvisioningResult<()> {
         // D93: a disposal that cannot confirm the simulator's work ended quarantines its lease in the factory at once, so
@@ -394,6 +396,9 @@ impl AppleSimulatorProvider {
         let serial = device.handle.serial().to_owned();
         let previous = {
             let mut state = self.state();
+            if state.termination.is_some() {
+                return Err(VendorError::Cancelled(requested("Provider terminated")).into());
+            }
             let previous = state.devices.get(&id).cloned();
             let out = previous.as_ref().is_some_and(|p| p.handle.retired());
             let old_serial = previous.as_ref().map(|d| d.handle.serial().to_owned());
@@ -671,6 +676,7 @@ impl AppleSimulatorProvider {
                     .map_err(Into::into);
             }
         };
+        let lease = PendingLease::new(self.services.connections.as_ref(), &executor);
         let result = self
             .setup(
                 &transport,
@@ -682,7 +688,7 @@ impl AppleSimulatorProvider {
             )
             .await;
         // Planning lease is independent of each device lease, even after a failed plan.
-        let released = self.services.connections.release(executor).await;
+        let released = lease.release(executor).await;
         // A failed release costs this lease, not the retries of what the cycle didn't set up. It stays the cycle's
         // error, which the caller logs.
         let (unfinished, failure) = match result {
@@ -1112,12 +1118,18 @@ impl AppleSimulatorProvider {
         let done = SharedDeferred::new();
         let result = done.clone();
         // D84: published even if processing panics, since nothing else ends this wait.
-        self.update_tasks
-            .spawn_published(self.services.runtime.as_ref(), result, async move {
-                this.process(snapshot, caller)
-                    .await
-                    .map_err(ProvisioningError::into_vendor)
-            });
+        {
+            let state = self.state();
+            if state.termination.is_some() {
+                return Err(VendorError::Cancelled(requested("Provider terminated")));
+            }
+            self.update_tasks
+                .spawn_published_interruptible(self.services.runtime.as_ref(), result, async move {
+                    this.process(snapshot, caller)
+                        .await
+                        .map_err(ProvisioningError::into_vendor)
+                });
+        }
         done.wait().await.map(|_| ())
     }
     async fn dispatch<T: Clone + Send + Sync + 'static>(
@@ -1152,7 +1164,10 @@ impl AppleSimulatorProvider {
         if let Some(reason) = caller.cancellation.reason() {
             return Err(VendorError::Cancelled(reason));
         }
-        let initial = source::load(&self).await?;
+        let initial = tokio::select! { biased;
+            reason = self.monitor_cancel.cancelled() => return Err(VendorError::Cancelled(reason)),
+            result = source::load(&self) => result?,
+        };
         if let Some(reason) = caller.cancellation.reason() {
             return Err(VendorError::Cancelled(reason));
         }
@@ -1170,7 +1185,11 @@ impl AppleSimulatorProvider {
             cancellation: self.monitor_cancel.clone(),
             ..self.services.context.clone()
         };
-        let task = self.services.runtime.spawn(Box::pin(async move {
+        let mut state = self.state();
+        if state.termination.is_some() {
+            return Err(VendorError::Cancelled(requested("Provider terminated")));
+        }
+        let task = self.services.runtime.spawn_interruptible(Box::pin(async move {
             use futures_util::FutureExt;
             let monitor = this.clone();
             let (result, panicked) = match std::panic::AssertUnwindSafe(monitor.monitor(initial, context))
@@ -1209,7 +1228,7 @@ impl AppleSimulatorProvider {
             }
             result
         }));
-        self.state().monitoring = Some(task);
+        state.monitoring = Some(task);
         Ok(())
     }
     /// A82, A90 (D74): a simulator's lease is released after its disposal. D93: unless that disposal could not confirm
@@ -1224,37 +1243,54 @@ impl AppleSimulatorProvider {
             // Its disposal has quarantined the lease in the factory already.
             return Ok(());
         }
-        let release = self.services.connections.release(executor);
-        let Some(deadline) = simulator.shutdown_deadline() else {
-            return release.await;
-        };
-        // D93: the wait is held to the simulator's window; a close that outlasts it goes on in the factory's own task.
-        let clock = self.services.context.clock.clone();
-        let left = deadline.saturating_sub(clock.now_millis()).max(0);
-        tokio::select! { biased;
-            released = release => released,
-            _ = clock.delay(left, Signal::new()) => {
-                self.log(
-                    Level::DEBUG,
-                    || format!("Not waiting for the connection of {} to close beyond its window", simulator.serial()),
-                    None,
-                );
-                Ok(())
-            }
-        }
+        self.services
+            .connections
+            .release_before(executor, simulator.shutdown_deadline(), self.services.context.clone())
+            .await
     }
-    async fn terminate_inner(&self, drain_millis: i64, cancel_millis: i64) -> VendorResult<()> {
-        let _lifecycle = self.lifecycle.lock().await;
+    async fn terminate_inner(&self, drain_millis: i64, cancel_millis: i64, interrupted: bool) -> VendorResult<()> {
         self.log(Level::DEBUG, || "Terminating AppleSimulatorProvider".into(), None);
         self.monitor_cancel.cancel(requested("Provider terminated"));
-        let monitoring = self.state().monitoring.take();
-        if let Some(task) = monitoring {
-            let _ = task.join().await;
+        let clock = &self.services.context.clock;
+        let deadline = clock
+            .now_millis()
+            .saturating_add(SimulatorTimeouts::default().cancelled_batch_millis);
+        self.services
+            .connections
+            .seal_for_termination(deadline, self.services.context.clone());
+        {
+            let state = self.state();
+            // Removed simulators may still have pulls with the disposal cause.
+            // A run stop must reach them even after their device actors have left.
+            for simulator in &state.replaced {
+                simulator.limit_pulls_for_provider_shutdown(deadline);
+            }
+            if interrupted {
+                for device in state.devices.values() {
+                    device.handle.limit_pulls_for_provider_shutdown(deadline);
+                }
+            }
         }
-        for task in self.update_tasks.take() {
-            let _ = task.join().await;
-        }
-        if let Err(error) = self.services.recovery.terminate().await {
+        let left = || deadline.saturating_sub(clock.now_millis()).max(0);
+        let mut tasks = JoiningTasks(self.update_tasks.take());
+        tasks.0.extend(self.state().monitoring.take());
+        let joined = tokio::select! { biased;
+            _ = async {
+                let _lifecycle = self.lifecycle.lock().await;
+                tasks.join().await;
+            } => true,
+            _ = clock.delay(left(), Signal::new()) => false,
+        };
+        let recovery = tokio::select! { biased;
+            result = self.services.recovery.terminate() => Some(result),
+            _ = clock.delay(left(), Signal::new()) => None,
+        };
+        let mut abandoned = match (joined, &recovery) {
+            (false, _) => Some("lifecycle locking, device monitoring or setup and recovery"),
+            (_, None) => Some("device recovery"),
+            _ => None,
+        };
+        if let Some(Err(error)) = recovery {
             self.log(
                 Level::ERROR,
                 || "Failed to terminate provider recovery".into(),
@@ -1262,8 +1298,18 @@ impl AppleSimulatorProvider {
             );
         }
         // A disconnect a recovery raised has its publishing task; it goes out before the channel closes.
-        for event in self.events.take() {
-            let _ = event.join().await;
+        tokio::select! { biased;
+            _ = JoiningTasks(self.events.take()).join() => {},
+            _ = clock.delay(left(), Signal::new()) => {
+                abandoned.get_or_insert("device event publishing");
+            },
+        }
+        if let Some(abandoned) = abandoned {
+            self.log(
+                Level::WARN,
+                || format!("iOS provider shutdown timed out. Abandoning {abandoned}."),
+                None,
+            );
         }
         self.channel.close(None);
         let context = VendorContext {
@@ -1272,14 +1318,17 @@ impl AppleSimulatorProvider {
         };
         self.services
             .artifacts
-            .close_and_join(drain_millis, cancel_millis, &context)
+            .close_and_join_before(drain_millis, cancel_millis, deadline, &context)
             .await?;
         let handed_back = std::mem::take(&mut self.state().handed_back);
         let ours = |handle: &Simulator| !handed_back.iter().any(|h| Arc::ptr_eq(h, handle));
         join_all(self.devices().into_iter().map(|device| async move {
             let lease = ours(&device.handle).then(|| device.handle.executor());
             // D93 (round 8): the run's end, not a removal: a refusal after it is an orderly cancellation.
-            device.handle.seal_for_termination();
+            device.handle.seal_for_termination(deadline);
+            if abandoned.is_some() {
+                device.handle.quarantine_after_provider_timeout(deadline);
+            }
             dispose_then_release(device.device.0.dispose(), async {
                 match lease {
                     Some(executor) => self.release_lease(&device.handle, executor).await,
@@ -1288,11 +1337,13 @@ impl AppleSimulatorProvider {
             })
             .await;
             self.services.registry.remove(&device.device);
-            self.log(
-                Level::DEBUG,
-                || format!("Disposed device {}", device.handle.udid()),
-                None,
-            );
+            if !device.handle.quarantined() {
+                self.log(
+                    Level::DEBUG,
+                    || format!("Disposed device {}", device.handle.udid()),
+                    None,
+                );
+            }
         }))
         .await;
         let replaced = {
@@ -1300,11 +1351,21 @@ impl AppleSimulatorProvider {
             state.devices.clear();
             std::mem::take(&mut state.replaced)
         };
-        for device in replaced.into_iter().filter(|d| ours(d)) {
+        join_all(replaced.into_iter().filter(|d| ours(d)).map(|device| async move {
+            device.seal_for_termination(deadline);
+            if abandoned.is_some() && !device.disposed() {
+                device.quarantine_after_provider_timeout(deadline);
+            }
             let _ = self.release_lease(&device, device.executor()).await;
-        }
-        for event in self.events.take() {
-            let _ = event.join().await;
+        }))
+        .await;
+        tokio::select! { biased;
+            _ = JoiningTasks(self.events.take()).join() => {},
+            _ = clock.delay(left(), Signal::new()) => {
+                if abandoned.is_none() {
+                    self.log(Level::WARN, || "iOS provider shutdown timed out. Abandoning device event publishing.".into(), None);
+                }
+            },
         }
         Ok(())
     }
@@ -1358,18 +1419,22 @@ impl DeviceProvider for AppleSimulatorProvider {
         self.channel.clone()
     }
     fn terminate(&self) -> VendorFuture<'_, ()> {
-        self.terminate_with_artifact_budget(DRAIN_TIMEOUT_MILLIS, CANCEL_TIMEOUT_MILLIS)
+        self.terminate_with_artifact_budget(DRAIN_TIMEOUT_MILLIS, CANCEL_TIMEOUT_MILLIS, false)
     }
     fn terminate_after_stop(&self) -> VendorFuture<'_, ()> {
-        // The processor drains results from completed batches, whose devices may have used all of their own time.
-        // Allow a separate D93-size window, reserving time for cancellation using D91's transfer cleanup allowance.
+        // Preserve D94's drain and cancellation split inside the common provider deadline.
         let window = SimulatorTimeouts::default().cancelled_batch_millis;
-        self.terminate_with_artifact_budget(window.saturating_sub(STOP_CLEANUP_MILLIS), STOP_CLEANUP_MILLIS)
+        self.terminate_with_artifact_budget(window.saturating_sub(STOP_CLEANUP_MILLIS), STOP_CLEANUP_MILLIS, true)
     }
 }
 
 impl AppleSimulatorProvider {
-    fn terminate_with_artifact_budget(&self, drain_millis: i64, cancel_millis: i64) -> VendorFuture<'_, ()> {
+    fn terminate_with_artifact_budget(
+        &self,
+        drain_millis: i64,
+        cancel_millis: i64,
+        interrupted: bool,
+    ) -> VendorFuture<'_, ()> {
         Box::pin(async move {
             let (done, start) = {
                 let mut state = self.state();
@@ -1388,7 +1453,7 @@ impl AppleSimulatorProvider {
                 // D84: published even if termination panics, since every caller waits on this.
                 self.operations
                     .spawn_published(self.services.runtime.as_ref(), result, async move {
-                        this.terminate_inner(drain_millis, cancel_millis).await
+                        this.terminate_inner(drain_millis, cancel_millis, interrupted).await
                     });
             }
             done.wait().await.map(|_| ())

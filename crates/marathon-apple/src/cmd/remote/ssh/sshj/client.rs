@@ -91,6 +91,7 @@ pub struct ConnectionShared {
     death: Mutex<Option<SshFailure>>,
     dead: watch::Sender<bool>,
     received_disconnect: AtomicBool,
+    transport_ended: watch::Sender<bool>,
     closed_locally: AtomicBool,
     authenticated: AtomicBool,
     host_key_rejection: Mutex<Option<SshFailure>>,
@@ -116,6 +117,7 @@ impl ConnectionShared {
             death: Mutex::new(None),
             dead: watch::channel(false).0,
             received_disconnect: AtomicBool::new(false),
+            transport_ended: watch::channel(false).0,
             closed_locally: AtomicBool::new(false),
             authenticated: AtomicBool::new(false),
             host_key_rejection: Mutex::new(None),
@@ -258,6 +260,7 @@ pub struct ClientHandler {
 impl Drop for ClientHandler {
     fn drop(&mut self) {
         self.shared.release_shared_slot();
+        self.shared.transport_ended.send_replace(true);
     }
 }
 impl client::Handler for ClientHandler {
@@ -910,12 +913,12 @@ async fn disconnect_locally(shared: Option<&ConnectionShared>, handle: &Handle<C
         // D36: disposal also closes a connection the worker already dropped, and a task still running on that device
         // must keep seeing a lost connection. russh closes the handle before it reports the death, so a transport
         // whose death is still on its way counts as lost too.
+        shared.received_disconnect.store(true, Ordering::SeqCst);
         shared.set_death(
             SshFailure::transport(DisconnectReason::ByApplication, "Disconnected"),
             false,
             !handle.is_closed(),
         );
-        shared.received_disconnect.store(true, Ordering::SeqCst);
     }
     let _ = handle.disconnect(Disconnect::ByApplication, "", "").await;
 }
@@ -1008,7 +1011,18 @@ impl SshConnection {
         if let Some(task) = &self.keep_alive {
             let _ = task.join().await;
         }
+        let _ = self.shared.transport_ended.subscribe().wait_for(|ended| *ended).await;
         Ok(())
+    }
+    pub(super) fn abandon(&self) {
+        self.shared.received_disconnect.store(true, Ordering::SeqCst);
+        self.shared.set_death(
+            SshFailure::transport(DisconnectReason::ByApplication, "Disconnected"),
+            false,
+            !self.handle.is_closed(),
+        );
+        self.scope.cancel(cancelled("Client closed"));
+        self.handle.abort();
     }
 }
 

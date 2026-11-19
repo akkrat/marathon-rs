@@ -437,6 +437,17 @@ impl ArtifactProcessor {
         cancel_timeout: i64,
         context: &VendorContext,
     ) -> VendorResult<Vec<String>> {
+        self.close_and_join_before(timeout, cancel_timeout, i64::MAX, context)
+            .await
+    }
+
+    pub async fn close_and_join_before(
+        self: &Arc<Self>,
+        timeout: i64,
+        cancel_timeout: i64,
+        deadline: i64,
+        context: &VendorContext,
+    ) -> VendorResult<Vec<String>> {
         let (finished, rejected) = {
             let mut state = self.state();
             (state.queue.done.clone(), state.queue.close())
@@ -446,19 +457,21 @@ impl ArtifactProcessor {
         }
         let started = self.now("apple.ArtifactProcessor.closeAndJoin")?;
         let clock = &context.clock;
-        let deadline = clock
-            .now_millis()
-            .saturating_add(timeout.max(0))
-            .saturating_add(cancel_timeout.max(0));
-        if context
-            .clock
-            .with_timeout_or_null(
-                context.cancellation.clone(),
-                timeout,
-                Box::new(|signal| Box::pin(async { finished.wait_in(signal).await.map(|_| ()) })),
-            )
-            .await?
-            .is_none()
+        let now = clock.now_millis();
+        let remaining = deadline.saturating_sub(now).max(0);
+        let cancel_timeout = cancel_timeout.max(0).min(remaining);
+        let timeout = timeout.max(0).min(remaining.saturating_sub(cancel_timeout));
+        let deadline = now.saturating_add(timeout).saturating_add(cancel_timeout);
+        if finished.completed().is_none()
+            && context
+                .clock
+                .with_timeout_or_null(
+                    context.cancellation.clone(),
+                    timeout,
+                    Box::new(|signal| Box::pin(async { finished.wait_in(signal).await.map(|_| ()) })),
+                )
+                .await?
+                .is_none()
         {
             let pending = self.state().queue.pending();
             let pending = pending

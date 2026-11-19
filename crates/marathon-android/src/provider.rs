@@ -15,7 +15,12 @@ use marathon_adb::client::{
 };
 use marathon_core::{
     error::*,
-    executor::{SharedChannel, Signal, bridge::call_vendor, shared::requested},
+    execution::scheduler::STOP_MARGIN_MILLIS,
+    executor::{
+        SharedChannel, Signal,
+        bridge::{JoiningTasks, call_vendor},
+        shared::requested,
+    },
     runtime::*,
     vendor::*,
 };
@@ -181,42 +186,49 @@ impl AdamDeviceProvider {
         }
         *lock(&self.inner.clients) = clients;
         let this = self.clone();
-        let task = runtime.dependencies.io.spawn_cancellable(Box::new(move |signal| {
-            Box::pin(async move {
-                let stopped = signal.clone();
-                let result = std::panic::AssertUnwindSafe(this.monitor(VendorContext {
-                    cancellation: signal,
-                    ..context
-                }))
-                .catch_unwind()
-                .await
-                .unwrap_or_else(|payload| Err(VendorError::Other(marathon_core::executor::panic_failure(payload))));
-                // U211 (D88): the monitor is the only source of device events and the only one to release a batch held
-                // by an outage or a grace period (D22, D41). If it ends for any reason but the provider's termination,
-                // the device channel fails with the cause, which ends the run (D84) instead of leaving it waiting. The
-                // monitor publishes its own failure before it joins its servers' tasks; this covers a panic outside its
-                // loop. First-wins, and before the log line below.
-                if let Err(e) = &result
-                    && stopped.reason().is_none()
-                {
-                    this.publish_failure(e.failure().clone());
-                }
-                if let Err(e) = &result
-                    && !matches!(e, VendorError::Cancelled(_))
-                {
-                    // A log sink that panics costs only this line.
-                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        this.log(
-                            Level::ERROR,
-                            "Task stopped due to unrecoverable error",
-                            Some(e.failure()),
-                        )
-                    }));
-                }
-                result
-            })
-        }));
-        *lock(&self.inner.provider) = Some(task);
+        let mut monitor = lock(&self.inner.provider);
+        if EventChannel::state(self.inner.channel.as_ref()).closed_for_send {
+            return Err(VendorError::Cancelled(requested("device provider is closed")));
+        }
+        let task = runtime
+            .dependencies
+            .io
+            .spawn_cancellable_interruptible(Box::new(move |signal| {
+                Box::pin(async move {
+                    let stopped = signal.clone();
+                    let result = std::panic::AssertUnwindSafe(this.monitor(VendorContext {
+                        cancellation: signal,
+                        ..context
+                    }))
+                    .catch_unwind()
+                    .await
+                    .unwrap_or_else(|payload| Err(VendorError::Other(marathon_core::executor::panic_failure(payload))));
+                    // U211 (D88): the monitor is the only source of device events and the only one to release a batch held
+                    // by an outage or a grace period (D22, D41). If it ends for any reason but the provider's termination,
+                    // the device channel fails with the cause, which ends the run (D84) instead of leaving it waiting. The
+                    // monitor publishes its own failure before it joins its servers' tasks; this covers a panic outside its
+                    // loop. First-wins, and before the log line below.
+                    if let Err(e) = &result
+                        && stopped.reason().is_none()
+                    {
+                        this.publish_failure(e.failure().clone());
+                    }
+                    if let Err(e) = &result
+                        && !matches!(e, VendorError::Cancelled(_))
+                    {
+                        // A log sink that panics costs only this line.
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            this.log(
+                                Level::ERROR,
+                                "Task stopped due to unrecoverable error",
+                                Some(e.failure()),
+                            )
+                        }));
+                    }
+                    result
+                })
+            }));
+        *monitor = Some(task);
         Ok(())
     }
     /// `isConnectable`: asks for the version and, if a loopback server refuses the connection, starts it and asks
@@ -267,7 +279,7 @@ impl AdamDeviceProvider {
                 .runtime
                 .dependencies
                 .io
-                .spawn_cancellable(Box::new(move |signal| {
+                .spawn_cancellable_interruptible(Box::new(move |signal| {
                     Box::pin(async move {
                         let context = VendorContext {
                             cancellation: signal,
@@ -291,7 +303,7 @@ impl AdamDeviceProvider {
         }
         drop(tx);
         // Cancels the servers' tasks if this future is dropped before it has ended them itself, below.
-        let monitors = CancelOnDrop(monitors);
+        let monitors = JoiningTasks(monitors);
         // U211 review: a panic here is this monitor's error, so that the servers' tasks are still ended and joined below,
         // rather than left tracking (and, once the client is closed, reconnecting) for the rest of the process.
         let result = std::panic::AssertUnwindSafe(async {
@@ -405,57 +417,66 @@ impl AdamDeviceProvider {
                             let c = context.clone();
                             let barriers = self.inner.runtime.dependencies.barriers.clone();
                             let key = serial.clone();
-                            let task = self
-                                .inner
-                                .runtime
-                                .dependencies
-                                .io
-                                .spawn_cancellable(Box::new(move |signal| {
-                                    Box::pin(async move {
-                                        for task in predecessors {
-                                            cancellable(signal.clone(), async {
-                                                let _ = task.join().await;
-                                                Ok(())
-                                            })
-                                            .await?;
-                                        }
-                                        let permit = cancellable(signal.clone(), async {
-                                            barriers
-                                                .enter("android.AdamDeviceProvider.connected", &key)
-                                                .await
-                                                .map_err(|e| other(FailureKind::Replay, e.message))
-                                        })
-                                        .await?;
-                                        let result = async {
-                                            connected
-                                                .setup(VendorContext {
-                                                    cancellation: signal,
-                                                    ..c
+                            let task = {
+                                let mut setups = lock(&self.inner.setups);
+                                if EventChannel::state(self.inner.channel.as_ref()).closed_for_send {
+                                    return Err(VendorError::Cancelled(requested("device provider is closed")));
+                                }
+                                let task =
+                                    self.inner
+                                        .runtime
+                                        .dependencies
+                                        .io
+                                        .spawn_cancellable_interruptible(Box::new(move |signal| {
+                                            Box::pin(async move {
+                                                for task in predecessors {
+                                                    cancellable(signal.clone(), async {
+                                                        let _ = task.join().await;
+                                                        Ok(())
+                                                    })
+                                                    .await?;
+                                                }
+                                                let permit = cancellable(signal.clone(), async {
+                                                    barriers
+                                                        .enter("android.AdamDeviceProvider.connected", &key)
+                                                        .await
+                                                        .map_err(|e| other(FailureKind::Replay, e.message))
                                                 })
                                                 .await?;
-                                            let mut ready = lock(&completed);
-                                            connected.ensure_running()?;
-                                            channel.try_send(DeviceEvent::Connected(connected_reference)).map_err(
-                                                |_| other(FailureKind::ChannelSendClosed, "Channel was closed"),
-                                            )?;
-                                            *ready = true;
-                                            Ok(())
-                                        }
-                                        .await;
-                                        permit.finish().map_err(|e| other(FailureKind::Replay, e.message))?;
-                                        if let Err(e) = &result
-                                            && !matches!(e, VendorError::Cancelled(_))
-                                        {
-                                            connected.log(
-                                                Level::ERROR,
-                                                "Task stopped due to unrecoverable error",
-                                                Some(e.failure()),
-                                            );
-                                        }
-                                        result
-                                    })
-                                }));
-                            lock(&self.inner.setups).push(task.clone());
+                                                let result = async {
+                                                    connected
+                                                        .setup(VendorContext {
+                                                            cancellation: signal,
+                                                            ..c
+                                                        })
+                                                        .await?;
+                                                    let mut ready = lock(&completed);
+                                                    connected.ensure_running()?;
+                                                    channel
+                                                        .try_send(DeviceEvent::Connected(connected_reference))
+                                                        .map_err(|_| {
+                                                            other(FailureKind::ChannelSendClosed, "Channel was closed")
+                                                        })?;
+                                                    *ready = true;
+                                                    Ok(())
+                                                }
+                                                .await;
+                                                permit.finish().map_err(|e| other(FailureKind::Replay, e.message))?;
+                                                if let Err(e) = &result
+                                                    && !matches!(e, VendorError::Cancelled(_))
+                                                {
+                                                    connected.log(
+                                                        Level::ERROR,
+                                                        "Task stopped due to unrecoverable error",
+                                                        Some(e.failure()),
+                                                    );
+                                                }
+                                                result
+                                            })
+                                        }));
+                                setups.push(task.clone());
+                                task
+                            };
                             lock(&self.inner.devices).insert(
                                 (server.clone(), serial.clone()),
                                 Provided {
@@ -554,9 +575,7 @@ impl AdamDeviceProvider {
         for task in &monitors.0 {
             task.cancel(requested("device monitor ended"));
         }
-        for task in &monitors.0 {
-            let _ = task.join().await;
-        }
+        monitors.join().await;
         result
     }
     /// D22: follows one adb server's device list for the whole run, across outages. Kotlin's loop means to survive
@@ -1055,11 +1074,21 @@ impl AdamDeviceProvider {
         if *closed {
             return Ok(());
         }
-        let provider = lock(&self.inner.provider).take();
-        if let Some(task) = &provider {
-            task.cancel(requested("provider terminated"));
-        }
-        self.inner.channel.close(None);
+        let runtime = &self.inner.runtime;
+        let clock = &runtime.dependencies.clock;
+        let allowance =
+            crate::cleanup::allowance(&runtime.configuration.timeout_configuration).saturating_add(STOP_MARGIN_MILLIS);
+        let deadline = clock.now_millis().saturating_add(allowance);
+        let left = || deadline.saturating_sub(clock.now_millis());
+        let provider = {
+            let mut monitor = lock(&self.inner.provider);
+            let provider = monitor.take();
+            if let Some(task) = &provider {
+                task.cancel(requested("provider terminated"));
+            }
+            self.inner.channel.close(None);
+            provider
+        };
         let failed = self.published_failure().is_some();
         let devices = lock(&self.inner.all_devices).clone();
         for (_, device) in &devices {
@@ -1073,7 +1102,7 @@ impl AdamDeviceProvider {
         };
         let provider_done = async {
             if let Some(task) = provider {
-                let _ = task.join().await;
+                JoiningTasks(vec![task]).join().await;
             }
             // Registration closes with the channel. A registered device's setup could have been spawned
             // after the first scan of the setup handles, so join after the monitor ends.
@@ -1081,16 +1110,48 @@ impl AdamDeviceProvider {
             for task in &setups {
                 task.cancel(requested("provider terminated"));
             }
-            let _ = futures_util::future::join_all(setups.iter().map(|task| task.join())).await;
+            JoiningTasks(setups).join().await;
         };
-        tokio::join!(devices_done, provider_done);
+        let drained = tokio::select! { biased;
+            _ = async { tokio::join!(devices_done, provider_done); } => true,
+            _ = clock.delay(left(), Signal::new()) => false,
+        };
         self.inner.factory.close();
-        let runtime = &self.inner.runtime;
-        if let Err(error) = runtime.pull_staging.close(runtime).await {
-            self.log(
+        let staging_stop = Signal::new();
+        runtime.pull_staging.seal();
+        let staged = if left() > 0 {
+            tokio::select! { biased;
+                result = runtime.pull_staging.close(runtime, staging_stop.clone()) => Some(result),
+                _ = clock.delay(left(), Signal::new()) => None,
+            }
+        } else {
+            None
+        };
+        let staging_expired = staged.is_none();
+        match staged {
+            Some(Err(error)) => self.log(
                 Level::WARN,
                 "Unable to remove Android pull staging",
                 Some(error.failure()),
+            ),
+            None => {
+                staging_stop.cancel(requested("Android provider shutdown deadline reached"));
+            }
+            _ => {}
+        }
+        if !drained || staging_expired {
+            for task in &*lock(&self.inner.setups) {
+                task.interrupt(requested("Android provider shutdown deadline reached"));
+            }
+            let abandoned = if !drained {
+                "device cleanup, monitor or setup work and staging removal"
+            } else {
+                "staging removal"
+            };
+            self.log(
+                Level::WARN,
+                &format!("Android provider shutdown timed out. Abandoning {abandoned}."),
+                None,
             );
         }
         *closed = true;
@@ -1182,15 +1243,6 @@ impl DeviceProvider for AdamDeviceProvider {
     }
     fn subscribe(&self) -> Arc<dyn EventChannel<DeviceEvent>> {
         self.inner.channel.clone()
-    }
-}
-/// The servers' tracking tasks of one monitor, cancelled when it is dropped before it has ended them.
-struct CancelOnDrop(Vec<Arc<dyn VendorTask>>);
-impl Drop for CancelOnDrop {
-    fn drop(&mut self) {
-        for task in &self.0 {
-            task.cancel(requested("device monitor ended"));
-        }
     }
 }
 /// D22: the wait between attempts to reach a lost adb server.
@@ -1531,7 +1583,7 @@ impl Recoveries {
         while let Some(queued) = self.ledger.startable() {
             let (id, serial, kind, device) = (queued.id, queued.serial.clone(), queued.kind, queued.payload.clone());
             let (done, context) = (self.done.clone(), self.context.clone());
-            let task = self.io.spawn_cancellable(Box::new(move |signal| {
+            let task = self.io.spawn_cancellable_interruptible(Box::new(move |signal| {
                 Box::pin(async move {
                     let context = VendorContext {
                         cancellation: signal,
@@ -1572,9 +1624,12 @@ impl Recoveries {
         for task in &tasks {
             task.cancel(requested("device monitor ended"));
         }
-        for task in tasks {
-            let _ = task.join().await;
-        }
+        JoiningTasks(tasks).join().await;
+    }
+}
+impl Drop for Recoveries {
+    fn drop(&mut self) {
+        drop(JoiningTasks(self.ledger.take_all()));
     }
 }
 /// U170: runs a recovery and always reports it. The ledger's slot and the device's hold are freed only by the report, and
@@ -1598,13 +1653,6 @@ async fn report(
         }
     };
     let _ = done.send(Done { id, serial, outcome });
-}
-impl Drop for Recoveries {
-    fn drop(&mut self) {
-        for task in self.ledger.take_all() {
-            task.cancel(requested("device monitor ended"));
-        }
-    }
 }
 fn send(tx: &TrackedSender, message: Tracked) -> VendorResult<()> {
     tx.send(Ok(message))
@@ -1652,6 +1700,7 @@ pub async fn start_adb(sdk: Option<&std::path::Path>, port: u16, context: Vendor
     } else {
         let result = tokio::process::Command::new("which")
             .arg("adb")
+            .kill_on_drop(true)
             .output()
             .await
             .map_err(io)?;

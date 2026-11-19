@@ -92,6 +92,7 @@ struct Fake {
     saturated: AtomicBool,
     closing: AtomicBool,
     closed: AtomicUsize,
+    abandoned: AtomicUsize,
     check: Mutex<Option<Arc<BlockingGate>>>,
     check_error: Mutex<Option<ConnectionError>>,
     close_gate: Semaphore,
@@ -110,6 +111,7 @@ impl Fake {
             saturated: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             closed: AtomicUsize::new(0),
+            abandoned: AtomicUsize::new(0),
             check: Mutex::new(None),
             check_error: Mutex::new(None),
             close_gate: Semaphore::new(1),
@@ -154,9 +156,14 @@ impl CommandExecutor for Fake {
             self.close_error.lock().unwrap().clone().map_or(Ok(()), Err)
         })
     }
+    fn abandon(&self) {
+        self.abandoned.fetch_add(1, Ordering::SeqCst);
+        self.alive.store(false, Ordering::SeqCst);
+    }
 }
 struct Control {
     logging: SshLogging,
+    events: ssh::Events,
     created: Mutex<Vec<Arc<Fake>>>,
     block_only: Mutex<Option<String>>,
     prepared: Semaphore,
@@ -171,8 +178,10 @@ struct Control {
 }
 impl Control {
     fn new() -> Arc<Self> {
+        let (logging, events) = ssh::logging(true);
         Arc::new(Self {
-            logging: ssh::logging(true).0,
+            logging,
+            events,
             created: Mutex::new(Vec::new()),
             block_only: Mutex::new(None),
             prepared: Semaphore::new(0),
@@ -200,6 +209,53 @@ impl Control {
             .find(|f| Arc::ptr_eq(&((*f).clone() as Executor), e))
             .unwrap()
             .clone()
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn only_the_final_lease_abandons_a_stalled_close_at_its_deadline_d95() {
+    for millis in [40_000, 8_000] {
+        let (factory, control) = factory(true, 8);
+        let first = get(&factory, "a").await;
+        let sibling = get(&factory, "a").await;
+        assert!(Arc::ptr_eq(&first, &sibling));
+        let old = control.fake(&first);
+        old.close_gate.forget_permits(1);
+        let before = tokio::time::Instant::now();
+        factory.dispose(first).await.unwrap();
+        assert!(sibling.connected());
+        assert_eq!(before.elapsed().as_millis(), 0);
+        let deadline = (millis < 40_000).then_some(millis);
+        tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            factory.dispose_before(sibling, deadline),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(before.elapsed().as_millis(), millis as u128);
+        assert_eq!(old.abandoned.load(Ordering::SeqCst), 1);
+        assert_eq!(old.count(), 0);
+        assert_eq!(
+            control
+                .events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(_, level, line, _)| {
+                    *level == marathon_logging::Level::WARN && line.contains("lease release timed out")
+                })
+                .count(),
+            1
+        );
+        let replacement = get(&factory, "a").await;
+        let second_user = get(&factory, "a").await;
+        assert!(Arc::ptr_eq(&replacement, &second_user));
+        assert_eq!(control.calls.load(Ordering::SeqCst), 2);
+        let before = tokio::time::Instant::now();
+        factory.dispose(replacement).await.unwrap();
+        factory.dispose(second_user).await.unwrap();
+        assert_eq!(before.elapsed().as_millis(), 0);
     }
 }
 struct TestConnector(Arc<Control>);

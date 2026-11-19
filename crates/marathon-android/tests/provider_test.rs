@@ -1547,6 +1547,7 @@ struct JoinGate {
     armed: std::sync::atomic::AtomicBool,
     entered: tokio::sync::Notify,
     release: std::sync::Arc<marathon_core::executor::SharedDeferred<()>>,
+    shutdown_warnings: std::sync::atomic::AtomicUsize,
 }
 struct GatedTask {
     inner: std::sync::Arc<dyn marathon_core::runtime::VendorTask>,
@@ -1557,6 +1558,9 @@ impl marathon_core::runtime::VendorTask for GatedTask {
     fn cancel(&self, reason: Cancellation) {
         self.inner.cancel(reason)
     }
+    fn interrupt(&self, reason: Cancellation) {
+        self.inner.interrupt(reason)
+    }
     fn join(&self) -> marathon_core::runtime::VendorFuture<'_, ()> {
         Box::pin(async move {
             if self.held && self.gate.armed.load(std::sync::atomic::Ordering::SeqCst) {
@@ -1566,6 +1570,37 @@ impl marathon_core::runtime::VendorTask for GatedTask {
             self.inner.join().await
         })
     }
+}
+
+#[test]
+fn termination_abandons_a_stalled_monitor_join_and_keeps_its_failure_d95() {
+    let _ports = shared_ports();
+    run_with_driven_clock(configuration(), |runtime, context, clock| {
+        Box::pin(async move {
+            let (provider, gate, mut first, mut second) =
+                monitor_failing_while_joining(&runtime, &context, true).await?;
+            let after_cancel = provider.subscribe();
+            let mut terminate = provider.terminate();
+            // Poll to submit the termination task, then quiesce it before advancing.
+            assert!(futures_util::poll!(terminate.as_mut()).is_pending());
+            clock.advance_to(64_999).await;
+            assert!(futures_util::poll!(terminate.as_mut()).is_pending());
+            clock.advance_to(65_000).await;
+            checked(tokio::time::timeout(std::time::Duration::from_secs(60), terminate).await)?;
+            let failure = loop {
+                match after_cancel.receive().await {
+                    Ok(Some(_)) => continue,
+                    Ok(None) => panic!("the first failure was lost"),
+                    Err(error) => break error,
+                }
+            };
+            assert_eq!(failure.failure().message.as_deref(), Some(PROBE));
+            assert_eq!(gate.shutdown_warnings.load(std::sync::atomic::Ordering::SeqCst), 1);
+            checked(first.shutdown().await);
+            checked(second.shutdown().await);
+            Ok(())
+        })
+    });
 }
 impl GatedJoins {
     fn wrap(
@@ -1630,6 +1665,13 @@ async fn monitor_failing_while_joining(
         runtime.dependencies.io = std::sync::Arc::new(GatedJoins {
             inner: runtime.dependencies.io.clone(),
             gate: gate.clone(),
+        });
+        let (log, gate) = (runtime.log.clone(), gate.clone());
+        runtime.log = std::sync::Arc::new(move |logger, level, line, error| {
+            if level == marathon_logging::Level::WARN && line.starts_with("Android provider shutdown timed out") {
+                gate.shutdown_warnings.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            log(logger, level, line, error);
         });
     }
     let provider = AdamDeviceProvider::new(runtime)?;

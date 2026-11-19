@@ -531,9 +531,20 @@ async fn a_worker_dropping_after_a_failed_boot_does_not_renew_the_preparations_d
 /// and nothing set it up again.
 #[tokio::test(start_paused = true)]
 async fn an_old_recovery_out_of_time_does_not_take_a_simulator_added_back_out_of_the_run_d87() -> TestResult {
-    let p = recovery(1_000, |v| {
-        v.lifecycle_configuration.on_dispose = vec![marathon_config::vendor::LifecycleAction::Shutdown];
-    })?;
+    // The preparation expires while the removal waits. Use the normal device
+    // window so the on-dispose command can stay held across that expiry.
+    let p = RecoveryHarness::settings_with_device_window(
+        |v| {
+            let t = &mut v.timeout_configuration;
+            t.shell = duration(1_000);
+            t.boot = duration(1_000);
+            t.shutdown = duration(1_000);
+            v.lifecycle_configuration.on_dispose = vec![marathon_config::vendor::LifecycleAction::Shutdown];
+        },
+        3,
+        30_000,
+        70_000,
+    )?;
     p.start(&["a", "b"]).await?;
     p.connected(2).await;
     let a = p.current("a");

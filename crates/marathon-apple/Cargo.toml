@@ -29,6 +29,7 @@ plist = "=1.10.3"
 quick-xml = "=0.42.0"
 russh = "=0.64.1"
 log = "0.4"
+tracing.workspace = true
 indexmap = "2"
 base64 = "0.22"
 hmac = "0.13"

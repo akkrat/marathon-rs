@@ -90,7 +90,7 @@ struct Execution {
     transfers: Vec<Arc<marathon_apple::cmd::TransferReceipt>>,
     /// D93 (round 9): pulls from this Mac, registered as its sends are: one still running at its disposal keeps its lease
     /// from being released beside it.
-    pulls: Vec<Arc<marathon_apple::cmd::TransferReceipt>>,
+    pulls: marathon_apple::cmd::DevicePulls,
     /// D93: sealed by the run's stop or by the first disposal: the Mac's one window, its verdict and its receipt.
     shutdown: Option<Arc<Shutdown>>,
     /// D93: its disposal could not confirm that its work had ended: its lease is quarantined, not released.
@@ -874,7 +874,7 @@ impl MacosDevice {
                             format!("Device {} is being disposed", device.serial),
                         ));
                         let cause = execution.shutdown.as_ref().map_or(SealCause::Disposal, |s| s.cause);
-                        (execution.pulls.clone(), cause)
+                        (execution.pulls.snapshot(), cause)
                     };
                     let pulls_left =
                         marathon_apple::cmd::device_commands::settle_pulls(&pulls, &device.serial, cause.stops_pulls());
@@ -1015,14 +1015,12 @@ impl MacosDevice {
     /// D93 (round 8): also the Mac's pull gate, closed by a disposal's seal or a quarantine.
     /// D93 (round 9): registered with the Mac, as a send is, so that its disposal finds it if it still runs.
     fn receive_stop(&self) -> marathon_apple::cmd::TransferStop {
-        let receipt = marathon_apple::cmd::TransferReceipt::new();
-        {
-            let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
-            execution
-                .pulls
-                .retain(|t| t.ended() != Some(marathon_apple::cmd::TransferCleanup::Confirmed));
-            execution.pulls.push(receipt.clone());
-        }
+        let receipt = self
+            .execution
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .pulls
+            .register(self.options.dependencies.clock.clone());
         marathon_apple::cmd::receive_stop_gated(
             self.binary.command_executor.as_ref(),
             self.device_commands.pull_signal(),
@@ -1138,7 +1136,8 @@ impl Device for MacosDevice {
     }
     fn seal_for_stop(&self) {
         let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
-        self.seal_locked(&mut execution, SealCause::RunStop);
+        let shutdown = self.seal_locked(&mut execution, SealCause::RunStop);
+        execution.pulls.limit_to(shutdown.window.deadline);
     }
     fn info(&self) -> DeviceInfo {
         self.facts.lock().unwrap_or_else(|e| e.into_inner()).info.clone()

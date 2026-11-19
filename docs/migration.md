@@ -585,6 +585,12 @@ and the existing exit-code rules apply. A run whose filters removed every test e
 See [D51](deviations.md#d51--metrics-and-cleanup-failures-do-not-stop-a-run) and
 [D86](deviations.md#d86--remote-metrics-use-bounded-buffering).
 
+[D95](deviations.md#d95--finish-deadlines-for-providers-connections-and-history) applies the same 30 s allowance to
+history analytics close, after the existing 3 s refresh join. Android provider termination shares 65 s by default.
+iOS provider termination shares 70 s, including time spent draining artifacts. Unconfirmed simulators skip on-dispose
+commands and keep their worker lease quarantined. The last Apple worker lease has at most 40 s for disconnect.
+Report generation logs the active reporter after one minute and repeats the warning at most once a minute until it finishes.
+
 ## Cancelling a run
 
 SIGINT or SIGTERM now writes the reports and terminates the provider whatever `debug` says, in at most 25 s, and a second signal
