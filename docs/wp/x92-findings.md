@@ -284,3 +284,9 @@ discovery's sends also takes the parse to another device. A batch's or a prepara
 cancels, keep their cancellation. This changes x90's `simulator_dispose.rs::a_send_to_a_disposed_simulator_is_stopped_before_it_starts_d91`
 (now a `DeviceLost` whose cause is the `has been disposed` refusal; nothing starts, as before) and
 `a_local_send_after_the_seal_copies_nothing_d93`; both fail on d20ecdcc as they stand.
+
+**Round 6 verification.** Each round-6 witness fails on d20ecdcc (scratch worktree, new tests copied in; the recovery
+witness there runs past the 60 s watchdog, its recovery waiting its own 70 s). Stress, each alone: the six witnesses
+above, 50/50 each and 20/20 each with 12 busy processes. `cargo fmt --check`; `cargo clippy` of core, apple, ios, macos,
+android, cli and test-support with `-D warnings`; `cargo test --no-fail-fast` of those crates: 2,472 passed, 0 failed,
+34 ignored. Not run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test --workspace`.
