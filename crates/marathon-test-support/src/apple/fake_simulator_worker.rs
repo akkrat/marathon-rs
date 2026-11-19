@@ -82,6 +82,7 @@ pub struct FakeSimulatorWorker {
     pub home: String,
     pub simulators: Simulators,
     pub connected: AtomicBool,
+    pub legacy_recording: AtomicBool,
     /// Test-only: a blocking hook must be called on a vendor worker thread.
     pub on_connected_check: Mutex<ConnectedHook>,
     pub commands: Mutex<Vec<Vec<String>>>,
@@ -115,6 +116,7 @@ impl FakeSimulatorWorker {
             home: "/Users/worker".into(),
             simulators: Arc::default(),
             connected: AtomicBool::new(true),
+            legacy_recording: AtomicBool::new(false),
             on_connected_check: Mutex::new(Arc::new(|| {})),
             commands: Mutex::default(),
             xcodebuild_version: Mutex::new(vec!["Xcode 16.4".into(), "Build version 16F6".into()]),
@@ -250,6 +252,9 @@ impl CommandExecutor for FakeSimulatorWorker {
             .clone();
         hook();
         self.connected.load(Ordering::SeqCst)
+    }
+    fn has_worker_supervisor(&self) -> bool {
+        self.legacy_recording.load(Ordering::SeqCst)
     }
     fn log_error(&self, _: String) {}
     fn execute(&self, request: CommandRequest, context: VendorContext) -> VendorFuture<'_, CommandSession> {

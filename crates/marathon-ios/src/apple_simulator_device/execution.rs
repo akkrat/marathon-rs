@@ -424,12 +424,7 @@ impl AppleSimulatorDevice {
                 .filter(|s| s.ended() != Some(true))
                 .cloned()
                 .collect(),
-            recordings: state
-                .recordings
-                .iter()
-                .filter(|r| r.ended() != Some(true))
-                .cloned()
-                .collect(),
+            recordings: state.recordings.iter().filter(|r| r.needs_stop()).cloned().collect(),
         });
         state.shutdown = Some(shutdown.clone());
         let why = state.refusal(&self.serial).unwrap_or_default();
@@ -661,7 +656,7 @@ impl AppleSimulatorDevice {
                     for recording in recordings {
                         tokio::select! { biased;
                             reason = signal.cancelled() => return Err(VendorError::Cancelled(reason)),
-                            _ = recording.finalization() => {}
+                            _ = recording.wait_for_receipt() => {}
                         }
                     }
                     commands.wait_handed(signal).await

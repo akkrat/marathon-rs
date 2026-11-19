@@ -184,6 +184,92 @@ async fn video_policy_gates_pulls_and_false_never_attaches_or_deletes_d97() -> T
     Ok(())
 }
 #[tokio::test(start_paused = true)]
+async fn a_refused_legacy_launch_or_stop_costs_only_one_movie_d96_d97() -> TestResult {
+    use marathon_core::executor::shared::SharedDeferred;
+    use marathon_error::SshKind;
+    use std::sync::atomic::AtomicBool;
+
+    for refuse_launch in [true, false] {
+        let mut h = harness(|_| {})?;
+        Arc::make_mut(&mut h.services.configuration).screen_recording_policy = ScreenRecordingPolicy::OnAny;
+        let bridge = Arc::new(Bridge::default());
+        let d = device(&h, bridge.clone()).await?;
+        h.worker.legacy_recording.store(true, Ordering::SeqCst);
+        let c = context(&h, d.clone());
+        let tests = c.batch.tests.clone();
+        let l = ScreenRecordingListener::new(c);
+        let collector =
+            AttachmentCollector::new(&[l.attachments.clone() as Arc<dyn marathon_core::listener::AttachmentProvider>])
+                .map_err(|e| format!("{e:?}"))?;
+        let launched = [SharedDeferred::new(), SharedDeferred::new()];
+        let ready = launched.clone();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let pid = Arc::new(AtomicBool::new(false));
+        let pid_on_worker = pid.clone();
+        *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
+            let (pid, attempts, ready) = (pid_on_worker.clone(), attempts.clone(), ready.clone());
+            Box::pin(async move {
+                let wire = cmd.last().map_or("", String::as_str);
+                if wire.starts_with("nohup ") {
+                    let index = attempts.fetch_add(1, Ordering::SeqCst);
+                    ready[index].complete(Ok(()));
+                    if index == 0 && refuse_launch {
+                        return Err(VendorError::Other(marathon_apple::cmd::failure(
+                            FailureKind::Ssh(SshKind::OpenChannel),
+                            "fixture refused recorder channel",
+                        )));
+                    }
+                    pid.store(true, Ordering::SeqCst);
+                } else if cmd[0] == "cat" {
+                    return Ok(Some(if pid.load(Ordering::SeqCst) {
+                        ok(["123"])
+                    } else {
+                        absent()
+                    }));
+                } else if wire.starts_with("kill -s INT") && attempts.load(Ordering::SeqCst) == 1 {
+                    return Ok(Some(absent()));
+                } else if wire.starts_with("ps -p") {
+                    return Ok(Some(ok(["123"])));
+                } else if cmd[0] == "rm" && wire.ends_with(".pid") {
+                    pid.store(false, Ordering::SeqCst);
+                }
+                Ok(Some(ok(Vec::<String>::new())))
+            })
+        });
+        for (index, test) in tests.iter().enumerate() {
+            l.test_started(test).await.map_err(|e| format!("{e:?}"))?;
+            tokio::time::timeout(std::time::Duration::from_secs(60), launched[index].wait())
+                .await
+                .expect("the next legacy recording did not launch")
+                .map_err(|e| format!("{e:?}"))?;
+            l.test_failed(test, 0, 0, None).await.map_err(|e| format!("{e:?}"))?;
+            l.settle().await.map_err(|e| format!("{e:?}"))?;
+            if index == 0 {
+                assert!(bridge.pulls.lock().unwrap().is_empty());
+                // A worker can finish a legacy recording after the failed stop.
+                pid.store(false, Ordering::SeqCst);
+            }
+        }
+        assert!(collector.get(&tests[0]).is_none());
+        assert!(collector.get(&tests[1]).is_some());
+        assert_eq!(bridge.pulls.lock().unwrap().len(), 1);
+        assert_eq!(
+            h.logs
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|row| row.2.contains("was not delivered"))
+                .count(),
+            1
+        );
+        d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+        assert!(!d.quarantined());
+        h.finish(&[d]).await;
+    }
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
 async fn unfinished_movies_are_reported_once_and_never_pulled_d96_d97() -> TestResult {
     for (exit, reason) in [
         (None, "the recording did not start"),
@@ -289,8 +375,8 @@ async fn log_disabled_no_pid_and_failed_pull_reports_undelivered_d97() -> TestRe
         assert_eq!(commands.len(), usize::from(pid.is_some()) + usize::from(numeric));
         if numeric {
             assert_eq!(commands[1], ["sh", "-c", "kill -s INT +0012"]);
-            assert!(!
-                h.logs
+            assert!(
+                !h.logs
                     .lock()
                     .unwrap()
                     .iter()

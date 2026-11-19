@@ -115,7 +115,7 @@ impl ScreenRecordingListener {
                     let _ = prior.finalization().await;
                 }
                 if self.c.device.uses_legacy_recording().await.unwrap_or(false) {
-                    let _ = self.c.device.stop_legacy_recording_if_present(&self.c.context).await?;
+                    let _ = self.c.device.stop_legacy_recording_if_present(&self.c.context).await;
                 }
                 Ok(RecordingFinalization::NotStarted)
             }

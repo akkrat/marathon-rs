@@ -40,6 +40,7 @@ enum Capture {
 
 pub struct Recording {
     deadline: watch::Sender<Option<StopWindow>>,
+    legacy: watch::Sender<bool>,
     done: Arc<SharedDeferred<RecordingFinalization>>,
     opened: Arc<SharedDeferred<()>>,
 }
@@ -48,6 +49,7 @@ impl Recording {
     fn new() -> Arc<Self> {
         Arc::new(Self {
             deadline: watch::channel(None).0,
+            legacy: watch::channel(false).0,
             done: SharedDeferred::new(),
             opened: SharedDeferred::new(),
         })
@@ -89,7 +91,24 @@ impl Recording {
         self.done.wait().await.map(|result| *result)
     }
 
+    // Best-effort legacy stop is still requested at disposal. Only an owned
+    // recorder supplies a D93 cleanup receipt.
+    pub(super) fn needs_stop(&self) -> bool {
+        self.done.completed().is_none() || self.ended() == Some(false)
+    }
+
+    pub(super) async fn wait_for_receipt(&self) {
+        let mut legacy = self.legacy.subscribe();
+        tokio::select! {
+            _ = legacy.wait_for(|legacy| *legacy) => {}
+            _ = self.finalization() => {}
+        }
+    }
+
     pub(super) fn ended(&self) -> Option<bool> {
+        if *self.legacy.borrow() {
+            return Some(true);
+        }
         self.done
             .completed()
             .map(|result| result.is_ok_and(|result| *result != RecordingFinalization::Unconfirmed))
@@ -123,12 +142,17 @@ impl Recording {
         {
             return Ok(RecordingFinalization::NotStarted);
         }
-        if let Capture::Video(path) = &capture
-            && device.uses_legacy_recording().await?
-        {
-            return self
-                .run_legacy(device, path, &protected, batch.as_ref(), &mut deadline)
-                .await;
+        if let Capture::Video(path) = &capture {
+            match device.uses_legacy_recording().await {
+                Ok(true) => {
+                    self.legacy.send_replace(true);
+                    return Ok(self
+                        .run_legacy(device, path, &protected, batch.as_ref(), &mut deadline)
+                        .await);
+                }
+                Ok(false) => {}
+                Err(_) => return Ok(RecordingFinalization::NotStarted),
+            }
         }
         // Keep the open awaiter alive after handoff so a late acknowledgement still supplies
         // the session needed to stop. The device's admission gate refuses a launch after seal.
@@ -208,7 +232,7 @@ impl Recording {
         context: &VendorContext,
         batch: &dyn CancellationSignal,
         deadline: &mut watch::Receiver<Option<StopWindow>>,
-    ) -> VendorResult<RecordingFinalization> {
+    ) -> RecordingFinalization {
         let pidfile = device.remote_file_manager().remote_video_pidfile();
         let logger = device.services().logging.component("marathon_ios::listener::video");
         let logger_for_wait = logger.clone();
@@ -231,9 +255,12 @@ impl Recording {
         );
         let pidfile_ready = tokio::select! {
             biased;
-            _ = deadline.wait_for(Option::is_some) => return Ok(RecordingFinalization::NotStarted),
-            _ = batch.cancelled() => return Ok(RecordingFinalization::NotStarted),
-            result = wait_for_pidfile => result?,
+            _ = deadline.wait_for(Option::is_some) => return RecordingFinalization::NotStarted,
+            _ = batch.cancelled() => return RecordingFinalization::NotStarted,
+            result = wait_for_pidfile => result,
+        };
+        let Ok(pidfile_ready) = pidfile_ready else {
+            return RecordingFinalization::NotStarted;
         };
         if pidfile_ready.is_none() {
             device.services().logging.log(
@@ -243,9 +270,9 @@ impl Recording {
                 None,
             );
         }
-        let result = device.start_legacy_recording(path, context).await?;
-        if !result.is_some_and(|result| result.exit_code == Some(0)) {
-            return Ok(RecordingFinalization::Unconfirmed);
+        let launched = device.start_legacy_recording(path, context).await;
+        if !matches!(launched, Ok(Some(result)) if result.exit_code == Some(0)) {
+            return RecordingFinalization::NotStarted;
         }
         self.opened.complete(Ok(()));
         let pidfile = device.remote_file_manager().remote_video_pidfile();
@@ -274,9 +301,8 @@ impl Recording {
         )
         .await
         {
-            Some(Ok(true)) => Ok(RecordingFinalization::Finalized),
-            Some(Err(error)) => Err(error),
-            _ => Ok(RecordingFinalization::Unconfirmed),
+            Some(Ok(true)) => RecordingFinalization::Finalized,
+            _ => RecordingFinalization::Unfinalized,
         }
     }
 
@@ -384,7 +410,7 @@ impl AppleSimulatorDevice {
             if let Some(error) = state.refusal_error(&self.serial) {
                 return Err(error);
             }
-            state.recordings.retain(|record| record.ended() != Some(true));
+            state.recordings.retain(|record| record.needs_stop());
             state.recordings.push(recording.clone());
         }
         let device = self.clone();
