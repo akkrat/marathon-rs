@@ -82,8 +82,8 @@ struct Inner {
     /// D91: destinations of transfers whose end could not be confirmed, and the starts of rsync under way. Held only for
     /// a check or a change, never across a blocking call, so neither a start that hangs nor a stop waits on it.
     admission: Mutex<Admission>,
-    /// D91: called on the blocking thread just before each call there that a filesystem can hold (tests).
-    hook: OnceLock<BlockingHook>,
+    /// D91: called on the blocking thread just before each call there that a filesystem can hold (tests only).
+    hook: HookSlot,
 }
 /// D91: the calls a transfer makes on a blocking thread that a filesystem that does not answer can hold.
 #[doc(hidden)]
@@ -93,12 +93,48 @@ pub enum BlockingCall {
     Probe,
     /// Starting rsync.
     SpawnRsync,
-    /// After a start of rsync: committed to its transfer, or killed since it was refused meanwhile.
-    SpawnedRsync,
+    /// After a start of rsync, with its pid: committed to its transfer, or killed since it was refused meanwhile.
+    SpawnedRsync(Option<u32>),
     /// Starting `ps` for a process listing.
     SpawnPs,
 }
+#[cfg(feature = "test-support")]
 type BlockingHook = Arc<dyn Fn(BlockingCall) + Send + Sync>;
+#[cfg(feature = "test-support")]
+type HookSlot = OnceLock<BlockingHook>;
+/// Without the `test-support` feature there is no hook, and calling it does nothing.
+#[cfg(not(feature = "test-support"))]
+type HookSlot = ();
+/// The hook as a blocking thread calls it.
+#[derive(Clone, Default)]
+struct Hook {
+    #[cfg(feature = "test-support")]
+    hook: Option<BlockingHook>,
+}
+impl Hook {
+    #[cfg_attr(not(feature = "test-support"), allow(clippy::let_unit_value, clippy::unused_unit))]
+    fn of(slot: &HookSlot) -> Self {
+        #[cfg(feature = "test-support")]
+        {
+            Self {
+                hook: slot.get().cloned(),
+            }
+        }
+        #[cfg(not(feature = "test-support"))]
+        {
+            let () = *slot;
+            Self {}
+        }
+    }
+    fn call(&self, call: BlockingCall) {
+        #[cfg(feature = "test-support")]
+        if let Some(hook) = &self.hook {
+            hook(call);
+        }
+        #[cfg(not(feature = "test-support"))]
+        let _ = call;
+    }
+}
 #[derive(Default)]
 struct Admission {
     quarantined: std::collections::HashSet<String>,
@@ -132,7 +168,7 @@ impl RsyncFileBridge {
             stalls: StallRecord::default(),
             tasks: RetainedTasks::default(),
             admission: Mutex::default(),
-            hook: OnceLock::new(),
+            hook: HookSlot::default(),
         }));
         if debug {
             let inner = bridge.0.clone();
@@ -190,6 +226,7 @@ impl RsyncFileBridge {
     /// D91: `hook` is called on the blocking thread just before each `BlockingCall`, so that a test can hold one there as a
     /// filesystem that no longer answers would. Only the first one set counts.
     #[doc(hidden)]
+    #[cfg(feature = "test-support")]
     pub fn on_blocking_call(&self, hook: Arc<dyn Fn(BlockingCall) + Send + Sync>) {
         let _ = self.0.hook.set(hook);
     }
@@ -202,6 +239,7 @@ impl RsyncFileBridge {
 struct BinaryPaths {
     rsync: String,
     sshpass: String,
+    sshpass_missing: bool,
 }
 // rsync4j's Binaries caches discovery per process, independently of bridge instances. D91: the look runs on a blocking
 // thread, and whoever waits for it waits asynchronously, within its own stop; nothing holds a lock while it looks, so a
@@ -243,14 +281,30 @@ fn probe_binaries() -> VendorResult<BinaryPaths> {
             )));
         }
     }
-    if !Path::new(&sshpass).exists() {
-        use std::io::Write;
-        let text = format!(
-            "WARNING: sshpass binary not installed? Was looking for '{sshpass}'. You can use environment variable RSYNC4J_SSHPASS to point to the binary.\n"
-        );
-        let _ = std::io::stderr().write_all(text.as_bytes());
+    let sshpass_missing = !Path::new(&sshpass).exists();
+    Ok(BinaryPaths {
+        rsync,
+        sshpass,
+        sshpass_missing,
+    })
+}
+/// rsync4j's warning when `sshpass` is missing, the line the differential comparison expects once on stderr (U123). D91:
+/// written once, after the look has been published, from a thread of its own, so that a stderr nobody reads holds up
+/// neither the look nor any transfer.
+fn warn_sshpass_missing(sshpass: &str) {
+    static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if WARNED.swap(true, Ordering::AcqRel) {
+        return;
     }
-    Ok(BinaryPaths { rsync, sshpass })
+    let text = format!(
+        "WARNING: sshpass binary not installed? Was looking for '{sshpass}'. You can use environment variable RSYNC4J_SSHPASS to point to the binary.\n"
+    );
+    let _ = std::thread::Builder::new()
+        .name("rsync4j-warning".into())
+        .spawn(move || {
+            use std::io::Write;
+            let _ = std::io::stderr().write_all(text.as_bytes());
+        });
 }
 /// D91: one start of rsync, from its admission to its commit. `phase` is where the starting thread is; `REFUSED` is set by
 /// the transfer that gives up waiting for it, or with `DOOMED` by the quarantine of its destination. Whichever comes
@@ -385,16 +439,14 @@ impl Inner {
             clock: self.clock.as_ref(),
             stopping: Some(stopping),
             runtime: self.runtime.as_ref(),
-            hook: self.hook.get(),
+            hook: &self.hook,
         };
         let not_started = || Outcome::not_started(stopping.stopped());
         let probe = {
-            let (runtime, hook) = (self.runtime.clone(), self.hook.get().cloned());
+            let (runtime, hook) = (self.runtime.clone(), Hook::of(&self.hook));
             BINARIES.get_or_try_init(move || async move {
                 blocking(runtime.as_ref(), move || {
-                    if let Some(hook) = &hook {
-                        hook(BlockingCall::Probe);
-                    }
+                    hook.call(BlockingCall::Probe);
                     probe_binaries()
                 })
                 .await
@@ -402,7 +454,10 @@ impl Inner {
         };
         match bound.run(None, None, true, probe).await {
             Step::Done(result) => {
-                result?;
+                let paths = result?;
+                if paths.sshpass_missing {
+                    warn_sshpass_missing(&paths.sshpass);
+                }
             }
             Step::Stopped | Step::Expired => return Ok(not_started()),
         }
@@ -424,7 +479,7 @@ impl Inner {
         // The start is read on the vendor clock as the process starts, not when the spawn's result reaches this task, so a
         // late delivery can't shorten the time a send has been quiet.
         let clock = self.clock.clone();
-        let (starting, seen, hook) = (ticket.clone(), stopping.clone(), self.hook.get().cloned());
+        let (starting, seen, hook) = (ticket.clone(), stopping.clone(), Hook::of(&self.hook));
         let spawn = blocking(self.runtime.as_ref(), move || {
             let stopped = seen.stopped().is_some() || cancelled.as_ref().is_some_and(|cancelled| cancelled().is_some());
             if stopped {
@@ -433,9 +488,7 @@ impl Inner {
             if !starting.begin() {
                 return Ok(None);
             }
-            if let Some(hook) = &hook {
-                hook(BlockingCall::SpawnRsync);
-            }
+            hook.call(BlockingCall::SpawnRsync);
             // Killed if it is ever dropped unreaped: when its end could not be confirmed, or its start came too late.
             let child = Command::new(&argv[0])
                 .args(&argv[1..])
@@ -446,15 +499,14 @@ impl Inner {
                 .spawn()
                 .map_err(io_error)?;
             let started = clock.now_millis();
+            let pid = child.id();
             let spawned = if starting.commit() {
                 Some((child, started))
             } else {
                 drop(child);
                 None
             };
-            if let Some(hook) = &hook {
-                hook(BlockingCall::SpawnedRsync);
-            }
+            hook.call(BlockingCall::SpawnedRsync(pid));
             Ok(spawned)
         });
         let mut spawn = std::pin::pin!(spawn);
@@ -792,7 +844,7 @@ impl Inner {
             clock: self.clock.as_ref(),
             stopping: Some(stopping),
             runtime: self.runtime.as_ref(),
-            hook: self.hook.get(),
+            hook: &self.hook,
         };
         let remote_path = remote.clone();
         let remote = format!("{}:{remote}", self.target.addr.to_owned());
@@ -845,14 +897,17 @@ impl Inner {
             )
             .await;
         if let Some(why) = unconfirmed.as_ref() {
-            // D91: never waits for a start under way; one into this destination is killed at its commit.
-            let mut admission = self.admission.lock().unwrap_or_else(|e| e.into_inner());
-            for (starting, ticket) in &admission.starting {
-                if *starting == place {
-                    ticket.refuse(true);
+            // D91: never waits for a start under way; one into this destination is killed at its commit. The lock is let go
+            // before the log sink, which is the run's to configure, is called.
+            {
+                let mut admission = self.admission.lock().unwrap_or_else(|e| e.into_inner());
+                for (starting, ticket) in &admission.starting {
+                    if *starting == place {
+                        ticket.refuse(true);
+                    }
                 }
+                admission.quarantined.insert(place);
             }
-            admission.quarantined.insert(place);
             if self.logging.enabled(&self.logger, Level::ERROR) {
                 let message = format!(
                     "{} error: could not confirm that the transfer {} {} ended, and nothing more is transferred there in this run",
@@ -1197,7 +1252,7 @@ struct Bound<'a> {
     stopping: Option<&'a Stopping>,
     /// Where `ps` is started, on a blocking thread, so that its start is inside the step's limits too.
     runtime: &'a dyn VendorRuntime,
-    hook: Option<&'a BlockingHook>,
+    hook: &'a HookSlot,
 }
 impl Bound<'_> {
     fn left(&self) -> Option<i64> {
@@ -1446,12 +1501,10 @@ async fn processes(bound: Bound<'_>) -> Option<std::collections::HashMap<i32, (i
     }
     // D91: started on a blocking thread, since starting a process looks it up on `PATH` and can hang on a mount that no
     // longer answers; the limits cover the start too. A `ps` that is given up is killed when it is dropped.
-    let hook = bound.hook.cloned();
+    let hook = Hook::of(bound.hook);
     let listing = async move {
         let child = blocking(bound.runtime, move || {
-            if let Some(hook) = &hook {
-                hook(BlockingCall::SpawnPs);
-            }
+            hook.call(BlockingCall::SpawnPs);
             Command::new("ps")
                 .args(["-A", "-o", "pid=,ppid=,lstart="])
                 .stdin(Stdio::null())
@@ -1680,11 +1733,15 @@ mod tests {
             })
         }
     }
+    #[cfg(feature = "test-support")]
+    static NO_HOOK: HookSlot = OnceLock::new();
+    #[cfg(not(feature = "test-support"))]
+    static NO_HOOK: HookSlot = ();
     const UNBOUNDED: Bound<'static> = Bound {
         clock: &NoClock,
         stopping: None,
         runtime: &Threads,
-        hook: None,
+        hook: &NO_HOOK,
     };
 
     #[tokio::test(flavor = "multi_thread")]

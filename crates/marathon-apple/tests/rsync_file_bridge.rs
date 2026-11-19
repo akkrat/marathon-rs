@@ -2818,7 +2818,10 @@ impl Wedge {
         Arc::new(move |call| {
             let nth = {
                 let mut seen = wedge.seen.lock().unwrap();
-                let nth = seen.iter().filter(|seen| **seen == call).count();
+                let nth = seen
+                    .iter()
+                    .filter(|seen| std::mem::discriminant(*seen) == std::mem::discriminant(&call))
+                    .count();
                 seen.push(call);
                 nth
             };
@@ -2830,8 +2833,15 @@ impl Wedge {
             }
         })
     }
+    /// How many calls of `call`'s kind came, whatever they carry.
     fn count(&self, call: marathon_apple::cmd::remote::rsync::rsync_file_bridge::BlockingCall) -> usize {
-        self.seen.lock().unwrap().iter().filter(|seen| **seen == call).count()
+        let kind = std::mem::discriminant(&call);
+        self.seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|seen| std::mem::discriminant(*seen) == kind)
+            .count()
     }
     fn open(&self) {
         *self.open.lock().unwrap() = true;
@@ -2891,11 +2901,25 @@ async fn hanging_spawn_runs() {
         "{:?}",
         receipt.ended()
     );
-    // The start comes back: what it started is killed (the parent checks that nothing it records is left), and nothing
-    // goes into the quarantined destination.
+    // The start comes back: the rsync it started is killed and reaped (its pid no longer answers, not even as a zombie of
+    // this process, its parent), whether or not it got as far as recording anything; and nothing goes into the
+    // quarantined destination.
     wedge.open();
-    // Both starts have ended, the other transfer's and this one's, so this process does not exit under the latter.
-    d91_until(|| wedge.count(BlockingCall::SpawnedRsync) >= 2).await;
+    d91_until(|| wedge.count(BlockingCall::SpawnedRsync(None)) >= 2).await;
+    let late = wedge
+        .seen
+        .lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .find_map(|call| match call {
+            BlockingCall::SpawnedRsync(pid) => Some(*pid),
+            _ => None,
+        })
+        .flatten()
+        .expect("the late start started rsync");
+    let late = nix::unistd::Pid::from_raw(late as i32);
+    d91_until(|| nix::sys::signal::kill(late, None) == Err(nix::errno::Errno::ESRCH)).await;
     assert!(matches!(
         bridge.send(&source, "/tmp/marathon/stuck").await,
         Err(VendorError::LeavePool { .. })
@@ -2975,4 +2999,83 @@ async fn hanging_ps_runs() {
     // About 1 s; before, never. Generous for a loaded host.
     assert!(took < std::time::Duration::from_secs(20), "{took:?}");
     assert_eq!(result, Err(VendorError::Cancelled(reason)));
+}
+
+/// Review round 3: `sshpass` is missing, so the look for the binaries has rsync4j's warning to give, and this process's
+/// stderr is a pipe nobody reads, full. The warning is written from a thread of its own after the look is published, so
+/// a send that was stopped while the look ran is followed by one that goes on. The look used to write it itself, and each
+/// later look waited on the full pipe.
+#[test]
+fn a_full_stderr_holds_up_no_send_when_sshpass_is_missing_d91() {
+    let dir = tempfile::tempdir().unwrap();
+    let program = dir.path().join("rsync");
+    script(&program, D91_R2_RSYNC);
+    let log = dir.path().join("child.log");
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "full_stderr_probe_runs"])
+        .env("MRS_D31_MODE", "d91")
+        .env("MRS_D31_ROOT", dir.path())
+        .env("RSYNC4J_RSYNC", &program)
+        .env("RSYNC4J_SSHPASS", dir.path().join("no-sshpass"))
+        .stdout(std::fs::File::create(&log).unwrap())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Held, never read.
+    let _stderr = child.stderr.take();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break Some(status);
+        }
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            break None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    if let Ok(pid) = std::fs::read_to_string(dir.path().join("pid"))
+        && let Ok(pid) = pid.trim().parse::<i32>()
+    {
+        let _ = nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), nix::sys::signal::Signal::SIGKILL);
+    }
+    let output = std::fs::read_to_string(&log).unwrap_or_default();
+    assert!(status.is_some_and(|status| status.success()), "{output}");
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn full_stderr_probe_runs() {
+    use marathon_apple::cmd::{TransferStop, remote::rsync::rsync_file_bridge::BlockingCall};
+    use std::os::fd::AsFd;
+    let Some((_, source)) = d91_child() else { return };
+    // Fill this process's stderr, a pipe the parent never reads.
+    {
+        use nix::fcntl::{FcntlArg, OFlag, fcntl};
+        let stderr = std::io::stderr();
+        let flags = OFlag::from_bits_truncate(fcntl(stderr.as_fd(), FcntlArg::F_GETFL).unwrap());
+        fcntl(stderr.as_fd(), FcntlArg::F_SETFL(flags | OFlag::O_NONBLOCK)).unwrap();
+        let chunk = [b'x'; 4096];
+        while nix::unistd::write(stderr.as_fd(), &chunk).is_ok() {}
+        fcntl(stderr.as_fd(), FcntlArg::F_SETFL(flags)).unwrap();
+    }
+    let (logging, _) = ssh::logging(false);
+    let bridge = Arc::new(d91_bridge(logging, Arc::new(Runtime), Arc::new(ssh::ScaledClock::new(1))).await);
+    let wedge = Arc::new(Wedge::default());
+    bridge.on_blocking_call(wedge.hook(|_, _| false));
+    let signal = marathon_core::executor::shared::Signal::new();
+    let first = {
+        let (bridge, source, stop) = (bridge.clone(), source.clone(), TransferStop::new(signal.clone()));
+        tokio::spawn(async move { bridge.send_with(&source, "/tmp/marathon/stuck", stop).await })
+    };
+    d91_until(|| wedge.count(BlockingCall::Probe) >= 1).await;
+    signal.cancel(marathon_apple::cmd::cancelled("the preparation was cancelled"));
+    tokio::time::timeout(D91_HANG, first)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    let next = tokio::time::timeout(D91_HANG, bridge.send(&source, "/tmp/marathon/next"))
+        .await
+        .expect("a full stderr held up a later send");
+    assert_eq!(next, Ok(true));
 }

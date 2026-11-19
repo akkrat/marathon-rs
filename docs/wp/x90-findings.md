@@ -243,3 +243,17 @@ killed, and the process exit then left that start's rsync behind for the parent'
 the end of each start (`SpawnedRsync`), and the witness waits for it. Its time bound was also widened from 3 s to 20 s
 (it ends in about 1 s; before the fix it never ended). After both: the R2 witnesses and the round-1 one that reads its
 receipt at once, 50/50 alone and 40/40 under load.
+
+## Review round 3 (Sol 6.2): R2-1 and R2-3 closed; R2-2 open (P2) and three follow-ups
+
+| Item | Fix | Witness | On 0c243c99 |
+|---|---|---|---|
+| R2-2 P2: the look for the binaries wrote rsync4j's missing-`sshpass` warning to stderr itself, before publishing; with stderr a full pipe the look hung there, and each later look after a stop hung the same way | The look only reports that `sshpass` is missing. Once the look is published, the warning is written once, from a thread of its own, so a full stderr holds that thread only. The line stays on stderr, word for word: the differential comparison requires it there exactly once when the capture host lacks `/usr/bin/sshpass` (U123), so it is not moved to the WARN log the review suggested; `marathon-cli`'s vendor differential still passes | `a_full_stderr_holds_up_no_send_when_sshpass_is_missing_d91` (the child's stderr is a pipe filled and never read, `sshpass` missing; a send stopped while the look runs, then another): the later send succeeds | the child hung (120 s deadline) |
+| (a) the admission lock was held while the configurable log sink was called | the quarantine is recorded in its own block; the lock is let go before the ERROR line | inspection; `a_stopped_send_whose_output_is_never_joined_ends_at_the_bound_and_its_destination_is_not_used_again_d91` still passes | n/a |
+| (b) the blocking-call hook was compiled into production | `on_blocking_call` and the hook's slot exist only with the `test-support` feature; without it the slot is `()` and a call does nothing (`cargo clippy -p marathon-apple --lib` without the feature is clean) | n/a | n/a |
+| (c) the hanging-start witness could not prove that a start killed before it recorded anything was reaped | the hook's end-of-start mark carries the started rsync's pid; the witness waits until that pid no longer answers signal 0, which a zombie of this process (its parent) still would | `a_hanging_start_of_rsync_holds_up_neither_its_own_stop_nor_another_transfer_d91` | n/a |
+
+Run: `cargo fmt --check`; clippy for `marathon-apple` (all targets, and `--lib` without `test-support`), `marathon-ios`,
+`marathon-macos`; `rsync_file_bridge.rs` 84/84, `marathon-apple` lib 62, `simulator_dispose.rs` 15; `marathon-cli`,
+`marathon-test-support` and `marathon-macos` 171 passed. Stress (alone / with 12 busy processes): the full-stderr
+witness, the three round-2 witnesses and the never-joined-output witness, 50/50 and 20/20 each.
