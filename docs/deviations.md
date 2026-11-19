@@ -13,7 +13,7 @@ PLAN §3.11 records no per-row approval dates for D55–D65. Its heading date,
 first in 0.14.0-rc.1, D78–D81 in 0.14.0-rc.2); they fix run-stability and device-handling bugs, add a native-only
 flakiness strategy (D72), and change JUnit retry elements, the iOS boot wait and video transfers, and Android coverage
 without `run-as`. D82–D88 and D90–D97 ship in 0.15.0-rc.1, the first release candidate of 0.15.0. D82 sends Android retries to another device
-and D83 gives copies of different tests turns in the queue. D84–D90 improve run stability, D91–D95 bound teardown,
+and D83 gives copies of different tests turns in the queue. D84–D88 and D90 improve run stability, D91–D95 bound teardown,
 D96 establishes process ownership, and D97 publishes complete artifacts and reserves time for signal cleanup.
 See the [changelog](../CHANGELOG.md).
 
@@ -300,7 +300,9 @@ Approved 2026-11-06 (project owner's decision). See
 [N16](known-kotlin-bugs.md) and the [x12](wp/x12-findings.md) and [x18](wp/x18-findings.md) findings.
 
 **Amended by [D85](#d85--android-checks-the-boot-before-resuming-tests):** an emulator that restarted during the outage is set up again when its kernel boot ID
-changed or marathon's preparation marker is gone. The known limit above remains only for a restart that keeps both.
+changed or marathon's preparation marker is confirmed missing or different. If the marker's creation could not be
+confirmed, recovery checks the boot ID alone, and without readable evidence of a reset ordinary recovery continues. The
+known limit above remains only for those cases and for a restart that keeps both.
 
 ## D23 — Waiting for a pushed file has a limit
 
@@ -505,8 +507,10 @@ KILL, a failed wait and the readers' last join each have a limit now, and a clea
 destination from further transfers.
 
 **Amended by [D96](#d96--the-controller-owns-its-local-process-groups):** rsync now runs in a process group of its own, which its cleanup ends and the
-run's reaper covers; a terminal's Ctrl-C or a CI job's cancel reaches marathon, which ends it. Under `sshpass` (an SSH
-client older than OpenSSH 8.4) the listings above still decide what is stopped.
+run's reaper covers; a terminal's Ctrl-C or a CI job's cancel reaches marathon, which ends it. With direct rsync or
+askpass, rsync and its SSH client stay in that owned group. Under legacy `sshpass` (an SSH client older than OpenSSH
+8.4 or not recognized), the SSH client runs in a separate session, and the listings above still decide which of its
+descendants are stopped. On workers with usable Perl, D96 also supervises the remote rsync sender.
 
 ## D32 — xcodebuild on a worker runs unbuffered
 
@@ -627,6 +631,10 @@ sends a probe of about 100 KB, which makes this risk a small one there. The 26 t
 `onPrepare: [ERASE]` erases on each re-setup, as on any setup. The commands are unchanged. Approved 2026-11-06 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A41](known-kotlin-bugs.md) and the [x17 findings](wp/x17-findings.md).
 
+**Amended by [D87](#d87--a-devices-preparation-has-one-deadline):** the 26 to 33 minutes above are now bounded by one
+preparation deadline: such a simulator leaves after one replacement, in about 9 to 12 minutes with the defaults
+(scenario estimates). D48's last-device figures are unchanged.
+
 **Migration action:** none on a normal host. On a slow host or link running iOS 16 or 17, raise `shell` (30 s by default) so that a probe that returns about 20 MB can arrive in time.
 
 ## D39 — A test's own text does not abort its batch
@@ -728,8 +736,9 @@ Approved 2026-11-07 (project owner's decision). See [PLAN §3.11](../PLAN.md#311
 [N40](known-kotlin-bugs.md) and the [x19 findings](wp/x19-findings.md).
 
 **Amended by [D85](#d85--android-checks-the-boot-before-resuming-tests):** a device that returns from an `offline` having finished a reboot, or rolled back to a snapshot
-from before its preparation, is set up again when its boot ID changed or its preparation marker is gone, instead of
-being taken for a blip.
+from before its preparation, is set up again when its boot ID changed or its preparation marker is confirmed missing or
+different, instead of being taken for a blip. If the marker's creation could not be confirmed, the boot ID alone is
+checked; without readable evidence of a reset, the boot readiness check above decides, as before.
 
 **Migration action:** none; no configuration is needed. A killed emulator reaches the retry path about 3.25 s after it dies, not at once.
 
@@ -2713,12 +2722,14 @@ and at the stop). A process that rsync's ssh starts and that exits its parent be
 bridge never saw: it is neither signalled nor counted in the check, so the check can call a cleanup confirmed while such
 an orphan runs. Containing every descendant would need rsync to run under a process group or a reaper of the bridge's
 own, which is a separate design; [D96](#d96--the-controller-owns-its-local-process-groups) has since put rsync in a
-process group of its own, which leaves this only to the `sshpass` transport. The quarantine covers the exact destination
+process group of its own: with direct rsync or askpass, rsync and its SSH client stay in that owned group, which leaves
+this only to the legacy `sshpass` transport, whose separate session is tracked by the listings. The quarantine covers the exact destination
 path, not a folder around it or inside it. A Mac's sends are not registered with the Mac (its preparation runs under a
 context that is never cancelled); they get the bound and the quarantine, and the Mac's disposal is left to a later
 change ([D93](#d93--an-apple-devices-stop-has-one-window-and-its-disposal-needs-proof-that-its-work-ended) has since
 registered them). What a remote `rsync --server` does
-after the local processes end is the worker's. A device deadline given after the bridge's cleanup has started also
+after the local processes end is the worker's (on workers with usable Perl, D96 has since supervised remote rsync
+senders). A device deadline given after the bridge's cleanup has started also
 shortens it.
 
 **Unchanged:** healthy transfers, the rsync and ssh command lines, worker commands, result files, the pinned progress and
@@ -3126,8 +3137,8 @@ detached video, foreground device logs and remote rsync senders. A successful
 pull verifies the sender through rsync's own exit status. The supervised sender
 returns zero to the remote shell after writing its cleanup receipt. A failed or
 interrupted pull still joins the local cleanup and worker proof before release.
-A nonzero bootstrap exit means the supervisor is unavailable. The worker warns
-once and keeps the existing command and transfer paths. Transport and malformed
+A nonzero bootstrap exit means the supervisor is unavailable. The controller warns
+once per worker address and keeps the existing command and transfer paths. Transport and malformed
 success responses fail the commands waiting on that attempt. Concurrent commands
 share the result of one probe and the next command can retry a failure.
 The probe is one shell line and has a 12 s bound.
