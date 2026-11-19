@@ -18,8 +18,9 @@ refusal's error type), each time at a different place. Round 7 replaces the piec
    installer's retry, a listener's command) finds the gate closed and sends nothing; it is a refusal known to have
    started nothing. The seal also stops, at once and synchronously, what the device registered before it: its batch and
    preparation signals, its sends' receipts (so rsync or a local copy that has not started never starts), and its
-   sessions that have not begun to open. Only the device's own on-dispose lifecycle passes the gate, inside a scope the
-   disposal gives it; a quarantine (revoked commands) closes even that.
+   sessions that have not begun to open. Only the device's own on-dispose lifecycle and the work of the batch it ran when sealed (its
+   cleanup and results, which the window waits for) pass the gate, inside scopes given to them; a quarantine (revoked
+   commands) closes even that. (Refined while implementing; see review round 7 below.)
 2. **The seal records its cause, and only the cause classifies a refusal.** `RunStop` (the Scheduler's stop, a D84
    failure, the owner's cancel, a D52 signal) refuses with a cancellation: orderly, no retry, no ERROR, no change to the
    exit code. `Disposal` (a disposal outside a run's stop: devices-file removal, D44 recovery, a replaced Mac, the
