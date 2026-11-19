@@ -491,6 +491,10 @@ Approved 2026-11-06 (project owner's decision). See
 **A receive's output pipes** also have the send's limit (U158, approved 2026-11-07). A process that ended, leaving a child that holds its pipes, such as a hung
 ssh, holds up the receive for at most 5 s more. The process's status decides the result, and that child is not stopped.
 
+**Amended by [D91](#d91--a-stopped-rsync-transfer-ends-within-40-s-and-its-device-waits-for-it):** the reap after
+KILL, a failed wait and the readers' last join each have a limit now, and a cleanup that cannot be confirmed keeps the
+destination from further transfers.
+
 ## D32 — xcodebuild on a worker runs unbuffered
 
 Kotlin sets `NSUnbufferedIO=YES` for xcodebuild, but over SSH it drops every environment variable, so on a worker
@@ -1206,6 +1210,10 @@ Approved 2026-11-08 (project owner's decision). See [PLAN §3.11](../PLAN.md#311
 [A104 and A3](known-kotlin-bugs.md), the [x45 findings](wp/x45-findings.md) and the [x46 findings](wp/x46-findings.md).
 
 **Migration action:** none needed.
+
+**Amended by [D91](#d91--a-stopped-rsync-transfer-ends-within-40-s-and-its-device-waits-for-it):** a stop's cleanup,
+listings included, ends within 40 s, confirmed or reported; what rsync started is ended before its output is waited
+for; and an iOS simulator's disposal stops and waits for its sends, also those whose caller stopped waiting.
 
 ## D55 — Text uses Unicode characters
 
@@ -2630,6 +2638,78 @@ Approved 2026-11-18 (project owner's decision).
 
 **Migration action:** none. A shared worker can see an extra simultaneous SSH connection after this failure. Sharing
 is still off by default.
+
+## D91 — A stopped rsync transfer ends within 40 s, and its device waits for it
+
+The Kotlin marathon blocks in an rsync transfer (A104), so the transfer never outlives its caller. The port runs a
+transfer in a task of the bridge's own, so that [D54](#d54--an-apple-send-stops-when-its-call-is-cancelled-and-any-transfer-when-its-devices-connection-is-lost)
+can stop it, and that task went on after its caller stopped waiting. Nothing but the run's end waited for it then: an
+iOS preparation's wait for its stopped send gave up after 70 s ([U210](found-bugs.md)'s known limit), test discovery
+gave up at its timeout, and the simulator's disposal waited for neither. The stop itself had no overall limit: after
+KILL the bridge waited for rsync to be reaped for as long as that took, again after a failed wait, and for the readers of
+rsync's output once it had told them to end. While it waited it held every later send to that worker, other
+simulators' included, since one bridge serves all the devices of a worker.
+
+**Native behaviour.**
+
+- **A device owns its sends.** An iOS simulator registers each send before it starts, under the lock its disposal
+  takes, so disposal either sees the send or the send never starts (one asked for after disposal is stopped at once
+  with `Device <serial> has been disposed`). The send's task holds that registration, whoever still waits for it, and
+  ends it only when the transfer has ended. The simulator's disposal and the run's stop (D84's wait for a cancelled
+  device) stop every send registered and wait for them within the bound they already have for a cancelled call (70 s,
+  `cancelled_batch_millis`), before an on-dispose lifecycle. A send stopped while it waits for another's turn ends its
+  own registration at once and leaves the others. Receives are not registered, and still never take their caller's
+  cancellation (D54).
+- **One 40 s bound from a stop.** From the stop, every step of ending rsync is held to what is left of 40 s on the run's
+  clock: D54's 15 s of steps, 20 s for the process listings where `ps` is slow, and 5 s for the last reap. That covers
+  listing what rsync started, TERM, the 5 s step, KILL, the reap after it (5 s at most), ending what rsync started, and
+  reading the rest of rsync's output. A device that needs it sooner can give an earlier end, also while a step is under
+  way. The stop is watched for the transfer's whole life, so it takes effect in any phase: before rsync starts (a look
+  at the source that hangs, as on a mount that went away, no longer holds the worker's sends), while rsync runs, after
+  rsync ended by itself while its output is read, and while a stall is being ended (D31's steps are then held to the
+  same 40 s, and its 5 s of grace end at once). After a stop, what rsync started is ended before its output is waited
+  for, since that is what holds the pipes. rsync starts only if neither a stop nor the destination's quarantine came
+  first, both checked as it starts. A stall (D31, D43) that nobody stops keeps its own steps, each with a limit now,
+  also after KILL.
+- **Cleanup is confirmed or reported.** A transfer counts as ended only once rsync has been reaped, its output read to
+  the end or given up, and a listing finds none of the processes it started (for 5 s at most, so that init can reap
+  them). If that cannot be confirmed in time, the bridge logs at ERROR `send error: could not confirm that the transfer
+  to <host>:<path> ended, and nothing more is transferred there in this run` (or `receive error: … into <path> …`), with
+  rsync's pid, the worker and what was left as its cause, and lets the sends behind it go on. Nothing is transferred into
+  that destination again in the run: a send there fails at once with `Not sending to <host>:<path>: an earlier
+  transfer there was not confirmed to have ended, the device leaves its pool` (as D31's stall, so it is not retried and
+  an iOS simulator is retired), and a receive into it returns `false` with an ERROR line. The stopped transfer itself
+  returns what D54 returns, except that a transfer whose end could not be confirmed is never a success: a stopped one
+  returns its stop even if rsync exited 0, and one that ended by itself fails as above (a receive returns `false`), so
+  a shared bundle's send is not kept for other simulators to reuse.
+
+**Limits.** The descendants are the processes `ps` saw with rsync as an ancestor (D31's sampling: at 1 s, every 10 s
+and at the stop). A process that rsync's ssh starts and that exits its parent between two listings becomes an orphan the
+bridge never saw: it is neither signalled nor counted in the check, so the check can call a cleanup confirmed while such
+an orphan runs. Containing every descendant would need rsync to run under a process group or a reaper of the bridge's
+own, which is a separate design. The quarantine covers the exact destination path, not a folder around it or inside it.
+A Mac's sends are not registered with the Mac (its preparation runs under a context that is never cancelled); they get
+the bound and the quarantine, and the Mac's disposal is left to a later change. What a remote `rsync --server` does
+after the local processes end is the worker's. A device deadline given after the bridge's cleanup has started also
+shortens it.
+
+**Unchanged:** healthy transfers, the rsync and ssh command lines, worker commands, result files, the pinned progress and
+summary text and exit codes. No configuration changes.
+
+Evidence, each failing on f7a02f59 where it can be built there:
+`crates/marathon-apple/tests/rsync_file_bridge.rs::a_stopped_send_whose_output_is_never_joined_ends_at_the_bound_and_its_destination_is_not_used_again_d91`
+(a test runtime never ends the joins of rsync's output readers; the stopped send returned at 40 s on the bridge's clock,
+the send behind it ran, a later send there was refused; before, the send never returned),
+`crates/marathon-ios/tests/simulator_dispose.rs::disposal_waits_for_a_send_whose_caller_stopped_waiting_d91` and
+`a_send_to_a_disposed_simulator_is_stopped_before_it_starts_d91` (virtual time), and
+`rsync_file_bridge.rs::a_stopped_send_whose_caller_has_gone_is_reaped_and_its_output_closed_before_its_receipt_ends_d91`
+(rsync and its ssh both ignore TERM, ssh holds rsync's output, the caller stops waiting: the receipt ends confirmed only
+with rsync reaped and ssh gone, and another device's send on the same bridge then runs; it needs the new receipt, so it
+has no counterpart on f7a02f59). Amends D31 and D54.
+
+Approved 2026-11-18 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
+[x90 findings](wp/x90-findings.md).
 
 ## D92 — Android device cleanup has one deadline
 

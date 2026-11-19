@@ -80,6 +80,13 @@ The section for a version becomes the text of its GitHub release, which carries 
   on their original connection, which closes after its last lease is released. Each shared worker transport has at most
   two live generations. If the replacement also fills after an abandonment while the first connection still has leases,
   preparation can still fail until a generation slot frees. A refusal without abandonment keeps the current connection.
+- **A stopped Apple file transfer ends within 40 s, and its simulator waits for it (D91, U210):** a cancelled rsync
+  transfer (the run stopping, a preparation cancelled, test discovery timing out) no longer waits without a limit for
+  rsync to be reaped or for its output, which held every later transfer to that worker; it ends within 40 s. An iOS
+  simulator's disposal now waits for its sends, also those nothing else waited for any longer, before it shuts the
+  simulator down or terminates its app. If marathon cannot confirm that rsync and what it started have ended, it logs
+  an ERROR with rsync's pid and the worker and sends nothing more to that destination in the run; a device that needs
+  it leaves its pool. Healthy transfers are unchanged.
 
 ## 0.14.0
 
