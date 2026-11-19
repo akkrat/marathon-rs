@@ -35,6 +35,7 @@ pub fn exit_once(status: i32) -> ! {
             thread::park();
         }
     }
+    marathon_process::seal_and_kill();
     std::process::exit(status)
 }
 
@@ -160,7 +161,10 @@ impl Drop for OutputGuard {
 }
 
 type FilterHandle = reload::Handle<Targets, tracing_subscriber::Registry>;
-type ExitRequest = (i32, mpsc::Receiver<()>);
+enum ExitRequest {
+    Sweep,
+    Exit(i32, mpsc::Receiver<()>),
+}
 type ExitWork = (i32, mpsc::Sender<()>, Box<dyn FnOnce() + Send>);
 #[derive(Clone)]
 pub struct TracingOutput {
@@ -229,10 +233,23 @@ impl TracingOutput {
         std::thread::Builder::new()
             .name("marathon-exit".into())
             .spawn(move || {
-                if let Ok((status, drained)) = requests.recv()
-                    && drained.recv_timeout(exit_flush).is_err()
-                {
-                    exit_once(status);
+                for request in requests {
+                    match request {
+                        ExitRequest::Sweep => {
+                            marathon_process::seal_and_kill();
+                        }
+                        ExitRequest::Exit(status, drained) => {
+                            let started = std::time::Instant::now();
+                            marathon_process::seal_and_kill();
+                            if drained
+                                .recv_timeout(exit_flush.saturating_sub(started.elapsed()))
+                                .is_err()
+                            {
+                                exit_once(status);
+                            }
+                            break;
+                        }
+                    }
                 }
             })?;
         let (prepare_exit, preparation) = mpsc::channel::<ExitWork>();
@@ -347,11 +364,15 @@ impl TracingOutput {
     pub fn exit_after_flush(&self, status: i32) -> io::Result<()> {
         self.exit_after_preparing(status, Box::new(|| {}))
     }
+    pub(crate) fn sweep_processes(&self) {
+        let _ = self.exit.send(ExitRequest::Sweep);
+    }
+
     pub fn exit_after_preparing(&self, status: i32, prepare: Box<dyn FnOnce() + Send>) -> io::Result<()> {
         self.writer.0.phase.store(DRAINING, Ordering::SeqCst);
         let (send, receive) = mpsc::channel();
         self.exit
-            .send((status, receive))
+            .send(ExitRequest::Exit(status, receive))
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "exit watchdog stopped"))?;
         self.prepare_exit
             .send((status, send, prepare))

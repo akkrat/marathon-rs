@@ -14,6 +14,7 @@ use marathon_core::{
     runtime::{CancellationSignal, VendorClock, VendorFuture, VendorRuntime},
 };
 use marathon_error::{AppleKind, FailureKind};
+use marathon_process::{Child, Command};
 use std::{
     path::{Path, PathBuf},
     process::{ExitStatus, Stdio},
@@ -24,7 +25,6 @@ use std::{
 };
 use tokio::{
     io::AsyncReadExt,
-    process::{Child, Command},
     sync::{Notify, oneshot},
 };
 
@@ -514,7 +514,6 @@ impl Inner {
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .kill_on_drop(true)
                 .spawn()
                 .map_err(io_error)?;
             let started = clock.now_millis();
@@ -563,9 +562,9 @@ impl Inner {
         let pid = child.id();
         let descendants = Descendants::of(&child);
         // ProcessBuilder leaves stdin open while monitor waits; rsync does not read it.
-        let stdin = child.stdin.take();
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
+        let stdin = child.take_stdin();
+        let stdout = child.take_stdout().map_err(io_error)?;
+        let stderr = child.take_stderr().map_err(io_error)?;
         let readers = Arc::new(SessionScope::default());
         let out_scope = readers.clone();
         let (out_tx, mut out_rx) = oneshot::channel();
@@ -806,9 +805,13 @@ impl Inner {
             }
         };
         if !wrapped {
-            term_child();
+            let _ = child.terminate();
         }
-        let reached = descendants.signal(signal::Signal::SIGTERM, true, bound).await;
+        let reached = if wrapped {
+            descendants.signal(signal::Signal::SIGTERM, true, bound).await
+        } else {
+            Vec::new()
+        };
         let wrapper_stopped = wrapped && reached.is_empty();
         if wrapper_stopped {
             term_child();
@@ -1544,7 +1547,6 @@ async fn processes(bound: Bound<'_>) -> Option<std::collections::HashMap<i32, (i
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
-                .kill_on_drop(true)
                 .spawn()
                 .map_err(io_error)
         })
@@ -1785,11 +1787,7 @@ mod tests {
         let (parent, started) = listing.get(&own).unwrap().clone();
         assert_eq!(parent, nix::unistd::getppid().as_raw());
         assert_eq!(processes(UNBOUNDED).await.unwrap().get(&own), Some(&(parent, started)));
-        let mut child = Command::new("/bin/sleep")
-            .arg("100")
-            .kill_on_drop(true)
-            .spawn()
-            .unwrap();
+        let mut child = Command::new("/bin/sleep").arg("100").spawn().unwrap();
         let pid = child.id().unwrap() as i32;
         assert_eq!(
             processes(UNBOUNDED).await.unwrap().get(&pid).map(|(parent, _)| *parent),
@@ -1814,7 +1812,7 @@ mod tests {
         )
         .unwrap();
         std::fs::set_permissions(&chain, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
-        let mut child = Command::new(&chain).arg("5").kill_on_drop(true).spawn().unwrap();
+        let mut child = Command::new(&chain).arg("5").spawn().unwrap();
         let root = child.id().unwrap() as i32;
         let descendants = Descendants::of(&child);
         tokio::time::timeout(std::time::Duration::from_secs(60), async {

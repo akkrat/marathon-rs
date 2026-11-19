@@ -14,6 +14,7 @@ workspace = true
 test-seams = []
 
 [dependencies]
+marathon-process = { path = "../marathon-process" }
 # The compatibility pass relies on clap introspection; re-run the full CLI matrix on any upgrade.
 clap = { version = "=4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "suggestions"] }
 marathon-logging = { path = "../marathon-logging" }
@@ -30,6 +31,7 @@ marathon-android = { path = "../marathon-android" }
 # Local time of day for the log layouts.
 chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
 sha2 = "=0.10.9"
+nix = { version = "0.30", features = ["feature"] }
 
 [dev-dependencies]
 marathon-apple = { path = "../marathon-apple", features = ["test-support"] }

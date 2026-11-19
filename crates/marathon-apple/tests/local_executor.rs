@@ -514,24 +514,34 @@ async fn local_stdout_eof_waits_for_exit_or_idle_with_a_gated_live_process() -> 
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn exited_parent_drains_output_without_waiting_for_a_descendants_pipe_eof()
--> marathon_core::error::VendorResult<()> {
+async fn exited_parent_drains_output_and_ends_the_group_d96() -> marathon_core::error::VendorResult<()> {
     support::watchdog(async {
+        use nix::{
+            errno::Errno,
+            sys::signal::{Signal, kill},
+            unistd::Pid,
+        };
         let root = tempfile::tempdir().map_err(pipe_test_io)?;
         let path = root.path().to_string_lossy();
-        let script = "(while ! test -f \"$1/release\"; do sleep 0.01; done; printf done > \"$1/done\") & printf inherited-tail; exit 0";
+        let script = "/bin/sleep 120 & printf '%s' \"$!\" > \"$1/descendant\"; printf inherited-tail; exit 0";
         let executor = executor();
         let mut request = CommandRequest::new(["sh", "-c", script, "gate", &path], duration(60_000));
         request.idle_timeout = duration(60_000);
         let session = executor.execute(request, context()).await?;
-        // The descendant cannot close its inherited write ends until this wait finishes.
-        let result = session.await_result(&context()).await;
-        tokio::fs::write(root.path().join("release"), b"").await.map_err(pipe_test_io)?;
-        pipe_test_marker(&root.path().join("done")).await?;
+        let result = session.await_result(&context()).await?;
+        let pid = tokio::fs::read_to_string(root.path().join("descendant"))
+            .await
+            .map_err(pipe_test_io)?;
+        let pid = Pid::from_raw(pid.parse().unwrap());
+        let remaining = kill(pid, None);
+        if remaining.is_ok() {
+            let _ = kill(pid, Signal::SIGKILL);
+        }
+        assert_eq!(remaining, Err(Errno::ESRCH));
         session.close().await?;
-        let result = result?;
         assert_eq!(result.stdout, ["inherited-tail"]);
         assert_eq!(result.exit_code, Some(0));
         Ok(())
-    }).await
+    })
+    .await
 }

@@ -192,6 +192,7 @@ fn hooks(mode: &str) -> SignalHooks {
     let repeat = mode == "run-repeat";
     SignalHooks {
         immediate_exit: None,
+        cleanup_expired: None,
         registration: Some(Arc::new(move |number| {
             if Some(number) == failing {
                 return Err(std::io::Error::other("injected registration failure"));
@@ -211,6 +212,14 @@ fn hooks(mode: &str) -> SignalHooks {
 #[test]
 fn signal_child() {
     let Ok(mode) = std::env::var(MODE) else { return };
+    let _owned = matches!(mode.as_str(), "run-stuck" | "stuck-console-long-watchdog").then(|| {
+        let process = marathon_process::Command::new("/bin/sh")
+            .args(["-c", "kill -STOP $$; exec /bin/sleep 120"])
+            .spawn()
+            .unwrap();
+        let _ = writeln!(std::io::stderr(), "MARKER owned group {}", process.id().unwrap());
+        process
+    });
     let mut factory = ConfigurationFactory::new();
     factory.configuration.debug = mode == "run-debug";
     let stdout: Box<dyn Write + Send> = if mode.starts_with("stuck-console") {
@@ -293,7 +302,7 @@ impl DerefMut for Running {
 }
 
 /// The child's stderr, read line by line on a thread, so that a wait for a line has a deadline.
-struct Stderr(mpsc::Receiver<String>);
+struct Stderr(mpsc::Receiver<String>, Option<Pid>);
 impl Stderr {
     fn new(stderr: ChildStderr) -> Self {
         let (lines, received) = mpsc::channel();
@@ -304,8 +313,27 @@ impl Stderr {
                 }
             }
         });
-        Self(received)
+        Self(received, None)
     }
+    fn read_owned_group(&mut self) {
+        let line = self.0.recv_timeout(PATIENCE).unwrap();
+        self.1 = Some(Pid::from_raw(
+            line.strip_prefix("MARKER owned group ").unwrap().parse().unwrap(),
+        ));
+    }
+
+    fn assert_owned_group_ended(&self) {
+        let pid = self.1.unwrap();
+        let deadline = Instant::now() + PATIENCE;
+        while kill(pid, None).is_ok() {
+            if Instant::now() >= deadline {
+                let _ = kill(pid, Signal::SIGKILL);
+                panic!("the stopped child survived controller exit");
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     /// Whether `marker` comes before the end of stderr and within `PATIENCE`.
     fn saw(&self, marker: &str) -> bool {
         self.saw_all(&[marker]).is_empty()
@@ -378,7 +406,10 @@ fn started_with_stderr(mode: &str, ignored: Option<&str>) -> (Running, Stderr) {
     } else {
         &["MARKER run", "MARKER ready"]
     };
-    let stderr = Stderr::new(child.stderr.take().unwrap());
+    let mut stderr = Stderr::new(child.stderr.take().unwrap());
+    if matches!(mode, "run-stuck" | "stuck-console-long-watchdog") {
+        stderr.read_owned_group();
+    }
     let missing = stderr.saw_all(awaited);
     assert!(
         missing.is_empty(),
@@ -494,6 +525,7 @@ fn a_stuck_provider_holds_a_cancel_only_up_to_the_limit_d52() {
     assert_eq!(status.and_then(|s| s.code()), Some(143), "{status:?}");
     let limit = u64::try_from(marathon_core::marathon::CANCEL_LIMIT_MILLIS).unwrap();
     assert!(waited >= Duration::from_millis(limit), "it gave up early: {waited:?}");
+    stderr.assert_owned_group_ended();
 }
 
 /// D52: a console that has stopped reading holds up neither the cleanup nor the exit.
@@ -524,6 +556,7 @@ fn a_second_signal_exits_at_once_during_a_blocked_sink() {
     kill(Pid::from_raw(child.id() as i32), Signal::SIGINT).unwrap();
     let status = signalled_wait(&mut child, PATIENCE);
     assert_eq!(status.and_then(|s| s.code()), Some(130), "{status:?}");
+    stderr.assert_owned_group_ended();
 }
 
 /// WP 8.8 review (P1): exit preparation that never finishes must not let the run

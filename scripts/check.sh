@@ -82,6 +82,9 @@ python3 -I scripts/test_generate_xcresult.py
 step "release tooling (offline)"
 python3 -I scripts/release/test_release.py
 
+step "local process ownership boundary"
+python3 -I scripts/check_process_spawns.py
+
 step "cargo fmt"
 cargo fmt --all --check
 

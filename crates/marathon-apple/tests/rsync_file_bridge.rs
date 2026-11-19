@@ -1391,14 +1391,17 @@ async fn early_exit_receive_runs() {
     .await
     .unwrap();
     assert_eq!(result, Ok(mode == "held-ok"));
-    // The child is still up, so it was the bound and not the end of the pipes that let this return.
+    // D96: group cleanup ends the process that held the inherited pipes.
     let holder = if mode == "hung" { "ssh-pid" } else { "held" };
     let holder: i32 = std::fs::read_to_string(root.join(holder))
         .unwrap()
         .trim()
         .parse()
         .unwrap();
-    assert_eq!(nix::sys::signal::kill(nix::unistd::Pid::from_raw(holder), None), Ok(()));
+    assert_eq!(
+        nix::sys::signal::kill(nix::unistd::Pid::from_raw(holder), None),
+        Err(nix::errno::Errno::ESRCH)
+    );
     if mode == "held-failed" {
         let lines = ssh::lines(&events);
         assert!(
@@ -2054,8 +2057,8 @@ async fn stopped_transfer_runs() {
         (true, false) => assert_eq!(result, Err(VendorError::Other(loss))),
         (true, true) => assert_eq!(result, Ok(false)),
     }
-    if stubborn || exits_0 {
-        // KILL comes D31's 5 s after TERM, to rsync or to what it left.
+    if stubborn {
+        // D31 gives the live rsync leader its 5 s after TERM.
         let took = at.elapsed();
         assert!(took >= std::time::Duration::from_millis(4_900), "{took:?}");
     }

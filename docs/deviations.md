@@ -3022,3 +3022,23 @@ Approved 2026-11-18 (project owner's decision). WP x94. See [finish wait audit](
   once all barriers answer.
 
 The deadlines leave committed results, the run's first cause, and D52's signal exit rules in place.
+
+
+## D96 — The controller owns its local process groups
+
+Approved 2026-11-19 (project owner's decision). WP x95. See [process ownership findings](wp/x95-findings.md).
+
+Each local tool launches in a private process group. The controller seals launch admission and
+sends KILL to every remaining registered target at ordinary exit, at the signal exit deadline,
+and on the second signal. It waits at most 200 ms for a spawn already in progress to register
+and kill its group. A native spawn that has not returned by then can still leave a process behind.
+A local command ordinarily confirms cleanup only after reaping the leader and observing
+that its group has disappeared. A regular stop sends TERM before escalating to KILL. When rsync's leader exits while other
+members of its group still hold its output pipes, group cleanup ends those processes and
+preserves the leader's exit status.
+
+Marathon tracks ADB clients, including `start-server`. It leaves every ADB server running under
+the existing server policy. The process sweep does not send a signal to the server's group.
+
+**Migration action:** none for local tools. A command that intentionally backgrounds work in
+the same process group should keep its command session open until that work is finished.

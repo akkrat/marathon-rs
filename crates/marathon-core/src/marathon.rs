@@ -78,6 +78,8 @@ pub type SignalRegistration = Arc<dyn Fn(i32) -> std::io::Result<SignalStream> +
 pub struct SignalHooks {
     /// Production emergency exit, which bypasses output draining on the second signal.
     pub immediate_exit: Option<Arc<dyn Fn(i32) + Send + Sync>>,
+    /// Notifies the CLI watchdog when the cleanup allowance expires. The callback does not wait on core.
+    pub cleanup_expired: Option<Arc<dyn Fn() + Send + Sync>>,
     /// Replaces the tokio registration (failure injection).
     pub registration: Option<SignalRegistration>,
     /// Called once both registrations have been attempted.
@@ -1364,6 +1366,9 @@ impl Marathon {
                         )
                         .await;
                         if let futures_util::future::Either::Right(_) = finished {
+                            if let Some(expired) = &waiting.hooks.cleanup_expired {
+                                expired();
+                            }
                             marathon.log(
                                 LOGGER,
                                 Level::ERROR,

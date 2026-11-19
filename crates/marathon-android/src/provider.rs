@@ -1698,9 +1698,8 @@ pub async fn start_adb(sdk: Option<&std::path::Path>, port: u16, context: Vendor
     let binary = if let Some(home) = home {
         home.join("platform-tools/adb")
     } else {
-        let result = tokio::process::Command::new("which")
+        let result = marathon_process::Command::new("which")
             .arg("adb")
-            .kill_on_drop(true)
             .output()
             .await
             .map_err(io)?;
@@ -1715,22 +1714,24 @@ pub async fn start_adb(sdk: Option<&std::path::Path>, port: u16, context: Vendor
         return Ok(false);
     }
     let binary = std::path::absolute(binary).map_err(io)?;
-    let mut child = tokio::process::Command::new(binary)
+    let mut child = marathon_process::Command::new(binary)
         .args(["-P", &port.to_string(), "start-server"])
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .kill_on_drop(true)
-        .spawn()
+        .spawn_adb_client()
         .map_err(io)?;
-    loop {
-        if let Some(exit) = child.try_wait().map_err(io)? {
-            return Ok(exit.success());
-        }
-        if let Err(e) = context.clock.delay(16, context.cancellation.clone()).await {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            return Err(e);
+    tokio::select! {
+        biased;
+        result = child.wait() => result.map(|exit| exit.success()).map_err(io),
+        reason = context.cancellation.cancelled() => {
+            let _ = child.terminate();
+            let grace = std::time::Duration::from_secs(1);
+            if tokio::time::timeout(grace, child.wait()).await.is_err() {
+                let _ = child.start_kill();
+                let _ = tokio::time::timeout(grace, child.wait()).await;
+            }
+            Err(VendorError::Cancelled(reason))
         }
     }
 }

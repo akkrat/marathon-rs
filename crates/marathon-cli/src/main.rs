@@ -45,7 +45,9 @@ fn main() -> ExitCode {
         .skip(1)
         .map(|a| a.to_string_lossy().into_owned())
         .collect();
-    run(args, quit_error)
+    let status = run(args, quit_error);
+    marathon_process::seal_and_kill();
+    status
 }
 
 fn run(args: Vec<String>, quit_error: Option<io::Error>) -> ExitCode {

@@ -74,13 +74,9 @@ pub fn missing_vendors() -> VendorFactories {
 
 /// P1 (D12 extension): the facts logged under `System Information:`, in this order.
 pub fn system_information(cwd: &std::path::Path) -> Vec<(String, String)> {
-    let os_version = std::process::Command::new("uname")
-        .arg("-r")
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
-        .unwrap_or_else(|| "unknown".into());
+    let os_version = nix::sys::utsname::uname()
+        .map(|name| name.release().to_string_lossy().trim().to_owned())
+        .unwrap_or_else(|_| "unknown".into());
     let processors = std::thread::available_parallelism().map_or(1, |n| n.get());
     let home = std::env::var_os("HOME")
         .map(|h| h.to_string_lossy().into_owned())
@@ -157,6 +153,8 @@ impl ProductionRunner {
         let publish_tail = exit_tail.clone();
         let mut signal_hooks = self.signal_hooks.clone();
         signal_hooks.immediate_exit = Some(Arc::new(|status| crate::tracing_output::exit_once(status)));
+        let watchdog = exit_console.clone();
+        signal_hooks.cleanup_expired = Some(Arc::new(move || watchdog.sweep_processes()));
         #[cfg(feature = "test-seams")]
         let exit_prepare = self.exit_prepare.clone();
         #[cfg(not(feature = "test-seams"))]

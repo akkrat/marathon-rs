@@ -1,6 +1,6 @@
 # WP x95 findings — process ownership
 
-## Status
+## Initial investigation
 
 Stopped before migration on `9ce312ff`. The launcher prototype changed spawn errors, added measurable overhead, and could confirm cleanup while a descendant was still addressable. The prototype was removed. D96 and U227–U234 remain available for the implementation. No result golden, Kotlin recording, configuration, command, or release documentation was updated.
 
@@ -42,6 +42,66 @@ The recorder handle needs to be created before launch, with a protected, shared 
 ## Verification limits
 
 The base CLI iOS integration passed through real SSH to a fake worker in 2.65 s of test time. It establishes a healthy baseline only. Linux, both signal races, PTY authentication, ADB policy witnesses, SSH partition and lost acknowledgement, and real-device reruns were not verified. The prototype never reached healthy local and SSH run comparisons. No comparator allowance, parity matrix change, or golden diff was produced.
+
+## Native launcher implementation
+
+The subsequent owner decision approved stock Perl with a once-per-worker fallback warning, and retained the
+existing ADB server policy. The launcher tracks ADB clients by PID so a cleanup racing a daemon's startup
+cannot send KILL to the new server before it establishes its own session. There is no private-server policy.
+
+The native launcher creates a private group through `CommandExt::process_group(0)` and keeps native launch
+errors. Admission increments the in-flight count before spawning, then publishes the PID before any pipe conversion.
+The sweep seals admission, signals registered targets and shares one 200 ms wait for in-flight launches. Late
+registrations send KILL immediately when sealed. A child may execute between the kernel spawn and registration.
+If a kernel spawn does not return within 200 ms, synchronous exit can beat its registration. This is the
+residual window of the approved native launch approach.
+
+The leader remains unreaped while the registry contains a signalable group. Retirement and the emergency
+sweep share the registry lock. Normal completion observes leader exit without reaping, sends KILL before
+unregistering, then reaps and confirms disappearance using signal 0. A permission error on an observed exited
+leader on macOS still requires the disappearance check. D93's local command receipt also waits for both readers.
+At the D52 deadline, core notifies the existing watchdog thread before flushing output. The watchdog sweeps
+synchronously without waiting on the console. The second signal sweeps synchronously in the immediate exit path.
+The signal cutoffs and publication policy belong to x96.
+
+The native launcher measured **1.370 s per 1,000 sequential launches** versus **1.367 s** directly on macOS.
+The CLI iOS integration using real SSH and a fake worker passed in 1.69 s and 2.69 s in separate runs, compared
+with 2.65 s at the base. These timings include test fixture setup and give a smoke check rather than a measured
+production throughput change.
+
+The registry late-registration witness, exited-leader witness and ADB client policy witness each passed 50 times
+and once under CPU load. The exited-leader witness failed with a group disappearance timeout in a scratch copy
+where retirement omitted KILL. All 16 CLI signal window tests passed, including the D52 expiry and second-signal
+checks with a real stopped child. The second-signal check passed 50 times and once under CPU load.
+The CLI vendor differential comparison passed without changing recordings.
+Linux execution remains for the remote gate.
+
+The local launcher step preserves the legacy password wrapper's extra session and the detached recorder's
+pidfile handoff until their focused migrations. Both paths still have containment gaps. Worker commands
+and D93 remote command receipts still use the previous protocol.
+
+## Password terminal investigation
+
+The isolated PTY test passed. It answered a split password prompt separately from the payload's input and output,
+and returned the payload's own nonzero status. The actual rsync roundtrip with OpenSSH and a fake worker did not
+complete. The controller detected the prompt and wrote the credential and line terminator, but the worker
+observed no authentication response. A native PTY probe reached the same pending state. Changing terminal
+mode and opening the slave from within the child session did not produce a reliable roundtrip. The PTY draft,
+the comparator prototype and its test migrations were removed. Step 2 remains open.
+
+The focused local executor, legacy recorder, and rsync suites passed on the completed launcher step, with 22,
+1 and 84 tests respectively. The rsync tests now assert that inherited pipe holders are gone when the
+transfer returns, and require the full TERM grace only while the leader is alive. A first broad run still
+used assertions for the former behavior, and its differential run detected files changing during the PTY
+investigation. The final package-scoped run passed 2,508 tests with 35 ignored and zero failures. That run included the CLI
+vendor differential comparison, all 16 signal tests, the real-SSH iOS smoke test with a fake worker at 1.85 s,
+and the actual local command and file differential probe at 0.19 s. Formatting, targeted Clippy, the source
+gate, the plan graph and the Python evidence validators passed. Full workspace and remote gates are reserved
+for the orchestrator.
+
+Recorder handles and the worker supervisor remain pending. The owner already authorized the stock Perl
+probe, fallback and warning. The worker protocol, migration prerequisite and real-device reruns still need
+implementation and verification.
 
 ## Incidental bugs
 

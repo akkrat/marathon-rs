@@ -119,6 +119,9 @@ impl Console {
             TracingOutput::new_with_exit_flush(stdout, target == OutputTarget::Terminal, local_stamp, exit_flush)?;
         Ok((Self { tracing }, guard))
     }
+    pub(crate) fn sweep_processes(&self) {
+        self.tracing.sweep_processes();
+    }
     pub fn exit_after_preparing(&self, status: i32, prepare: Box<dyn FnOnce() + Send>) -> io::Result<()> {
         self.tracing.exit_after_preparing(status, prepare)
     }

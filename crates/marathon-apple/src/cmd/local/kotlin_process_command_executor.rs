@@ -9,15 +9,13 @@ use super::KotlinProcessHost;
 use crate::extensions::reader::{OutputActivity, ReaderInput, produce_lines};
 use marathon_core::{
     error::{VendorError, VendorResult},
-    runtime::{VendorFuture, VendorRuntime},
+    runtime::{VendorFuture, VendorRuntime, VendorTask},
     vendor::VendorContext,
 };
 use marathon_error::FailureKind;
 use marathon_logging::{Component, LogSettings};
-use nix::{
-    sys::signal::{Signal, kill},
-    unistd::Pid,
-};
+use marathon_process::Command;
+use nix::sys::signal::Signal;
 use std::{
     os::fd::AsFd,
     pin::Pin,
@@ -29,7 +27,6 @@ use std::{
 };
 use tokio::{
     io::{AsyncRead, ReadBuf},
-    process::Command,
     sync::{mpsc, oneshot},
 };
 
@@ -148,6 +145,7 @@ async fn execute(
     if let Some(reason) = context.cancellation.reason() {
         return Err(VendorError::Cancelled(reason));
     }
+    let legacy_recorder_start = request.legacy_recorder_start;
     let last_look = context.cancellation.clone();
     let (mut child, mut handed) = blocking(runtime.as_ref(), move || {
         let command = request.command.iter().map(|arg| strip_quotes(arg)).collect::<Vec<_>>();
@@ -185,12 +183,12 @@ async fn execute(
     })
     .await?;
     let stdout = child
-        .stdout
-        .take()
+        .take_stdout()
+        .map_err(io_error)?
         .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalState, "missing stdout pipe")))?;
     let stderr = child
-        .stderr
-        .take()
+        .take_stderr()
+        .map_err(io_error)?
         .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalState, "missing stderr pipe")))?;
     let base = BaseCommand::new(capacity, runtime.clone());
     let actual_exit = ExitCode::default();
@@ -198,12 +196,20 @@ async fn execute(
     let (signals, mut signal_rx) = mpsc::unbounded_channel::<(Signal, Option<oneshot::Sender<VendorResult<()>>>)>();
     let actual = actual_exit.clone();
     let alive_monitor = alive.clone();
-    // Equivalent to the JVM process reaper: survives total timeout and session-job
-    // cancellation, and never owns a deadline or implicitly destroys the child.
+    let (readers_tx, readers_rx) = oneshot::channel::<[Arc<dyn VendorTask>; 2]>();
+    // Keep the group owned after an awaiter times out. Start escalation only when the
+    // session's owner explicitly stops it.
     runtime.spawn(Box::pin(async move {
+        let mut hard_stop = None;
         let result = loop {
             tokio::select! {
-                result = child.wait() => break result.map(|status| {
+                result = async {
+                    if legacy_recorder_start {
+                        child.wait_for_legacy_recorder_start().await
+                    } else {
+                        child.wait().await
+                    }
+                } => break result.map(|status| {
                     use std::os::unix::process::ExitStatusExt;
                     use crate::cmd::base_command::CommandTermination;
                     let termination = if let Some(code) = status.code() {
@@ -216,22 +222,34 @@ async fn execute(
                     (status.code().or_else(|| status.signal().map(|signal| 128 + signal)), termination)
                 }).map_err(io_error),
                 signal = signal_rx.recv(), if !signal_rx.is_closed() || !signal_rx.is_empty() => {
-                    if let (Some((signal, ack)), Some(pid)) = (signal, child.id()) {
-                        let result = match kill(Pid::from_raw(pid as i32), signal) {
-                            Ok(()) | Err(nix::errno::Errno::ESRCH) => Ok(()),
-                            Err(error) => Err(io_error(std::io::Error::from_raw_os_error(error as i32))),
-                        };
+                    if let Some((signal, ack)) = signal {
+                        let result = match signal {
+                            Signal::SIGKILL => child.start_kill(),
+                            _ => {
+                                hard_stop.get_or_insert_with(|| tokio::time::Instant::now() + std::time::Duration::from_secs(5));
+                                child.terminate()
+                            }
+                        }.map_err(io_error);
                         if let Some(ack) = ack { let _ = ack.send(result.clone()); }
                         if let Err(error) = result { break Err(error); }
+                    }
+                },
+                _ = async {
+                    if let Some(deadline) = hard_stop {
+                        tokio::time::sleep_until(deadline).await;
+                    } else {
+                        std::future::pending::<()>().await;
+                    }
+                } => {
+                    hard_stop = None;
+                    if let Err(error) = child.start_kill() {
+                        break Err(io_error(error));
                     }
                 },
             }
         };
         alive_monitor.store(false, Ordering::SeqCst);
-        if result.is_ok() {
-            handed.end(crate::cmd::TransferCleanup::Confirmed);
-        }
-        drop(handed);
+        let settled = result.is_ok();
         match result {
             Ok((code, termination)) => {
                 actual.complete_observed(Ok(code), Some(termination));
@@ -239,6 +257,12 @@ async fn execute(
             Err(error) => {
                 actual.complete(Err(error));
             }
+        }
+        if settled && let Ok(readers) = readers_rx.await {
+            for reader in readers {
+                let _ = reader.join().await;
+            }
+            handed.end(crate::cmd::TransferCleanup::Confirmed);
         }
         Ok(())
     }));
@@ -295,7 +319,7 @@ async fn execute(
             let last = last_output.clone();
             let reader_context = own_context.clone();
             let idle_timeout = request.idle_timeout;
-            base.scope.track(runtime.spawn(Box::pin(async move {
+            let reader = runtime.spawn(Box::pin(async move {
                 produce_lines(
                     CommandPipe($stream),
                     output,
@@ -307,11 +331,12 @@ async fn execute(
                     },
                 )
                 .await
-            })));
+            }));
+            base.scope.track(reader.clone());
+            reader
         }};
     }
-    reader!(stdout, base.stdout);
-    reader!(stderr, base.stderr);
+    let _ = readers_tx.send([reader!(stdout, base.stdout), reader!(stderr, base.stderr)]);
     let term = signals.clone();
     let hard = signals.clone();
     let alive_getter = alive.clone();
@@ -424,14 +449,14 @@ mod tests {
     #[tokio::test]
     async fn exited_child_pipes_are_drained_before_the_reactor_delivers_readiness()
     -> Result<(), Box<dyn std::error::Error>> {
-        let mut child = std::process::Command::new("sh")
+        let mut child = Command::new("sh")
             .args(["-c", "printf 'stdout tail'; printf 'Hello world\\n' >&2"])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()?;
-        assert!(child.wait()?.success());
-        let stdout = tokio::process::ChildStdout::from_std(child.stdout.take().ok_or("missing stdout")?)?;
-        let stderr = tokio::process::ChildStderr::from_std(child.stderr.take().ok_or("missing stderr")?)?;
+        assert!(child.wait().await?.success());
+        let stdout = child.take_stdout()?.ok_or("missing stdout")?;
+        let stderr = child.take_stderr()?.ok_or("missing stderr")?;
         // No await between reactor registration and the drain. A readiness-only
         // final read here can be Pending despite bytes already being in the kernel.
         fn check(mut pipe: CommandPipe<impl AsyncRead + AsFd + Unpin>, expected: &[u8]) -> std::io::Result<()> {
