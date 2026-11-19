@@ -23,15 +23,18 @@ use std::{
 use tokio::{
     io::AsyncReadExt,
     sync::{Notify, watch},
+    time::{Instant, sleep_until, timeout_at},
 };
 
 const TARGET: &str = "marathon_apple::cmd::remote::ssh::sshj::supervisor";
 const PROTOCOL: &str = "MARATHON_D96_1";
 const PROBE_TIMEOUT: WallDuration = WallDuration::from_secs(12);
 const CONTROL_TIMEOUT: WallDuration = WallDuration::from_secs(4);
+const REQUEST_TIMEOUT: WallDuration = WallDuration::from_secs(2 * CONTROL_TIMEOUT.as_secs());
 pub(super) const EXIT_PROOF_TIMEOUT: WallDuration = WallDuration::from_secs(24);
 const RECONNECT_DELAY: WallDuration = WallDuration::from_secs(1);
 const CLOSE_GRACE: WallDuration = WallDuration::from_secs(20);
+const WATCH_EXIT_TIMEOUT: WallDuration = WallDuration::from_secs(CLOSE_GRACE.as_secs() + 3 * CONTROL_TIMEOUT.as_secs());
 const BOOTSTRAP: &str = include_str!("bootstrap.pl");
 const WORKER: &str = include_str!("worker.pl");
 
@@ -199,7 +202,8 @@ impl Supervisor {
             Capability::Unknown => None,
         };
         let Some(peer) = peer else { return };
-        let result = tokio::time::timeout(CONTROL_TIMEOUT, peer.retire()).await;
+        let deadline = Instant::now() + CONTROL_TIMEOUT;
+        let result = timeout_at(deadline, peer.retire(deadline)).await;
         if !matches!(result, Ok(Ok(()))) {
             let logger = self.logging.component(TARGET);
             self.logging.log(
@@ -251,7 +255,7 @@ impl Supervisor {
             STANDARD.encode(BOOTSTRAP),
             STANDARD.encode(WORKER)
         );
-        let (status, output) = exchange(&connection, install, PROBE_TIMEOUT)
+        let (status, output) = exchange(&connection, install, Instant::now() + PROBE_TIMEOUT)
             .await
             .map_err(ExchangeError::into_vendor)?;
         if status != 0 {
@@ -314,7 +318,7 @@ impl ExchangeError {
     }
 }
 
-// A KILL may interrupt an earlier control exchange. Return its channel slot.
+// An escalation may interrupt an earlier control exchange. Return its channel slot.
 struct ProtocolChannel(Arc<super::channel::ExecChannel>);
 
 impl Drop for ProtocolChannel {
@@ -323,19 +327,14 @@ impl Drop for ProtocolChannel {
     }
 }
 
-async fn exchange(
-    connection: &SshConnection,
-    wire: String,
-    timeout: WallDuration,
-) -> Result<(i32, String), ExchangeError> {
-    let deadline = tokio::time::Instant::now() + timeout;
-    let channel = tokio::time::timeout_at(deadline, connection.start_session())
+async fn exchange(connection: &SshConnection, wire: String, deadline: Instant) -> Result<(i32, String), ExchangeError> {
+    let channel = timeout_at(deadline, connection.start_session())
         .await
         .map_err(|_| ExchangeError::Timeout("Worker supervisor channel open timed out"))?
         .map_err(|error| ExchangeError::Command(error.into_vendor()))?;
     let closing = ProtocolChannel(channel);
     let channel = &closing.0;
-    tokio::time::timeout_at(deadline, async {
+    timeout_at(deadline, async {
         channel
             .exec(wire)
             .await
@@ -364,7 +363,7 @@ async fn exchange(
 struct Control {
     active: Option<Arc<SshConnection>>,
     stream: Option<Arc<SharedDeferred<Arc<ControlSession>>>>,
-    next_dial: Option<tokio::time::Instant>,
+    next_dial: Option<Instant>,
     retry_delay: Option<WallDuration>,
 }
 struct Peer {
@@ -436,7 +435,7 @@ impl Reply {
 }
 
 impl Peer {
-    async fn retire(&self) -> VendorResult<()> {
+    async fn retire(&self, deadline: Instant) -> VendorResult<()> {
         let connection = if self.data.is_connected() {
             self.data.clone()
         } else {
@@ -462,7 +461,7 @@ impl Peer {
             self.root, self.root, self.timing.lease_ms
         );
         loop {
-            let (status, output) = exchange(&connection, wire.clone(), CONTROL_TIMEOUT)
+            let (status, output) = exchange(&connection, wire.clone(), deadline)
                 .await
                 .map_err(ExchangeError::into_vendor)?;
             match (status, output.as_str()) {
@@ -474,8 +473,8 @@ impl Peer {
     }
 
     async fn connection(&self) -> VendorResult<Arc<SshConnection>> {
-        let deadline = tokio::time::Instant::now() + CONTROL_TIMEOUT;
-        let mut control = tokio::time::timeout_at(deadline, self.control.lock())
+        let deadline = Instant::now() + CONTROL_TIMEOUT;
+        let mut control = timeout_at(deadline, self.control.lock())
             .await
             .map_err(|_| protocol_error("Worker supervisor reconnect is busy"))?;
         if let Some(active) = &control.active
@@ -483,7 +482,7 @@ impl Peer {
         {
             return Ok(active.clone());
         }
-        if control.next_dial.is_some_and(|next| tokio::time::Instant::now() < next) {
+        if control.next_dial.is_some_and(|next| Instant::now() < next) {
             return Err(protocol_error("Worker supervisor reconnect is waiting to retry"));
         }
         // One dial per shared connection. Its deadline also bounds callers
@@ -491,8 +490,8 @@ impl Peer {
         let retry = control.retry_delay.unwrap_or(RECONNECT_DELAY);
         control.next_dial = Some(deadline + retry);
         control.retry_delay = Some((retry * 2).min(WallDuration::from_secs(60)));
-        let connected = tokio::time::timeout_at(deadline, (self.dial)()).await;
-        control.next_dial = Some(tokio::time::Instant::now() + retry);
+        let connected = timeout_at(deadline, (self.dial)()).await;
+        control.next_dial = Some(Instant::now() + retry);
         let active = connected
             .map_err(|_| protocol_error("Worker supervisor control connection timed out"))?
             .map_err(super::error::SshFailure::into_vendor)?;
@@ -519,7 +518,7 @@ impl Peer {
         }
     }
 
-    async fn stream(&self) -> VendorResult<Arc<ControlSession>> {
+    async fn stream(&self) -> VendorResult<(Arc<SshConnection>, Arc<ControlSession>)> {
         let active = self.connection().await?;
         let opening = {
             let mut control = self.control.lock().await;
@@ -548,9 +547,19 @@ impl Peer {
                 let opened = opening.clone();
                 let connection = active.clone();
                 active.runtime.spawn(Box::pin(async move {
-                    opened.complete(
-                        crate::cmd::retained_tasks::panic_as_error(ControlSession::open(&connection, wire)).await,
-                    );
+                    let result = tokio::time::timeout(
+                        REQUEST_TIMEOUT,
+                        crate::cmd::retained_tasks::panic_as_error(ControlSession::open(&connection, wire)),
+                    )
+                    .await;
+                    opened.complete(match result {
+                        Ok(result) => result,
+                        Err(_) => {
+                            // A silent open cannot start sending token requests.
+                            connection.abandon();
+                            Err(protocol_error("Worker supervisor control stream did not open"))
+                        }
+                    });
                     Ok(())
                 }));
                 opening
@@ -567,16 +576,18 @@ impl Peer {
             control.retry_delay = None;
             control.next_dial = None;
         }
-        Ok((*stream).clone())
+        Ok((active, (*stream).clone()))
     }
 
-    async fn ask(&self, token: &str, operation: &str) -> VendorResult<Reply> {
+    async fn control_request(&self, token: &str, operation: &str, deadline: Instant) -> VendorResult<String> {
+        let first_timeout = Instant::now() + CONTROL_TIMEOUT;
         let fallback = || async {
             let wire = format!(
                 "/usr/bin/perl {}/supervisor.pl control {} {} {token}:{operation}",
                 self.root, self.root, self.timing.lease_ms
             );
-            let (status, output) = exchange(&self.data, wire, CONTROL_TIMEOUT)
+            let deadline = deadline.min(Instant::now() + CONTROL_TIMEOUT);
+            let (status, output) = exchange(&self.data, wire, deadline)
                 .await
                 .map_err(ExchangeError::into_vendor)?;
             if status != 0 {
@@ -584,29 +595,45 @@ impl Peer {
             }
             Ok(output)
         };
-        let primary = async { self.stream().await?.ask(token, operation).await };
-        let mut primary = std::pin::pin!(primary);
-        let output = match tokio::time::timeout(CONTROL_TIMEOUT, &mut primary).await {
-            Ok(Ok(response)) => response,
-            Ok(Err(_)) if self.data.is_connected() => fallback().await?,
-            Ok(Err(error)) => return Err(error),
-            Err(_) if self.data.is_connected() => {
-                // A slow application exchange is no reason to redial a
-                // transport. The fallback bounds the wait for lease renewal.
-                let mut secondary = std::pin::pin!(fallback());
-                tokio::select! {
-                    biased;
-                    response = &mut primary => match response {
-                        Ok(output) => output,
-                        Err(_) => secondary.await?,
-                    },
-                    response = &mut secondary => response?,
-                }
-            }
-            Err(_) => tokio::time::timeout(CLOSE_GRACE, &mut primary)
-                .await
-                .map_err(|_| protocol_error("Worker supervisor did not respond on its control stream"))??,
+        let opening = async {
+            let (connection, stream) = self.stream().await?;
+            let request = stream.request(token, operation)?;
+            Ok((connection, request))
         };
+        let stalled = || protocol_error("Worker supervisor did not respond on its control stream");
+        let (connection, mut request) = match timeout_at(first_timeout.min(deadline), opening).await {
+            Ok(Ok(request)) => request,
+            _ if self.data.is_connected() && Instant::now() < deadline => return fallback().await,
+            Ok(Err(error)) => return Err(error),
+            Err(_) => return Err(stalled()),
+        };
+        match timeout_at(first_timeout.min(deadline), request.reply()).await {
+            Ok(Ok(response)) => return Ok(response),
+            Ok(Err(_)) if self.data.is_connected() && Instant::now() < deadline => return fallback().await,
+            Ok(Err(error)) => return Err(error),
+            Err(_) if Instant::now() >= deadline => return Err(stalled()),
+            Err(_) => request.timed_out(&connection),
+        }
+        if !self.data.is_connected() {
+            if !connection.is_connected() {
+                return Err(stalled());
+            }
+            return timeout_at(deadline, request.reply()).await.map_err(|_| stalled())?;
+        }
+        // A slow reply can still win after the data-path request has started.
+        let mut secondary = std::pin::pin!(fallback());
+        tokio::select! {
+            biased;
+            response = request.reply() => match response {
+                Ok(output) => Ok(output),
+                Err(_) => secondary.await,
+            },
+            response = &mut secondary => response,
+        }
+    }
+
+    async fn ask(&self, token: &str, operation: &str, deadline: Instant) -> VendorResult<Reply> {
+        let output = self.control_request(token, operation, deadline).await?;
         let (reply, diagnostic) = Reply::parse(&output, token)
             .ok_or_else(|| protocol_error("Worker supervisor returned an invalid token receipt"))?;
         if let Some(stderr) = diagnostic {
@@ -695,7 +722,6 @@ pub(super) struct Lease {
     detached: bool,
     stop: Mutex<Stop>,
     changed: Notify,
-    kill_requested: Notify,
     proof: watch::Sender<Option<Result<Proof, Failure>>>,
 }
 
@@ -717,7 +743,6 @@ impl Lease {
             detached,
             stop: Mutex::default(),
             changed: Notify::new(),
-            kill_requested: Notify::new(),
             proof: watch::channel(None).0,
         }
     }
@@ -767,11 +792,10 @@ impl Lease {
             _ => 2,
         };
         let mut state = self.stop.lock().unwrap_or_else(|error| error.into_inner());
-        if rank == 3 && state.signal < 3 {
-            self.kill_requested.notify_one();
+        if rank > state.signal {
+            state.signal = rank;
+            self.changed.notify_one();
         }
-        state.signal = state.signal.max(rank);
-        self.changed.notify_one();
     }
 
     pub(super) fn is_detached(&self) -> bool {
@@ -827,27 +851,46 @@ impl Lease {
         }
     }
 
+    async fn stop_upgraded(&self, wanted: u8) {
+        loop {
+            let changed = self.changed.notified();
+            let state = *self.stop.lock().unwrap_or_else(|error| error.into_inner());
+            if state.signal > wanted || state.channel_ended {
+                return;
+            }
+            changed.await;
+        }
+    }
+
     async fn watch(&self) -> VendorResult<Proof> {
         let mut stamp = None;
         let mut ending = None;
-        let mut next_renewal = tokio::time::Instant::now();
+        let mut next_renewal = Instant::now();
         let mut signalled = 0;
         let mut delay = self.peer.timing.interval;
         loop {
-            tokio::select! {
-                _ = self.changed.notified() => {},
-                _ = self.peer.control_lost() => {},
-                _ = self.peer.data.shared.wait_dead(), if self.detached && self.peer.data.is_connected() => {},
-                _ = tokio::time::sleep(delay) => {},
+            if !delay.is_zero() {
+                let wake = Instant::now() + delay;
+                tokio::select! {
+                    _ = self.changed.notified() => {},
+                    _ = self.peer.control_lost() => {},
+                    _ = self.peer.data.shared.wait_dead(), if self.detached && self.peer.data.is_connected() => {},
+                    _ = sleep_until(ending.map_or(wake, |start| wake.min(start + WATCH_EXIT_TIMEOUT))) => {},
+                }
             }
             let state = *self.stop.lock().unwrap_or_else(|error| error.into_inner());
-            let now = tokio::time::Instant::now();
+            let now = Instant::now();
             let disconnected = state.channel_ended || (self.detached && !self.peer.data.is_connected());
             let finalizing = self.detached && state.signal == 1 && !disconnected;
             if !finalizing && (state.signal != 0 || disconnected) && ending.is_none() {
                 ending = Some(now);
             }
-            let wanted = if disconnected || ending.is_some_and(|start| now - start >= CLOSE_GRACE) {
+            let proof_deadline = ending.map(|start| start + WATCH_EXIT_TIMEOUT);
+            if proof_deadline.is_some_and(|deadline| now >= deadline) {
+                return Err(protocol_error("Worker exit proof did not arrive during cleanup"));
+            }
+            let grace_end = ending.map(|start| start + CLOSE_GRACE);
+            let wanted = if disconnected || grace_end.is_some_and(|deadline| now >= deadline) {
                 3
             } else {
                 state.signal
@@ -862,13 +905,26 @@ impl Lease {
             } else {
                 "status".to_string()
             };
+            let request_end = now + REQUEST_TIMEOUT;
+            let request_end = proof_deadline.map_or(request_end, |deadline| request_end.min(deadline));
             let response = tokio::select! {
                 biased;
-                _ = self.kill_requested.notified(), if wanted < 3 => {
+                _ = self.stop_upgraded(wanted), if wanted < 3 => {
                     delay = WallDuration::ZERO;
                     continue;
                 }
-                response = self.peer.ask(&self.token, &operation) => response,
+                _ = self.peer.data.shared.wait_dead(), if self.detached && wanted < 3 => {
+                    delay = WallDuration::ZERO;
+                    continue;
+                }
+                _ = sleep_until(grace_end.unwrap_or(request_end)), if wanted < 3 && grace_end.is_some() => {
+                    delay = WallDuration::ZERO;
+                    continue;
+                }
+                _ = sleep_until(proof_deadline.unwrap_or(request_end)), if proof_deadline.is_some() => {
+                    return Err(protocol_error("Worker exit proof did not arrive during cleanup"));
+                }
+                response = self.peer.ask(&self.token, &operation, request_end) => response,
             };
             match response {
                 Ok(Reply::Proof(proof)) => return Ok(proof),
@@ -892,9 +948,6 @@ impl Lease {
                 }
                 Ok(Reply::Busy | Reply::Unknown) => delay = WallDuration::from_millis(100),
                 Err(_) => delay = WallDuration::from_secs(1),
-            }
-            if ending.is_some_and(|start| now - start >= CLOSE_GRACE + 3 * CONTROL_TIMEOUT) {
-                return Err(protocol_error("Worker exit proof did not arrive during cleanup"));
             }
         }
     }

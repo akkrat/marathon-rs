@@ -21,7 +21,7 @@ sub read_state {
         die "read state: $!";
     }
     my $state = <$file>;
-    defined($state) && $state =~ /\A([01]) (\d+) ([0-3]) ([-a-z0-9:]+)\n\z/
+    defined($state) && $state =~ /\A([012]) (\d+) ([0-3]) ([-a-z0-9:]+)\n\z/
         or die "invalid state";
     return ($1, $2, $3, $4);
 }
@@ -61,8 +61,10 @@ sub locked {
 
 sub control {
     my ($dir, $op, $lease) = @_;
+    my $recorder;
     my $reply = locked($dir, sub {
         my ($started, $expiry, $signal, $receipt) = @_;
+        $recorder = $started == 2;
         my $now = clock_ms();
         return (undef, $receipt) if $receipt ne '-';
         if ($op =~ /\A[1-3]\z/) {
@@ -85,7 +87,7 @@ sub control {
             $reply .= ' ' . MIME::Base64::encode_base64($diagnostic, '');
         }
     }
-    return $reply;
+    return ($reply, $recorder);
 }
 
 sub drain_errors {
@@ -120,8 +122,8 @@ sub control_stream {
             $frame =~ /\A([1-9][0-9]{0,19}) ([a-f0-9]{32}):(renew-[0-9]{1,16}|status|[1-3])\z/
                 or die "invalid control frame";
             my ($id, $token, $op) = ($1, $2, $3);
-            my $state = control("$root/$token", $op, $lease);
-            if ($op eq '1' && $state =~ /\Arunning:/) {
+            my ($state, $recorder) = control("$root/$token", $op, $lease);
+            if ($recorder && $op eq '1' && $state =~ /\Arunning:/) {
                 # INT for a recorder can return its completed receipt on the
                 # same request without stalling other tokens on this stream.
                 $waiting{$token} = $id;
@@ -131,7 +133,7 @@ sub control_stream {
         }
         length($buffer) < 256 or die "control frame too large";
         for my $token (keys %waiting) {
-            my $state = control("$root/$token", 'status', $lease);
+            my ($state) = control("$root/$token", 'status', $lease);
             next if $state =~ /\A(?:running:|busy)/;
             my $id = delete $waiting{$token};
             push @replies, "$id $token $state\n";
@@ -151,7 +153,7 @@ sub run_owned {
             my ($started, $expiry, $signal, $receipt) = @_;
             return (undef, 0) if $started || $signal || $receipt ne '-';
             my $new_expiry = clock_ms() + $lease;
-            return ([1, $new_expiry, 0, '-'], $new_expiry);
+            return ([$recorder ? 2 : 1, $new_expiry, 0, '-'], $new_expiry);
         });
         select undef, undef, undef, 0.01 if !defined $start;
     }
@@ -293,7 +295,7 @@ sub run_owned {
     my $recorded;
     while (clock_ms() < $receipt_deadline) {
         $recorded = locked($dir, sub {
-            return ([1, $_[1], $_[2], $reaped && $gone ? "done:$rc" : 'unconfirmed'], 1);
+            return ([$_[0], $_[1], $_[2], $reaped && $gone ? "done:$rc" : 'unconfirmed'], 1);
         });
         last if $recorded;
         select undef, undef, undef, 0.025;
@@ -354,7 +356,9 @@ if ($mode eq 'control-stream') {
 if ($mode eq 'control') {
     for my $item (@ARGV) {
         $item =~ /\A([a-f0-9]{32}):(renew-[0-9]{1,16}|status|[1-3])\z/ or die "invalid request";
-        print "$1 ", control("$root/$1", $2, $lease), "\n";
+        my ($token, $op) = ($1, $2);
+        my ($state) = control("$root/$token", $op, $lease);
+        print "$token $state\n";
     }
     exit 0;
 }

@@ -3052,8 +3052,9 @@ Process-name tools such as `pgrep`, `pidof` and `killall` can see both entries.
 Ordinary cleanup sends KILL and checks for other group members while the unreaped leader
 still pins the group ID. On macOS, a group signal can return EPERM while every member
 is exiting or a zombie. Marathon accepts that result only after checking member state.
-Cleanup still needs the leader's exit status and the absence of live peers. Zombies
-can remain until their parents reap them. A denied signal with live or unknown members
+On macOS, cleanup still needs the leader's exit status and the absence of live peers.
+Zombies can remain until their parents reap them. Linux counts zombie peers and leaves
+cleanup unconfirmed if they are still present after 5 s. A denied signal with live or unknown members
 warns and leaves cleanup unconfirmed. The registry removes the group from the reaper
 before reaping the leader. If the check returns an error or cannot confirm cleanup within 5 s,
 Marathon warns once and returns the command's actual exit status. It does the same if the reaper
@@ -3132,13 +3133,19 @@ proof. A failure before payload launch is reported with the wrapper's own
 status, such as 255, 2 or 125. The first renewal is at the configured interval.
 The independent connection keeps a single control exec open and exchanges
 numbered requests over its stdin and stdout. The controller opens it on
-demand and starts it in the background for a detached recorder. A recorder's
-INT request can return the completed receipt on that same stream while
-other tokens proceed. Failed dials back off exponentially from 1 s to 60 s.
+demand and starts it in the background for a detached recorder. Only a detached
+recorder's INT request can wait for the completed receipt on that same stream.
+Other tokens proceed, and a higher-rank signal can preempt a pending request.
+Failed dials back off exponentially from 1 s to 60 s.
 At 4 s without a reply, the controller can use a short one-shot request
-on a reachable data connection. A slow reply does not close or redial
-the control transport. Renewal through the data connection uses the normal
-interval.
+on a reachable data connection. SSH keep-alive detects transport loss when
+enabled. With or without keep-alive, two consecutive request timeouts with
+no reply cause a reconnect. The second request must have started after the
+first timeout, and a late reply clears the timeout count. A token request
+has up to 8 s in total, clipped to the remaining cleanup budget. An opening
+control stream that stays silent for 8 s also causes a reconnect. The worker
+watcher stops waiting for exit proof 32 s after cleanup begins even during a
+request. Renewal through the data connection uses the normal interval.
 While it reconnects, it can renew over the device's command connection if a
 request on that connection reaches the worker and receives a valid response.
 That path needs an available session. A partition that cuts both paths ends

@@ -190,6 +190,15 @@ async fn built_binary_runs_and_parses_ios_through_real_ssh_provider_parser_and_l
 
 const SUPERVISOR_ROOT: &str = "/tmp/marathon-supervisor-0123456789";
 
+fn supervised_token<'a>(command: &'a str, mode: &str) -> Option<&'a str> {
+    let wire = command.strip_prefix("exec ").unwrap_or(command);
+    wire.strip_prefix(&format!(
+        "/usr/bin/perl {SUPERVISOR_ROOT}/supervisor.pl {mode} {SUPERVISOR_ROOT} "
+    ))?
+    .split_ascii_whitespace()
+    .nth(1)
+}
+
 struct LatencySupervisor {
     plain: fake_worker::router::Router,
     movies: tokio::sync::Mutex<std::collections::HashMap<String, Vec<fake_worker::script::PublishedFile>>>,
@@ -473,13 +482,18 @@ async fn six_video_batches_keep_ssh_supervision_off_the_healthy_path_d96() -> Re
             })
             .count();
         assert_eq!(media, 6, "{stdout}");
-        assert_eq!(
-            execs
-                .iter()
-                .filter(|cmd| cmd.contains("--sender") && cmd.contains(".xcresult"))
-                .count(),
-            6
-        );
+        for artifact in [".mp4", ".xcresult"] {
+            assert_eq!(
+                execs
+                    .iter()
+                    .filter(|cmd| cmd.contains("--sender") && cmd.contains(artifact))
+                    .count(),
+                6,
+                "{artifact} sender execs"
+            );
+        }
+        let before_batch = execs.iter().take_while(|cmd| !cmd.contains("test-without-building"));
+        let preparation = before_batch.clone().count();
         if supervised {
             assert_eq!(execs.iter().filter(|cmd| cmd.contains(" control-stream ")).count(), 1);
             assert!(!execs.iter().any(|cmd| cmd.contains("/supervisor.pl control ")));
@@ -488,18 +502,57 @@ async fn six_video_batches_keep_ssh_supervision_off_the_healthy_path_d96() -> Re
                 .filter(|row| row["event"] == "supervisor_request")
                 .map(wire)
                 .collect::<Vec<_>>();
-            assert_eq!(requests.iter().filter(|request| request.ends_with(":1")).count(), 6);
-            for sender in execs.iter().filter(|cmd| cmd.contains("/supervisor.pl rsync ")) {
-                let token = sender.split_ascii_whitespace().nth(5).unwrap();
-                assert!(!requests.iter().any(|request| request.contains(token)));
+            let operations = |token| {
+                requests
+                    .iter()
+                    .filter_map(|request| request.split_ascii_whitespace().last()?.split_once(':'))
+                    .filter_map(|(owner, operation)| (owner == token).then_some(operation))
+                    .collect::<Vec<_>>()
+            };
+            let foreground = execs
+                .iter()
+                .filter_map(|cmd| supervised_token(cmd, "run"))
+                .collect::<Vec<_>>();
+            assert_eq!(foreground.len(), 66, "foreground execs across the run");
+            for token in foreground {
+                assert!(operations(token).is_empty(), "foreground token {token}");
             }
+            let prep_foreground = before_batch
+                .clone()
+                .filter(|cmd| supervised_token(cmd, "run").is_some())
+                .count();
+            assert_eq!(prep_foreground, 32, "foreground preparation execs");
+            // Recorder launch and control setup can interleave with the first batch.
+            assert_eq!(
+                before_batch
+                    .filter(|cmd| !cmd.contains(" control-stream ") && supervised_token(cmd, "detach").is_none())
+                    .count(),
+                36,
+                "preparation execs including bootstrap and bundle staging"
+            );
+            let probes = execs.iter().filter(|cmd| cmd.starts_with("/usr/bin/perl -M")).count();
+            assert_eq!(probes, 1);
+            let senders = execs
+                .iter()
+                .filter_map(|cmd| supervised_token(cmd, "rsync"))
+                .collect::<Vec<_>>();
+            assert_eq!(senders.len(), 12, "one exec per pull");
+            for token in senders {
+                assert!(operations(token).is_empty(), "sender token {token}");
+            }
+            let recorders = execs
+                .iter()
+                .filter_map(|cmd| supervised_token(cmd, "detach"))
+                .collect::<Vec<_>>();
+            assert_eq!(recorders.len(), 6, "one exec per recorder start");
+            for token in recorders {
+                assert_eq!(operations(token), ["1"], "recorder stop for token {token}");
+            }
+            assert_eq!(requests.len(), 6, "control requests across the run");
+            assert_eq!(execs.len(), 90, "SSH execs across the run");
         } else {
             assert!(stdout.contains("has no usable /usr/bin/perl"));
         }
-        let preparation = execs
-            .iter()
-            .take_while(|cmd| !cmd.contains("test-without-building"))
-            .count();
         println!(
             "50 ms RTT, supervised={supervised}, elapsed={elapsed:?}, {} SSH execs ({preparation} before the first batch)",
             execs.len()

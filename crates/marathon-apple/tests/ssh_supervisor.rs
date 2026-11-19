@@ -296,7 +296,7 @@ async fn stock_perl_detaches_the_recorder_and_returns_its_own_exit_proof_d96() -
     let token = "0123456789abcdef0123456789abcdef";
     let command = |mode: &str| {
         let mut command = tokio::process::Command::new("/usr/bin/perl");
-        command.arg(&supervisor).arg(mode).arg(root.path()).arg("6000");
+        command.arg(&supervisor).arg(mode).arg(root.path()).arg("60000");
         command.kill_on_drop(true);
         command
     };
@@ -349,6 +349,33 @@ while (1) { select undef, undef, undef, .01 }"#,
     .await??;
     assert!(answers.contains(&format!("1 {token} done:0")));
     assert!(answers.contains(&format!("2 {sibling} unknown")));
+
+    let foreground_token = "1234567890abcdef0123456789abcdef";
+    let mut foreground = command("run")
+        .args([
+            foreground_token,
+            "/usr/bin/perl",
+            "-e",
+            r#"$SIG{INT} = 'IGNORE'; $SIG{TERM} = sub { exit 0 }; $| = 1; print "ready\n";
+while (1) { select undef, undef, undef, .01 }"#,
+        ])
+        .stdout(Stdio::piped())
+        .spawn()?;
+    let mut foreground_stdout = BufReader::new(foreground.stdout.take().unwrap()).lines();
+    let ready = tokio::time::timeout(Duration::from_secs(60), foreground_stdout.next_line()).await??;
+    assert_eq!(ready.as_deref(), Some("ready"));
+    stdin
+        .write_all(format!("3 {foreground_token}:1\n4 {sibling}:status\n").as_bytes())
+        .await?;
+    let first = tokio::time::timeout(Duration::from_secs(60), replies.next_line()).await??;
+    stdin.write_all(format!("5 {foreground_token}:2\n").as_bytes()).await?;
+    assert!(
+        tokio::time::timeout(Duration::from_secs(60), foreground.wait())
+            .await??
+            .success()
+    );
+    assert!(first.is_some_and(|line| line.starts_with(&format!("3 {foreground_token} running:"))));
+
     drop(stdin);
     assert!(control.wait().await?.success());
     println!(

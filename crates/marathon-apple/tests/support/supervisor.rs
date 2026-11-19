@@ -7,6 +7,7 @@ use fake_worker::{
 use marathon_apple::cmd::{CommandExecutor, CommandRequest, CommandSession, remote::ssh::sshj::SshCommandExecutor};
 use std::{
     collections::HashMap,
+    future::Future,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -14,6 +15,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::watch,
     task::JoinHandle,
@@ -35,12 +37,16 @@ struct Group {
 struct Worker {
     origin: Instant,
     groups: Groups,
+    silent: AtomicBool,
+    stall_open: AtomicBool,
 }
 impl Worker {
     fn new() -> Arc<Self> {
         Arc::new(Self {
             origin: Instant::now(),
             groups: Default::default(),
+            silent: AtomicBool::new(false),
+            stall_open: AtomicBool::new(false),
         })
     }
     fn group(&self, name: &str) -> Group {
@@ -79,11 +85,16 @@ impl Handler for Worker {
                 ["/usr/bin/perl", "-MMIME::Base64", "-e", _, "--", _, _] => {
                     Ok(Some(Action::output(&format!("MARATHON_D96_1 {ROOT}\n"), 0)))
                 }
+                ["/usr/bin/perl", PROGRAM, "control-stream", ROOT, _]
+                    if self.stall_open.swap(false, Ordering::AcqRel) =>
+                {
+                    std::future::pending().await
+                }
                 [
                     "exec",
                     "/usr/bin/perl",
                     PROGRAM,
-                    "run",
+                    mode @ ("run" | "detach"),
                     ROOT,
                     period,
                     token,
@@ -91,9 +102,13 @@ impl Handler for Worker {
                     "-c",
                     command,
                 ] => {
-                    let name = command
-                        .strip_prefix("echo ")
-                        .ok_or_else(|| std::io::Error::other("payload"))?;
+                    let name = if *mode == "detach" {
+                        "recorder"
+                    } else {
+                        command
+                            .strip_prefix("echo ")
+                            .ok_or_else(|| std::io::Error::other("payload"))?
+                    };
                     let duration = period.parse::<u64>()?;
                     let state = watch::channel(State::Running(now + duration)).0;
                     let group = Group {
@@ -121,29 +136,39 @@ impl Handler for Worker {
                             }
                         }
                     });
-                    Ok(Some(ssh::output(
-                        vec![
-                            ssh::chunk("ready\n"),
-                            Chunk {
-                                data: "finished\n".into(),
-                                wait_for_file: Some(format!("/tmp/marathon/proof-{name}")),
-                                ..Default::default()
-                            },
-                        ],
-                        0,
-                    )))
+                    Ok(Some(if *mode == "detach" {
+                        Action::output("", 0)
+                    } else {
+                        ssh::output(
+                            vec![
+                                ssh::chunk("ready\n"),
+                                Chunk {
+                                    data: "finished\n".into(),
+                                    wait_for_file: Some(format!("/tmp/marathon/proof-{name}")),
+                                    ..Default::default()
+                                },
+                            ],
+                            0,
+                        )
+                    }))
                 }
                 ["/usr/bin/perl", PROGRAM, "control", ROOT, _, request] => {
                     let (token, op) = request.split_once(':').unwrap();
+                    if self.silent.load(Ordering::Acquire) {
+                        return Ok(Some(ssh::hang(vec![])));
+                    }
                     let group = self.groups.lock().unwrap().get(token).cloned();
                     let reply = if let Some(group) = group {
+                        if group.name == "recorder" && op == "1" {
+                            return Ok(Some(ssh::hang(vec![])));
+                        }
                         group.state.send_if_modified(|state| match *state {
                             State::Running(stamp) if now < stamp && op == format!("renew-{stamp}") => {
                                 *state = State::Running((now + group.duration).max(stamp));
                                 true
                             }
-                            State::Running(_) if op == "3" => {
-                                *state = State::Done(137);
+                            State::Running(_) if op == "3" || (group.name == "recorder" && op == "2") => {
+                                *state = State::Done(if op == "3" { 137 } else { 143 });
                                 true
                             }
                             _ => false,
@@ -170,7 +195,11 @@ struct Proxy {
     port: u16,
     accept: JoinHandle<()>,
     blocked: Arc<AtomicBool>,
-    links: Arc<Mutex<Vec<JoinHandle<()>>>>,
+    links: Arc<Mutex<Vec<Link>>>,
+}
+struct Link {
+    task: JoinHandle<()>,
+    held: watch::Sender<bool>,
 }
 impl Proxy {
     async fn start(worker: u16) -> Self {
@@ -184,11 +213,20 @@ impl Proxy {
             tokio::spawn(async move {
                 while let Ok((mut downstream, _)) = listener.accept().await {
                     if !blocked.load(Ordering::Acquire) {
-                        links.lock().unwrap().push(tokio::spawn(async move {
+                        let (held, paused) = watch::channel(false);
+                        let task = tokio::spawn(async move {
                             if let Ok(mut upstream) = TcpStream::connect(("127.0.0.1", worker)).await {
-                                let _ = tokio::io::copy_bidirectional(&mut downstream, &mut upstream).await;
+                                let _ = downstream.set_nodelay(true);
+                                let _ = upstream.set_nodelay(true);
+                                let (from_client, to_client) = downstream.split();
+                                let (from_worker, to_worker) = upstream.split();
+                                let _ = tokio::try_join!(
+                                    relay(from_client, to_worker, Some(paused)),
+                                    relay(from_worker, to_client, None),
+                                );
                             }
-                        }));
+                        });
+                        links.lock().unwrap().push(Link { task, held });
                     }
                 }
             })
@@ -204,7 +242,10 @@ impl Proxy {
         self.blocked.store(true, Ordering::Release);
     }
     fn cut(&self, connection: usize) {
-        self.links.lock().unwrap()[connection].abort();
+        self.links.lock().unwrap()[connection].task.abort();
+    }
+    fn hold(&self, connection: usize, value: bool) {
+        self.links.lock().unwrap()[connection].held.send_replace(value);
     }
     fn count(&self) -> usize {
         self.links.lock().unwrap().len()
@@ -214,15 +255,39 @@ impl Drop for Proxy {
     fn drop(&mut self) {
         self.accept.abort();
         for link in self.links.lock().unwrap().drain(..) {
-            link.abort();
+            link.task.abort();
         }
     }
 }
 
+async fn relay(
+    mut from: impl tokio::io::AsyncRead + Unpin,
+    mut to: impl tokio::io::AsyncWrite + Unpin,
+    mut held: Option<watch::Receiver<bool>>,
+) -> std::io::Result<()> {
+    let mut buf = [0; 16 * 1024];
+    loop {
+        let size = from.read(&mut buf).await?;
+        if size == 0 {
+            return to.shutdown().await;
+        }
+        if let Some(held) = &mut held
+            && held.wait_for(|held| !held).await.is_err()
+        {
+            return Ok(());
+        }
+        to.write_all(&buf[..size]).await?;
+    }
+}
+
 async fn executor(port: u16) -> SshCommandExecutor {
+    executor_with_keep_alive(port, 1000).await
+}
+
+async fn executor_with_keep_alive(port: u16, interval: i64) -> SshCommandExecutor {
     let (logging, _) = ssh::logging(false);
     let mut factory = ssh::factory(&logging);
-    factory.keep_alive_interval = duration(1000);
+    factory.keep_alive_interval = duration(interval);
     factory.keep_alive_max_count = 4;
     factory
         .connect_worker("127.0.0.1", port, ssh::password(), None, false, Arc::default())
@@ -313,6 +378,225 @@ async fn control_loss(reconnect: bool) {
     finish(&worker, &fake, "sibling", sibling).await;
     executor.close().await.unwrap();
     drop(executor);
+    fake.worker.shutdown().await.unwrap();
+}
+
+async fn with_paused_time(test: impl Future<Output = ()>) {
+    tokio::time::pause();
+    // The loopback sockets still use real I/O. Only this test advances the timers.
+    let (finished, waiting) = std::sync::mpsc::channel::<()>();
+    let watchdog = tokio::task::spawn_blocking(move || waiting.recv_timeout(Duration::from_secs(60)));
+    tokio::select! {
+        () = test => {},
+        _ = watchdog => panic!("test exceeded the wall-clock watchdog"),
+    }
+    drop(finished);
+    tokio::time::resume();
+}
+
+async fn io_tick() {
+    tokio::task::spawn_blocking(|| std::thread::sleep(Duration::from_millis(2)))
+        .await
+        .unwrap();
+}
+
+async fn advance_until(window: Duration, mut ready: impl AsyncFnMut() -> bool) {
+    let deadline = Instant::now() + window;
+    while !ready().await {
+        assert!(Instant::now() < deadline, "no progress within {window:?}");
+        tokio::time::advance(Duration::from_millis(50)).await;
+        io_tick().await;
+    }
+}
+
+async fn warm_control(worker: &Worker, name: &str) -> Group {
+    let group = worker.group(name);
+    let start = stamp(&group);
+    advance_until(Duration::from_secs(17), async || stamp(&group) > start).await;
+    group
+}
+
+#[tokio::test]
+async fn silent_control_reconnects_with_keep_alive_off_and_no_spare_session_d96() {
+    let worker = Worker::new();
+    let fake = ssh::fake_with_handlers(ssh::script(vec![]), 1, |_| {}, vec![worker.clone()]).await;
+    let proxy = Proxy::start(fake.port()).await;
+    let executor = executor_with_keep_alive(proxy.port, 0).await;
+    let session = open(&executor, "leased").await;
+    with_paused_time(async {
+        let group = warm_control(&worker, "leased").await;
+        let original = stamp(&group);
+        assert_eq!(proxy.count(), 2);
+        proxy.hold(1, true);
+
+        // A first miss tries the data path, which has no session to spare.
+        advance_until(Duration::from_secs(22), async || {
+            !fake.events("session_rejected").await.is_empty()
+        })
+        .await;
+        assert_eq!(proxy.count(), 2, "one unanswered request must leave the link open");
+        // The client has to replace the still-open TCP link before the worker's lease expires.
+        let before_expiry = Duration::from_millis(original).saturating_sub(worker.origin.elapsed());
+        advance_until(before_expiry, async || stamp(&group) > original).await;
+        assert_eq!(proxy.count(), 3);
+    })
+    .await;
+    finish(&worker, &fake, "leased", session).await;
+    executor.close().await.unwrap();
+    fake.worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_silent_control_open_is_replaced_before_the_lease_expires_d96() {
+    let worker = Worker::new();
+    worker.stall_open.store(true, Ordering::Release);
+    let fake = ssh::fake_with_handlers(ssh::script(vec![]), 1, |_| {}, vec![worker.clone()]).await;
+    let proxy = Proxy::start(fake.port()).await;
+    let executor = executor_with_keep_alive(proxy.port, 0).await;
+    let session = open(&executor, "leased").await;
+    with_paused_time(async {
+        let group = worker.group("leased");
+        let original = stamp(&group);
+        let before_expiry = Duration::from_millis(original).saturating_sub(worker.origin.elapsed());
+        advance_until(before_expiry, async || stamp(&group) > original).await;
+        assert_eq!(proxy.count(), 3);
+    })
+    .await;
+    finish(&worker, &fake, "leased", session).await;
+    executor.close().await.unwrap();
+    fake.worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn late_control_replies_clear_the_timeout_streak_d96() {
+    let worker = Worker::new();
+    let fake = ssh::fake_with_handlers(ssh::script(vec![]), 1, |_| {}, vec![worker.clone()]).await;
+    let proxy = Proxy::start(fake.port()).await;
+    let executor = executor_with_keep_alive(proxy.port, 0).await;
+    let session = open(&executor, "leased").await;
+    with_paused_time(async {
+        warm_control(&worker, "leased").await;
+        let replies = async || fake.events("supervisor_reply").await.len();
+        advance_until(Duration::from_secs(1), async || replies().await >= 2).await;
+        for misses in 1..=2 {
+            let previous = replies().await;
+            proxy.hold(1, true);
+            advance_until(Duration::from_secs(22), async || {
+                fake.events("session_rejected").await.len() >= misses
+            })
+            .await;
+            assert_eq!(proxy.count(), 2);
+            proxy.hold(1, false);
+            // The first timeout has already tried the data path when this reply is released.
+            advance_until(Duration::from_secs(2), async || replies().await > previous).await;
+        }
+        let previous = replies().await;
+        advance_until(Duration::from_secs(17), async || {
+            proxy.count() > 2 || replies().await > previous
+        })
+        .await;
+        assert_eq!(proxy.count(), 2, "a late reply clears the prior miss");
+    })
+    .await;
+    finish(&worker, &fake, "leased", session).await;
+    executor.close().await.unwrap();
+    fake.worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn exit_proof_is_bounded_while_the_data_path_is_down_d96() {
+    use marathon_apple::cmd::{TransferCleanup, device_commands::DeviceCommands};
+    use marathon_core::executor::shared::Signal;
+    let worker = Worker::new();
+    let fake = ssh::fake_with_handlers(ssh::script(vec![]), 1, |_| {}, vec![worker.clone()]).await;
+    let proxy = Proxy::start(fake.port()).await;
+    let executor = Arc::new(executor_with_keep_alive(proxy.port, 0).await);
+    let device = DeviceCommands::new(executor.clone());
+    let session = open(device.as_ref(), "unreachable").await;
+    let receipt = device.handed_commands().pop().unwrap();
+    with_paused_time(async {
+        warm_control(&worker, "unreachable").await;
+        worker.silent.store(true, Ordering::Release);
+        proxy.cut(0);
+        let kill_requests = async || {
+            fake.events("supervisor_request")
+                .await
+                .iter()
+                .filter(|row| super::matches_operation(row, ":3"))
+                .count()
+        };
+        while kill_requests().await == 0 {
+            io_tick().await;
+        }
+        let ending = Instant::now();
+        advance_until(Duration::from_secs(10), async || kill_requests().await >= 2).await;
+        let before_bound = ending + Duration::from_millis(31_500);
+        while Instant::now() < before_bound {
+            tokio::time::advance(Duration::from_millis(50)).await;
+            io_tick().await;
+        }
+        assert!(receipt.ended().is_none());
+        advance_until(Duration::from_millis(600), async || receipt.ended().is_some()).await;
+        let TransferCleanup::Unconfirmed(error) = receipt.wait_in(Signal::new()).await.unwrap() else {
+            panic!("cleanup requires a worker receipt");
+        };
+        assert!(error.to_string().contains("Worker exit proof did not arrive"));
+    })
+    .await;
+    drop(session);
+    executor.close().await.unwrap();
+    fake.worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn recorder_term_preempts_an_unanswered_int_d96() {
+    use marathon_apple::bin::{
+        Tools,
+        xcrun::simctl::{SimctlService, service::IoService},
+    };
+    use marathon_config::vendor::{AppleTimeoutParameters, Codec, Display, Mask, apple_timeout_configuration};
+    let worker = Worker::new();
+    let fake = ssh::fake_with_handlers(ssh::script(vec![]), 1, |_| {}, vec![worker]).await;
+    let executor = Arc::new(executor_with_keep_alive(fake.port(), 0).await);
+    let (logging, _) = ssh::logging(false);
+    let io = IoService::new(SimctlService::new(Tools {
+        executor: executor.clone(),
+        timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
+        runtime: Arc::new(super::support::Runtime),
+        logging,
+    }));
+    let recorder = io
+        .record_video(
+            "fixture",
+            "/tmp/marathon/video.mp4",
+            Codec::H264,
+            Display::Internal,
+            Mask::Black,
+            &context(),
+        )
+        .await
+        .unwrap();
+    with_paused_time(async {
+        recorder.interrupt().unwrap();
+        let requests = async || fake.events("supervisor_request").await;
+        while !requests().await.iter().any(|row| super::matches_operation(row, ":1")) {
+            io_tick().await;
+        }
+        recorder.terminate().unwrap();
+        advance_until(Duration::from_secs(1), async || {
+            requests().await.iter().any(|row| super::matches_operation(row, ":2"))
+        })
+        .await;
+        let rows = requests().await;
+        let int = rows.iter().find(|row| super::matches_operation(row, ":1")).unwrap();
+        let term = rows.iter().find(|row| super::matches_operation(row, ":2")).unwrap();
+        assert_eq!(int["connection"], term["connection"]);
+        assert_eq!(int["channel"], term["channel"]);
+        assert_eq!(recorder.await_result(&context()).await.unwrap().exit_code, Some(143));
+    })
+    .await;
+    recorder.close().await.unwrap();
+    executor.close().await.unwrap();
     fake.worker.shutdown().await.unwrap();
 }
 
