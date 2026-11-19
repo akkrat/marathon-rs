@@ -249,8 +249,8 @@ Android device cleanup shares one deadline across in-flight work and teardown, 6
 
 [D93](deviations.md#d93--an-apple-devices-stop-has-one-window-and-its-disposal-needs-proof-that-its-work-ended) is new in 0.15.0-rc.1 and needs no action.
 When a run stops after a failure, each sealed iOS simulator and Mac shares one 70 s window across its work and its
-disposal. The Scheduler allows 75 s for the device joins, and the device waits take up to 80 s in all, apart from the
-iOS artifact drain, where one stuck operation could hold the run for 145 s. A device whose work could not be confirmed
+disposal. The Scheduler allows 75 s for the device joins, and the device waits now total at most 80 s, down from up to
+145 s that one stuck operation could hold the run; the iOS artifact drain is separate (D94). A device whose work could not be confirmed
 to have ended gets no on-dispose lifecycle (a simulator is not shut down or erased by it) and its lease is
 quarantined: its worker connection stays open and takes no new device until the run ends, while devices already
 sharing it can go on using it, with one WARN naming the device. Look at that worker before the next run. Healthy runs
