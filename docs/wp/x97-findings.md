@@ -44,27 +44,37 @@ without being in the own-action list, as are older rows such as D21 and D31; the
   work has finished. With `stty tostop`, a tool writing to the inherited terminal can stop, and so can SSH if it prompts
   on `/dev/tty` for a password or a key passphrase: use noninteractive SSH authentication and redirect inherited
   terminal output. ADB servers keep their own lifetime.
-- **SIGHUP (D96, D97):** a hang-up now runs the same finish as SIGTERM (reports first, device cleanup, exit within 25 s)
-  and exits with 129, where it used to end marathon at once without reports or cleanup.
-- **Password SSH (D96):** password-based rsync uses OpenSSH's askpass on OpenSSH 8.4 or newer, so `sshpass` is needed
-  only with an older or unrecognized SSH client; marathon then logs one warning per run, and its cleanup covers only the
-  processes it has seen.
+- **SIGHUP (D96, D97):** a hang-up now runs the same finish as SIGTERM and exits with 129, where it used to end marathon
+  at once without reports or cleanup. The first INT, TERM or HUP seals the devices and starts the reports; cleanup runs
+  within fixed cutoffs from the signal and hands over to the exit by 24 s, with up to 1 s more for console output (see
+  the signal finish below). A second signal exits at once.
+- **Password SSH (D96):** from 0.15.0-rc.1, password-based rsync uses OpenSSH's askpass on OpenSSH 8.4 or newer, which
+  keeps rsync and its SSH client together in a private process group that marathon owns. `sshpass` is needed only with
+  an older or unrecognized SSH client; marathon then logs one warning per run, and its cleanup covers only the processes
+  it has seen.
 - **Apple SSH workers (D96, D90):** stock `/usr/bin/perl` with its core modules on the worker is optional and
   recommended. With it, worker commands, remote rsync senders and video recorders run under a worker-side supervisor
-  that ends them when marathon stops renewing their lease (79 s by default), even if marathon was killed, and keeps a
-  small private directory under `/tmp` while the connection lasts. Without it, each worker logs one WARN and keeps the
+  that ends them when their lease runs out without a renewal, even if marathon was killed, and keeps a small private
+  directory under `/tmp` while the connection lasts. The lease is 79 s by default from admission or the last successful
+  renewal; a renewal already in flight can extend it once, a recorder then gets up to 3 s more to finalize and stop, and a
+  frozen worker acts once it runs again. Without usable Perl, marathon logs one WARN per worker address and keeps the
   previous command paths. An SSH forced command or filter must allow the supervisor's bootstrap, the `control-stream`
   command with stdin intact, token control requests, supervisor retirement and the detached video launch, and must
   `exec` the original command: a filter that stays in front of the wrapper can turn its failure into status 137, which
   marathon can read as a confirmed exit. Without Perl, allow the legacy video launcher, pidfile and PID-based stop
-  commands. With `shareWorkerConnection: true`, a worker can see one extra SSH connection after a session-capacity
-  refusal (D90).
+  commands. With Perl, marathon also keeps a separate SSH control connection to each worker (D96); with
+  `shareWorkerConnection: true`, a worker can see one replacement data connection after a session-capacity refusal
+  that follows an abandoned session (D90).
 - **Only complete artifacts are published (D97):** a downloaded artifact (a video, screen capture, xcresult, log,
-  coverage or file-sync file) appears at its final path only once it is verified complete. A failed, cancelled or
-  timed-out download leaves no partial file and keeps any earlier output; it is logged once as not delivered, and the
-  reports have no attachment for it. On Android a file that grows during its pull, such as a live app file collected by
-  file sync, is not delivered. On a signal, artifacts drain for up to 12 s within the 25 s exit. A hard kill can leave
-  `.marathon-artifact-*` or Android pull staging directories behind.
+  coverage or file-sync file) appears at its final path only once it is verified complete: on Android, adb's DONE, a
+  completed write and a byte count that agrees with the size STAT reported (its low 32 bits with legacy STAT), so a file
+  that grows during its pull, such as a live app file collected by file sync, is not delivered; for rsync, a successful
+  exit and confirmed cleanup, so a receive whose output pipes are still open after its group's cleanup is not delivered.
+  A failed, cancelled or timed-out download leaves no partial artifact at the final path and keeps any earlier output;
+  each artifact path it attempted is logged once as not delivered, and the reports have no attachment for it. On a
+  filesystem that rejects rename flags, replacing an Apple directory can leave the final path absent for a moment, and
+  if a failed publication cannot restore the earlier tree, it is kept in a named backup. On a signal, eligible artifacts
+  drain until 12 s after it. A hard kill can leave `.marathon-artifact-*` or Android pull staging directories behind.
 - **Retry placement and copy order (D82, D83):** a retry from an Android device goes to another device of the pool
   while other tests are queued, and the copies of different tests (flakiness copies, `count` repeats, a test
   discovered twice) take turns in the queue. A test can need fewer attempts and a run fewer executions; `raw.json` rows
@@ -73,30 +83,38 @@ without being in the own-action list, as are older rows such as D21 and D31; the
   device can get another verdict, and with `ignoreFailures: false` the run another exit status. Update snapshots of
   worker commands or batches for runs with retries or copies.
 - **Android farms (D85, D88):** marathon reads `/proc/sys/kernel/random/boot_id` and writes, reads and removes a
-  `.marathon-ready-<uuid>` marker under `/data/local/tmp`; allow them if you filter adb shell commands. A device that
-  rebooted, or rolled back to a snapshot from before preparation, during an adb outage or a brief `offline` is set up
-  again, and a still-listed device gets one more setup after its preparation has used its retries. Android device
-  monitoring that ends with an error or a panic now fails the run (exit 1, 0 with `ignoreFailures: true`) where the run
-  went on without device events; a failing analytics call for a device no longer ends it.
+  `.marathon-ready-<uuid>` marker under `/data/local/tmp`; allow them if you filter adb shell commands. During an adb
+  outage or a brief `offline`, a device whose boot ID changed, or whose marker is confirmed missing or different, is set
+  up again; if the marker's creation could not be confirmed, the boot ID alone is checked, and without readable evidence
+  of a reset ordinary recovery goes on. A still-listed device gets one more setup after its preparation has used its
+  retries. Android device monitoring that ends with an unexpected error or a panic (not the provider's own termination)
+  now fails the run with the monitor's cause (exit 1, 0 with `ignoreFailures: true`) where the run went on without
+  device events; a failing analytics call for a device no longer ends it.
 - **What a stuck device or tool costs now (D87, D91–D95):** with the defaults,
-  - a device that keeps failing slowly to get ready leaves after one preparation deadline: about 9 to 12 minutes for
-    an iOS simulator, 19 for an Android device and 14 for a Mac (scenario estimates), where it took up to 33, 96 and 30,
-    with a WARN saying it is not prepared within its preparation time. Raise `deviceInitializationTimeoutMillis` to give
-    slow devices longer (D87);
-  - a stopped rsync transfer to an Apple worker ends within 40 s. If its end cannot be confirmed, an ERROR names rsync's
-    pid and the worker, nothing more is sent into that destination in the run, and a device that needs it leaves its
-    pool (D91);
+  - a device that keeps failing slowly to get ready starts no new retry, and an iOS simulator no new replacement, after
+    one preparation deadline; work already running can finish. It leaves in about 9 to 12 minutes for an iOS simulator,
+    19 for an Android device (about one more if D85 sets it up once more) and 14 for a Mac (scenario estimates), where it
+    took up to 33, 96 and 30, with a WARN saying it is not prepared within its preparation time. Raise
+    `deviceInitializationTimeoutMillis` to give slow devices longer (D87);
+  - the runner waits at most 40 s for a stopped rsync transfer to an Apple worker to be cleaned up and confirmed. If
+    that fails, an ERROR names the worker and rsync's pid, nothing more is sent into that exact destination in the run,
+    and a device that needs it leaves its pool (D91);
   - a stopping Android device has 60 s for its in-flight work and cleanup, 65 s in the Scheduler's wait (D92);
-  - after a failure, each iOS simulator and Mac has one 70 s window, so the devices are done within 80 s of the stop
-    instead of up to 145 s. A device whose work is not confirmed to have ended gets one WARN naming it, no on-dispose
-    lifecycle, and its worker connection is kept open and out of use until the run ends; look at that worker before
-    the next run (D93);
-  - pool and queue drains share 65 s, with one WARN per stalled pool or queue; iOS artifacts get 30 s to drain and 40 s
-    for cancellation after an internal failure or owner cancellation, and 300 s and 60 s otherwise (it was 300 s and up
-    to 120 s), and the log names bundles left undelivered (D94);
-  - the last Apple worker lease has 40 s to disconnect, the history backend 30 s to close, the Android provider 65 s and
-    the iOS provider 70 s after its artifacts; reports always finish writing, and one that takes longer than a minute
-    logs the active reporter (D95).
+  - when a run stops after a failure, each sealed iOS simulator and Mac has one 70 s window for its work and its
+    disposal together. The Scheduler waits up to 75 s for the devices, and the device waits take up to 80 s in all,
+    apart from the iOS artifact drain, where they could take 145 s. A device whose work is not confirmed to have ended
+    gets one WARN naming it and no on-dispose lifecycle, and its lease is quarantined: the connection stays open and
+    takes no new device until the run ends, while devices already sharing it can go on using it. Look at that worker
+    before the next run (D93);
+  - pool and queue drains share 65 s, with one WARN per stalled pool or queue, and a cancelled device subscription has
+    its own 65 s and warns if it stalls; committed results are kept, but work a stalled handler has not committed can
+    be lost. iOS artifacts get 30 s to drain and 40 s for cancellation after an internal failure or owner cancellation,
+    and 300 s and 60 s otherwise (it was 300 s and up to 120 s), and the log names bundles left undelivered (D94);
+  - the last Apple worker lease has up to 40 s to disconnect, clipped to the device's or provider's deadline; the history
+    backend 30 s to close, after a separate 3 s refresh join; the Android provider 65 s and the iOS provider 70 s after
+    its artifacts. An expired deadline logs a warning and the finish goes on. In an ordinary finish the reports always
+    finish writing, and one that takes longer than a minute logs the active reporter (D95); after a signal, D97's
+    cutoffs apply.
 - **A failing run's own machinery (D84):** a run whose queue, pool, device listener or run task fails or panics now
   ends with exit 1 (0 with `ignoreFailures: true`), writes its reports and logs `Marathon run failed` with the first
   cause, where it used to hang until killed or report no cause.
@@ -111,7 +129,7 @@ x80–x96 findings, and against the code where that was cheap.
 
 | 0.14.0 line | Now | Why |
 |---|---|---|
-| Static Linux binary: "both 0.14.0 release candidates ran on real emulators, rc.2 also on a CI farm" | rewritten | A CI build of an earlier commit of this rc ran on real emulators; the farm runs were 0.14.0's. |
+| Static Linux binary: "both 0.14.0 release candidates ran on real emulators, rc.2 also on a CI farm" | rewritten | A CI build of an earlier commit of this rc ran on real emulators; the farm runs were 0.14.0-rc.2's. |
 | An emulator restarted during an adb outage repeats failing batches (D22) | rewritten | D85 (U207) sets it up again when its boot ID changed or its marker is gone; what remains is a restart that keeps both, and a snapshot rollback that keeps the boot ID when the marker write was not confirmed (D85's own text). |
 | A worker whose SSH server ignores signals can keep xcodebuild; the KILL warning (D30, U183) | rewritten | D96 (U230): with stock Perl the worker's supervisor ends the group, at the latest at lease expiry (79 s by default), also after a SIGKILL of marathon, as the real-worker runs showed. Without Perl the old limit stands. |
 | A failed readiness probe costs 26 to 33 minutes (D38) | rewritten | D87 (U209): about 9 to 12 minutes, at most about 14.5. The last-device part (D48's 180 s) is unchanged, as D87 says. |
@@ -171,7 +189,8 @@ Not carried as known limits:
 7. **D79** was in neither migration list since 0.14.0; added to the no-action list.
 8. **D96's Perl warning**: the entry says "the worker warns once" and the brief "one WARN per worker". The code keeps a
    shared set keyed by host and port (`supervisor/mod.rs`, `Warnings`), so it is once per worker address in a run.
-   The changelog says "each worker logs one WARN".
+   The changelog said "each worker logs one WARN"; after review round 1 it, the migration notes and the D96 entry say
+   the controller logs one WARN per worker address.
 9. **x88's findings** record evidence but no review round, unlike every other WP of the batch. The changelog says so.
 10. **The x96 iOS acceptance report** called two findings release-blocking: the surviving `DTServiceHub` helpers and the
     loss of all six videos in a run on simulators whose recorders had been killed at lease expiry. The first is D96's
@@ -188,10 +207,15 @@ Not carried as known limits:
 The private acceptance reports are described generically, with no host, user, path or run id. Exactly which commits:
 
 - 1d88c0a9 (after x95d, before x95e and x95f): the CI static Linux build on two API 36 Android emulators on a Linux
-  host; the CI macOS build on this project's Mac with iOS 18.6 and 26.4 simulators and macOS tests, locally and over SSH
-  to a second Mac as a real worker (stock Perl, key authentication, an `exec`-based forced command,
-  `shareWorkerConnection: true`).
-- 7a486ea1 (x95e, before x95f): the SSH cases repeated on the second Mac.
+  host; the CI macOS build ran iOS 18.6 and 26.4 simulator tests and hosted macOS XCTest locally on this project's Mac,
+  and iOS 18.6 simulator tests over SSH to a second Mac as a real worker (stock Perl, key authentication, an
+  `exec`-based forced command, `shareWorkerConnection: true`). macOS tests did not run over SSH.
+- Control runs matched the earlier per-test outcomes and their normalized report fields compared equal; Android
+  omitted references for undelivered videos; stalled xcresult pulls stayed unpublished, and where a pull was still
+  unconfirmed at disposal the device skipped its lifecycle and its lease was quarantined.
+- 7a486ea1 (x95e, before x95f): the SSH cases repeated on the second Mac. All six videos and xcresults were delivered
+  in each completed control, including the one on the same simulators after a SIGKILL; U247's extra control round trips
+  were gone; the cause of one slow app launch remained undetermined.
 - f90a6619 (this rc): no real-device run. x95f's commits (2f512004, f90a6619; U248–U250) were in neither run.
 
 ## Verification
@@ -207,3 +231,28 @@ The private acceptance reports are described generically, with no host, user, pa
 ## Incidental bugs
 
 None new. The documentation disagreements above were fixed in place.
+
+## Review round 1 (cross-model review at 1b6378ac: 8 MUST, 3 SHOULD, 1 OPTIONAL)
+
+Each claim was checked against the deviations guide, the migration notes, `docs/found-bugs.md`, the findings
+documents, the private acceptance reports and, where named, the code before the text changed. None was rejected.
+
+| # | Finding | Status | Checked against, and what changed |
+|---|---|---|---|
+| 1 | Password rsync process group | done | `marathon_process::Command::new` sets `process_group(0)`, so askpass rsync and its SSH client share a group marathon owns, not the controller's. The `sshpass` warning is a process-wide `WARNED_LEGACY_PASSWORD` flag (`rsync_file_bridge.rs`), so once per run, and it also covers an unrecognized client (`password.rs` probe). Changed: changelog upgrade and detail bullets (now "from 0.15.0-rc.1"), the migration prerequisite and table row, release readiness. |
+| 2 | Signal finish cutoffs | done | `signal_finish.rs` (reports head start, 12 s, 18 s, 23 s, exit at the cancel limit) and D97's text (10 s, 17 s, 24 s, 1 s console). The SIGHUP bullet and the signal detail bullet state the cutoffs; "reports always finish writing" now applies to the ordinary finish, with D97's cutoffs after a signal. The migration D97 note says "through 12 s" and "by 24 s plus up to 1 s". |
+| 3 | D97 verification details | done | `client/sync/mod.rs` (DONE, writer close, count modulo 2^32 with legacy STAT); `artifact_stage.rs` (`replace_without_exchange` keeps the old tree in a `.marathon-artifact-*` backup when a restore fails); the Android report (a separate diagnostic named the enclosing folder). Changed: upgrade bullet, Android and artifacts detail bullets, Evidence, the rename-flag known limit and the migration D97 note. |
+| 4 | D91/D93 bound waits | done | D91 ("cleanup is confirmed or reported", exact destination path) and D93 ("the bound after a stop": 70 s, 75 s, 80 s, artifact drain outside it; shared connections keep their users). Changed: the upgrade bullets, the D91 and D93 detail bullets and the D91 and D93 migration notes. |
+| 5 | Lease semantics, Perl warning, D90 connection | done, changed wording | D96's renewal paragraph (79 s, one in-flight renewal, frozen worker), the recorder's INT 2 s plus TERM 1 s, and `supervisor/mod.rs` (`Warnings` keyed by host and port, logged by the controller). Changed: the Apple workers upgrade bullet, the D30/D96 known limit and the D96 entry's "the worker warns once". The upgrade bullet names D96's control connection ("with Perl") and D90's replacement data connection. |
+| 6 | D85 detection, D87 deadline | done | D85 (confirmed missing or different marker; boot ID alone when the marker write is unconfirmed; no evidence, ordinary recovery) and D87 (refuses new work only; D85's setup continues the deadline with one first attempt; +1 minute on Android). Changed: the upgrade bullet, the D85 and D87 detail bullets, the D22 and D41 amendments, the migration table row and D22 bullet, the known limit; the migration D38 bullet's "26 to 30 minutes" now gives D87's estimate, and D38 has an "Amended by D87" note. |
+| 7 | Witness and review claims | done | x82 and x85 list unverified parts; x88's D90 witness prepares a simulator on loopback SSH but is not a whole run; x92 records eleven review rounds and a closing audit. Evidence now says what the findings record, not that every fix has a witness. x88's missing review round is still noted. |
+| 8 | Acceptance evidence | done | The three private reports: macOS hosted XCTest ran only locally; Android dropped 13 video references for undelivered recordings; R02a disposed both devices, R02b and R02c quarantined the stalled one; on 7a486ea1 every completed control delivered six videos and six xcresults, one-shot control requests went from 30 to zero, and the slow launch's cause was undetermined; the zero-byte MP4s were also in the first warm control. Changed: Evidence, README, the static Linux known limit (0.14.0-rc.2) and the zero-byte known limit. |
+| 9 | D94, D95, D88 details | done | D94 (subscription's own 65 s; uncommitted work can be lost), D95 (40 s clipped; 30 s after a separate 3 s refresh; expiry warns and finish goes on), D88 (provider termination excluded). Changed: upgrade and detail bullets. |
+| 10 | U references | done | `found-bugs.md`: U235–U237 Android, U238–U240 Apple artifacts, U242 the provider's recovery during termination (now on the signal bullet), U210/U211 on the Apple preparation and loader bullet without D88; U243, U244 and U248–U250 reworded to their fixed text. |
+| 11 | D31/D91 amendments | done | D96's password paragraph and the remote sender supervision. D31's "Amended by D96" and D91's limits now distinguish direct rsync and askpass (owned group) from `sshpass` (separate session, listings) and mention D96's sender supervision on Perl workers; D91's Mac-sends note already named D93. |
+| 12 | Intros and this document | done | Changelog intro names bounded waits, metrics buffering and connection replacement; the deviations intro says "D84–D88 and D90". This document's verbatim list and real-device summary were refreshed. |
+
+Verification after the round: `release.changelog_section('0.15.0-rc.1')` prints the intro; `test_release.py` 81 tests OK;
+the link and anchor check over `CHANGELOG.md`, `README.md`, `docs/deviations.md`, `docs/migration.md`,
+`docs/releasing.md` and this file reports no broken link (it flags a planted bad anchor and a missing file); the local
+naming check is clean. `scripts/check.sh` and cargo were not run (docs only; the orchestrator gates).
