@@ -10,7 +10,7 @@ use marathon_apple::{
     apple_device_test_runner::{AppleDeviceTestRunner, RunError},
     bin::AppleBinaryEnvironment,
     cmd::{
-        CommandResult, ShutdownWindow, Termination, failure,
+        CommandResult, SealCause, ShutdownWindow, Termination, failure,
         remote::ssh::sshj::config::SshLogging,
         retained_tasks::{RetainedTasks, panic_as_error},
         shared_transfers::SharedTransfers,
@@ -95,6 +95,15 @@ struct Execution {
 }
 impl Execution {
     /// U210, D93: why no new batch, preparation or send may start, if none may.
+    /// D93 (round 7): the refusal as an error, by the seal's cause alone: a cancellation for the run's stop, a device loss
+    /// (as a batch on a disposed Mac) for a disposal outside it.
+    fn refusal_error(&self, serial: &str) -> Option<VendorError> {
+        let why = failure(FailureKind::IllegalState, self.refusal(serial)?);
+        Some(match self.shutdown.as_ref().map(|s| s.cause) {
+            Some(SealCause::RunStop) => VendorError::Cancelled(marathon_core::error::Cancellation::Requested(why)),
+            _ => lost(why),
+        })
+    }
     fn refusal(&self, serial: &str) -> Option<String> {
         if self.disposal.is_some() {
             Some(format!("Device {serial} has been disposed"))
@@ -111,6 +120,8 @@ struct Shutdown {
     window: Arc<ShutdownWindow>,
     /// Sealed by the run's stop, whose published bound the lease's release shares.
     by_run_stop: bool,
+    /// D93 (round 7): why it was sealed, which alone classifies a refusal after it.
+    cause: SealCause,
     batches: Vec<Arc<BatchJob>>,
     preparation: Option<Arc<SharedDeferred<()>>>,
     preparation_stop: Option<Arc<Signal>>,
@@ -466,10 +477,12 @@ impl MacosDevice {
     /// blocking: the run's stop calls it on the core thread.
     fn seal(&self) -> Arc<Shutdown> {
         let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
-        self.seal_locked(&mut execution, false)
+        self.seal_locked(&mut execution, SealCause::RunStop)
     }
     /// A window too long for millis has no end; deciding then fails as `window_millis` says, which is `Unconfirmed`.
-    fn seal_locked(&self, execution: &mut Execution, by_run_stop: bool) -> Arc<Shutdown> {
+    /// D93 (round 7): records the seal with its cause, closes the Mac's command gate in the same critical section, and stops
+    /// at once what it registered before it (`stop_all`): nothing registered before the seal starts after it.
+    fn seal_locked(&self, execution: &mut Execution, cause: SealCause) -> Arc<Shutdown> {
         if let Some(shutdown) = &execution.shutdown {
             return shutdown.clone();
         }
@@ -482,7 +495,8 @@ impl MacosDevice {
             .saturating_add(window.max(0));
         let shutdown = Arc::new(Shutdown {
             window: ShutdownWindow::new(deadline),
-            by_run_stop,
+            by_run_stop: cause == SealCause::RunStop,
+            cause,
             batches: execution.running.clone().into_iter().collect(),
             preparation: execution.preparation.clone().filter(|p| p.completed().is_none()),
             preparation_stop: execution.preparation_stop.clone(),
@@ -504,6 +518,10 @@ impl MacosDevice {
                 .collect(),
         });
         execution.shutdown = Some(shutdown.clone());
+        let why = execution.refusal(&self.serial).unwrap_or_default();
+        self.device_commands
+            .seal(cause, failure(FailureKind::IllegalState, why));
+        self.stop_all(&shutdown);
         match self.identity.upgrade() {
             Some(device) => {
                 let deciding = shutdown.clone();
@@ -561,7 +579,7 @@ impl MacosDevice {
         }
         // A session registered before the seal that has not begun to open never will.
         for session in &shutdown.sessions {
-            session.refuse_unopened(stop().failure().clone());
+            session.refuse_unopened(shutdown.cause.refusal(stop().failure().clone()));
         }
     }
     /// D93: seals the Mac if it is not yet, stops what it runs and returns its one verdict, decided at most once, within
@@ -729,6 +747,15 @@ impl MacosDevice {
             None,
         );
     }
+    /// D93 (round 7): why the Mac was sealed, once it has been.
+    fn seal_cause(&self) -> Option<SealCause> {
+        self.execution
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .shutdown
+            .as_ref()
+            .map(|s| s.cause)
+    }
     /// D93: how the provider quarantines this Mac's lease, applied when its disposal decides to.
     pub fn on_lease_quarantine(&self, hook: marathon_apple::cmd::device_commands::LeaseQuarantine) {
         self.device_commands.on_quarantine(hook);
@@ -808,7 +835,7 @@ impl MacosDevice {
                     let cell = SharedDeferred::new();
                     state.disposal = Some(cell.clone());
                     // D93: the window the run's stop sealed, or one that starts with this first disposal.
-                    self.seal_locked(&mut state, false);
+                    self.seal_locked(&mut state, SealCause::Disposal);
                     (cell, true)
                 }
             }
@@ -941,20 +968,12 @@ impl MacosDevice {
         }
         marathon_apple::cmd::send_stop(self.binary.command_executor.as_ref(), context).owned_by(receipt)
     }
-    /// D93: a send that this Mac's seal or disposal stopped, or refused, while its caller was not cancelled, is a device
-    /// failure for that caller, as a session's refusal is: discovery then takes another device (D53). A caller that was
-    /// cancelled keeps its cancellation.
-    fn leaving_send(&self, error: VendorError, context: &VendorContext) -> VendorError {
+    /// D93 (round 7): a send that this Mac's seal stopped or refused is what the seal's cause says, whatever its caller's
+    /// state: a device failure after a disposal outside a run's stop (discovery then takes another device, D53), a
+    /// cancellation after the run's stop.
+    fn leaving_send(&self, error: VendorError) -> VendorError {
         match error {
-            VendorError::Cancelled(reason)
-                if context.cancellation.reason().is_none()
-                    && self
-                        .execution
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .refusal(&self.serial)
-                        .is_some() =>
-            {
+            VendorError::Cancelled(reason) if self.seal_cause() == Some(SealCause::Disposal) => {
                 lost(reason.failure().clone())
             }
             other => other,
@@ -1055,7 +1074,7 @@ impl Device for MacosDevice {
     }
     fn seal_for_stop(&self) {
         let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
-        self.seal_locked(&mut execution, true);
+        self.seal_locked(&mut execution, SealCause::RunStop);
     }
     fn info(&self) -> DeviceInfo {
         self.facts.lock().unwrap_or_else(|e| e.into_inner()).info.clone()
@@ -1149,8 +1168,8 @@ impl Device for MacosDevice {
             let job = BatchJob::new();
             {
                 let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
-                if let Some(refusal) = execution.refusal(&self.serial) {
-                    return Err(lost(failure(FailureKind::IllegalState, refusal)));
+                if let Some(refusal) = execution.refusal_error(&self.serial) {
+                    return Err(refusal);
                 }
                 execution.running = Some(job.clone());
             }
@@ -1166,14 +1185,14 @@ impl Device for MacosDevice {
                     BATCH
                         .scope(
                             running.clone(),
-                            panic_as_error(device.run(
+                            marathon_apple::cmd::device_commands::as_registered_batch(panic_as_error(device.run(
                                 configuration,
                                 pool,
                                 batch,
                                 result,
                                 own_context,
                                 caller_cancellation,
-                            )),
+                            ))),
                         )
                         .await
                 };
@@ -1190,6 +1209,11 @@ impl Device for MacosDevice {
                 Ok(_) => Ok(()),
                 Err(VendorError::Cancelled(reason)) => {
                     self.join_cancelled(&job).await?;
+                    // D93 (round 7): on a sealed Mac only the seal's cause says what the cancelled batch is.
+                    // A disposal outside a stop keeps the existing rule: its caller's own cancel came first.
+                    if self.seal_cause() == Some(SealCause::RunStop) {
+                        return Err(VendorError::Cancelled(reason));
+                    }
                     if context.cancellation.reason().is_none() {
                         Err(lost(reason.failure().clone()))
                     } else {
@@ -1328,8 +1352,8 @@ impl AppleDevice for MacosDevice {
                 // unconfirmed for the rest of the run.
                 // A refusal is a device failure, as a batch's on a disposed Mac is: discovery takes another device (D53).
                 let execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
-                if let Some(refusal) = execution.refusal(&self.serial) {
-                    return Err(lost(failure(FailureKind::IllegalState, refusal)));
+                if let Some(refusal) = execution.refusal_error(&self.serial) {
+                    return Err(refusal);
                 }
                 let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(previous) = sessions.last() {
@@ -1384,7 +1408,7 @@ impl AppleDevice for MacosDevice {
                     self.bridge.send_with(src, dst, self.send_stop(context)),
                 )
                 .await
-                .map_err(|error| self.leaving_send(error, context))
+                .map_err(|error| self.leaving_send(error))
         })
     }
     fn pull_file<'a>(&'a self, src: &'a str, dst: &'a Path, _context: &'a VendorContext) -> VendorFuture<'a, bool> {
@@ -1405,7 +1429,7 @@ impl AppleDevice for MacosDevice {
                     self.bridge.send_with(src, dst, self.send_stop(context)),
                 )
                 .await
-                .map_err(|error| self.leaving_send(error, context))
+                .map_err(|error| self.leaving_send(error))
         })
     }
     fn pull_folder<'a>(&'a self, src: &'a str, dst: &'a Path, _context: &'a VendorContext) -> VendorFuture<'a, bool> {

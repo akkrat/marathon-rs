@@ -88,11 +88,49 @@ pub fn force_reserve_millis(window: i64) -> i64 {
 /// device whose work could not be confirmed to have ended can be made to send nothing more, without touching the
 /// connection, which a sibling may share (D90). The lease is the connection itself, which the provider releases or
 /// quarantines.
+/// D93 (round 7): why a device was sealed, which alone decides what a refusal after it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SealCause {
+    /// The run is stopping (the Scheduler's stop, a failure, the owner's cancel, a signal): a refusal is a cancellation,
+    /// orderly, with no retry and no change to the run's outcome.
+    RunStop,
+    /// The device is disposed of outside a run's stop (removed, recovered, replaced, terminated without a stop): a refusal
+    /// is a device loss, so discovery takes another device (D53) and a batch is retried as for a lost device.
+    Disposal,
+}
+impl SealCause {
+    /// The error a refusal of this cause is, with `why` as its failure.
+    pub fn refusal(self, why: Failure) -> VendorError {
+        match self {
+            Self::RunStop => VendorError::Cancelled(marathon_core::error::Cancellation::Requested(why)),
+            Self::Disposal => VendorError::DeviceLost(why),
+        }
+    }
+}
+
+tokio::task_local! {
+    /// D93: work that passes a sealed device's gate: its own on-dispose lifecycle, and the batch it ran when it was
+    /// sealed (its cleanup and result collection, which the seal's receipt waits for).
+    static GATE_PASS: ();
+}
+/// D93: runs `body` as the device's on-dispose lifecycle, whose commands pass the sealed gate (not a revoked one).
+pub async fn as_lifecycle<T>(body: impl Future<Output = T>) -> T {
+    GATE_PASS.scope((), body).await
+}
+/// D93: runs `body` as a batch registered on the device, whose own commands pass the gate once the device is sealed, so
+/// that its cleanup and results are not cut off. Work it spawns (a session's producer, a listener's task) runs in tasks
+/// of its own and does not pass: a session sealed before it opens never opens.
+pub async fn as_registered_batch<T>(body: impl Future<Output = T>) -> T {
+    GATE_PASS.scope((), body).await
+}
+
 /// What the device's provider does to the lease when the device is quarantined: its connection factory's quarantine.
 pub type LeaseQuarantine = Arc<dyn Fn(&super::super::device::connection_factory::Executor) + Send + Sync>;
 pub struct DeviceCommands {
     lease: super::super::device::connection_factory::Executor,
     revoked: Mutex<Option<Failure>>,
+    /// D93 (round 7): the gate, closed by the device's seal with its cause; checked as each command executes.
+    sealed: Mutex<Option<(SealCause, Failure)>>,
     /// The provider's quarantine for the lease, and whether it has been applied.
     quarantine: Mutex<(Option<LeaseQuarantine>, bool)>,
 }
@@ -101,8 +139,22 @@ impl DeviceCommands {
         Arc::new(Self {
             lease,
             revoked: Mutex::new(None),
+            sealed: Mutex::new(None),
             quarantine: Mutex::new((None, false)),
         })
+    }
+    /// D93 (round 7): closes the gate, once: from now on a command of this device is refused as `cause` says, with `why`,
+    /// before it reaches the worker, except the device's own on-dispose lifecycle (`as_lifecycle`). The device calls it
+    /// under the lock its seal is recorded under.
+    pub fn seal(&self, cause: SealCause, why: Failure) {
+        self.sealed
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_or_insert((cause, why));
+    }
+    /// The seal's cause and reason, once sealed.
+    pub fn sealed(&self) -> Option<(SealCause, Failure)> {
+        self.sealed.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
     /// D93: how the provider quarantines this device's lease. If the device was quarantined before this is given, it is
     /// applied at once.
@@ -190,7 +242,16 @@ impl CommandExecutor for DeviceCommands {
                 refused.cause = Some(Box::new(why));
                 Box::pin(async move { Err(VendorError::Other(refused)) })
             }
-            None => self.lease.execute(request, context),
+            None => {
+                let sealed = self.sealed();
+                match sealed {
+                    Some((cause, why)) if GATE_PASS.try_with(|_| ()).is_err() => {
+                        super::exec_outcome::record(true);
+                        Box::pin(async move { Err(cause.refusal(why)) })
+                    }
+                    _ => self.lease.execute(request, context),
+                }
+            }
         }
     }
     fn close(&self) -> VendorFuture<'_, ()> {

@@ -7,6 +7,30 @@ wait found. The design (Astra 6.2, section 4) asks for one window per device, st
 and for the lifecycle and the lease release only when the device's work is confirmed to have ended. Approved as D93
 (2026-11-18, project owner's decision); amends D74 and D84.
 
+## Design note (review round 7): one gate, one cause
+
+Rounds 5 and 6 closed the same race piece by piece (session registration, a registered-but-unstarted session, the
+refusal's error type), each time at a different place. Round 7 replaces the pieces with two structural rules.
+
+1. **One gate, closed by the seal.** Every command an Apple device sends goes through its `DeviceCommands`; the seal
+   closes it, in the same critical section that records the seal (the device's state lock), and the gate checks it at
+   the moment each command executes. Whatever registered before the seal and starts after it (a session's producer, an
+   installer's retry, a listener's command) finds the gate closed and sends nothing; it is a refusal known to have
+   started nothing. The seal also stops, at once and synchronously, what the device registered before it: its batch and
+   preparation signals, its sends' receipts (so rsync or a local copy that has not started never starts), and its
+   sessions that have not begun to open. Only the device's own on-dispose lifecycle passes the gate, inside a scope the
+   disposal gives it; a quarantine (revoked commands) closes even that.
+2. **The seal records its cause, and only the cause classifies a refusal.** `RunStop` (the Scheduler's stop, a D84
+   failure, the owner's cancel, a D52 signal) refuses with a cancellation: orderly, no retry, no ERROR, no change to the
+   exit code. `Disposal` (a disposal outside a run's stop: devices-file removal, D44 recovery, a replaced Mac, the
+   provider's termination of a device the run's stop did not seal) refuses with a device loss: discovery takes another
+   device (D53), a batch is retried as for a lost device. The caller's own cancellation state no longer decides anything:
+   the "caller not cancelled" discriminator is gone, and a cancelled batch's call on a sealed device returns what the
+   cause says.
+
+Unchanged: the sticky verdict latch, the per-device list of sessions not confirmed ended, a pre-exec refusal counting as
+confirmed, the window and its bounds.
+
 ## The evidence, re-verified (on 3d945010)
 
 1. **Three windows.** `Scheduler::stop_routine` (`crates/marathon-core/src/execution/scheduler.rs` ~600) waited for each
@@ -290,3 +314,34 @@ witness there runs past the 60 s watchdog, its recovery waiting its own 70 s). S
 above, 50/50 each and 20/20 each with 12 busy processes. `cargo fmt --check`; `cargo clippy` of core, apple, ios, macos,
 android, cli and test-support with `-D warnings`; `cargo test --no-fail-fast` of those crates: 2,472 passed, 0 failed,
 34 ignored. Not run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test --workspace`.
+
+## Review round 7 (Sol 6.2 delta at 396b8afe: D44 closed; P2-a, P2-b open; two regressions)
+
+Implemented as the design note at the top says, with two refinements found while running the suites:
+
+- **The gate lets a registered batch's own work through.** Closing it on every command cut a disposed batch's result
+  collection (`batch.rs::concurrent_disposal_joins_one_completion_and_result_delivery_is_independent` lost its result).
+  The batch a device runs is registered before its seal and is in the receipt the window waits for, so its own
+  commands pass (`as_registered_batch`, a task-local scope around the batch's run); what it spawns does not, so a
+  session sealed before it opens still never opens (its producer runs in a task of its own).
+- **A cancelled batch call after a disposal outside a stop keeps the old rule.** The ported Kotlin
+  `disposal_during_the_cancellation_of_a_batch_returns_only_after_its_xcodebuild_session_has_closed` (macOS) has the
+  caller cancel the batch before the disposal and expects the cancellation. That is the call's own result, not a
+  refusal; after the run's stop it is always a cancellation (the seal's cause), after a disposal outside a stop its
+  caller's cancel decides as before. Every refusal (the gate, a session, a send, an admission) is classified by the cause
+  alone; the "caller not cancelled" discriminator is gone from them.
+
+| Item | Change | Witness (fails on 396b8afe) |
+|---|---|---|
+| P2-a | `DeviceCommands` is the gate: `seal(cause, why)` under the device's lock, checked as each command executes; the seal also calls `stop_all` at once (batch and preparation signals, send receipts, sessions not yet opening). | `simulator_dispose.rs::a_producer_released_between_the_seal_and_any_cleanup_starts_nothing_d93` (no cleanup runs between the seal and the release: on the base xcodebuild opened) |
+| P2-b | A refused session's producer returns its refusal (by cause) before its own scope's cancellation; a disposal's cause is a device loss. | `a_held_producer_on_a_removed_simulator_is_a_device_loss_after_the_force_reserve_d93` (on the base: a cancellation, which discovery reads as no tests) |
+| Regression 1 | The seal stops the Mac's preparation at once and closes its gate; its refused send is a cancellation (the run's stop), which the installer does not retry. | `batch.rs::a_preparation_sends_nothing_after_the_runs_stop_seals_the_mac_d93` (on the base: 16 commands, `mkdir` among them, sent to the sealed Mac) |
+| Regression 2 | A cancelled batch call on a device the run's stop sealed is a cancellation, whatever its caller heard yet. | `a_batch_refused_by_the_runs_stop_is_a_cancellation_d93` (on the base: a `DeviceLost`) |
+
+Tests that pinned round-6 classification now follow the cause: `a_sealed_mac_opens_no_session_d93` and
+`a_local_send_after_the_seal_copies_nothing_d93` (the run's stop: a cancellation); the U179
+`disposal_stops_a_running_preparation_and_returns_only_after_it_has_ended_u179` accepts the device loss the gate now
+gives the stopped preparation's next command, besides the cancellation it gave before.
+
+Limit, recorded in D93: a sealed device's listener tasks (a video recorder's stop, say) are refused at the gate like any
+other new command; the on-dispose lifecycle (shutdown, erase) ends a simulator's recordings.

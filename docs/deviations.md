@@ -2771,6 +2771,15 @@ known limit).
   them reads the window already started. The last fourteenth of the window (5 s of 70) is a reserve in which everything is stopped again and an
   xcodebuild session whose producer still runs is stopped, on a Mac also one its batch opened and has not yet told to
   stop (a batch stuck in its xcresult pull, before its runner stops the session).
+- **One gate, one cause.** The seal closes the device's command gate in the same step as it is recorded, and stops at
+  once what the device registered before it (its batch, preparations, sends, and sessions that have not begun to open):
+  every command the device would send after it is refused as it executes, whoever asked for it, so nothing that was
+  registered before the seal starts after it. Only the device's on-dispose lifecycle and the work of the batch it ran
+  when sealed (its cleanup and results, which the window waits for) pass; a session's start never does. The seal records
+  its cause, and that alone decides what a refusal is: after the run's stop (the Scheduler's, a failure, the owner's
+  cancel, a signal) a cancellation, orderly, with no retry; after a disposal outside a run's stop (removal, recovery, a
+  replaced Mac) a device loss, so that discovery takes another device (D53) and a batch is retried as for a lost device.
+  A batch call its own caller cancelled before such a disposal stays a cancellation, as before.
 - **One verdict.** What the device ran when it was sealed is its receipt, and its verdict is decided once, by one task:
   when all of it has ended, or at the window's end, whichever comes first. The verdict is the outcome of that wait: work
   not seen to end before the deadline is unconfirmed, whatever a later look would find, and a timeout or an error
@@ -2785,9 +2794,7 @@ known limit).
   caller leaves running, is now stopped when the Mac stops, as an iOS simulator's is), the sends registered with it
   (D91; a Mac now registers its sends as an iOS simulator does) and every xcodebuild session registered and not
   confirmed to have ended: a session registers under the same lock as a batch, a preparation and a send, so a sealed
-  device opens none (discovery asking for one is refused with a device failure, so that D53 takes another device, never
-  with a cancellation it would read as an empty test list; a send the seal or disposal stops or refuses is a device
-  failure in the same way for a caller that was not cancelled); a registered session is live from then on, before its
+  device opens none (refused as the seal's cause says, above); a registered session is live from then on, before its
   producer has started, and a seal that comes before it opens its command keeps it from opening one; and a session leaves the device's
   list only once it has ended confirmed, so one whose exec or close could not be confirmed keeps the device unconfirmed
   for the rest of the run, whatever session follows it (a session whose open failed so also counts as not closed, and
@@ -2835,7 +2842,8 @@ stopped rsync does. A batch whose xcodebuild could not be opened, other than by 
 nothing, now makes its simulator's or Mac's disposal unconfirmed (no lifecycle, lease quarantined), also outside a
 run's stop; with a local worker every failed open counts so, since only the SSH executor reports what it started. A
 lifecycle command cut at the bound may still run on the worker until its cleanup ends; the quarantine keeps its
-connection open. The iOS provider's artifact drain before disposal is not within the bound (above). A parsing session
+connection open. A sealed device's own listeners (a video recorder's stop, say) are refused at its gate like any
+other new command after the seal; the on-dispose lifecycle ends a simulator's recordings. The iOS provider's artifact drain before disposal is not within the bound (above). A parsing session
 still open when a lost simulator is disposed of is now in its receipt: the disposal stops it in its reserve and, if it
 cannot confirm its end, quarantines the simulator within its window; D44's recovery reads that verdict and no longer
 waits another 70 s for the session before it sets up the worker's other simulators.
@@ -2873,7 +2881,11 @@ and `a_sealed_mac_opens_no_session_d93`. Round 6, failing on d20ecdcc:
 `simulator_dispose.rs::a_session_registered_but_not_started_is_live_and_refused_at_the_seal_d93`, the two
 `…opens_no_session…`/`…is_refused…` witnesses (now a device failure), and
 `simulator_admission.rs::a_parsing_session_open_at_the_recovery_disposal_keeps_the_simulator_out_and_quarantined_d93`
-(the sibling is set up again within the one window).
+(the sibling is set up again within the one window). Round 7, failing on 396b8afe:
+`simulator_dispose.rs::a_producer_released_between_the_seal_and_any_cleanup_starts_nothing_d93`,
+`a_held_producer_on_a_removed_simulator_is_a_device_loss_after_the_force_reserve_d93`,
+`a_batch_refused_by_the_runs_stop_is_a_cancellation_d93` and
+`crates/marathon-macos/tests/batch.rs::a_preparation_sends_nothing_after_the_runs_stop_seals_the_mac_d93`.
 Amends D74 and D84.
 
 Approved 2026-11-18 (project owner's decision). See

@@ -912,14 +912,62 @@ async fn a_sealed_mac_opens_no_session_d93() -> R {
         let _ = session.stop(runtime::duration(1_000), &h.context).await;
         panic!("a sealed Mac opened a session");
     }
-    // D93 (round 6): a device failure, so that discovery takes another device (D53), never a cancellation that it
-    // would read as an empty test list.
+    // D93 (round 7): refused as the seal's cause says; the run's stop sealed it, so a cancellation.
     assert!(
-        matches!(asked, Err(VendorError::DeviceLost(_))),
+        matches!(asked, Err(VendorError::Cancelled(_))),
         "{:?}",
         asked.as_ref().err()
     );
     v(timeout(Duration::from_secs(60), d.dispose()).await?)?;
     v(d.join_pending().await)?;
+    Ok(())
+}
+
+/// D93 (round 7, regression 1): a Mac's preparation goes on after its caller is cancelled (D84); the run's stop seals the
+/// Mac while it is in a command, and its disposal comes late (as D52 allows). Once that command returns, the preparation
+/// sends nothing more: the seal stopped it and closed the Mac's command gate, and its refused send is a cancellation (the
+/// run's stop), which the installer does not retry. Before, the refused send was a device failure for the preparation's
+/// own live signal, and the installer's retry sent more commands (`mkdir`) to the sealed Mac.
+#[tokio::test]
+async fn a_preparation_sends_nothing_after_the_runs_stop_seals_the_mac_d93() -> R {
+    let h = Harness::new("")?;
+    let d = h.device();
+    v(d.setup(&h.context).await)?;
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let first = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (en, re) = (entered.clone(), release.clone());
+    let original = h.worker.fake.before.lock().unwrap().clone();
+    *h.worker.fake.before.lock().unwrap() = Arc::new(move |cmd| {
+        let (en, re, original, first) = (en.clone(), re.clone(), original.clone(), first.clone());
+        Box::pin(async move {
+            if cmd.first().is_some_and(|s| s == "rm") && first.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                en.notify_one();
+                re.notified().await;
+            }
+            original(cmd).await
+        })
+    });
+    let signal = Signal::new();
+    let mut context = h.context.clone();
+    context.cancellation = signal.clone();
+    let device = d.clone();
+    let config = h.options.dependencies.configuration.clone();
+    let task = tokio::spawn(async move { device.prepare(config, context).await });
+    timeout(Duration::from_secs(60), entered.notified()).await?;
+    signal.cancel(cancelled("the run is stopping"));
+    assert!(matches!(task.await?, Err(VendorError::Cancelled(_))));
+    Device::seal_for_stop(&*d);
+    let before = h.worker.requests.lock().unwrap().len();
+    release.notify_one();
+    // The preparation ends (its retained task), whatever it ended with; then nothing more was sent.
+    let _ = timeout(Duration::from_secs(60), d.join_pending()).await?;
+    let after: Vec<_> = h.worker.requests.lock().unwrap()[before..]
+        .iter()
+        .map(|r| r.command.join(" "))
+        .collect();
+    assert!(after.is_empty(), "the sealed Mac was sent {after:?}");
+    assert!(h.bridge.sent.lock().unwrap().is_empty());
+    v(timeout(Duration::from_secs(60), d.dispose()).await?)?;
     Ok(())
 }

@@ -4,7 +4,7 @@ use super::*;
 use marathon_apple::{
     apple_device_test_runner::{AppleDeviceTestRunner, RunError},
     cmd::{
-        ShutdownWindow, Termination, TransferCleanup, failure,
+        SealCause, ShutdownWindow, Termination, TransferCleanup, failure,
         remote::ssh::sshj::error::{CONNECTION_EXCEPTION, ILLEGAL_STATE_EXCEPTION, TRANSPORT_EXCEPTION, is_instance},
         retained_tasks::panic_as_error,
     },
@@ -34,6 +34,8 @@ pub(super) struct Shutdown {
     /// Sealed by the run's stop, whose published bound the lifecycle and the release share; a disposal outside a stop
     /// runs them under their own commands' limits, as before.
     by_run_stop: bool,
+    /// D93 (round 7): why it was sealed, which alone classifies a refusal after it.
+    pub(super) cause: SealCause,
     batches: Vec<Arc<BatchJob>>,
     preparations: Vec<Arc<prepare::PreparationJob>>,
     transfers: Vec<Arc<marathon_apple::cmd::TransferReceipt>>,
@@ -103,9 +105,17 @@ impl AppleSimulatorDevice {
         self.retained.spawn(self.services.runtime.as_ref(), async move {
             // D84: a panic is this batch's error too, so that the caller and disposal hear of its end.
             let outcome = match panic_as_error(async {
-                Ok(device
-                    .run_batch(configuration, pool, batch, output, &ctx, caller_cancellation)
-                    .await)
+                Ok(
+                    marathon_apple::cmd::device_commands::as_registered_batch(device.run_batch(
+                        configuration,
+                        pool,
+                        batch,
+                        output,
+                        &ctx,
+                        caller_cancellation,
+                    ))
+                    .await,
+                )
             })
             .await
             {
@@ -257,6 +267,12 @@ impl AppleSimulatorDevice {
         }
         if matches!(error.error, VendorError::Cancelled(_)) {
             self.join_cancelled(job, context).await?;
+            // D93 (round 7): on a sealed simulator only the seal's cause says what the cancelled batch is.
+            let cause = self.state().shutdown.as_ref().map(|s| s.cause);
+            // A disposal outside a stop keeps the existing rule for a cancelled call: its caller's own cancel came first.
+            if cause == Some(SealCause::RunStop) {
+                return Err(error.into_vendor());
+            }
             if context.cancellation.reason().is_none() {
                 return Err(BatchLoss::new(error.into_vendor().failure().clone()).into_vendor());
             }
@@ -333,14 +349,16 @@ impl AppleSimulatorDevice {
     /// no blocking: the run's stop calls it on the core thread.
     pub(super) fn seal(&self) -> Arc<Shutdown> {
         let mut state = self.state();
-        self.seal_locked(&mut state, false)
+        self.seal_locked(&mut state, SealCause::RunStop)
     }
     /// The run's stop: its window also bounds the on-dispose lifecycle and the lease's release (D93's 75 s).
     pub(super) fn seal_for_run_stop(&self) {
         let mut state = self.state();
-        self.seal_locked(&mut state, true);
+        self.seal_locked(&mut state, SealCause::RunStop);
     }
-    fn seal_locked(&self, state: &mut State, by_run_stop: bool) -> Arc<Shutdown> {
+    /// D93 (round 7): records the seal with its cause, closes the device's command gate in the same critical section, and
+    /// stops at once what the device registered before it (`stop_all`): nothing registered before the seal starts after it.
+    fn seal_locked(&self, state: &mut State, cause: SealCause) -> Arc<Shutdown> {
         if let Some(shutdown) = &state.shutdown {
             return shutdown.clone();
         }
@@ -352,7 +370,8 @@ impl AppleSimulatorDevice {
             .saturating_add(self.services.timeouts.cancelled_batch_millis.max(0));
         let shutdown = Arc::new(Shutdown {
             window: ShutdownWindow::new(deadline),
-            by_run_stop,
+            by_run_stop: cause == SealCause::RunStop,
+            cause,
             batches: state.running.clone().into_iter().collect(),
             preparations: state.preparations.clone(),
             // D91: a send whose cleanup was not confirmed earlier in the run counts too (`send_stop` keeps those).
@@ -370,6 +389,9 @@ impl AppleSimulatorDevice {
                 .collect(),
         });
         state.shutdown = Some(shutdown.clone());
+        let why = state.refusal(&self.serial).unwrap_or_default();
+        self.commands.seal(cause, failure(FailureKind::IllegalState, why));
+        self.stop_all(&shutdown);
         match self.me.upgrade() {
             Some(device) => {
                 let deciding = shutdown.clone();
@@ -486,7 +508,7 @@ impl AppleSimulatorDevice {
         }
         // A session registered before the seal that has not begun to open never will.
         for session in &shutdown.sessions {
-            session.refuse_unopened(disposed().failure().clone());
+            session.refuse_unopened(shutdown.cause.refusal(disposed().failure().clone()));
         }
     }
     /// D93: seals the simulator if it is not yet, stops what it runs and returns its one verdict, decided at most once,
@@ -604,7 +626,7 @@ impl AppleSimulatorDevice {
                 cancellation: Signal::new(),
                 ..self.services.context.clone()
             };
-            return self.handle_lifecycle(actions, &context).await;
+            return marathon_apple::cmd::device_commands::as_lifecycle(self.handle_lifecycle(actions, &context)).await;
         }
         let limit = marathon_core::error::duration_for_log(marathon_apple::bin::java_duration_of_millis(
             self.services.timeouts.cancelled_batch_millis,
@@ -636,7 +658,8 @@ impl AppleSimulatorDevice {
             let (device, actions, ran) = (self.this()?, actions.clone(), ran.clone());
             self.retained
                 .spawn_published(self.services.runtime.as_ref(), ran, async move {
-                    device.handle_lifecycle(&actions, &context).await
+                    marathon_apple::cmd::device_commands::as_lifecycle(device.handle_lifecycle(&actions, &context))
+                        .await
                 });
         }
         let ended = tokio::select! { biased;
@@ -800,7 +823,7 @@ impl AppleSimulatorDevice {
             let current = state.disposal.get_or_insert_with(|| started.clone()).clone();
             // U179: from here on no preparation starts (`prepare_device` checks `disposal` under this lock), and, D91, no
             // send (`send_stop`). D93: the window is the one the run's stop sealed, or starts with this first disposal.
-            let shutdown = self.seal_locked(&mut state, false);
+            let shutdown = self.seal_locked(&mut state, SealCause::Disposal);
             (current, shutdown, owner)
         };
         if owner {

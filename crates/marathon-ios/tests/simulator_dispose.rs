@@ -282,7 +282,12 @@ async fn disposal_stops_a_running_preparation_and_returns_only_after_it_has_ende
     gate.release.complete(Ok(()));
     disposal.await.unwrap();
     assert!(d.disposed());
-    assert!(matches!(preparation.await?, Err(VendorError::Cancelled(_))));
+    // D93 (round 7): the stopped preparation's next command meets the sealed gate, which refuses it as a disposal
+    // outside a run's stop does: a device loss.
+    assert!(matches!(
+        preparation.await?,
+        Err(VendorError::Cancelled(_) | VendorError::DeviceLost(_))
+    ));
     // The preparation was stopped: nothing it would have sent after its held command reached the worker.
     assert_eq!(sent(&h), before);
     h.finish(std::slice::from_ref(&d)).await;
@@ -1104,8 +1109,8 @@ async fn a_local_send_after_the_seal_copies_nothing_d93() -> TestResult {
     let dst = dir.path().join("dst");
     Device::seal_for_stop(&*d);
     let sent = d.push_file(&src, dst.to_str().unwrap(), &h.services.context).await;
-    // Round 6: a device failure for a caller that was not cancelled.
-    assert!(matches!(sent, Err(VendorError::DeviceLost(_))), "{sent:?}");
+    // Round 7: refused as the seal's cause says; the run's stop sealed it, so a cancellation.
+    assert!(matches!(sent, Err(VendorError::Cancelled(_))), "{sent:?}");
     assert!(!dst.exists(), "a sealed simulator's local send copied its file");
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
@@ -1670,6 +1675,107 @@ async fn a_session_registered_but_not_started_is_live_and_refused_at_the_seal_d9
     assert_eq!(session.ended(), Some(true));
     assert!(!d.quarantined());
     assert_eq!(gate.lifecycle.load(Ordering::SeqCst), 1);
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+// ---- D93 review round 7: one gate, one cause ------------------------------------------------------------------------
+
+/// D93 (round 7, P2-a): a session's producer, held back, is released after the run's stop has sealed the simulator and
+/// before anything waits on it (no cleanup has run): it meets the closed gate and starts no xcodebuild, refused as the
+/// seal's cause (the run's stop) says: a cancellation. Before, the refusal waited for the cleanup's `stop_all`, and the
+/// producer released in between opened xcodebuild.
+#[tokio::test(start_paused = true)]
+async fn a_producer_released_between_the_seal_and_any_cleanup_starts_nothing_d93() -> TestResult {
+    use marathon_apple::{apple_device::AppleDevice, test::TestRequest, xcodebuild_session::XcodebuildSession};
+    let h = harness(70_000)?;
+    let (d, _) = prepared(&h).await?;
+    let opened = Arc::new(AtomicUsize::new(0));
+    let (count, original) = (opened.clone(), h.worker.session.lock().unwrap().clone());
+    *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
+        if cmd.iter().any(|part| part.contains("test-without-building")) {
+            count.fetch_add(1, Ordering::SeqCst);
+        }
+        original(cmd)
+    });
+    let open = SharedDeferred::new();
+    let session = XcodebuildSession::new(
+        Arc::new(GatedSpawns {
+            inner: h.services.runtime.clone(),
+            open: open.clone(),
+        }),
+        h.services.logging.clone(),
+    );
+    let context = h.services.context.clone();
+    let events = d
+        .execute_test_request(
+            TestRequest::new("/tmp/marathon", "/tmp/marathon/parse.xctestrun", false),
+            session.clone(),
+            &context,
+        )
+        .await
+        .map_err(|e| e.failure().to_string().to_owned())?;
+    Device::seal_for_stop(&*d);
+    open.complete(Ok(()));
+    let received = events.receive(&context).await;
+    assert!(matches!(received, Err(VendorError::Cancelled(_))), "{received:?}");
+    assert_eq!(opened.load(Ordering::SeqCst), 0, "xcodebuild started after the seal");
+    Device::join_cancelled_work(&*d).await.unwrap();
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+/// D93 (round 7, P2-b): discovery's session on a simulator removed outside a run's stop. Its producer is still held when
+/// the disposal's force reserve stops the session; released after that, with discovery still waiting on it, it is
+/// refused as the seal's cause (a disposal) says: a device loss, so that discovery takes another device (D53). Before,
+/// the session's own stop came first and the producer ended in a cancellation, which discovery reads as no tests.
+#[tokio::test(start_paused = true)]
+async fn a_held_producer_on_a_removed_simulator_is_a_device_loss_after_the_force_reserve_d93() -> TestResult {
+    use marathon_apple::{apple_device::AppleDevice, test::TestRequest, xcodebuild_session::XcodebuildSession};
+    let h = harness(1_000)?;
+    let (d, _) = prepared(&h).await?;
+    let open = SharedDeferred::new();
+    let session = XcodebuildSession::new(
+        Arc::new(GatedSpawns {
+            inner: h.services.runtime.clone(),
+            open: open.clone(),
+        }),
+        h.services.logging.clone(),
+    );
+    let context = h.services.context.clone();
+    let events = d
+        .execute_test_request(
+            TestRequest::new("/tmp/marathon", "/tmp/marathon/parse.xctestrun", false),
+            session.clone(),
+            &context,
+        )
+        .await
+        .map_err(|e| e.failure().to_string().to_owned())?;
+    // The disposal's window (1 s) runs out with the producer held: its reserve stops the session, then it quarantines.
+    d.dispose().await.unwrap();
+    assert!(session.stopping(), "the force reserve did not stop the session");
+    open.complete(Ok(()));
+    let received = events.receive(&context).await;
+    assert!(matches!(received, Err(VendorError::DeviceLost(_))), "{received:?}");
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+/// D93 (round 7, regression 2): the run's stop seals the simulator while its batch is about to open its xcodebuild
+/// session (held in its permission grant) and before the batch's caller hears of the stop. The batch's call returns a
+/// cancellation, as the seal's cause says, not a device loss (which the actor would log as a critical error).
+#[tokio::test(start_paused = true)]
+async fn a_batch_refused_by_the_runs_stop_is_a_cancellation_d93() -> TestResult {
+    let h = harness(70_000)?;
+    let (d, _) = prepared(&h).await?;
+    let gate = PermissionGate::attach(&h);
+    let batch = spawn_batch(&h, d.clone(), h.services.context.clone());
+    gate.entered.wait().await.unwrap();
+    Device::seal_for_stop(&*d);
+    gate.release.complete(Ok(()));
+    let (outcome, _) = batch.await?;
+    assert!(matches!(outcome, Err(VendorError::Cancelled(_))), "{outcome:?}");
+    Device::join_cancelled_work(&*d).await.unwrap();
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }

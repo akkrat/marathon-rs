@@ -172,7 +172,7 @@ struct State {
     /// refused, the exec refused) is not one, and neither is a session cancelled before it opened anything.
     open_failure: Option<Failure>,
     /// D93: the device stopped before this session began to open: it opens nothing, so it ends having started nothing.
-    refused: Option<Failure>,
+    refused: Option<VendorError>,
     /// D93: the opener has been called, so a refusal can no longer stop it.
     opening: bool,
     task: Option<Arc<dyn VendorTask>>,
@@ -224,7 +224,7 @@ impl XcodebuildSession {
     }
     /// D93: the device has been sealed: if this session has not begun to open its command, it never will (its producer ends
     /// at once, having started nothing). Whether it was refused.
-    pub fn refuse_unopened(&self, why: Failure) -> bool {
+    pub fn refuse_unopened(&self, why: VendorError) -> bool {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.opening {
             return false;
@@ -294,10 +294,12 @@ impl XcodebuildSession {
                 }
                 state.refused.clone()
             };
-            let opened = if let Some(reason) = this.cancellation.reason() {
+            // D93 (round 7): the device's refusal (its seal's cause) first, so that a stop of the session that came after
+            // it does not turn it into a cancellation.
+            let opened = if let Some(refusal) = refused {
+                Err(refusal)
+            } else if let Some(reason) = this.cancellation.reason() {
                 Err(VendorError::Cancelled(reason))
-            } else if let Some(why) = refused {
-                Err(VendorError::DeviceLost(why))
             } else {
                 let (opened, started_nothing) =
                     crate::cmd::exec_outcome::observe(panic_as_error(open(ctx.clone()))).await;

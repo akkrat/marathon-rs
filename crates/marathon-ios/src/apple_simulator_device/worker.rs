@@ -75,13 +75,14 @@ impl AppleSimulatorDevice {
         }
         marathon_apple::cmd::send_stop(self.executor.as_ref(), context).owned_by(receipt)
     }
-    /// D93: a send that this simulator's seal or disposal stopped, or refused, while its caller was not cancelled, is a
-    /// device failure for that caller, as a session's refusal is: discovery then takes another device (D53) rather than
-    /// ending in a cancellation. A caller that was cancelled keeps its cancellation.
-    fn leaving_send(&self, error: VendorError, context: &VendorContext) -> VendorError {
+    /// D93 (round 7): a send that this simulator's seal stopped or refused is what the seal's cause says, whatever its
+    /// caller's state: a device failure after a disposal outside a run's stop (discovery then takes another device, D53),
+    /// a cancellation after the run's stop.
+    fn leaving_send(&self, error: VendorError) -> VendorError {
         match error {
             VendorError::Cancelled(reason)
-                if context.cancellation.reason().is_none() && self.state().refusal(&self.serial).is_some() =>
+                if self.state().shutdown.as_ref().map(|s| s.cause)
+                    == Some(marathon_apple::cmd::SealCause::Disposal) =>
             {
                 marathon_apple::device::batch_failure_policy::BatchLoss::new(reason.failure().clone()).into_vendor()
             }
@@ -189,12 +190,8 @@ impl AppleDevice for AppleSimulatorDevice {
                 // D93: a refusal is a device failure, as a batch's on a disposed simulator is: discovery takes another
                 // device (D53) rather than reading an empty test list from a cancellation.
                 let mut state = self.state();
-                if let Some(refusal) = state.refusal(&self.serial) {
-                    return Err(marathon_apple::device::batch_failure_policy::BatchLoss::new(failure(
-                        FailureKind::IllegalState,
-                        refusal,
-                    ))
-                    .into_vendor());
+                if let Some(refusal) = state.refusal_error(&self.serial) {
+                    return Err(refusal);
                 }
                 if let Some(previous) = &state.last_session {
                     previous.check_closed(&self.serial)?;
@@ -278,7 +275,7 @@ impl AppleDevice for AppleSimulatorDevice {
                     self.bridge.send_with(src, dst, self.send_stop(context)),
                 )
                 .await
-                .map_err(|error| self.leaving_send(error, context))
+                .map_err(|error| self.leaving_send(error))
         })
     }
     fn pull_file<'a>(&'a self, src: &'a str, dst: &'a Path, _: &'a VendorContext) -> VendorFuture<'a, bool> {
@@ -299,7 +296,7 @@ impl AppleDevice for AppleSimulatorDevice {
                     self.bridge.send_with(src, dst, self.send_stop(context)),
                 )
                 .await
-                .map_err(|error| self.leaving_send(error, context))
+                .map_err(|error| self.leaving_send(error))
         })
     }
     fn pull_folder<'a>(&'a self, src: &'a str, dst: &'a Path, _: &'a VendorContext) -> VendorFuture<'a, bool> {
