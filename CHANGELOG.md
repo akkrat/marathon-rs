@@ -2,125 +2,380 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
-## Unreleased
+## 0.15.0-rc.1
 
-- **Controller process cleanup on exit (D96).** Marathon stops registered local tools on exit, including when the controller is killed. A hang-up runs the same bounded cleanup as a termination signal. ADB servers stay available.
-- **Local simulator batch timeouts on macOS (D96).** A batch whose command group is already exiting keeps its timeout outcome and the simulator remains available.
-- **Password-based rsync with OpenSSH 8.4 or newer (D96).** Transfers use askpass and keep the SSH client in the controller's process group. Older SSH clients still need `sshpass` and log a warning about reduced cleanup coverage.
-- **Apple SSH command cleanup (D96).** Workers with stock Perl run commands and rsync senders in groups that expire if the worker stops receiving renewals. Marathon reconnects its control connection after a drop. Workers without usable Perl log a warning and keep the existing command path.
-- **iOS video recorder cleanup (D96).** Supervised recorders release their SSH session after launch. Batch cancellation and simulator disposal give the recorder time to finalize the movie before escalating.
-- **SSH worker follow-ups (D96).** Successful pulls use the transfer's own exit status and token requests share a control session. Forced recorder stops give the video service time to finalize. Failed detached recorders report bounded stderr.
-- **Reports include only complete artifacts (D97).** Failed or interrupted downloads leave earlier files intact and
-  report the artifact as undelivered. A signal drains artifacts for up to 12 seconds and reserves time for device
-  cleanup and console output within 25 seconds. SIGINT exits 130, SIGTERM exits 143, and SIGHUP exits 129.
+The first release candidate of 0.15.0, a pre-release for trial runs. It adds run supervision, bounded waits and process
+ownership, and fixes Android, iOS and macOS device-handling bugs found after 0.14.0, with the approved differences
+D82–D88 and D90–D97 (D89 was reserved and not used). The inputs and the CLI are unchanged; there is no new
+configuration field. The other contracts change only as listed below: D82 and D83 change which device runs a retry or a
+copy, and with it attempts, batches, the order and grouping of test selectors in worker commands, and device-dependent
+verdicts; D84 and D88 turn hangs into failed runs; D85 adds Android shell commands; D96 runs Apple worker commands under
+a supervisor and makes SIGHUP a cancellation with exit status 129; D97 changes which artifacts the reports list; the
+other differences bound waits, as each entry says.
 
-- **Apple device setup and preparation survive analytics failures (U212).** If a timing read or tracker fails,
-  the runner warns and the device can still join the run and take tests after successful setup and preparation.
-- **Android cleanup has a shared deadline (D92).** By default each device has up to 60 seconds to stop, including
-  five seconds for forced ADB connection closure and producer joins. The Scheduler allows five more seconds. Other
-  devices on the same server keep working when one device is retired. Teardown discards interrupted staged pulls, and an
-  internal failure still reports its original cause and results already committed to the queues.
-- **Faster `class-name` batching on large suites.** The runner indexes queued tests by class and preserves batch membership and order.
-- **A retry goes to another Android device (D82):** a test that comes back incomplete from an Android device (for
-  example when its instrumentation ends before the test starts), or that fails and is retried, is now left to the
+### Check before you upgrade
+
+- **Process groups and the reaper (D96):** every local tool marathon starts (rsync, ssh, adb clients, local xcodebuild
+  and the like) runs in a process group of its own, so a signal sent to marathon's process group reaches marathon,
+  which runs its bounded cleanup and then ends every tool it registered. A run-scoped reaper ends them even if marathon
+  is killed. It shows as a second `marathon` process with the same arguments until the controller exits, and ignores
+  INT, TERM and HUP; scripts that count processes or use `pgrep`, `pidof` or `killall` see both, so target the
+  controller's PID. Background work a tool started in its group ends with it: keep a command session open until such
+  work has finished. With `stty tostop`, a tool writing to the inherited terminal can stop, and so can SSH if it prompts
+  on `/dev/tty` for a password or a key passphrase: use noninteractive SSH authentication and redirect inherited
+  terminal output. ADB servers keep their own lifetime.
+- **SIGHUP (D96, D97):** a hang-up now runs the same finish as SIGTERM (reports first, device cleanup, exit within 25 s)
+  and exits with 129, where it used to end marathon at once without reports or cleanup.
+- **Password SSH (D96):** password-based rsync uses OpenSSH's askpass on OpenSSH 8.4 or newer, so `sshpass` is needed
+  only with an older or unrecognized SSH client; marathon then logs one warning per run, and its cleanup covers only the
+  processes it has seen.
+- **Apple SSH workers (D96, D90):** stock `/usr/bin/perl` with its core modules on the worker is optional and
+  recommended. With it, worker commands, remote rsync senders and video recorders run under a worker-side supervisor
+  that ends them when marathon stops renewing their lease (79 s by default), even if marathon was killed, and keeps a
+  small private directory under `/tmp` while the connection lasts. Without it, each worker logs one WARN and keeps the
+  previous command paths. An SSH forced command or filter must allow the supervisor's bootstrap, the `control-stream`
+  command with stdin intact, token control requests, supervisor retirement and the detached video launch, and must
+  `exec` the original command: a filter that stays in front of the wrapper can turn its failure into status 137, which
+  marathon can read as a confirmed exit. Without Perl, allow the legacy video launcher, pidfile and PID-based stop
+  commands. With `shareWorkerConnection: true`, a worker can see one extra SSH connection after a session-capacity
+  refusal (D90).
+- **Only complete artifacts are published (D97):** a downloaded artifact (a video, screen capture, xcresult, log,
+  coverage or file-sync file) appears at its final path only once it is verified complete. A failed, cancelled or
+  timed-out download leaves no partial file and keeps any earlier output; it is logged once as not delivered, and the
+  reports have no attachment for it. On Android a file that grows during its pull, such as a live app file collected by
+  file sync, is not delivered. On a signal, artifacts drain for up to 12 s within the 25 s exit. A hard kill can leave
+  `.marathon-artifact-*` or Android pull staging directories behind.
+- **Retry placement and copy order (D82, D83):** a retry from an Android device goes to another device of the pool
+  while other tests are queued, and the copies of different tests (flakiness copies, `count` repeats, a test
+  discovered twice) take turns in the queue. A test can need fewer attempts and a run fewer executions; `raw.json` rows
+  and their devices change; batches change, so `fixed-size` batching can start more or fewer instrumentations; and the `am instrument -e
+  class` and xcodebuild `-only-testing` lists change in number, order and grouping. A test whose outcome depends on the
+  device can get another verdict, and with `ignoreFailures: false` the run another exit status. Update snapshots of
+  worker commands or batches for runs with retries or copies.
+- **Android farms (D85, D88):** marathon reads `/proc/sys/kernel/random/boot_id` and writes, reads and removes a
+  `.marathon-ready-<uuid>` marker under `/data/local/tmp`; allow them if you filter adb shell commands. A device that
+  rebooted, or rolled back to a snapshot from before preparation, during an adb outage or a brief `offline` is set up
+  again, and a still-listed device gets one more setup after its preparation has used its retries. Android device
+  monitoring that ends with an error or a panic now fails the run (exit 1, 0 with `ignoreFailures: true`) where the run
+  went on without device events; a failing analytics call for a device no longer ends it.
+- **What a stuck device or tool costs now (D87, D91–D95):** with the defaults,
+  - a device that keeps failing slowly to get ready leaves after one preparation deadline: about 9 to 12 minutes for
+    an iOS simulator, 19 for an Android device and 14 for a Mac (scenario estimates), where it took up to 33, 96 and 30,
+    with a WARN saying it is not prepared within its preparation time. Raise `deviceInitializationTimeoutMillis` to give
+    slow devices longer (D87);
+  - a stopped rsync transfer to an Apple worker ends within 40 s. If its end cannot be confirmed, an ERROR names rsync's
+    pid and the worker, nothing more is sent into that destination in the run, and a device that needs it leaves its
+    pool (D91);
+  - a stopping Android device has 60 s for its in-flight work and cleanup, 65 s in the Scheduler's wait (D92);
+  - after a failure, each iOS simulator and Mac has one 70 s window, so the devices are done within 80 s of the stop
+    instead of up to 145 s. A device whose work is not confirmed to have ended gets one WARN naming it, no on-dispose
+    lifecycle, and its worker connection is kept open and out of use until the run ends; look at that worker before
+    the next run (D93);
+  - pool and queue drains share 65 s, with one WARN per stalled pool or queue; iOS artifacts get 30 s to drain and 40 s
+    for cancellation after an internal failure or owner cancellation, and 300 s and 60 s otherwise (it was 300 s and up
+    to 120 s), and the log names bundles left undelivered (D94);
+  - the last Apple worker lease has 40 s to disconnect, the history backend 30 s to close, the Android provider 65 s and
+    the iOS provider 70 s after its artifacts; reports always finish writing, and one that takes longer than a minute
+    logs the active reporter (D95).
+- **A failing run's own machinery (D84):** a run whose queue, pool, device listener or run task fails or panics now
+  ends with exit 1 (0 with `ignoreFailures: true`), writes its reports and logs `Marathon run failed` with the first
+  cause, where it used to hang until killed or report no cause.
+- **Metrics (D86):** Graphite and InfluxDB writes go through a bounded queue and can be dropped. Use local reports for
+  result counts; if a dashboard has gaps or a history-based strategy changes, look for `The analytics backend is
+  dropping test metric events`, the rejection count or `The analytics backend did not close` in the run log.
+
+See [Changes that need action](docs/migration.md#changes-that-need-action) for the migration table and
+[the deviations guide](docs/deviations.md#d82--a-retry-is-kept-off-the-device-it-came-from-also-without-a-worker) for
+each approved difference. The 0.14.0, 0.13.0 and 0.12.0 requirements, including a finite `uncompletedTestRetryQuota`,
+still apply when upgrading from an older version.
+
+### Runs, queue and supervision
+
+- **Internal failures end the run instead of hanging (D84, U206):** a run whose own machinery stops unexpectedly (a
+  test queue or the device listener stopped by a cancellation of its own, a failed device listener, or a pool or the run
+  itself panicking) now ends with exit 1 (0 with `ignoreFailures: true`), writes its reports, and logs `Marathon run
+  failed` with the first cause, where it used to hang until killed or report no cause. The cause is logged as soon as it
+  happens. A failure that reaches the run only after a signal or its owner cancelled it is logged at WARN and does not
+  replace the cancellation (U215). Before writing the reports the run admits no more work, waits for each device to end
+  its cancelled work, an Apple preparation included (up to 75 s for an iOS or macOS device and 65 s for an Android one,
+  D92), and lets every queue take the results already sent to it, so tests that finished keep their results; a queue or
+  pool that itself failed loses what was left in its mailbox. A failure in a pool that a device joining at the very end
+  of the run started also fails the run, and the reports are written only after it has stopped. An iOS device monitoring
+  that panics, or fails with no simulator available, ends the run with its cause instead of reporting no devices; with
+  simulators connected the run carries on. An iOS or macOS preparation, batch, disposal, provider step or xcodebuild
+  session that panics now ends with the panic as its error, which the run handles as any other device error (a
+  preparation is retried, a batch's tests are run again within the retry limits), where the run used to hang. In runs
+  without a failure: a device that connects while the run is finishing is no longer started, results that had reached a
+  late pool's queue now always appear in the reports, and the reports are written even when terminating the provider
+  fails.
+- **A retry goes to another Android device (D82, U204):** a test that comes back incomplete from an Android device
+  (for example when its instrumentation ends before the test starts), or that fails and is retried, is now left to the
   pool's other devices while other tests are queued. One emulator that keeps failing no longer takes the same test back
   at once until `uncompletedTestRetryQuota` is used up; it runs the other queued tests first and takes the retry itself
   only when nothing else is queued for it, so in a pool of one device a retry now runs at the end of the queued work.
   Another device takes the retry when it asks, by queue priority and batching. The quotas and exit-code rules are
   unchanged, but a test can need fewer attempts and get a different verdict (a retry that passes on another device ends
-  it), so with `ignoreFailures: false` a run can exit 0 where it exited 1, or the reverse. `raw.json` names other devices
-  in another row order, and a test's final result can name another device. Unless a fresh copy of the same test is
-  queued too, a device's own retry no longer shares a batch with fresh tests, so `fixed-size` batching can start one more instrumentation, which adds wall time, and the `am instrument`
-  commands change in number, order and `-e class` grouping. iOS and macOS already sent retries to another worker and are
-  unchanged.
-- **Flakiness copies take turns (D83):** with `flakinessStrategy: probability` or `fixed`, or `shardingStrategy:
+  it), so with `ignoreFailures: false` a run can exit 0 where it exited 1, or the reverse. `raw.json` names other
+  devices in another row order, and a test's final result can name another device. Unless a fresh copy of the same test
+  is queued too, a device's own retry no longer shares a batch with fresh tests, so `fixed-size` batching can start one
+  more instrumentation, which adds wall time, and the `am instrument` commands change in number, order and `-e class`
+  grouping. iOS and macOS already sent retries to another worker and are unchanged.
+- **Flakiness copies take turns (D83, U205):** with `flakinessStrategy: probability` or `fixed`, or `shardingStrategy:
   count`, the extra runs of different tests now alternate in the queue instead of each test's runs waiting together; so
   does a test discovered twice, for example in two test APKs. Free devices spread over the tests, so with
-  `executionStrategy.fast` (the default) more of a test's runs can still be queued when it is decided, after its first pass
-  under `ANY_SUCCESS` or its first failure under `ALL_SUCCESS`, and those are dropped, as in the JVM build; runs that
-  have started, or whose batch a device already has, still run. Runs can use less device time and list fewer executions.
-  Which device runs which copy can change, so a test that passes on some devices and fails on others can get another
-  verdict, and with it the run's exit status, and its final record can come from another run; the rules that decide them
-  are unchanged. Worker commands can
-  list a batch's tests in another order and grouping, `fixed-size` batches can be fuller or emptier and more or fewer,
-  and with code coverage on an Android test in another batch gets that batch's coverage file.
-- **Internal failures end the run instead of hanging (D84):** a run whose own machinery stops unexpectedly (a test queue
-  or the device listener stopped by a cancellation of its own, a failed device listener, or a pool or the run itself
-  panicking) now ends with exit 1 (0 with `ignoreFailures: true`), writes its reports, and logs `Marathon run failed`
-  with the first cause, where it used to hang until killed or report no cause. The cause is logged as soon as it
-  happens. Before writing the reports the run admits no more work, waits for each device to end its cancelled work, an
-  Apple preparation included (up to 75 s for an iOS or macOS device, without a limit on Android) and lets every queue take the results already sent to
-  it, so tests that finished keep their results; a queue or pool that itself failed loses what was left in its mailbox.
-  A failure in a pool that a device joining at the very end of the run started also fails the run, and the reports are
-  written only after it has stopped. An iOS device
-  monitoring that panics, or fails with no simulator available, ends the run with its cause instead of reporting no
-  devices; with simulators connected the run carries on. An iOS or macOS preparation, batch, disposal, provider step or
-  xcodebuild session that panics now ends with the panic as its error, which the run handles as any other device error
-  (a preparation is retried, a batch's tests are run again within the retry limits), where the run used to hang (U206).
-  In runs without a failure: a device that connects while the run is finishing is no longer started, results that had
-  reached a late pool's queue now always appear in the reports, and the reports are written even when terminating the
-  provider fails.
-- After an adb outage or brief `offline`, Android gets fresh setup when its boot ID changes or a snapshot rollback
-  removes its preparation marker. Batches that never started keep their retry quota. A still-listed device gets one
-  more setup after exhausting preparation, within the pool's existing return wait. A shared-kernel restart that
-  preserves both the boot ID and marker can go undetected (D85).
-- Graphite and InfluxDB writes use a bounded queue. Bursts with room proceed immediately, and sustained load waits
-  for capacity. Metrics can be lost if the wait expires, the backend is cooling off, admission closes,
-  the delivery task stops, or shutdown reaches its deadline. Gaps can affect the flakiness and duration history
-  used by later runs (D86).
-- **A device that cannot be prepared leaves sooner (D87):** a device's preparation, the retries inside it and an iOS
-  simulator's replacements after a failed boot now share one deadline, the greater of `deviceInitializationTimeoutMillis`
-  and what one preparation can take with its retries at their limits (550 s on iOS, about 18 minutes on Android with an
-  app and its test app, 812 s on macOS, with the default timeouts). No retry or replacement starts after it, and nothing
-  already running is stopped, transfers included. An iOS simulator whose readiness probe never succeeds now leaves after
-  one replacement, in about 9 to 12 minutes instead of 26 to 33, an Android device whose install keeps timing out in about
-  19 minutes instead of 96, and a Mac whose commands hang in about 14 instead of 30 (estimates for those cases with the
-  defaults). Healthy runs, and a device that fails once and then gets ready, are unchanged. Raise
-  `deviceInitializationTimeoutMillis` to give slow devices longer (U209).
-- **Device monitors and preparations end cleanly (D88):** on Android, a failing analytics call for a connected device
-  no longer stops device tracking, and device tracking that stops for any other reason (an error or a crash) now fails
-  the run with its cause, where the run went on without noticing devices that left or came, and a batch waiting out an
-  adb outage could wait for ever; during remote test discovery it is now the run's error instead of a report that no
-  device came. On iOS, a crash while reading the Marathondevices file now fails the run instead of
-  hanging it, and a preparation stopped while it sends the test bundle now ends after that transfer (waiting up to 70 s for it), so the run's stop
-  and the simulator's disposal wait for it. On macOS, a Mac already disposed of at the end of the run no longer starts a
-  preparation (U210, U211).
-- **A saturated shared Apple worker can take new devices (D90, U172):** when an abandoned SSH session is followed by
-  a session-capacity refusal, the next connection acquisition can open a replacement. Existing sessions keep running
-  on their original connection, which closes after its last lease is released. Each shared worker transport has at most
-  two live generations. If the replacement also fills after an abandonment while the first connection still has leases,
+  `executionStrategy.fast` (the default) more of a test's runs can still be queued when it is decided, after its first
+  pass under `ANY_SUCCESS` or its first failure under `ALL_SUCCESS`, and those are dropped, as in the JVM build; runs
+  that have started, or whose batch a device already has, still run. Runs can use less device time and list fewer
+  executions. Which device runs which copy can change, so a test that passes on some devices and fails on others can
+  get another verdict, and with it the run's exit status, and its final record can come from another run; the rules that
+  decide them are unchanged. Worker commands can list a batch's tests in another order and grouping, `fixed-size`
+  batches can be fuller or emptier and more or fewer, and with code coverage on an Android test in another batch gets
+  that batch's coverage file.
+- **Faster `class-name` batching on large suites (U213):** the runner indexes queued tests by class and preserves
+  batch membership and order. In a local timing test, draining 50,000 one-test classes took 43 ms instead of 52 s.
+- **A device that cannot be prepared leaves sooner (D87, U209):** a device's preparation, the retries inside it and an
+  iOS simulator's replacements after a failed boot now share one deadline, the greater of
+  `deviceInitializationTimeoutMillis` and what one preparation can take with its retries at their limits (550 s on iOS,
+  about 18 minutes on Android with an app and its test app, 812 s on macOS, with the default timeouts). No retry or
+  replacement starts after it, and nothing already running is stopped, transfers included. An iOS simulator whose
+  readiness probe never succeeds now leaves after one replacement, in about 9 to 12 minutes instead of 26 to 33, an
+  Android device whose install keeps timing out in about 19 minutes instead of 96, and a Mac whose commands hang in about
+  14 instead of 30 (estimates for those cases with the defaults). Healthy runs, and a device that fails once and then
+  gets ready, are unchanged. Raise `deviceInitializationTimeoutMillis` to give slow devices longer.
+- **Pool and queue drains share 65 seconds (D94, U220):** the Scheduler interrupts stalled handlers at the deadline,
+  logs one WARN for each, and keeps committed test results. An internal run failure or owner cancellation gives iOS
+  artifacts 30 seconds to drain and 40 seconds for cancellation. A suite with failed test assertions keeps the routine
+  300-second drain. On routine runs, the worker joins and final receipt share one 60-second cancellation allowance,
+  reducing the maximum artifact wait from 420 to 360 seconds. Both drains are separate from D93's device waits. The log
+  identifies undelivered bundles.
+- **Finish deadlines and report progress (D95, U221–U226):** test runs cap the waits for device-provider shutdown
+  (65 s for Android; 70 s for iOS, starting after artifact finalization), Apple worker disconnects (40 s for the last
+  lease) and history analytics close (30 s). Interrupted Apple artifact pulls use the device's remaining shutdown time,
+  and an iOS setup retry no longer creates and boots a simulator while termination drains artifacts (U242). Reports
+  still finish writing and log the active reporter if writing takes longer than one minute.
+
+### Process ownership and signals
+
+- **Controller process cleanup on exit (D96, U227):** marathon runs each local tool in its own process group and stops
+  the registered tools on exit, including when the controller is killed, through a run-scoped reaper. A hang-up runs the
+  same bounded cleanup as a termination signal. ADB servers stay available.
+- **Local simulator batch timeouts on macOS (D96, U245):** a batch whose command group is already exiting keeps its
+  timeout outcome and the simulator remains available, where the close error marked the simulator lost.
+- **Password-based rsync with OpenSSH 8.4 or newer (D96, U228):** transfers use askpass and keep the SSH client in the
+  controller's process group. Older SSH clients still need `sshpass` and log a warning about reduced cleanup coverage.
+- **The signal finish reserves time for cleanup (D97, U241):** the first SIGINT, SIGTERM or SIGHUP seals the devices
+  before their work is cancelled, writes the reports first, drains eligible artifacts for up to 12 seconds, and reserves
+  time for device verdicts, on-dispose lifecycles, lease releases and console output within 25 seconds. Android devices
+  are sealed too, and an iOS run reaches its device cleanup before it exits. SIGINT exits 130, SIGTERM exits 143, and
+  SIGHUP exits 129.
+
+### Android
+
+- **Android checks the boot before resuming tests (D85, U207):** after an adb outage or brief `offline`, Android gets
+  fresh setup when its boot ID changes or a snapshot rollback removes its preparation marker. Batches that never started
+  keep their retry quota. A still-listed device gets one more setup after exhausting preparation, within the pool's
+  existing return wait. A shared-kernel restart that preserves both the boot ID and marker can go undetected.
+- **Device monitoring that ends fails the run (D88, U211):** a failing analytics call for a connected device no longer
+  stops device tracking, and device tracking that stops for any other reason (an error or a crash) now fails the run
+  with its cause, where the run went on without noticing devices that left or came, and a batch waiting out an adb
+  outage could wait for ever; during remote test discovery it is now the run's error instead of a report that no device
+  came.
+- **Android cleanup has a shared deadline (D92, U218):** by default each device has up to 60 seconds to stop, including
+  five seconds for forced ADB connection closure and producer joins. The Scheduler allows five more seconds. Other
+  devices on the same server keep working when one device is retired. Teardown discards interrupted staged pulls, and an
+  internal failure still reports its original cause and results already committed to the queues.
+- **Android pulls are verified (D97, U235–U237):** a pull counts only with adb's DONE, a byte count matching the file's
+  size and its writer completed, including for empty files; a short or cancelled pull no longer replaces the final file
+  or logs `Transferred`. A pull whose staging fails is undelivered instead of being written straight into the final
+  path. Videos, screen captures and profiling files are attached, and their device copies removed, only after their pull
+  was delivered, and APP_DATA file sync removes application data only after its copied files have been delivered.
+
+### iOS and macOS
+
+- **Device monitors and preparations end cleanly (D88, U210, U211):** on iOS, a crash while reading the Marathondevices
+  file now fails the run instead of hanging it, and a preparation stopped while it sends the test bundle now ends after
+  that transfer (waiting up to 70 s for it), so the run's stop and the simulator's disposal wait for it. On macOS, a Mac
+  already disposed of at the end of the run no longer starts a preparation.
+- **Apple device setup and preparation survive analytics failures (U212):** if a timing read or tracker fails, the
+  runner warns and the device can still join the run and take tests after successful setup and preparation.
+- **A saturated shared Apple worker can take new devices (D90, U172):** when an abandoned SSH session is followed by a
+  session-capacity refusal, the next connection acquisition can open a replacement. Existing sessions keep running on
+  their original connection, which closes after its last lease is released. Each shared worker transport has at most two
+  live generations. If the replacement also fills after an abandonment while the first connection still has leases,
   preparation can still fail until a generation slot frees. A refusal without abandonment keeps the current connection.
+  Each connection logs its first session-open refusal at WARN, also with `debug: false`.
 - **A stopped Apple file transfer ends within 40 s, and its simulator waits for it (D91, U210):** a cancelled rsync
   transfer (the run stopping, a preparation cancelled, test discovery timing out) no longer waits without a limit for
   rsync to be reaped or for its output, which held every later transfer to that worker; it ends within 40 s. An iOS
   simulator's disposal now waits for its sends, also those nothing else waited for any longer, before it shuts the
-  simulator down or terminates its app. If marathon cannot confirm that rsync and what it started have ended, it logs
-  an ERROR with rsync's pid and the worker and sends nothing more to that destination in the run; a device that needs
-  it leaves its pool. Healthy transfers are unchanged.
+  simulator down or terminates its app. If marathon cannot confirm that rsync and what it started have ended, it logs an
+  ERROR with rsync's pid and the worker and sends nothing more to that destination in the run; a device that needs it
+  leaves its pool. Healthy transfers are unchanged.
 - **A failing run's Apple devices stop within one window, and are disposed of only once their work has ended (D93):**
-  when a run stops after a failure, each iOS simulator and Mac gets one 70 s window, started for all of them at the
-  stop, for its cancelled batch, its preparations and its transfers to end; its disposal no longer waits another 70 s,
-  so the devices are done within 80 s of the stop (their work within 75 s) instead of up to 145 s. A simulator's on-dispose lifecycle runs, and a
-  device's worker connection is released, only if all of that work is confirmed to have ended. Otherwise one WARN names
-  the device, the lifecycle is skipped, the device sends nothing more, and its connection is kept open and out of use
-  until the run ends (other simulators sharing it keep using it; a simulator set up meanwhile gets another connection).
-  The decision is made once and holds for every later step. A Mac's preparation is now stopped when the Mac stops, its
-  transfers are waited for like an iOS simulator's, and a transfer to a worker on this host no longer starts once its
-  device is stopping. A pull from the device (an artifact the run's end left running past its drain) still running at
-  its disposal also keeps the lifecycle and the release from running beside it, and is stopped; so does a command the
-  device sent just before it stopped, until it has ended. Healthy runs, results and exit codes are unchanged.
+  when a run stops after a failure, each iOS simulator and Mac gets one 70 s window, started for all of them at the stop,
+  for its cancelled batch, its preparations and its transfers to end; its disposal no longer waits another 70 s, so the
+  devices are done within 80 s of the stop (their work within 75 s) instead of up to 145 s. A simulator's on-dispose
+  lifecycle runs, and a device's worker connection is released, only if all of that work is confirmed to have ended.
+  Otherwise one WARN names the device, the lifecycle is skipped, the device sends nothing more, and its connection is
+  kept open and out of use until the run ends (other simulators sharing it keep using it; a simulator set up meanwhile
+  gets another connection). The decision is made once and holds for every later step. A Mac's preparation is now
+  stopped when the Mac stops, its transfers are waited for like an iOS simulator's, and a transfer to a worker on this
+  host no longer starts once its device is stopping. A pull from the device (an artifact the run's end left running past
+  its drain) still running at its disposal also keeps the lifecycle and the release from running beside it, and is
+  stopped; so does a command the device sent just before it stopped, until it has ended. Healthy runs, results and exit
+  codes are unchanged.
+- **Apple SSH command cleanup (D96, U230, U243):** workers with stock Perl run commands and rsync senders in groups that
+  expire if the worker stops receiving renewals, so xcodebuild no longer outlives a stopped or killed controller on the
+  worker beyond its lease. Marathon reconnects its control connection after a drop, and closing a connection while its Perl probe is
+  under way no longer leaves the supervisor's private directory on the worker. Workers without usable Perl log a warning
+  and keep the existing command path.
+- **iOS video recorder cleanup (D96, U229, U246):** supervised recorders release their SSH session after launch. Batch
+  cancellation, an unhealthy device and simulator disposal all stop the recorder and give it time to finalize the movie
+  before escalating. A forced stop gives the video service time to finalize, so a recorder killed at lease expiry no
+  longer leaves the simulator's recording service busy, and a failed detached recorder reports bounded stderr. A failed
+  transcode no longer leaves its partial movie on the worker (U244).
+- **SSH worker follow-ups (D96, U247–U250):** successful pulls use the transfer's own exit status and token requests
+  share one long-lived control session, which removes extra SSH round trips from healthy runs. Two consecutive
+  unanswered control requests reconnect the control link, a late reply counts as liveness, each token request is bounded
+  (8 s, within the remaining cleanup time), and a stronger signal is no longer held behind a pending INT.
 
-- **Pool and queue drains share 65 seconds (D94).** The scheduler interrupts stalled handlers at the deadline and
-  keeps committed test results. An internal run failure or owner cancellation gives iOS artifacts 30 seconds to
-  drain and 40 seconds for cancellation. A suite with failed test assertions keeps the routine 300-second drain.
-  On routine runs, the worker joins and final receipt share one 60-second cancellation allowance, reducing the
-  maximum artifact wait from 420 to 360 seconds. Both drains are separate from D93's device waits. The log
-  identifies undelivered bundles.
+### Artifacts and reports
 
-- **Finish deadlines and report progress (D95).** Test runs cap the waits for device-provider shutdown, Apple worker
-  disconnects and history analytics close. The iOS provider's 70-second deadline starts after artifact finalization.
-  Interrupted Apple artifact pulls use the device's remaining shutdown time.
-  Reports still finish writing and log the active reporter if writing takes longer than one minute.
+- **Reports include only complete artifacts (D97, U235–U240):** failed or interrupted downloads leave earlier files
+  intact and report the artifact as undelivered. Each receive owns a private area on the destination filesystem and
+  publishes a verified artifact by atomic rename; an xcresult is published whole under its batch name. An rsync receive
+  needs a successful exit and confirmed cleanup, so one whose output pipes stay open is undelivered even when rsync
+  reports success; a local iOS or macOS copy must finish reading and writing every entry. A requested iOS video also
+  needs a finalized recording. A failed pull leaves its remote artifact on the device or worker for inspection, and
+  listeners attach and remove artifacts only after their delivery. A complete zero-byte file is delivered.
+
+### Analytics
+
+- **Graphite and InfluxDB writes use a bounded queue (D86, U208):** bursts with room proceed immediately, and sustained
+  load waits for capacity. Metrics can be lost if the wait expires, the backend is cooling off, admission closes, the
+  delivery task stops, or shutdown reaches its deadline. Gaps can affect the flakiness and duration history used by
+  later runs.
+
+### Evidence
+
+- Every fix has witness tests that fail without it, checked by a temporary revert or on the commit before the change, as
+  each change's findings document records ([x80](docs/wp/x80-findings.md)–[x96](docs/wp/x96-findings.md)). Whole runs
+  use the Stub vendor (D82–D84, D93, D94), fake adb with virtual time (D85, D87, D88, D92, D97), the fake Apple worker
+  over real loopback SSH (D90, D93, D96), and real child processes for rsync, ssh, process groups and the reaper (D91,
+  D96, D97). Concurrency witnesses passed 50 isolated runs and further runs under CPU load.
+- The JVM recordings are unedited. D82's and D83's queue recordings replay unchanged. Narrow comparator allowances, each
+  with negative tests, cover D85's boot ID read, marker write and marker removal, D96's supervisor bootstrap, wrappers,
+  receipts and recorder commands and rsync4j's warning on live native captures only, and D97's private directory in the final host argument of a native xcresult,
+  video or device-log receive. Kotlin tests that pinned removed behaviour are `n/a` in the parity matrix with their
+  reason: D93's disposal of a batch that has not finished in time, D96's pidfile waits, and D97's changed command and
+  diagnostic expectations. No registered native golden changed.
+- Each change had one or more review rounds by another model, from one or two for most to eleven rounds and a closing
+  audit for D93, recorded with their findings and fixes in its findings document; [x88](docs/wp/x88-findings.md)'s
+  document records its evidence but no review round.
+- CI runs the repository gate on macOS and Linux; it passes at f90a6619, the code of this release candidate. During the
+  batch six CI runs on `main` failed in a test and two more ended with a cancelled macOS job; later runs passed. Two of
+  the failures, in the macOS local batch-timeout witness, exposed U245, a macOS process-group race that is fixed in the
+  product (D96).
+- Real-device acceptance ran on two earlier `main` commits, not on this release candidate's binary, and before the last
+  fixes. On 1d88c0a9, before the x95e and x95f changes, the CI static Linux build ran on two API 36 Android emulators on
+  a Linux host, and the CI macOS build on this project's Mac with iOS 18.6 and 26.4 simulators and macOS tests, locally
+  and over SSH to a second Mac as a real worker with stock Perl, key authentication and an `exec`-based forced command.
+  Healthy runs gave the same per-test outcomes and report data as the earlier acceptance runs and 0.14.0's release
+  candidates. On Android, SIGTERM during a stalled 300 MiB pull exited 143 with no partial file and one undelivered
+  record, where an earlier build had published a 1,703,936-byte truncation (D97); a device retired during a stalled pull
+  and a held cleanup command ended within D92's limits while the other emulator finished its tests; a reboot and a
+  snapshot rollback were set up again (D85); a held InfluxDB response did not stop the run (D86); a failing install left
+  within D87's deadline; and SIGKILL, a group TERM then KILL, SIGHUP (129) and a second SIGTERM left no marathon process
+  or tool behind while the adb server stayed up (D96). On the Apple side, stalled xcresult pulls under SIGTERM or an
+  internal failure were reported undelivered with no partial bundle, the stalled device was kept from its lifecycle and
+  the first cause kept (D93, D97), and after SIGKILL of marathon the worker's xcodebuild and recorders ended at their
+  lease expiry (D96). Those runs found what x95e fixes: a repeated healthy run on simulators whose recorders had been
+  killed at lease expiry lost all six videos (U246), and the healthy SSH run had extra control round trips (U247).
+- On 7a486ea1, which has the x95e changes but not x95f's, the SSH runs to the second Mac were repeated: three healthy
+  runs and one on the same simulators after a SIGKILL kept all six videos and xcresults and the same report data;
+  recorders killed at lease expiry finalized their movies and the next recordings worked; and SIGTERM during a live
+  stalled xcresult pull exited 143 with nothing published. One healthy run took 121 s against about 40 s for the others,
+  all of it in a slow app launch inside the tests, whose cause was not found.
+- Not exercised on real hosts: the password and askpass path, D90's connection rotation, network faults and delayed
+  control replies on a worker (x95f's U248–U250), a terminal D88 monitor failure, and an induced queue or pool drain
+  failure. Real-device runs of this release candidate's binary and the maintainer's private CI farm runs are pending
+  and will be recorded before 0.15.0.
+
+### Known limits
+
+- There is no Windows, Intel Mac, Linux on ARM or universal build. The macOS binary requests macOS 11.0 or later; versions
+  older than the build and test hosts are not tested.
+- The macOS binary is ad-hoc signed and not notarised; see the note on quarantine in the
+  [migration guide](docs/migration.md#install-the-native-entry-point).
+- The static Linux binary is checked at release time with `version` and `--help` in an Alpine container; a CI build of
+  an earlier commit of this release candidate ran on real emulators, and 0.14.0's release candidates also ran on a CI
+  farm. musl's resolver asks DNS directly, so an adb host given as a name that only the system's own name service knows,
+  such as a `.local` name, is not found; use `localhost` or an address.
+- The `xctest` test parser needs a `libxctest-parser` library that you supply (D20). The differential suites run it with a
+  stand-in file, so what the library itself does is not covered by them. The archives do not contain it, and this project's
+  licence does not cover it.
+- The real macOS UI XCTest scenario could not be completed on macOS 27 and is not part of that evidence
+  ([U103](docs/found-bugs.md)).
+- No isolated shadow or canary results are recorded in this repository. Trial it in a disposable environment and keep your
+  JVM distribution for [rollback](docs/migration.md#trial-and-rollback).
+- An Android device that restarted during an adb outage is set up again when its boot ID changes or its preparation
+  marker is gone (D85). A restart that keeps both, such as a shared-kernel container restart that keeps `/data/local/tmp`,
+  and a snapshot rollback that keeps the boot ID when the marker write could not be confirmed, are not detected; such a
+  device can repeat failing batches until `uncompletedTestRetryQuota` runs out (D22).
+- On a worker without usable stock Perl, a cancelled run whose SSH server ignores signals (OpenSSH does for forced
+  commands) can leave xcodebuild running there; a close that needed KILL logs a warning naming the command, also with
+  `debug: false` (D30, U183). With Perl, the worker's supervisor ends the command's group, at the latest when its lease
+  expires after marathon stops renewing it (79 s by default); a frozen worker does so only once it runs again (D96).
+- Xcode's shared service hosts, such as `DTServiceHub`, that xcodebuild starts in groups of their own can outlive a run,
+  locally and on a worker. That is on purpose: other Xcode sessions use them (D96).
+- A failed readiness probe costs a simulator about 9 to 12 minutes with the defaults while another simulator keeps the
+  pool alive, and at most the preparation deadline plus one boot attempt, about 14.5 minutes (D87 scenario estimates).
+  On the last device the run ends 180 s (D48's wait) after the simulator left the pool, or after a test result it
+  reports later, with "remaining tests will not run": about 9 to 11 minutes after its first boot, or about 3 minutes
+  after a loss if the probe starts failing at a re-setup (D38).
+- A failed xcodebuild close retires its simulator; its disposal is then unconfirmed, so it gets no on-dispose lifecycle
+  and its connection stays open and out of use until the run ends (D93), and a pool whose last device it was waits (D48),
+  then ends (D30).
+- An Android device that left its pool after D49's limit but not adb's list returns only if the list changes, so a pool
+  waiting for it uses up D48's wait for nothing. After a failed preparation it gets one more setup (D85), and after that
+  the same holds (D48).
+- Two adb outages in a row, the second before a device's restoring after the first has finished, can make D48's wait
+  for that device count from the later outage ([x83 findings](docs/wp/x83-findings.md#incidental-bugs)).
+- A test whose end the listeners are still handling when its Android device is lost counts with its status but can lack
+  the screen capture and profiling files attached as it ends (D70).
+- An Android device whose instrumentation fails every time still uses one attempt of each test it takes, and takes its
+  own retries back when nothing else is queued for it, so it can still fail tests on `uncompletedTestRetryQuota` while
+  the other devices are busy (D82; keeping such a device out of its pool is a possible follow-up).
+- When an Android device is lost during a batch with `isCodeCoverageEnabled: true`, the batch's coverage is logged as
+  missing at ERROR, although its tests run again and their new batch's coverage is pulled. The exit code is unchanged
+  (D81). Its cleanup is no longer also logged as failed (D97).
+- Android's GIF listener can still attach a GIF after its capture job failed; it does not go through D97's delivery
+  check ([x96 findings](docs/wp/x96-findings.md#verification-limits-and-incidental-bugs)).
+- When adb cannot confirm a stopping Android device's cleanup, the device can keep an instrumentation process, a screen
+  recording or trace and its files, a reverse port forward or D85's marker (D92).
+- Zero-byte Android videos were seen in a real run, as in earlier acceptance runs; they are a recording issue that
+  predates this release, and D97 delivers a complete zero-byte file.
+- A D88 monitor failure that ends Android device tracking has not been provoked on a real device; it is covered only by
+  tests with fake adb.
+- The password and askpass path, D90's connection rotation, and network partitions or delayed control replies on a
+  worker were not exercised on a real worker.
+- With `sshpass` (an SSH client older than OpenSSH 8.4), rsync's ssh runs in a session of its own, so cleanup covers only
+  the processes a listing has seen, and one that ends its parent between two listings can survive (D91, D96).
+- A process marathon has spawned but not yet registered is outside the reaper's view, and a full reaper table (4,096
+  entries) fails the launch. After an abrupt loss of both connections to a worker, the supervisor's private directory and
+  its small receipts can remain under the worker's `/tmp` (D96).
+- A quarantined worker connection stays open until marathon exits, and with `shareWorkerConnection` it keeps one of the
+  worker's two connection slots (D90, D93).
+- On a filesystem that rejects rename flags, publishing a bundle checks that the destination is absent and then renames,
+  so another writer can win in between, and replacing an existing tree can leave its path absent for a moment. A
+  filesystem call already under way cannot be cut by a deadline (D97).
+- A Graphite backend that cannot be set up still fails the run, where an InfluxDB one falls back to no history (D71).
+- A JUnit3 `TestCase` method that also carries `@Test` is still listed twice, by both discovery rules, as in Kotlin (D75).
+- A remote parse cut after other text, before its first status atom, can't be told from output that is not the
+  instrumentation protocol: it gives no tests for that bundle and is not retried. With several bundles the run goes on
+  without them (D25).
+- Apple event/line scheduling can move a boundary line between per-test and batch logs (A20). The Phase 8 differential
+  harness gates that interleaving; production retains it ([WP 8.12](docs/wp/8.12-test-changes.md#differential-only-eventline-gates)).
 
 ## 0.14.0
 
