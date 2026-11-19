@@ -602,8 +602,9 @@ impl WorkerRsync {
     }
 
     pub(crate) fn finish(&self) {
-        self.lease.stop.lock().unwrap_or_else(|e| e.into_inner()).finished = true;
-        self.lease.changed.notify_one();
+        // A successful rsync waited for its remote shell. The supervised
+        // sender returns zero only after recording its cleanup receipt.
+        self.lease.complete_with_status(0);
     }
 
     pub(crate) async fn confirmed(&self, successful: bool) -> VendorResult<()> {
@@ -628,7 +629,6 @@ struct Stop {
     signal: u8,
     channel_ended: bool,
     acknowledged: bool,
-    finished: bool,
 }
 
 pub(super) struct Lease {
@@ -728,6 +728,10 @@ impl Lease {
         }
         // The wrapper reports a normal status only after it proves cleanup.
         // A channel close, or the wrapper's failure signal, is never evidence.
+        self.complete_with_status(status);
+    }
+
+    fn complete_with_status(&self, status: i32) {
         self.proof.send_if_modified(|proof| {
             if proof.is_some() {
                 return false;
@@ -775,15 +779,10 @@ impl Lease {
             let now = tokio::time::Instant::now();
             let disconnected = state.channel_ended || (self.detached && !self.peer.data.is_connected());
             let finalizing = self.detached && state.signal == 1 && !disconnected;
-            if !finalizing && (state.signal != 0 || disconnected || state.finished) && ending.is_none() {
+            if !finalizing && (state.signal != 0 || disconnected) && ending.is_none() {
                 ending = Some(now);
             }
-            let grace = if state.finished {
-                WallDuration::from_secs(2)
-            } else {
-                CLOSE_GRACE
-            };
-            let wanted = if disconnected || ending.is_some_and(|start| now - start >= grace) {
+            let wanted = if disconnected || ending.is_some_and(|start| now - start >= CLOSE_GRACE) {
                 3
             } else {
                 state.signal
@@ -791,7 +790,6 @@ impl Lease {
             let operation = if wanted > signalled {
                 wanted.to_string()
             } else if (wanted == 0 || (finalizing && now >= next_renewal))
-                && !state.finished
                 && state.acknowledged
                 && let Some(stamp) = stamp
             {

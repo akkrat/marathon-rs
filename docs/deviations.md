@@ -3107,9 +3107,10 @@ simulator. Cleanup leaves detached Xcode shared service hosts such as
 Apple SSH exec probes for usable stock Perl once per connection. When available,
 a worker supervisor records the token before starting the payload in an owned
 group and writes an exit receipt after cleanup. It covers SSH commands,
-detached video, foreground device logs and remote rsync senders. A pull joins the local rsync cleanup and the
-worker's receipt. Each supervised pull makes a control exchange for the worker
-sender's exit receipt, including when the local rsync succeeds.
+detached video, foreground device logs and remote rsync senders. A successful
+pull verifies the sender through rsync's own exit status. The supervised sender
+returns zero to the remote shell after writing its cleanup receipt. A failed or
+interrupted pull still joins the local cleanup and worker proof before release.
 A nonzero bootstrap exit means the supervisor is unavailable. The worker warns
 once and keeps the existing command and transfer paths. Transport and malformed
 success responses fail the commands waiting on that attempt. Concurrent commands

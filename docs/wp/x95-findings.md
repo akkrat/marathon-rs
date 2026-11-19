@@ -529,6 +529,17 @@ stderr when a recording fails and returns it with the failed receipt. The
 warning for a busy recorder identifies the active session or simulator
 restart as the recovery action.
 
+### Successful rsync sender proof
+
+The old receive waited for a control channel open and a separate status
+request after the rsync exit. The worker wrapper already exits zero only
+after cleanup and receipt publication. Both tested rsync clients propagate
+the remote-shell status, including a status 125 after all payload bytes.
+The successful receive takes its proof from that status, removing two
+serial SSH round trips on a warm control connection. Interrupted and
+failed receives still wait for independent proof. The real OpenSSH witness
+also checks that a sender failure after transferring bytes blocks publication.
+
 ## Incidental bugs
 
 No additional bug outside x95 was pursued.

@@ -1090,8 +1090,8 @@ impl Inner {
             )
             .await;
         if let Some(worker) = worker.filter(|worker| worker.started) {
-            // A stopped local client is not proof about the worker. The
-            // transfer owner publishes its D91/D93 receipt after both settle.
+            // The sender's exit status arrives through a successful rsync.
+            // A failed or stopped client still needs independent worker proof.
             let successful = outcome
                 .as_ref()
                 .is_ok_and(|result| result.status == 0 && result.stopped.is_none());

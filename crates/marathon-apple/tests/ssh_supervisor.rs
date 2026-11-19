@@ -1317,6 +1317,23 @@ async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::err
     assert_eq!(std::fs::read(&local)?, b"rsync fixture");
     assert_eq!(receipt.ended(), Some(TransferCleanup::Confirmed));
 
+    let failing_sender = server.path().join("failing-sender");
+    std::fs::write(&failing_sender, "/usr/bin/rsync \"$@\"\nexit 125\n")?;
+    let receiving = bridge(format!("/bin/sh {}", failing_sender.display()))
+        .await
+        .map_err(|e| e.failure().to_string())?;
+    let undelivered = server.path().join("undelivered");
+    let received = receiving
+        .receive_with(
+            remote.to_str().ok_or("non-UTF8 test source")?,
+            &undelivered,
+            TransferStop::never().on_worker(executor.clone()),
+        )
+        .await
+        .map_err(|e| e.failure().to_string())?;
+    assert!(!received);
+    assert!(!undelivered.exists(), "payload bytes alone do not prove sender success");
+
     let sender = server.path().join("sender");
     let marker = server.path().join("sender-pid");
     std::fs::write(
