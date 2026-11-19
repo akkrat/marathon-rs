@@ -31,7 +31,7 @@ class ProcessSpawnGate(unittest.TestCase):
             "nix::spawn::posix_spawnp(executable, actions, attributes, argv, env);",
         ):
             with self.subTest(code=code):
-                self.assertIsNotNone(gate.RAW_SPAWN.search(code))
+                self.assertTrue(gate.spawn_lines(code))
 
     def test_tracked_launch_and_stdio_are_allowed(self):
         for code in (
@@ -41,7 +41,31 @@ class ProcessSpawnGate(unittest.TestCase):
             "nix::unistd::getpid();",
         ):
             with self.subTest(code=code):
-                self.assertIsNone(gate.RAW_SPAWN.search(code))
+                self.assertFalse(gate.spawn_lines(code))
+
+
+    def test_native_glob_imports_do_not_hide_spawn_operations(self):
+        for code in (
+            "use nix::unistd::*;\nunsafe { fork() };",
+            "use libc::*;\nunsafe { execvp(hello, argv) };",
+            "use nix::{unistd::*, spawn::PosixSpawnAttr};\nposix_spawn(&mut pid);",
+        ):
+            with self.subTest(code=code):
+                self.assertEqual(gate.spawn_lines(code), [2])
+
+    def test_parenthesized_import_and_qualified_spawn(self):
+        self.assertEqual(gate.spawn_lines("use tokio::{io, process as p};\nlibc::fork();"), [1, 2])
+
+    def test_comments_and_literals_do_not_match_or_hide_code(self):
+        code = """// std::process::Command
+/* old code /* use libc::*; */ execvp(hello, argv); */
+let log = r#"/* std::process::Command -> ssh */ "#;
+let url = "https://fixture.invalid";
+let keep = false; // libc::fork()
+tokio::process::Command::new("fixture");
+fork(); // no imported libc or nix helper in this module
+"""
+        self.assertEqual(gate.spawn_lines(code), [6])
 
 
 if __name__ == "__main__":
