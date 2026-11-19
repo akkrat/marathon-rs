@@ -10,7 +10,18 @@ async fn foreground_recorder_finalizes_on_int_d96() {
         let recorder = [
             "/usr/bin/perl",
             "-e",
-            "'$SIG{INT}=sub{print qq(finalized\n);exit 0};$|=1;print qq(ready\n);sleep 60'",
+            // Perl can defer the handler if INT arrives just before a blocking sleep.
+            // Block INT until sigsuspend can unblock it and wait atomically.
+            r#"'use POSIX qw(SIGINT SIG_BLOCK sigprocmask sigsuspend);
+my $interrupt = POSIX::SigSet->new(SIGINT);
+my $previous = POSIX::SigSet->new;
+sigprocmask(SIG_BLOCK, $interrupt, $previous) or die "block INT: $!";
+$previous->delset(SIGINT);
+$SIG{INT} = sub { print "finalized\n"; exit 0 };
+$| = 1;
+print "ready\n";
+sigsuspend($previous);
+die "wait for INT: $!";'"#,
         ];
         let session = executor
             .execute(CommandRequest::new(recorder, duration(60_000)), context.clone())

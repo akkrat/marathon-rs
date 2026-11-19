@@ -465,6 +465,27 @@ The test now releases only the D30 grace delay and keeps both independent
 transport assertions. The corrected witness passed 50 runs and one loaded
 run on each platform.
 
+### Local recorder witness
+
+The original witness hit its 60 s watchdog once in 240 runs alongside the
+Apple and iOS package tests and CPU load. It had already received readiness,
+which the Perl fixture printed after installing its INT handler. Sampling
+showed the live group leader in Perl's blocking sleep. Exit observation,
+group confirmation, reaping and pipe EOF were all still waiting for it to exit.
+
+A scratch probe delivered INT at entry to the native sleep call. Perl ran
+the deferred handler only after the sleep returned. The fixture now blocks
+INT before printing readiness and uses `sigsuspend` to unblock it and wait
+atomically. The probe confirmed that an INT pending before `sigsuspend`
+produces the finalization marker and exit status zero. The fixed witness
+passed 840 loaded runs, including 600 alongside another package sweep with
+one-minute load averages from 17 to 18.
+
+The production recorder already reserves time for TERM and KILL after INT.
+The unresponsive-recorder witness covers a recorder that ignores both INT
+and TERM, with and without proof after KILL. The stop returns unfinalized
+with proof and unconfirmed at the deadline without it.
+
 ## Incidental bugs
 
 No additional bug outside x95 was pursued.
