@@ -288,6 +288,7 @@ pub struct PullFileRequest {
     pub total_bytes: i64,
     pub current_position: i64,
     verified: Option<PullVerification>,
+    legacy_stat_size: bool,
 }
 impl PullFileRequest {
     pub fn new(path: impl Into<String>, local: PathBuf, size: Option<i64>) -> Self {
@@ -300,6 +301,7 @@ impl PullFileRequest {
             total_bytes: -1,
             current_position: 0,
             verified: None,
+            legacy_stat_size: false,
         }
     }
     pub fn v2(path: impl Into<String>, local: PathBuf, features: Vec<Feature>, size: Option<i64>) -> Self {
@@ -353,7 +355,13 @@ impl AsyncChannelRequest for PullFileRequest {
             b"DONE" => {
                 self.writer.close().await?;
                 if let Some(verified) = &self.verified {
-                    if self.current_position != self.total_bytes {
+                    let count = if self.legacy_stat_size {
+                        // STAT v1 only exposes the low 32 bits, independent of the RECV version.
+                        self.current_position.rem_euclid(1_i64 << 32)
+                    } else {
+                        self.current_position
+                    };
+                    if count != self.total_bytes {
                         return Err(AdbError::PullFailed(format!(
                             "Received {} of {} bytes for {}",
                             self.current_position, self.total_bytes, self.remote_path
@@ -597,7 +605,8 @@ impl CompatPullFileRequest {
         self
     }
     /// Set only after an exact receive ends with DONE and the writer closes.
-    pub fn verification(&mut self) -> PullVerification {
+    pub fn verification(&mut self, stat: &FileEntry) -> PullVerification {
+        self.0.legacy_stat_size = matches!(stat, FileEntry::V1(_));
         self.0.verified.get_or_insert_with(Default::default).clone()
     }
     pub fn execute(

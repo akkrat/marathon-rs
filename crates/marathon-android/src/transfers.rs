@@ -91,7 +91,7 @@ impl AndroidDevice {
                     let mut request =
                         CompatPullFileRequest::new(remote, staged.path.clone(), self.supported_features(), Some(size))
                             .require_existing_local_parent();
-                    let verified = request.verification();
+                    let verified = request.verification(&stat);
                     let completion = request.0.completion();
                     let received = async {
                         let mut stream = request
@@ -278,6 +278,22 @@ impl AndroidDevice {
         local: &str,
         context: VendorContext,
     ) -> VendorResult<Option<()>> {
+        let result = self.receive_with_timeout(remote, local, context).await;
+        match &result {
+            Ok(None) => self.undelivered(remote, local, None),
+            Err(error) => self.undelivered(remote, local, Some(error.failure())),
+            Ok(Some(())) => {}
+        }
+        result
+    }
+
+    /// Coverage supplies the non-delivery diagnostic for its own attachment.
+    pub(crate) async fn receive_with_timeout(
+        &self,
+        remote: &str,
+        local: &str,
+        context: VendorContext,
+    ) -> VendorResult<Option<()>> {
         // The clock joins its cancelled body. A commit already won if that body successfully returned a receipt.
         let delivered = std::sync::Mutex::new(false);
         let result = timed(
@@ -302,11 +318,6 @@ impl AndroidDevice {
         .await;
         if *lock(&delivered) {
             return Ok(Some(()));
-        }
-        match &result {
-            Ok(None) => self.undelivered(remote, local, None),
-            Err(error) => self.undelivered(remote, local, Some(error.failure())),
-            Ok(Some(())) => {}
         }
         result
     }

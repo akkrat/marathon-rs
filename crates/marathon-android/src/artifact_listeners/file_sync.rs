@@ -6,6 +6,9 @@ use marathon_core::{runtime::VendorFuture, vendor::VendorContext};
 use marathon_dex::apk_parser::InstrumentationInfo;
 use marathon_logging::Level;
 use std::path::PathBuf;
+
+const APP_DATA_ABSENT: &str = "marathon-app-data-absent";
+const APP_DATA_EXTRACTED: &str = "marathon-app-data-extracted";
 pub struct FileSyncTestRunListener {
     pub artifacts: ArtifactContext,
     /// The batch's application packages, one per instrumentation in the usual case of one.
@@ -217,19 +220,24 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                             let from = join(&format!("/data/data/{package}"), &relative);
                             let extracted = device
                                 .safe_execute_shell_command(
-                                    &format!("set -o pipefail && mkdir -p {remote} && run-as {package} sh -c 'cd {from} && tar cf - .' | tar xvf - -C {remote}"),
+                                    &format!("run-as {package} sh -c '[ -d {from} ] || exit 44'; check=$?; if [ \"$check\" -eq 44 ]; then echo {APP_DATA_ABSENT}; else [ \"$check\" -eq 0 ] && set -o pipefail && mkdir -p {remote} && run-as {package} sh -c 'cd {from} && tar cf - .' | tar xvf - -C {remote} && echo {APP_DATA_EXTRACTED}; fi"),
                                     "", context.clone(),
                                 )
                                 .await?;
-                            if extracted.is_some_and(|result| result.exit_code == 0) {
-                                copied.push((package, from));
-                            } else {
-                                device.log_named(
+                            // Only the archive's success marker grants permission to delete the source.
+                            match extracted
+                                .as_ref()
+                                .filter(|result| result.exit_code == 0)
+                                .and_then(|result| result.output.lines().last().map(str::trim))
+                            {
+                                Some(APP_DATA_EXTRACTED) => copied.push((package, from)),
+                                Some(APP_DATA_ABSENT) => {}
+                                _ => device.log_named(
                                     "FileSyncTestRunListener",
                                     Level::WARN,
                                     &format!("Artifact folder {from} was not delivered: archive extraction failed"),
                                     None,
-                                );
+                                ),
                             }
                         }
                     } else {

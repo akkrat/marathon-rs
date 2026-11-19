@@ -135,6 +135,44 @@ async fn list(v2: bool) {
     }
     server.finish().await;
 }
+
+#[tokio::test]
+async fn only_stat_v1_compares_the_low_bits_of_a_large_receive_d97() {
+    let legacy = FileEntry::V1(FileEntryV1 {
+        name: None,
+        mode: 0o100644,
+        size: 420,
+        mtime: instant_of(1589042331, 0).unwrap(),
+    });
+    for (stat, count, succeeds) in [
+        (legacy.clone(), (1_i64 << 32) + 420, true),
+        (legacy, (1_i64 << 32) + 419, false),
+        (expected_v2(None), (1_i64 << 32) + 420, false),
+    ] {
+        let server = stub::session(|mut s| async move {
+            s.expect_cmd("host:transport:serial").await;
+            s.accept().await;
+            s.expect_cmd("sync:").await;
+            s.accept().await;
+            s.expect_sync(b"RECV", "/large").await;
+            s.respond(b"DONE\0\0\0\0").await;
+        })
+        .await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut request = CompatPullFileRequest::new("/large", dir.path().join("out"), vec![], Some(420));
+        let verified = request.verification(&stat);
+        // Seed the count that would have accrued from DATA without writing 4 GiB to disk.
+        request.0.current_position = count;
+        let mut stream = request.execute(&server.client(), Some("serial")).unwrap();
+        if succeeds {
+            assert!(stream.next().await.is_none());
+        } else {
+            assert!(matches!(stream.next().await, Some(Err(AdbError::PullFailed(_)))));
+        }
+        assert_eq!(verified.complete(), succeeds);
+        server.finish().await;
+    }
+}
 async fn pull(v2: bool, kind: u8) {
     let bytes = tokio::fs::read(fixture()).await.unwrap();
     let expected = bytes.clone();

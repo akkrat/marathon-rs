@@ -133,7 +133,7 @@ impl CoverageTestRunListener {
         let remote = file.remote();
         let target = local.to_string_lossy().into_owned();
         let timeout = millis(device.runtime().configuration.timeout_configuration.pull_file)?;
-        let pulled = device.pull_with_timeout(&remote, &target, context.clone()).await;
+        let pulled = device.receive_with_timeout(&remote, &target, context.clone()).await;
         match pulled {
             Ok(Some(())) => {}
             Ok(None) => return Ok(Err(format!("pulling it timed out after {timeout} ms"))),
@@ -211,7 +211,13 @@ impl AndroidTestRunListener for CoverageTestRunListener {
                     );
                     return Ok(());
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    self.error(
+                        &format!("Code coverage of batch {} was not delivered: {remote}", file.batch_id),
+                        Some(e.failure()),
+                    );
+                    return Err(e);
+                }
             }
             self.artifacts
                 .device

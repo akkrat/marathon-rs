@@ -65,6 +65,11 @@ fn shell(script: &mut Value, command: &str, stdout: &str) {
         .unwrap()
         .push(json!({"exact":command,"stdout":stdout}));
 }
+fn extract_fixture_app_data(package: &str) -> String {
+    format!(
+        "run-as {package} sh -c '[ -d /data/data/{package}/fixture4 ] || exit 44'; check=$?; if [ \"$check\" -eq 44 ]; then echo marathon-app-data-absent; else [ \"$check\" -eq 0 ] && set -o pipefail && mkdir -p /data/local/tmp/fixture4 && run-as {package} sh -c 'cd /data/data/{package}/fixture4 && tar cf - .' | tar xvf - -C /data/local/tmp/fixture4 && echo marathon-app-data-extracted; fi"
+    )
+}
 /// Polls rather than spinning: a yield loop keeps a vendor worker busy and starves the fake
 /// server and the capture encoder on small CI runners. The first screenshot is a debug-build GIF
 /// encode of a 1080x1920 frame, which takes seconds there, so the deadline only catches hangs.
@@ -272,13 +277,17 @@ mod file_sync_test_run_listener_test {
     }
     #[test]
     fn test_pull() {
-        pull(false)
+        pull(false, false)
     }
     #[test]
     fn test_pull_folder_with_empty_file() {
-        pull(true)
+        pull(true, false)
     }
-    fn pull(empty: bool) {
+    #[test]
+    fn missing_app_data_is_quiet_and_is_not_deleted_d97() {
+        pull(false, true)
+    }
+    fn pull(empty: bool, missing_app_data: bool) {
         let mut c = configuration();
         let temp = output(&mut c);
         let entries = if empty {
@@ -298,9 +307,16 @@ mod file_sync_test_run_listener_test {
                 aggregation_mode: AggregationMode::DeviceAndPool,
             });
         }
-        run(c, move |runtime, context| {
+        run(c, move |mut runtime, context| {
             Box::pin(async move {
                 let _temp = temp;
+                let warnings = Arc::new(std::sync::Mutex::new(Vec::new()));
+                let messages = warnings.clone();
+                Arc::get_mut(&mut runtime).unwrap().log = Arc::new(move |_, level, message, _| {
+                    if level == marathon_logging::Level::WARN && message.contains("archive extraction failed") {
+                        messages.lock().unwrap().push(message.to_owned());
+                    }
+                });
                 let mut script = base_script(27, vec![]);
                 let mut expected = vec![];
                 for (name, root) in &entries {
@@ -330,9 +346,14 @@ mod file_sync_test_run_listener_test {
                         "/data/local/tmp"
                     };
                     if *name == "fixture4" {
-                        let cmd = "set -o pipefail && mkdir -p /data/local/tmp/fixture4 && run-as com.example sh -c 'cd /data/data/com.example/fixture4 && tar cf - .' | tar xvf - -C /data/local/tmp/fixture4";
-                        shell(&mut script, cmd, "");
-                        expected.push(cmd.into());
+                        let cmd = extract_fixture_app_data("com.example");
+                        let reply = if missing_app_data {
+                            "marathon-app-data-absent\n"
+                        } else {
+                            "marathon-app-data-extracted\n"
+                        };
+                        shell(&mut script, &cmd, reply);
+                        expected.push(cmd);
                     }
                     let cmd = format!("ls -l {root}/{name}");
                     shell(
@@ -345,7 +366,7 @@ mod file_sync_test_run_listener_test {
                         },
                     );
                     expected.push(cmd);
-                    if *name == "fixture4" {
+                    if *name == "fixture4" && !missing_app_data {
                         let remove = "run-as com.example rm -R /data/data/com.example/fixture4";
                         shell(&mut script, remove, "");
                         expected.push(remove.into());
@@ -361,6 +382,7 @@ mod file_sync_test_run_listener_test {
                 listener.before_test_run_in(Some(&info()), context.clone()).await?;
                 listener.after_test_run_in(context).await?;
                 assert_eq!(commands(&server)[SETUP_COMMANDS.len()..], expected);
+                assert!(warnings.lock().unwrap().is_empty(), "{warnings:?}");
                 if empty {
                     let path = _temp
                         .path()
@@ -393,11 +415,10 @@ fn file_sync_with_two_instrumentations_prepares_and_pulls_once_d28() {
     run(c, move |runtime, context| {
         Box::pin(async move {
             let _temp = temp;
-            let tar = |package: &str| {
-                format!(
-                    "set -o pipefail && mkdir -p /data/local/tmp/fixture4 && run-as {package} sh -c 'cd /data/data/{package}/fixture4 && tar cf - .' | tar xvf - -C /data/local/tmp/fixture4"
-                )
-            };
+            let archives = [
+                extract_fixture_app_data("com.example"),
+                extract_fixture_app_data("other.app"),
+            ];
             let expected = vec![
                 "rm -r /sdcard/fixture3".to_owned(),
                 "mkdir /sdcard/fixture3".to_owned(),
@@ -408,15 +429,20 @@ fn file_sync_with_two_instrumentations_prepares_and_pulls_once_d28() {
                 "run-as other.app rm -R /data/data/other.app/fixture4".to_owned(),
                 "run-as other.app mkdir /data/data/other.app/fixture4".to_owned(),
                 "ls -l /sdcard/fixture3".to_owned(),
-                tar("com.example"),
-                tar("other.app"),
+                archives[0].clone(),
+                archives[1].clone(),
                 "ls -l /data/local/tmp/fixture4".to_owned(),
                 "run-as com.example rm -R /data/data/com.example/fixture4".to_owned(),
                 "run-as other.app rm -R /data/data/other.app/fixture4".to_owned(),
             ];
             let mut script = base_script(27, vec![]);
             for command in &expected {
-                shell(&mut script, command, "");
+                let reply = if archives.contains(command) {
+                    "marathon-app-data-extracted\n"
+                } else {
+                    ""
+                };
+                shell(&mut script, command, reply);
             }
             let server = server(script).await;
             let device = device(&server, runtime);
@@ -1635,9 +1661,16 @@ fn coverage_is_attached_to_every_started_test_and_merged_parameterised_result_d8
     use marathon_android::artifact_listeners::coverage::{CoverageFile, CoverageTestRunListener};
     let mut c = configuration();
     let temp = output(&mut c);
-    run(c, move |runtime, context| {
+    run(c, move |mut runtime, context| {
         Box::pin(async move {
             let _temp = temp;
+            let errors = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let messages = errors.clone();
+            Arc::get_mut(&mut runtime).unwrap().log = Arc::new(move |_, level, message, _| {
+                if level == marathon_logging::Level::ERROR && message.contains("coverage-batch-2.ec") {
+                    messages.lock().unwrap().push(message.to_owned());
+                }
+            });
             let mut script = base_script(30, vec![]);
             script["devices"][0]["files"] = json!([{
                 "path": "/sdcard/Android/data/com.example/files/coverage/coverage-batch.ec",
@@ -1685,6 +1718,7 @@ fn coverage_is_attached_to_every_started_test_and_merged_parameterised_result_d8
             let second = CoverageFile::new("/sdcard", "com.example", "batch", 1);
             listener.on_coverage_in(&second, context.clone()).await?;
             assert_eq!(named("method").len(), 1);
+            assert_eq!(errors.lock().unwrap().len(), 1, "{errors:?}");
             checked(device.dispose().await);
             checked(server.shutdown().await);
             Ok(())
