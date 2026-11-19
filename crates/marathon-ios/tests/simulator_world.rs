@@ -277,6 +277,7 @@ async fn start_wire_worker_with(
         rules: [
             ("healthy", hang(false)),
             ("rekeyed", hang(false)),
+            ("stalled", hang(false)),
             ("stubborn", hang(true)),
             ("probe", Action::output("ok\n", 0)),
         ]
@@ -802,7 +803,7 @@ async fn a_command_the_transport_sends_after_the_seal_is_live_work_of_its_simula
         let (held, release) = (SharedDeferred::new(), SharedDeferred::new());
         {
             let (held, release) = (held.clone(), release.clone());
-            pause_outbound_exec(Some(Arc::new(move |command| {
+            pause_outbound_exec(Some(Arc::new(move |command, _| {
                 (command == "rekeyed").then(|| {
                     let (held, release) = (held.clone(), release.clone());
                     Box::pin(async move {
@@ -854,6 +855,138 @@ async fn a_command_the_transport_sends_after_the_seal_is_live_work_of_its_simula
             "the simulator was not quarantined for the command: {:?}",
             h.logs.lock().unwrap()
         );
+        TestResult::Ok(())
+    })
+    .await
+}
+
+/// D93 (round 11): a simulator's command is admitted and queued in the transport (the test's pause, as russh holds an
+/// exec behind a stalled key exchange); the keep-alive then declares the connection dead, and its DISCONNECT is queued
+/// behind the exec (the test's hold). D44's disposal of the simulator waits: the command's receipt stays live while
+/// russh's session still runs, since it may still send the exec, and does here once the key exchange resumes. Only when
+/// the transport has really ended does the receipt end, and the disposal with it. Before, the receipt ended as the
+/// connection was marked dead, the disposal confirmed at once, and recovery could set the worker up again on a fresh
+/// connection while the old one went on to send the command.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_command_queued_on_a_connection_marked_dead_holds_the_disposal_until_the_transport_ends_d93() -> TestResult {
+    use marathon_apple::cmd::remote::ssh::sshj::{channel::pause_outbound_exec, client::hold_disconnect};
+    use marathon_core::{executor::shared::SharedDeferred, vendor::Device};
+    const DEATH: &str = "Keep-alive gave up on the stalled connection";
+    watchdog(async {
+        let mut h = Harness::new(|_| {})?;
+        h.services.timeouts.cancelled_batch_millis = 30_000;
+        let (wire, world) = start_wire_worker(&h).await?;
+        let transport = Transport::Ssh {
+            addr: "127.0.0.1".into(),
+            port: i32::from(wire.worker.ready.endpoint.port()),
+            authentication: Some(SshAuthentication::Password {
+                username: "fixture".into(),
+                password: "fake-password".into(),
+            }),
+            check_reachability: false,
+        };
+        let mut ssh = h.services.vendor.ssh.clone();
+        ssh.keep_alive_interval = duration(0);
+        let factory = ConnectionFactory::new(
+            false,
+            ssh,
+            h.services.vendor.rsync.clone(),
+            duration(60_000),
+            h.services.runtime.clone(),
+            Arc::new(Clock::default()),
+            h.services.logging.clone(),
+        )
+        .map_err(|e| describe(e.into_vendor()))?;
+        let executor = factory
+            .connect_worker(transport.clone(), context())
+            .await
+            .map_err(ConnectionError::into_vendor)
+            .map_err(describe)?;
+        let bridge = WorldExecutor::new(
+            h.services.runtime.clone(),
+            &mut h.services.logging.registry.lock().unwrap(),
+            Router {
+                script: Script::default(),
+                rsync_remote: "/usr/bin/rsync".into(),
+                rsync_binary: "/usr/bin/rsync".into(),
+                extensions: vec![Arc::new(world)],
+            },
+            wire.worker.fs.clone(),
+            h.dir.path().to_owned(),
+        );
+        let device = h
+            .device_on_bridge(
+                executor.clone(),
+                fake_worker::apple::UDID,
+                Arc::new(WorkerProvisioningContext::new(transport.clone(), h.clock.clone())),
+                Arc::new(bridge.file_bridge()),
+            )
+            .await?;
+        let (queued, resume, disconnect) = (SharedDeferred::new(), SharedDeferred::new(), SharedDeferred::new());
+        {
+            let (queued, resume) = (queued.clone(), resume.clone());
+            pause_outbound_exec(Some(Arc::new(move |command, die| {
+                (command == "stalled").then(|| {
+                    let (queued, resume) = (queued.clone(), resume.clone());
+                    Box::pin(async move {
+                        // The exec waits in the transport; the keep-alive gives up meanwhile.
+                        die(DEATH);
+                        queued.complete(Ok(()));
+                        let _ = resume.wait().await;
+                    }) as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+                })
+            })));
+            let disconnect = disconnect.clone();
+            hold_disconnect(Some(Arc::new(move |why| {
+                why.contains(DEATH).then(|| {
+                    let disconnect = disconnect.clone();
+                    Box::pin(async move {
+                        let _ = disconnect.wait().await;
+                    }) as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+                })
+            })));
+        }
+        let running = {
+            let (device, context) = (device.clone(), h.services.context.clone());
+            tokio::spawn(async move {
+                marathon_apple::apple_device::AppleDevice::execute_worker_command(
+                    &*device,
+                    vec!["stalled".into()],
+                    &context,
+                )
+                .await
+            })
+        };
+        queued.wait().await.map_err(|e| format!("{e:?}"))?;
+        // D44's disposal of the simulator whose connection was lost.
+        let disposal = {
+            let device = device.clone();
+            tokio::spawn(async move { Device::dispose(&*device).await })
+        };
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let early = disposal.is_finished();
+        // The key exchange resumes: russh sends the exec it held, and the worker runs the command.
+        resume.complete(Ok(()));
+        pause_outbound_exec(None);
+        let stalled = fake_worker::transcript::hash(b"stalled");
+        wire.wait_for("exec", |line| line["detail"]["sha256"] == stalled)
+            .await?;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let before_the_end = disposal.is_finished();
+        // Then the DISCONNECT goes out and the transport ends.
+        disconnect.complete(Ok(()));
+        hold_disconnect(None);
+        let disposed = disposal.await?;
+        running.abort();
+        factory.dispose(executor).await.map_err(describe)?;
+        factory.join_pending().await.map_err(describe)?;
+        bridge.close().await.map_err(describe)?;
+        assert!(
+            !early,
+            "the disposal confirmed while the transport still held the command"
+        );
+        assert!(!before_the_end, "the disposal confirmed while the transport still ran");
+        disposed.map_err(describe)?;
         TestResult::Ok(())
     })
     .await

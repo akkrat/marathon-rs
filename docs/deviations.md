@@ -2868,9 +2868,13 @@ still open when a lost simulator is disposed of is now in its receipt: the dispo
 cannot confirm its end, quarantines the simulator within its window; D44's recovery reads that verdict and no longer
 waits another 70 s for the session before it sets up the worker's other simulators. A simulator removed while one of its
 artifact pulls is under way is now quarantined (no lifecycle, its lease kept) while the pull finishes, where its
-lifecycle ran beside the pull. A command whose connection is lost counts as ended: nothing more reaches the worker over
-that connection, and D44 recovers its simulators as before; a process the lost connection left running is the
-worker's. rsync's watchdog stops a pull that has made no progress for 300 s; a pull that keeps moving has no total
+lifecycle ran beside the pull. A command whose connection is lost counts as ended once the transport has really ended
+(the SSH library's session is gone, so nothing more reaches the worker over it), and D44 recovers its simulators as
+before; a process the lost connection left running is the worker's. A connection only declared dead (the keep-alive
+giving up) does not end it, since the library may still send a request it holds; that end normally follows at once
+(the DISCONNECT, or the socket's error). If it does not (a key exchange the worker stalls with the socket open, which no
+existing limit ends), the window decides: unconfirmed, quarantined, and kept out of recovery rather than set up again
+beside the old connection. rsync's watchdog stops a pull that has made no progress for 300 s; a pull that keeps moving has no total
 limit (WP x94 may cap it), and keeps its device quarantined at the disposal while it runs.
 
 Evidence, each failing on 3d945010 where it can be built there:
@@ -2922,7 +2926,8 @@ and `a_sealed_mac_opens_no_session_d93`. Round 6, failing on d20ecdcc:
 `an_rsync_pull_refused_by_its_admission_after_a_removal_is_undelivered_d93`, and
 `crates/marathon-ios/tests/simulator_provider.rs::a_pull_left_running_by_the_artifact_drain_keeps_its_simulator_from_the_lifecycle_d93`.
 Round 10, failing on 8fc45806 (the base given the test's outbound pause): `simulator_world.rs::a_command_the_transport_sends_after_the_seal_is_live_work_of_its_simulator_d93`
-and `simulator_provider.rs::a_pull_asked_for_after_the_disposals_look_at_the_pulls_is_refused_d93`.
+and `simulator_provider.rs::a_pull_asked_for_after_the_disposals_look_at_the_pulls_is_refused_d93`. Round 11, failing on
+0f434841 (given the test's hooks): `simulator_world.rs::a_command_queued_on_a_connection_marked_dead_holds_the_disposal_until_the_transport_ends_d93`.
 Amends D74 and D84.
 
 Approved 2026-11-18 (project owner's decision). See

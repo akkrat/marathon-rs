@@ -541,3 +541,36 @@ apple, ios, macos, android, cli and test-support with `-D warnings`; `cargo test
 passed, 0 failed, 34 ignored (17 differential and parse tests first failed for a YAML helper missing from `target/`,
 `cargo build -p snakeyaml --example yaml_tree`; core and cli were then run again in full: 1,016 passed, 0 failed). Not
 run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test --workspace`.
+
+## Review round 11 (Sol 6.2 high at 0f434841: late pull closed; one P2)
+
+**Finding.** The pump ended a command's receipt as soon as the connection was *marked* dead (`shared.wait_dead()`),
+before russh had stopped sending: an exec queued behind a stalled key exchange, then a keep-alive death whose DISCONNECT
+queues behind the exec, let the disposal confirm and D44 set the simulator up again on a fresh connection while russh
+could still send the old exec.
+
+**Change.** The pump, on the death mark, tells the channel's callers at once (as before) and then goes on draining the
+channel; it ends the receipt only on the peer's CLOSE or the read half's end, which is russh's session task having
+ended (the session drops its channels as it returns). A refused exec still ends it at once.
+
+**The bound.** Once a connection is marked dead the reaper hands russh a DISCONNECT; russh's session then ends as soon as
+it processes it, or on the socket's error or EOF, which ends the receipt at once in every ordinary loss. No existing limit
+ends a session whose key exchange the worker stalls with the socket open (russh's own keep-alive and inactivity timeouts
+are off; ours only marks the death). That case is bounded by the device's window instead: the receipt is live at the
+window's end, the verdict is unconfirmed, the simulator is quarantined and D44 keeps it out of the run instead of setting
+it up again beside the old connection.
+
+**Witness** (fails on 0f434841, given the same two test hooks): `simulator_world.rs::a_command_queued_on_a_connection_marked_dead_holds_the_disposal_until_the_transport_ends_d93`.
+A simulator over the real SSH executor and the fake worker; its exec is admitted and held before russh
+(`pause_outbound_exec`, whose hook now also gets a way to mark the connection dead, as the keep-alive does), the
+connection is marked dead, and its DISCONNECT is held (`client::hold_disconnect`, new test support). The disposal does not
+finish while the transport runs: not after the death, nor after the held exec is sent and the worker runs it; it finishes
+once the DISCONNECT goes out and the transport ends. On the base it finished right after the death.
+
+**Round 11 verification.** The witness fails on 0f434841 (scratch worktree, the test copied in and only the two test
+hooks added). Stress, alone: the witness and round 10's SSH witness (whose pause hook changed), 50/50 each and 20/20
+each with 12 busy processes. `cargo fmt --check`; `cargo clippy` of core, apple, ios, macos, android, cli and
+test-support with `-D warnings`; `cargo test --no-fail-fast` of apple, ios and macos (D93, D44, D91 and the SSH
+executor's suites): 1,132 passed, 0 failed, 26 ignored. Built in a separate target directory while the orchestrator's
+gates ran in this worktree. Not run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`,
+`cargo test --workspace`.

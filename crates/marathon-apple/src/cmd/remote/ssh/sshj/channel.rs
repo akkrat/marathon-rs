@@ -70,8 +70,9 @@ struct State {
 }
 
 /// D93 (round 10): the device's receipt for the command whose exec request was handed to the transport. It ends once the
-/// channel has closed (the peer's CLOSE, or the transport's end: nothing more reaches the worker over it) or the exec was
-/// refused (nothing started). Shared by the channel, its writer and its pump, so that a channel let go of before its close
+/// channel has closed (the peer's CLOSE, or, round 11, the transport's actual end: russh's session task has ended, so
+/// nothing more reaches the worker over it) or the exec was refused (nothing started). A connection only marked dead does
+/// not end it: russh may still send what it holds (an exec queued behind a stalled key exchange) before it disconnects. Shared by the channel, its writer and its pump, so that a channel let go of before its close
 /// still ends it when the close comes; one whose close never comes stays live, and its device unconfirmed.
 #[derive(Default)]
 struct Handed {
@@ -96,9 +97,11 @@ fn end_handed(slot: &HandedSlot, closed: bool) {
 }
 
 /// Test support: what holds an exec request (by its command line) after its device has admitted it and before the
-/// transport writes it.
+/// transport writes it. It is given a way to declare the connection dead, as the keep-alive does when its replies stop.
 #[cfg(feature = "test-support")]
-pub type OutboundPause = Arc<dyn Fn(&str) -> Option<Pin<Box<dyn Future<Output = ()> + Send>>> + Send + Sync>;
+pub type OutboundPause = Arc<
+    dyn Fn(&str, Arc<dyn Fn(&str) + Send + Sync>) -> Option<Pin<Box<dyn Future<Output = ()> + Send>>> + Send + Sync,
+>;
 #[cfg(feature = "test-support")]
 static OUTBOUND_PAUSE: Mutex<Option<OutboundPause>> = Mutex::new(None);
 /// Test support, D93 (round 10): holds the exec requests `pause` picks between their admission and the transport's write,
@@ -592,11 +595,25 @@ async fn pump(
     shared: Arc<ConnectionShared>,
     handed: HandedSlot,
 ) -> marathon_core::error::VendorResult<()> {
+    // D93 (round 11): set once the connection is marked dead. Its callers hear of the death at once, but the pump goes on
+    // draining until russh's session task has really ended (the read half's end) or the peer's CLOSE comes, and only
+    // then ends the command's receipt: until then russh may still send an exec it holds.
+    let mut dead = false;
     loop {
-        let message = tokio::select! {
-            biased;
-            _ = shared.wait_dead() => None,
-            message = read.wait() => message,
+        let message = if dead {
+            read.wait().await
+        } else {
+            tokio::select! {
+                biased;
+                _ = shared.wait_dead() => {
+                    dead = true;
+                    if let Some(target) = channel.upgrade() {
+                        target.finish(Err(shared.channel_failure()));
+                    }
+                    continue;
+                }
+                message = read.wait() => message,
+            }
         };
         // A peer that has not answered the CLOSE of a dropped channel may still send: keep draining until it answers
         // or the transport ends, so that russh's queue never holds up the connection.
@@ -661,7 +678,11 @@ async fn writer(
                         #[cfg(feature = "test-support")]
                         {
                             let pause = OUTBOUND_PAUSE.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                            if let Some(paused) = pause.and_then(|pause| pause(&command)) {
+                            let dying = shared.clone();
+                            let die: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |why| {
+                                dying.die(SshFailure::connection(DisconnectReason::ConnectionLost, why));
+                            });
+                            if let Some(paused) = pause.and_then(|pause| pause(&command, die)) {
                                 paused.await;
                             }
                         }

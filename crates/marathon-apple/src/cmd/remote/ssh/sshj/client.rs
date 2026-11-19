@@ -32,6 +32,19 @@ use tokio::sync::{OwnedSemaphorePermit, oneshot, watch};
 pub type SshFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, SshFailure>> + Send + 'a>>;
 
 /// sshj `Connection.getTimeoutMs()` / `Transport.getTimeoutMs()`.
+/// Test support: what holds a dead connection's DISCONNECT (by the death's message) before it is handed to russh, as a
+/// DISCONNECT queued behind a stalled key exchange is held.
+#[cfg(feature = "test-support")]
+pub type DisconnectHold =
+    std::sync::Arc<dyn Fn(&str) -> Option<std::pin::Pin<Box<dyn Future<Output = ()> + Send>>> + Send + Sync>;
+#[cfg(feature = "test-support")]
+static DISCONNECT_HOLD: std::sync::Mutex<Option<DisconnectHold>> = std::sync::Mutex::new(None);
+/// Test support, D93 (round 11): holds the DISCONNECT of the connections whose death `hold` picks, keeping russh's session
+/// (and so the transport) running after the connection was marked dead. `None` removes it.
+#[cfg(feature = "test-support")]
+pub fn hold_disconnect(hold: Option<DisconnectHold>) {
+    *DISCONNECT_HOLD.lock().unwrap_or_else(|e| e.into_inner()) = hold;
+}
 pub const TIMEOUT_MILLIS: i64 = 30_000;
 /// D87: the most a worker command limited to `timeout_millis` can take before it has ended: opening its SSH channel and
 /// the acknowledgment of its exec, each within [`TIMEOUT_MILLIS`]; its own timeout; then D30's escalation (TERM, KILL
@@ -610,6 +623,13 @@ impl SshClient for RusshClient {
                 if !reaper_shared.received_disconnect.load(Ordering::SeqCst) {
                     let cause = reaper_shared.death().unwrap_or_default_failure();
                     let message = cause.message().unwrap_or_default();
+                    #[cfg(feature = "test-support")]
+                    {
+                        let hold = DISCONNECT_HOLD.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                        if let Some(held) = hold.and_then(|hold| hold(&message)) {
+                            held.await;
+                        }
+                    }
                     let _ = reaper.disconnect(wire_reason(cause.reason), &message).await;
                 }
                 Ok(())
