@@ -492,6 +492,19 @@ class EvidenceTests(unittest.TestCase):
             with self.subTest(present=present), self.assertRaisesRegex(e.Invalid, 'sshpass warning'):
                 vc.normalize(data, {}, 'native', 'stderr', {vc.SSHPASS_FACT: present})
 
+    def test_d96_rejects_a_stale_native_sshpass_warning_and_preserves_other_stderr(self):
+        import vendor_console as vc
+        quiet = b'other stderr\n'
+        warned = vc.SSHPASS_WARNING.encode() + quiet
+        for present in (True, False):
+            facts = {vc.SSHPASS_FACT: present}
+            self.assertEqual(vc.normalize(quiet, {}, 'native', 'stderr', facts, d96_askpass=True), quiet)
+            with self.assertRaisesRegex(e.Invalid, 'legacy sshpass warning in D96'):
+                vc.normalize(warned, {}, 'native', 'stderr', facts, d96_askpass=True)
+        data = (vc.SLF4J + vc.SSHPASS_WARNING).encode()
+        with self.assertRaisesRegex(e.Invalid, 'must be native'):
+            vc.normalize(data, {}, 'jvm', 'stderr', d96_askpass=True)
+
     def test_artifact_queue_wait_moves_only_within_its_admission_window(self):
         import vendor_console as vc
         values = dict(sandbox='/sandbox', safe_serial='SAFE', serial='SERIAL', port='1')
@@ -1035,6 +1048,14 @@ class VendorEvidenceTests(unittest.TestCase):
         import vendor_transport as t
         if record['implementation'] != 'native' or not e.may_withhold(directory, record):
             return
+        import vendor_console as vc
+        stderr = next(r for r in record['entries'] if r['path'] == 'stderr')
+        previous = e.payload(directory, stderr, record)
+        current = previous.replace(vc.SSHPASS_WARNING.encode(), b'', 1)
+        if current != previous:
+            (directory / 'blobs' / stderr['sha256']).unlink()
+            stderr.update(sha256=e.sha(current), size=len(current))
+            e.save_payload(directory, stderr['sha256'], current, record)
         row = next(r for r in record['entries'] if r['path'] == 'host-argv.jsonl')
         rows = [json.loads(line) for line in e.payload(directory, row, record).splitlines()]
         for argv in rows:

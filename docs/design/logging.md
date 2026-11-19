@@ -265,6 +265,9 @@ pinned by `marathon-logging`'s
 `known_hosts_warns_in_every_configurator_with_debug_off` and by the
 directive inventories.
 
+`marathon_apple::cmd::remote::rsync::password` keeps the once-per-run warning for
+legacy password transport visible when cleanup cannot cover its separate session.
+
 `marathon_apple::batch_outcome` explains an Apple batch with no finished, failed
 or ignored test result, because diagnosing an all-incomplete batch must not
 require a debug rerun. Once result listeners and session stop have finished, the

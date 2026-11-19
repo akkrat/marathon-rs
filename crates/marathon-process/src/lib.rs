@@ -1,5 +1,6 @@
 //! Run-owned local processes on Linux and macOS.
 
+pub mod askpass;
 mod group;
 mod reaper;
 mod registry;

@@ -2,7 +2,7 @@
 
 use marathon_logging::{Component, Level};
 
-use super::RsyncTarget;
+use super::{RsyncTarget, password};
 use crate::cmd::{
     FileBridge, SessionScope, TransferStop, TransferStopped, blocking, failure, io_error,
     remote::ssh::sshj::config::SshLogging, retained_tasks::RetainedTasks, stall_record::StallRecord,
@@ -14,13 +14,14 @@ use marathon_core::{
     runtime::{CancellationSignal, VendorClock, VendorFuture, VendorRuntime},
 };
 use marathon_error::{AppleKind, FailureKind};
-use marathon_process::{Child, Command};
+use marathon_process::{Child, Command, askpass};
 use std::{
+    ffi::OsStr,
     path::{Path, PathBuf},
     process::{ExitStatus, Stdio},
     sync::{
         Arc, Mutex, OnceLock,
-        atomic::{AtomicI64, AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicI64, AtomicU8, Ordering},
     },
 };
 use tokio::{
@@ -89,7 +90,7 @@ struct Inner {
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BlockingCall {
-    /// Looking for rsync, ssh, ssh-keygen and sshpass.
+    /// Looking for rsync, ssh and ssh-keygen.
     Probe,
     /// Starting rsync.
     SpawnRsync,
@@ -183,7 +184,7 @@ impl RsyncFileBridge {
                         .process(
                             vec![rsync_program(), "--version".into(), "/tmp".into(), "/tmp".into()],
                             None,
-                            false,
+                            None,
                             &Stopping::new(None),
                             None,
                             None,
@@ -253,7 +254,7 @@ impl RsyncFileBridge {
     pub fn on_blocking_call(&self, hook: Arc<dyn Fn(BlockingCall) + Send + Sync>) {
         let _ = self.0.hook.set(hook);
     }
-    /// Exact host argv, useful to consumers recording transport evidence.
+    /// The rsync argv before the launcher selects the host password transport.
     pub fn arguments(&self, source: String, destination: String) -> VendorResult<Vec<String>> {
         self.0.arguments(source, destination)
     }
@@ -261,8 +262,6 @@ impl RsyncFileBridge {
 #[derive(Clone)]
 struct BinaryPaths {
     rsync: String,
-    sshpass: String,
-    sshpass_missing: bool,
 }
 // rsync4j's Binaries caches discovery per process, independently of bridge instances. D91: the look runs on a blocking
 // thread, and whoever waits for it waits asynchronously, within its own stop; nothing holds a lock while it looks, so a
@@ -277,15 +276,8 @@ fn rsync_program() -> String {
         .map(|p| p.rsync.clone())
         .unwrap_or_else(|| executable("RSYNC4J_RSYNC", "/usr/bin/rsync"))
 }
-fn sshpass_program() -> String {
-    BINARIES
-        .get()
-        .map(|p| p.sshpass.clone())
-        .unwrap_or_else(|| executable("RSYNC4J_SSHPASS", "/usr/bin/sshpass"))
-}
 fn probe_binaries() -> VendorResult<BinaryPaths> {
     let rsync = executable("RSYNC4J_RSYNC", "/usr/bin/rsync");
-    let sshpass = executable("RSYNC4J_SSHPASS", "/usr/bin/sshpass");
     for (name, variable, path) in [
         ("rsync", "RSYNC4J_RSYNC", rsync.clone()),
         ("ssh", "RSYNC4J_SSH", executable("RSYNC4J_SSH", "/usr/bin/ssh")),
@@ -304,31 +296,11 @@ fn probe_binaries() -> VendorResult<BinaryPaths> {
             )));
         }
     }
-    let sshpass_missing = !Path::new(&sshpass).exists();
-    Ok(BinaryPaths {
-        rsync,
-        sshpass,
-        sshpass_missing,
-    })
+    Ok(BinaryPaths { rsync })
 }
-/// rsync4j's warning when `sshpass` is missing, the line the differential comparison expects once on stderr (U123). D91:
-/// written once, after the look has been published, from a thread of its own, so that a stderr nobody reads holds up
-/// neither the look nor any transfer.
-fn warn_sshpass_missing(sshpass: &str) {
-    static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if WARNED.swap(true, Ordering::AcqRel) {
-        return;
-    }
-    let text = format!(
-        "WARNING: sshpass binary not installed? Was looking for '{sshpass}'. You can use environment variable RSYNC4J_SSHPASS to point to the binary.\n"
-    );
-    let _ = std::thread::Builder::new()
-        .name("rsync4j-warning".into())
-        .spawn(move || {
-            use std::io::Write;
-            let _ = std::io::stderr().write_all(text.as_bytes());
-        });
-}
+
+static WARNED_LEGACY_PASSWORD: AtomicBool = AtomicBool::new(false);
+
 /// D91: one start of rsync, from its admission to its commit. `phase` is where the starting thread is; `REFUSED` is set by
 /// the transfer that gives up waiting for it, or with `DOOMED` by the quarantine of its destination. Whichever comes
 /// first decides: a start that is refused before it begins never begins, and one refused after is killed at its commit.
@@ -383,14 +355,7 @@ impl Inner {
                 "rsync bridge needs ssh auth",
             ))
         })?;
-        let mut args = Vec::new();
-        if let SshAuthentication::Password { password, .. } = auth {
-            args.push(sshpass_program());
-            if !password.to_owned().is_empty() {
-                args.extend(["-p".into(), password.to_owned()]);
-            }
-        }
-        args.push(rsync_program());
+        let mut args = vec![rsync_program()];
         if self.debug {
             args.push("--verbose".into());
         }
@@ -442,7 +407,7 @@ impl Inner {
         ]);
         Ok(args)
     }
-    /// `arriving` is where a receive's bytes land; `wrapped` says the process is `sshpass`. D91: every wait is a step of
+    /// `arriving` is where a receive's bytes land. D91: every wait is a step of
     /// `stopping`'s (`Bound::run`), so a stop that comes at any point, before rsync starts, while it runs, while a stall is
     /// being ended or while its output is read, takes the transfer to the stop's cleanup within its deadline. rsync starts
     /// only if neither a stop nor the quarantine of `place` came first, checked under the quarantine's lock. `unconfirmed`
@@ -452,7 +417,7 @@ impl Inner {
         &self,
         argv: Vec<String>,
         arriving: Option<Arriving>,
-        wrapped: bool,
+        password: Option<String>,
         stopping: &Arc<Stopping>,
         cancelled: Option<Box<dyn Fn() -> Option<Cancellation> + Send>>,
         place: Option<String>,
@@ -488,12 +453,25 @@ impl Inner {
         };
         match bound.run(None, None, true, probe).await {
             Step::Done(result) => {
-                let paths = result?;
-                if paths.sshpass_missing {
-                    warn_sshpass_missing(&paths.sshpass);
-                }
+                result?;
             }
             Step::Stopped | Step::Expired => return Ok(not_started()),
+        }
+        let wrapped = if password.is_some() {
+            match bound
+                .run(None, None, true, password::supports_forced_askpass(&self.runtime))
+                .await
+            {
+                Step::Done(supported) => !supported,
+                Step::Stopped | Step::Expired => return Ok(not_started()),
+            }
+        } else {
+            false
+        };
+        if wrapped && !WARNED_LEGACY_PASSWORD.swap(true, Ordering::Relaxed) {
+            self.logging.log(&self.logging.component("marathon_apple::cmd::remote::rsync::password"), Level::WARN, ||
+                "Local ssh does not report OpenSSH 8.4 or newer. Password rsync uses sshpass and leftover-process containment is reduced.".into(),
+                None);
         }
         // D91: admitted in one short check under the admission lock (no stop, no quarantine), with a ticket for the start
         // that the quarantine can refuse; rsync then starts outside the lock.
@@ -531,9 +509,33 @@ impl Inner {
                 return Ok(None);
             }
             hook.call(BlockingCall::SpawnRsync);
-            // Killed if it is ever dropped unreaped: when its end could not be confirmed, or its start came too late.
-            let child = Command::new(&argv[0])
-                .args(&argv[1..])
+            let (mut command, helper) = match (password, wrapped) {
+                (Some(password), true) => {
+                    let mut command = Command::new(executable("RSYNC4J_SSHPASS", "/usr/bin/sshpass"));
+                    command
+                        .arg("-e")
+                        .args(&argv)
+                        .envs([("SSHPASS", password.as_str()), ("SSH_ASKPASS_REQUIRE", "never")]);
+                    (command, None)
+                }
+                (Some(password), false) => {
+                    let helper = password::Helper::new().map_err(io_error)?;
+                    let mut command = Command::new(&argv[0]);
+                    command.args(&argv[1..]).envs([
+                        ("SSH_ASKPASS", helper.path().as_os_str()),
+                        ("SSH_ASKPASS_REQUIRE", OsStr::new("force")),
+                        ("SSH_ASKPASS_PROMPT", OsStr::new("")),
+                        (askpass::PASSWORD_ENV, OsStr::new(&password)),
+                    ]);
+                    (command, Some(helper))
+                }
+                (None, _) => {
+                    let mut command = Command::new(&argv[0]);
+                    command.args(&argv[1..]);
+                    (command, None)
+                }
+            };
+            let child = command
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -542,7 +544,7 @@ impl Inner {
             let started = clock.now_millis();
             let pid = child.id();
             let spawned = if starting.commit() {
-                Some((child, started))
+                Some((child, helper, started))
             } else {
                 drop(child);
                 None
@@ -561,7 +563,7 @@ impl Inner {
             .unwrap_or_else(|e| e.into_inner())
             .starting
             .retain(|(_, started)| !Arc::ptr_eq(started, &ticket));
-        let (mut child, started) = match step {
+        let (mut child, _askpass, started) = match step {
             Step::Done(spawned) => match spawned? {
                 Some(spawned) => spawned,
                 None if ticket.doomed() => return Ok(Outcome::quarantined()),
@@ -1023,7 +1025,10 @@ impl Inner {
             .process(
                 self.arguments(source.clone(), destination.clone())?,
                 arriving,
-                matches!(self.auth, Some(SshAuthentication::Password { .. })),
+                match &self.auth {
+                    Some(SshAuthentication::Password { password, .. }) => Some(password.to_owned()),
+                    _ => None,
+                },
                 stopping,
                 Some(Box::new(move || cancelled())),
                 Some(place.clone()),

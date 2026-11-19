@@ -17,15 +17,17 @@ SSHPASS_WARNING = (f"WARNING: sshpass binary not installed? Was looking for '{SS
                    'You can use environment variable RSYNC4J_SSHPASS to point to the binary.\n')
 
 
-def normalize(data, values, implementation, stream, facts=None):
+def normalize(data, values, implementation, stream, facts=None, *, d96_askpass=False):
     text = data.decode('utf-8')
     if stream == 'stderr':
         if implementation == 'jvm':
             e.require(text.count(SLF4J) == 1,'missing/duplicate JVM provider line')
             text = text.replace(SLF4J,'',1)
-        if facts is not None and SSHPASS_FACT in facts:
-            # Both implementations warn exactly when the capture host lacks the default sshpass; the
-            # JVM goldens come from such a host, a hosted Linux runner has one.
+        if d96_askpass:
+            # The old diagnostic was unconditional. D96 checks for sshpass only when password auth needs a fallback.
+            e.require(implementation == 'native', 'D96 askpass evidence must be native')
+            e.require(SSHPASS_WARNING not in text, 'legacy sshpass warning in D96 native evidence')
+        elif facts is not None and SSHPASS_FACT in facts:
             missing = not facts[SSHPASS_FACT]
             e.require(text.count(SSHPASS_WARNING) == int(missing), 'sshpass warning does not match the capture host')
             text = text.replace(SSHPASS_WARNING, '', 1)

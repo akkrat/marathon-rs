@@ -696,7 +696,9 @@ def normalized(directory, contract, native=False):
                     if native:
                         console = contract_console(data, record['identities'])
                     else:
-                        console = vendor_console.normalize(data,record['identities'],record['implementation'],name,facts)
+                        console = vendor_console.normalize(
+                            data,record['identities'],record['implementation'],name,facts,
+                            d96_askpass=contract['transport'] == 'ssh' and not may_withhold(directory,record))
                     content = base64.b64encode(console).decode()
                 elif name == 'host-argv.jsonl':
                     content = vendor_transport.host_argv(

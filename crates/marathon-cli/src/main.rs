@@ -38,6 +38,9 @@ fn stdout_target() -> OutputTarget {
 
 #[allow(unsafe_code)]
 fn main() -> ExitCode {
+    if let Some(status) = marathon_process::askpass::enter() {
+        return status;
+    }
     // SAFETY: main has not created threads or installed signal handlers.
     if let Err(error) = unsafe { marathon_process::start_reaper() } {
         // Startup diagnostics must leave stdout available for machine-readable CLI output.

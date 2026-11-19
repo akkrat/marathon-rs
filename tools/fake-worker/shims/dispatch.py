@@ -11,8 +11,12 @@ args = sys.argv[2:]
 real = pathlib.Path(os.environ['FW_REAL_' + name.upper()]).resolve(strict=True)
 if not real.is_absolute() or real.parent == pathlib.Path(__file__).resolve().parent:
     raise SystemExit('real binary must be an explicit non-shim path')
-if name == 'sshpass' and ('-p' not in args or args[args.index('-p') + 1] not in ('fake-password', 'wrong-fixture-password')):
-    raise SystemExit('only labelled fixture passwords may be recorded')
+if name == 'ssh' and args == ['-V']:
+    os.execv(real, [str(real), '-V'])
+if name == 'sshpass':
+    password = os.environ.get('SSHPASS') if args[:1] == ['-e'] else args[args.index('-p') + 1] if '-p' in args else None
+    if password not in ('fake-password', 'wrong-fixture-password'):
+        raise SystemExit('only labelled fixture passwords may be used')
 extra = []
 if name == 'ssh':
     protected = {'userknownhostsfile', 'globalknownhostsfile', 'updatehostkeys', 'identityagent', 'identitiesonly'}

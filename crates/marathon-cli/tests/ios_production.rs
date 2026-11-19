@@ -35,12 +35,13 @@ fn bundle(root: &Path, name: &str, extension: &str) -> Result {
 async fn built_binary_runs_and_parses_ios_through_real_ssh_provider_parser_and_listeners() -> Result {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut evidence = Vec::new();
-    for (kind, parse) in [
-        ("iOS", false),
-        ("iOS", true),
-        ("watchOS", true),
-        ("tvOS", true),
-        ("visionOS", true),
+    for (kind, parse, password) in [
+        ("iOS", false, false),
+        ("iOS", true, false),
+        ("watchOS", true, false),
+        ("tvOS", true, false),
+        ("visionOS", true, false),
+        ("iOS", false, true),
     ] {
         let dir = tempfile::tempdir()?;
         let root = dir.path();
@@ -70,10 +71,10 @@ async fn built_binary_runs_and_parses_ios_through_real_ssh_provider_parser_and_l
                 host_key: host,
                 auth: AuthPolicy {
                     user: "fixture".into(),
-                    password: None,
-                    authorized_keys: vec![root.join("key.pub")],
+                    password: password.then(|| "fake-password".into()),
+                    authorized_keys: if password { vec![] } else { vec![root.join("key.pub")] },
                     keyboard_interactive: false,
-                    password_auth: false,
+                    password_auth: password,
                 },
                 max_sessions: 32,
                 rsync_binary: "/usr/bin/rsync".into(),
@@ -93,15 +94,38 @@ async fn built_binary_runs_and_parses_ios_through_real_ssh_provider_parser_and_l
                 "workers:\n- transport: {{type: ssh, addr: 127.0.0.1, port: {port}, checkReachability: false}}\n  devices: [{{type: simulator, udid: {UDID}}}]\n"
             ),
         )?;
+        let authentication = if password {
+            "{type: password, username: fixture, password: fake-password}".to_owned()
+        } else {
+            format!("{{type: publicKey, username: fixture, key: '{}'}}", auth.display())
+        };
         std::fs::write(
             root.join("Marathonfile"),
             format!(
-                "name: ios-cli\noutputDir: report\ndebug: true\nanalyticsTracking: false\nbugsnagReporting: false\nuncompletedTestRetryQuota: 0\nretryStrategy: {{type: no-retry}}\nvendorConfiguration:\n  type: {kind}\n  bundle:\n    application: App.app\n    testApplication: Tests.xctest\n    testType: xctest\n  ssh:\n    authentication: {{type: publicKey, username: fixture, key: '{}'}}\n    keepAliveInterval: PT0S\n  lifecycle:\n    shutdownUnused: false\n    onPrepare: []\n    onDispose: [SHUTDOWN]\n  deviceLog: true\n  xcresult:\n    pullingPolicy: NEVER\n  screenRecordConfiguration:\n    videoConfiguration:\n      enabled: false\n      transcoding: {{enabled: false}}\n    screenshotConfiguration: {{enabled: false}}\n",
-                auth.display()
+                "name: ios-cli\noutputDir: report\ndebug: true\nanalyticsTracking: false\nbugsnagReporting: false\nuncompletedTestRetryQuota: 0\nretryStrategy: {{type: no-retry}}\nvendorConfiguration:\n  type: {kind}\n  bundle:\n    application: App.app\n    testApplication: Tests.xctest\n    testType: xctest\n  ssh:\n    authentication: {authentication}\n    keepAliveInterval: PT0S\n  lifecycle:\n    shutdownUnused: false\n    onPrepare: []\n    onDispose: [SHUTDOWN]\n  deviceLog: true\n  xcresult:\n    pullingPolicy: NEVER\n  screenRecordConfiguration:\n    videoConfiguration:\n      enabled: false\n      transcoding: {{enabled: false}}\n    screenshotConfiguration: {{enabled: false}}\n",
             ),
         )?;
         let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_marathon"));
-        command.current_dir(root).kill_on_drop(true);
+        command
+            .current_dir(root)
+            .kill_on_drop(true)
+            .env("FW_REAL_SSH", "/usr/bin/ssh")
+            .env("FW_ARGV_LOG", root.join("host-argv.jsonl"))
+            .env_remove("FW_USE_FIXTURE_ASKPASS")
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    repo.join("tools/fake-worker/shims").display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            );
+        if password {
+            command
+                .env("RSYNC4J_SSHPASS", "/missing-fixture-sshpass")
+                .env_remove("DISPLAY")
+                .env_remove("WAYLAND_DISPLAY");
+        }
         if parse {
             command.args(["parse", "-o", "parsed"]);
         }
@@ -126,7 +150,7 @@ async fn built_binary_runs_and_parses_ios_through_real_ssh_provider_parser_and_l
         worker.shutdown().await.map_err(|e| e.to_string())?;
         assert!(
             output.status.success(),
-            "parse={parse}; status={:?}\n{text}\n{errors}\n{transcript}",
+            "parse={parse}; password={password}; status={:?}\n{text}\n{errors}\n{transcript}",
             output.status.code()
         );
         assert!(!errors.contains("not supported by this build yet"));
@@ -154,7 +178,9 @@ async fn built_binary_runs_and_parses_ios_through_real_ssh_provider_parser_and_l
         } else {
             assert!(state["sessions"].as_array().is_some_and(Vec::is_empty));
         }
-        evidence.push(serde_json::json!({"vendor":kind,"argv":if parse{vec!["parse","-o","parsed"]}else{vec![]},"exit":output.status.code(),"defaultNm":commands.contains("nm -gUj"),"batch":commands.contains("test-without-building"),"deviceLog":commands.contains("log stream --type log"),"shutdown":commands.contains("simctl shutdown"),"unmatched":0}));
+        if !password {
+            evidence.push(serde_json::json!({"vendor":kind,"argv":if parse{vec!["parse","-o","parsed"]}else{vec![]},"exit":output.status.code(),"defaultNm":commands.contains("nm -gUj"),"batch":commands.contains("test-without-building"),"deviceLog":commands.contains("log stream --type log"),"shutdown":commands.contains("simctl shutdown"),"unmatched":0}));
+        }
     }
     if let Some(path) = std::env::var_os("MRS55B_SMOKE_EVIDENCE") {
         std::fs::write(path, serde_json::to_vec_pretty(&evidence)?)?;

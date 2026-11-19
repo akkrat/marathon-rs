@@ -66,6 +66,19 @@ fn with_timeout<S: From<String> + PartialEq<&'static str>>(mut argv: Vec<S>) -> 
     argv.insert(times + 1, format!("--timeout={TRANSFER_IO_TIMEOUT_SECONDS}").into());
     argv
 }
+// D96 removes only the wrapper's recorded password and rsync executable operands.
+fn without_password_wrapper(mut argv: Vec<String>, password: &str) -> Vec<String> {
+    let count = if password.is_empty() {
+        assert_eq!(argv.first().map(String::as_str), Some("<shim>"));
+        1
+    } else {
+        assert_eq!(&argv[..3], ["-p", password, "<shim>"]);
+        3
+    };
+    argv.drain(..count);
+    argv
+}
+
 fn key(path: &str) -> SshAuthentication {
     SshAuthentication::PublicKey {
         username: "fixture".into(),
@@ -102,19 +115,18 @@ async fn host_argv_matches_the_actual_kotlin_wrapper_probe() {
                     } else {
                         ("<root>/src/".to_owned(), "127.0.0.1:/tmp/marathon/tree/".to_owned())
                     };
-                    let mut args = b.arguments(source, dest).unwrap();
-                    for arg in &mut args {
-                        if arg == "/usr/bin/rsync" || arg == "/usr/bin/sshpass" {
-                            *arg = "<shim>".into();
-                        }
-                    }
+                    let args = b.arguments(source, dest).unwrap();
                     let expected = rows[index]["argv"]
                         .as_array()
                         .unwrap()
                         .iter()
                         .map(|s| s.as_str().unwrap().to_owned())
                         .collect::<Vec<_>>();
-                    // The shim records argv after argv[0]; password records its executable rsync operand too.
+                    let expected = if is_key {
+                        expected
+                    } else {
+                        without_password_wrapper(expected, "fake-password")
+                    };
                     assert_eq!(&args[1..], with_timeout(expected));
                     index += 1;
                 }
@@ -154,20 +166,15 @@ async fn empty_options_match_the_actual_kotlin_wrapper_argv() {
                 } else {
                     ("<root>/src/", "127.0.0.1:/tmp/marathon/tree/")
                 };
-                let mut args = b.arguments(source.into(), dest.into()).unwrap();
-                assert_eq!(args[0], "/usr/bin/sshpass");
-                for arg in &mut args {
-                    if arg == "/usr/bin/rsync" {
-                        *arg = "<shim>".into();
-                    }
-                }
+                let args = b.arguments(source.into(), dest.into()).unwrap();
+                assert_eq!(args[0], "/usr/bin/rsync");
                 let expected: Vec<_> = rows[index]["argv"]
                     .as_array()
                     .unwrap()
                     .iter()
                     .map(|v| v.as_str().unwrap().to_owned())
                     .collect();
-                assert_eq!(args[1..], with_timeout(expected));
+                assert_eq!(args[1..], with_timeout(without_password_wrapper(expected, password)));
                 index += 1;
             }
         }
@@ -175,6 +182,15 @@ async fn empty_options_match_the_actual_kotlin_wrapper_argv() {
 }
 #[test]
 fn real_rsync_roundtrip_with_awaited_worker_shutdown() {
+    real_rsync_roundtrip(false);
+}
+
+#[test]
+fn real_rsync_password_roundtrip_with_askpass_d96() {
+    real_rsync_roundtrip(true);
+}
+
+fn real_rsync_roundtrip(password: bool) {
     if std::env::var_os("MRS43_RSYNC_CHILD").is_some() {
         return;
     }
@@ -184,21 +200,20 @@ fn real_rsync_roundtrip_with_awaited_worker_shutdown() {
         .canonicalize()
         .unwrap();
     let shims = root.join("tools/fake-worker/shims");
-    let result = std::process::Command::new(std::env::current_exe().unwrap())
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    if password {
+        command.env("MRS43_RSYNC_PASSWORD", "1");
+    }
+    let result = command
         .args(["--exact", "real_rsync_child", "--nocapture"])
         .env("MRS43_RSYNC_CHILD", dir.path())
         .env("RSYNC4J_RSYNC", shims.join("rsync"))
-        .env("RSYNC4J_SSHPASS", shims.join("sshpass"))
+        .env("RSYNC4J_SSHPASS", "/missing-fixture-sshpass")
         .env("FW_REAL_RSYNC", "/usr/bin/rsync")
         .env("FW_REAL_SSH", "/usr/bin/ssh")
-        .env(
-            "FW_REAL_SSHPASS",
-            if cfg!(target_os = "macos") {
-                "/opt/homebrew/bin/sshpass"
-            } else {
-                "/usr/bin/sshpass"
-            },
-        )
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("FW_USE_FIXTURE_ASKPASS")
         .env("FW_ARGV_LOG", dir.path().join("argv.jsonl"))
         .env(
             "PATH",
@@ -221,7 +236,13 @@ async fn real_rsync_child() {
         return;
     };
     let root = std::path::PathBuf::from(root);
-    let fake = ssh::fake(ssh::suite_script(), 8).await;
+    let password = std::env::var_os("MRS43_RSYNC_PASSWORD").is_some();
+    let fake = ssh::fake_with(ssh::suite_script(), 8, |config| {
+        if password {
+            config.auth.authorized_keys.clear();
+        }
+    })
+    .await;
     let port = i32::from(fake.port());
     fake.worker.fs.mkdir("/tmp/marathon/tree").await.unwrap();
     let private = root.join("client-key");
@@ -244,8 +265,19 @@ async fn real_rsync_child() {
     .unwrap();
     std::os::unix::fs::symlink("sub/hello", src.join("link")).unwrap();
     let (logging, events) = ssh::logging(true);
-    let b = bridge(Some(key(private.to_str().unwrap())), true, true, 1500, port, logging).await;
-    assert!(b.send(&src, "/tmp/marathon/tree/").await.unwrap());
+    let auth = if password {
+        SshAuthentication::Password {
+            username: "fixture".into(),
+            password: "fake-password".into(),
+        }
+    } else {
+        key(private.to_str().unwrap())
+    };
+    let b = bridge(Some(auth), true, true, 1500, port, logging).await;
+    let sent = tokio::time::timeout(std::time::Duration::from_secs(60), b.send(&src, "/tmp/marathon/tree/"))
+        .await
+        .expect("askpass roundtrip did not finish");
+    assert_eq!(sent, Ok(true), "{:?}", ssh::lines(&events));
     fake.worker
         .fs
         .write("/tmp/marathon/tree/stale", b"stale".to_vec(), 0o600)
@@ -599,6 +631,7 @@ struct StalledSend<'a> {
     root: &'a Path,
     extra_path: Option<&'a Path>,
     sshpass: Option<&'a Path>,
+    password: bool,
     factor: i64,
     /// How fast the bridge's clock says time passes, if not `factor`: faster, for a bridge whose delays come late.
     elapsed_factor: Option<i64>,
@@ -616,6 +649,7 @@ impl<'a> StalledSend<'a> {
             root,
             extra_path: None,
             sshpass: None,
+            password: false,
             factor: 100,
             elapsed_factor: None,
             silent_peer: false,
@@ -637,6 +671,7 @@ fn run_stalled_send(run: StalledSend) {
         root,
         extra_path,
         sshpass,
+        password,
         factor,
         elapsed_factor,
         silent_peer,
@@ -659,14 +694,27 @@ fn run_stalled_send(run: StalledSend) {
     if let Some(elapsed) = elapsed_factor {
         command.env("MRS_D31_ELAPSED_FACTOR", elapsed.to_string());
     }
+    let inherited = std::env::var("PATH").unwrap_or_default();
+    let path = extra_path.map_or_else(|| inherited.clone(), |path| format!("{}:{inherited}", path.display()));
     if let Some(sshpass) = sshpass {
-        command.env("RSYNC4J_SSHPASS", sshpass).env("MRS_D31_PASSWORD", "1");
-    }
-    if let Some(path) = extra_path {
-        command.env(
-            "PATH",
-            format!("{}:{}", path.display(), std::env::var("PATH").unwrap_or_default()),
+        let old = root.join("legacy-ssh");
+        std::fs::create_dir_all(&old).unwrap();
+        script(
+            &old.join("ssh"),
+            "#!/bin/sh\nif [ \"$1\" = -V ]; then echo probe >> \"$MRS_D31_ROOT/ssh-probes\"; echo OpenSSH_8.3p1 >&2; exit 0; fi\nPATH=\"$MRS_LEGACY_SSH_PATH\"; export PATH\nexec ssh \"$@\"\n",
         );
+        command
+            .env("RSYNC4J_SSHPASS", sshpass)
+            .env("MRS_D31_PASSWORD", "1")
+            .env("MRS_LEGACY_SSH_PATH", &path)
+            .env("PATH", format!("{}:{path}", old.display()));
+    } else {
+        command.env("PATH", path);
+        if password {
+            command
+                .env("MRS_D31_PASSWORD", "1")
+                .env("RSYNC4J_SSHPASS", "/missing-fixture-sshpass");
+        }
     }
     // Into a file and under a deadline: a regression here leaves the child stuck, and it must fail, not hang the suite.
     let log = root.join("child.log");
@@ -980,10 +1028,10 @@ fn a_failed_send_without_a_stall_report_keeps_its_message_and_stderr_d31() {
 }
 /// What `sshpass` 1.06 does on TERM, measured with the real one: it exits at once, and rsync and ssh stay. See the real test.
 /// Left alone, it exits with rsync's status.
-const FAKE_SSHPASS: &str = "#!/bin/bash\nshift 2\ntrap 'exit 143' TERM\n\"$@\" &\nwait $!\n";
+const FAKE_SSHPASS: &str = "#!/bin/bash\ntest \"$1\" = -e && test \"$SSHPASS\" = fake-password || exit 94\nshift\ntrap 'exit 143' TERM\n\"$@\" &\nwait $!\n";
 /// U181: what `sshpass` 1.10 does on TERM before ssh has prompted, measured with the real one: it exits 0 at once, whatever
 /// rsync does.
-const SSHPASS_1_10: &str = "#!/bin/bash\nshift 2\ntrap 'exit 0' TERM\n\"$@\" &\nwait $!\n";
+const SSHPASS_1_10: &str = "#!/bin/bash\ntest \"$1\" = -e && test \"$SSHPASS\" = fake-password || exit 94\nshift\ntrap 'exit 0' TERM\n\"$@\" &\nwait $!\n";
 #[test]
 fn a_stalled_send_under_sshpass_1_10_is_still_a_stall_u181() {
     let dir = tempfile::tempdir().unwrap();
@@ -1163,6 +1211,102 @@ exec {} "${{args[@]}}"
 fn the_real_rsync_gives_up_on_a_hung_ssh_d31() {
     real_rsync_with_a_hung_ssh(None, "stalled_send_runs");
 }
+#[test]
+fn askpass_keeps_the_real_rsync_and_ssh_in_the_group_d96() {
+    for mode in ["term", "kill"] {
+        let root = tempfile::tempdir().unwrap();
+        let bin = root.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let program = bin.join("rsync");
+        script(
+            &program,
+            "#!/bin/sh\nprintf '%s\\n' \"$$\" > \"$MRS_D31_ROOT/pid\"\nexec /usr/bin/rsync \"$@\"\n",
+        );
+        script(
+            &bin.join("ssh"),
+            "#!/bin/sh\nif [ \"$1\" != -V ]; then printf '%s\\n' \"$$\" > \"$MRS_D31_ROOT/ssh-pid\"; fi\nexec /usr/bin/ssh \"$@\"\n",
+        );
+        run_stalled_send(StalledSend {
+            extra_path: Some(&bin),
+            password: true,
+            silent_peer: true,
+            child: "stop_real_askpass_transfer",
+            ..StalledSend::new(mode, &program, root.path())
+        });
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stop_real_askpass_transfer() {
+    use marathon_apple::cmd::{TransferCleanup, TransferReceipt, TransferStop};
+    use nix::{
+        errno::Errno,
+        sys::signal::{Signal, kill, killpg},
+        unistd::{Pid, getpgid},
+    };
+    let Ok(mode) = std::env::var("MRS_D31_MODE") else {
+        return;
+    };
+    let root = std::path::PathBuf::from(std::env::var_os("MRS_D31_ROOT").unwrap());
+    let source = root.join("source");
+    std::fs::write(&source, b"fixture").unwrap();
+    let (bridge, silent_peer) = stalled_bridge(ssh::logging(false).0).await;
+    let listener = silent_peer.unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+    let receipt = TransferReceipt::new();
+    let owned = receipt.clone();
+    let mut transfer = tokio::spawn(async move {
+        bridge
+            .send_with(&source, "/tmp/marathon/stuck", TransferStop::never().owned_by(owned))
+            .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(60), async move {
+        let (_peer, _) = tokio::select! {
+            accepted = listener.accept() => accepted.unwrap(),
+            result = &mut transfer => panic!("transfer ended before SSH connected: {result:?}"),
+        };
+        let read_pid = |file| {
+            Pid::from_raw(
+                std::fs::read_to_string(root.join(file))
+                    .unwrap()
+                    .trim()
+                    .parse()
+                    .unwrap(),
+            )
+        };
+        let rsync = read_pid("pid");
+        let ssh = read_pid("ssh-pid");
+        assert_eq!(getpgid(Some(rsync)), Ok(rsync));
+        assert_eq!(getpgid(Some(ssh)), Ok(rsync));
+        if mode == "kill" {
+            killpg(rsync, Signal::SIGSTOP).unwrap();
+            for pid in [rsync, ssh] {
+                loop {
+                    let state = tokio::process::Command::new("ps")
+                        .args(["-o", "stat=", "-p", &pid.to_string()])
+                        .output()
+                        .await
+                        .unwrap();
+                    assert!(state.status.success(), "process {pid} died before stop");
+                    if state.stdout.trim_ascii_start().starts_with(b"T") {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            }
+        }
+        let reason = marathon_apple::cmd::cancelled("end the transfer");
+        receipt.stop(reason.clone(), None);
+        assert_eq!(transfer.await.unwrap(), Err(VendorError::Cancelled(reason)));
+        assert_eq!(receipt.ended(), Some(TransferCleanup::Confirmed));
+        assert_eq!(kill(rsync, None), Err(Errno::ESRCH));
+        assert_eq!(kill(ssh, None), Err(Errno::ESRCH));
+    })
+    .await
+    .unwrap();
+}
+
 /// The `sshpass` on this host's `PATH`, so that a build of another version can be tried, else Homebrew's.
 fn real_sshpass() -> Option<std::path::PathBuf> {
     real_tool("sshpass")
@@ -1677,7 +1821,7 @@ async fn throttled_listener(upstream: u16, throttle: Throttle) -> u16 {
 /// One real pull in a child process, since rsync's path is process-wide. `io_timeout` is the host rsync's `--timeout` on a
 /// stalled run: `bin/rsync` asks for it and `bin/ssh` gives the worker back the 300 an rsync 3 passes on, which is all its
 /// router allows.
-fn real_pull(sshpass: bool, io_timeout: Option<u32>) {
+fn real_pull(password: bool, io_timeout: Option<u32>) {
     let shims = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tools/fake-worker/shims")
         .canonicalize()
@@ -1692,11 +1836,6 @@ fn real_pull(sshpass: bool, io_timeout: Option<u32>) {
         eprintln!("skipped: this host has no /usr/bin/ssh and /usr/bin/ssh-keygen");
         return;
     };
-    let real_password = real_sshpass();
-    if sshpass && real_password.is_none() {
-        eprintln!("skipped: no sshpass on this host");
-        return;
-    }
     let dir = tempfile::tempdir().unwrap();
     let bin = dir.path().join("bin");
     std::fs::create_dir(&bin).unwrap();
@@ -1737,7 +1876,10 @@ exec {} "${{args[@]}}"
         .env("MRS_D43_ROOT", dir.path())
         .env("MRS_D31_ROOT", dir.path())
         .env("RSYNC4J_RSYNC", &program)
-        .env("RSYNC4J_SSHPASS", shims.join("sshpass"))
+        .env("RSYNC4J_SSHPASS", "/missing-fixture-sshpass")
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("FW_USE_FIXTURE_ASKPASS")
         .env("FW_REAL_RSYNC", real_rsync)
         .env("FW_REAL_SSH", real_ssh)
         .env("FW_ARGV_LOG", dir.path().join("argv.jsonl"))
@@ -1750,10 +1892,7 @@ exec {} "${{args[@]}}"
                 std::env::var("PATH").unwrap_or_default()
             ),
         );
-    if let Some(path) = real_password {
-        command.env("FW_REAL_SSHPASS", path);
-    }
-    if sshpass {
+    if password {
         command.env("MRS_D43_PASSWORD", "1");
     }
     if io_timeout.is_some() {
@@ -1768,14 +1907,14 @@ exec {} "${{args[@]}}"
     );
     let argv = std::fs::read_to_string(dir.path().join("argv.jsonl")).unwrap();
     assert!(argv.contains("--timeout="), "{argv}");
-    assert_eq!(argv.contains("sshpass"), sshpass, "{argv}");
+    assert!(!argv.contains("sshpass"), "{argv}");
 }
 #[test]
 fn a_pull_longer_than_the_old_deadline_finishes_while_it_moves_d43() {
     real_pull(false, None);
 }
 #[test]
-fn a_pull_longer_than_the_old_deadline_finishes_under_sshpass_while_it_moves_d43() {
+fn a_pull_longer_than_the_old_deadline_finishes_with_askpass_while_it_moves_d43() {
     real_pull(true, None);
 }
 /// x50: the host rsync's `--timeout` on a stalled pull. The worker's rsync is `/usr/bin/rsync`, which on macOS is
@@ -1790,7 +1929,7 @@ fn a_stalled_pull_does_not_expose_its_partial_file_d97() {
     real_pull(false, Some(STALLED_PULL_TIMEOUT));
 }
 #[test]
-fn a_stalled_pull_under_sshpass_does_not_expose_its_partial_file_d97() {
+fn a_stalled_pull_under_askpass_does_not_expose_its_partial_file_d97() {
     real_pull(true, Some(STALLED_PULL_TIMEOUT));
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1825,7 +1964,7 @@ async fn real_pull_child() {
     )
     .await;
     let auth = if std::env::var_os("MRS_D43_PASSWORD").is_some() {
-        // No key is offered, so the password the fake worker checks is what `sshpass` types.
+        // No key is offered, so the fake worker checks the askpass response.
         SshAuthentication::Password {
             username: "fixture".into(),
             password: "fake-password".into(),
@@ -1877,21 +2016,7 @@ async fn real_pull_child() {
     .unwrap();
     let destination = root.join("video.bin");
     let started = std::time::Instant::now();
-    let denied = || {
-        ssh::lines(&events)
-            .iter()
-            .any(|(.., message)| message.contains("Permission denied"))
-    };
-    let mut result = bridge.receive("/tmp/marathon/video.bin", &destination).await;
-    // `sshpass` on macOS sometimes leaves ssh without a terminal to ask on (`can't open /dev/tty`, see the findings), which is
-    // an ordinary failed attempt and not what this test is about.
-    for _ in 0..20 {
-        if result != Ok(false) || !denied() {
-            break;
-        }
-        events.lock().unwrap().clear();
-        result = bridge.receive("/tmp/marathon/video.bin", &destination).await;
-    }
+    let result = bridge.receive("/tmp/marathon/video.bin", &destination).await;
     let elapsed = started.elapsed();
     bridge.join_pending().await.unwrap();
     let lines = ssh::lines(&events);
@@ -2180,7 +2305,21 @@ async fn stopped_transfer_runs() {
         assert_eq!(queued, Ok(true));
         assert_eq!(std::fs::read_to_string(root.join("order")).unwrap(), "stuck\nnext\n");
     }
-    let errors: Vec<_> = ssh::lines(&events)
+    let messages = ssh::lines(&events);
+    if std::env::var_os("MRS_LEGACY_SSH_PATH").is_some() {
+        assert_eq!(std::fs::read_to_string(root.join("ssh-probes")).unwrap(), "probe\n");
+        assert_eq!(
+            messages
+                .iter()
+                .filter(|(target, level, _)| {
+                    target == "marathon_apple::cmd::remote::rsync::password" && *level == marathon_logging::Level::WARN
+                })
+                .count(),
+            1,
+            "{messages:?}"
+        );
+    }
+    let errors: Vec<_> = messages
         .into_iter()
         .filter(|(_, level, _)| *level == marathon_logging::Level::ERROR)
         .map(|(.., message)| message)
