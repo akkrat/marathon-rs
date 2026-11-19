@@ -172,10 +172,22 @@ impl Child {
     }
 
     fn signal(&self, signal: i32) -> io::Result<()> {
-        if self.inner.is_some() {
-            RUN.signal(self.target, signal)?;
+        if self.inner.is_none() {
+            return Ok(());
         }
-        Ok(())
+        let result = RUN.signal(self.target, signal);
+        #[cfg(target_os = "macos")]
+        if let (Target::Group(leader), Err(error)) = (self.target, &result)
+            && error.raw_os_error() == Some(libc::EPERM)
+        {
+            // Darwin can refuse a signal when the only remaining members are
+            // exiting. Accept dispatch here; wait still owes cleanup proof.
+            if matches!(group::all_members_exiting(leader), Ok(true)) {
+                return Ok(());
+            }
+            tracing::warn!(target: "marathon_process", "Could not signal local process group {leader} with signal {signal}: {error}");
+        }
+        result
     }
 
     pub async fn kill(&mut self) -> io::Result<()> {
@@ -207,8 +219,8 @@ impl Child {
         };
         let check_group = matches!(self.target, Target::Group(_));
         if check_group {
-            // On macOS EPERM can also mean only our exited leader remains. Check
-            // membership with its PID still pinned in either case.
+            // On macOS EPERM can also mean the group has only zombies. Check
+            // for live members with the leader's PID still pinned.
             let kill = RUN.signal(self.target, libc::SIGKILL);
             let check = match kill {
                 Err(error) if !(cfg!(target_os = "macos") && error.raw_os_error() == Some(libc::EPERM)) => Err(error),

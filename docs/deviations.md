@@ -3050,8 +3050,12 @@ with the same arguments until the controller exits. It ignores INT, TERM and HUP
 Process-name tools such as `pgrep`, `pidof` and `killall` can see both entries.
 
 Ordinary cleanup sends KILL and checks for other group members while the unreaped leader
-still pins the group ID. The registry removes the group from the reaper before reaping the
-leader. If the check returns an error or cannot confirm the group is empty within 5 s,
+still pins the group ID. On macOS, a group signal can return EPERM while every member
+is exiting or a zombie. Marathon accepts that result only after checking member state.
+Cleanup still needs the leader's exit status and the absence of live peers. Zombies
+can remain until their parents reap them. A denied signal with live or unknown members
+warns and leaves cleanup unconfirmed. The registry removes the group from the reaper
+before reaping the leader. If the check returns an error or cannot confirm cleanup within 5 s,
 Marathon warns once and returns the command's actual exit status. It does the same if the reaper
 pipe is full when it tries to publish the removal. Cleanup remains unconfirmed, and the group
 stays registered until cleanup succeeds. An output-returning command drains

@@ -649,7 +649,9 @@ See [D52](deviations.md#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-
 
 Tools on the controller run in their own process groups. Group-directed signals reach Marathon.
 Its cleanup and exit sweep stop the registered tools, and the reaper ends their groups even if the
-controller is killed before cleanup finishes. ADB's `start-server` uses non-terminal standard streams.
+controller is killed before cleanup finishes. On macOS, a timed-out local batch can close normally
+once the command group has exited, even while it still has zombie members.
+ADB's `start-server` uses non-terminal standard streams.
 A tool with inherited terminal output can stop under `stty tostop`, and SSH can stop if it tries to prompt
 on `/dev/tty` for a password or a key passphrase. Use noninteractive authentication and redirect inherited
 terminal output when that terminal setting is enabled.

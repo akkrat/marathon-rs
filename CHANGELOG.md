@@ -5,6 +5,7 @@ The section for a version becomes the text of its GitHub release, which carries 
 ## Unreleased
 
 - **Controller process cleanup on exit (D96).** Marathon stops registered local tools on exit, including when the controller is killed. A hang-up runs the same bounded cleanup as a termination signal. ADB servers stay available.
+- **Local simulator batch timeouts on macOS (D96).** A batch whose command group is already exiting keeps its timeout outcome and the simulator remains available.
 - **Password-based rsync with OpenSSH 8.4 or newer (D96).** Transfers use askpass and keep the SSH client in the controller's process group. Older SSH clients still need `sshpass` and log a warning about reduced cleanup coverage.
 - **Apple SSH command cleanup (D96).** Workers with stock Perl run commands and rsync senders in groups that expire if the worker stops receiving renewals. Marathon reconnects its control connection after a drop. Workers without usable Perl log a warning and keep the existing command path.
 - **iOS video recorder cleanup (D96).** Supervised recorders release their SSH session after launch. Batch cancellation and simulator disposal give the recorder time to finalize the movie before escalating.

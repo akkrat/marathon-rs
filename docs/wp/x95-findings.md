@@ -486,6 +486,32 @@ The unresponsive-recorder witness covers a recorder that ignores both INT
 and TERM, with and without proof after KILL. The stop returns unfinalized
 with proof and unconfirmed at the deadline without it.
 
+## x95d macOS group signal denial during exit
+
+The local batch-timeout witness reproduced the CI device-loss error once in
+220 loaded runs on the original implementation. In the instrumented failures,
+`kill(-pgid, SIGTERM)` returned EPERM to the close request. Drop's group KILL
+returned the same error. The shell was the only remaining member with the
+controller's user ID. Its BSD process flags included `PROC_FLAG_INEXIT`
+while `waitid(WNOWAIT)` still reported no exit. The fake xcodebuild is a
+shell that repeatedly launches a short `sleep`. Group signal 0 is also denied
+for a group containing only zombies in a separate probe.
+
+The macOS launcher uses libproc to check the leader and every peer on EPERM.
+The stop accepts the signal result only when the remaining members are already
+exiting. This acknowledgement leaves the actual exit and cleanup checks in
+place. The leader remains unreaped through group confirmation. Confirmation
+waits out peers in exit and accepts zombie peers. The second member list
+detects descendants added during per-process inspection. A live member or an
+unreadable status keeps the permission error and the launcher warns.
+
+The zombie-only witness covers a stopped live peer, then retains nine zombies
+in the group until after confirmation. It fails with the old signal handling
+and fails confirmation if zombies count as live peers. On macOS the direct
+witness passed 120 loaded runs and the batch-timeout witness passed 640.
+On Linux the process and simulator-batch suites passed, with another 30
+successful runs of the timeout witness.
+
 ## Incidental bugs
 
 No additional bug outside x95 was pursued.
