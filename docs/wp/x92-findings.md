@@ -224,3 +224,18 @@ witnesses and the two round-2 witnesses whose mechanism changed, 50/50 each and 
 `cargo fmt --check`; `cargo clippy` of apple, ios, macos, core, cli and test-support with `-D warnings`; `cargo test
 --no-fail-fast` of those crates: 2,121 passed, 0 failed, 34 ignored. Not run, by the batch's rule: `scripts/check.sh`,
 `scripts/remote-check.sh`, `cargo test --workspace`.
+
+## Rebase onto main (1f4fd7cd: x89, x90 final, x91)
+
+One code conflict, in `Scheduler::begin_stop`/`stop_routine` (`crates/marathon-core/src/execution/scheduler.rs`). Both
+now hold: every device is sealed (`seal_for_stop`, D93) and has its vendor cleanup started (`begin_stop`, D92, spawned as
+before) before any actor is cancelled; then all actors are cancelled; then all devices are joined together, each within
+its own bound from the stop: the actor's job, then D92's cleanup job if the vendor returned one, otherwise
+`join_cancelled_work` (D93's receipt for an Apple device). Apple devices keep the default `begin_stop` (`None`), so they
+take the receipt path; an Android device always returns its cleanup and never takes the other, so D92's 60 s + 5 s is
+unchanged. The shared guides took main's text during the rebase, and D93's entries were re-applied after D92 in one
+commit.
+
+After the rebase: `cargo fmt --check`; `cargo clippy` of core, apple, ios, macos, android, cli and test-support with
+`-D warnings`; `cargo test --no-fail-fast` of those crates: 2,466 passed, 0 failed, 34 ignored, among them every D91
+(14), D92 (10) and D93 (26) witness; `scripts/check_plan_dag.py`.
