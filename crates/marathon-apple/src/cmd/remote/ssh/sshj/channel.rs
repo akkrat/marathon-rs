@@ -63,12 +63,21 @@ struct State {
     exit_status: Option<i32>,
     exit_signal: Option<String>,
     exec_reply: Option<bool>,
+    /// D93 (round 9): the writer did not send the exec request, because its gate had closed when it came to write it; it
+    /// sent CLOSE instead. Nothing was started.
+    exec_withheld: Option<marathon_core::error::Cancellation>,
     window: u32,
 }
 
 /// Writes reach the wire in call order: TERM, CLOSE and window adjustments share one queue.
 enum Op {
-    Exec(String),
+    /// D93 (round 9): the exec request, and the gate the writer looks at as it writes it; if the gate has closed the writer
+    /// sends CLOSE instead and says so through `withheld`.
+    Exec {
+        command: String,
+        gate: Option<Arc<dyn marathon_core::runtime::CancellationSignal>>,
+        withheld: tokio::sync::oneshot::Sender<marathon_core::error::Cancellation>,
+    },
     Signal(Sig),
     Close,
     Adjust(u32),
@@ -177,12 +186,38 @@ impl ExecChannel {
     /// closes the channel the request was sent on, so that it does not hold a `MaxSessions` slot. U154 does the same for
     /// a request with no reply, with Kotlin's expiry still the error, and one line that names the command.
     pub async fn exec(&self, command: String) -> Result<(), SshFailure> {
+        self.exec_gated(command, None).await
+    }
+    /// D93 (round 9): the exec request is written only if `gate` has not closed by the moment the writer comes to write it,
+    /// the last point before the command can start; otherwise the channel is closed instead, nothing is started, and
+    /// [`ExecChannel::exec_withheld`] says why.
+    pub async fn exec_gated(
+        &self,
+        command: String,
+        gate: Option<Arc<dyn marathon_core::runtime::CancellationSignal>>,
+    ) -> Result<(), SshFailure> {
         let promise = format!("chan#{} / chanreq for exec", self.number);
         self.update(|s| s.command = command.clone());
-        if self.ops.send(Op::Exec(command)).is_err() || self.shared.is_dead() {
+        let (withheld, withholding) = tokio::sync::oneshot::channel();
+        if self
+            .ops
+            .send(Op::Exec {
+                command,
+                gate,
+                withheld,
+            })
+            .is_err()
+            || self.shared.is_dead()
+        {
             return Err(self.shared.write_failure());
         }
-        let reply = within(
+        let withholding = async {
+            match withholding.await {
+                Ok(reason) => reason,
+                Err(_) => std::future::pending().await,
+            }
+        };
+        let replying = within(
             self.clock.as_ref(),
             self.scope.clone(),
             TIMEOUT_MILLIS,
@@ -192,8 +227,14 @@ impl ExecChannel {
                 (None, Some(Ok(()))) => Some(Err(SshFailure::connection(DisconnectReason::Unknown, "Request failed"))),
                 (None, None) => None,
             }),
-        )
-        .await;
+        );
+        let reply = tokio::select! { biased;
+            reason = withholding => {
+                self.update(|s| s.exec_withheld = Some(reason));
+                return Err(SshFailure::connection(DisconnectReason::Unknown, "The exec request was not sent"));
+            }
+            reply = replying => reply,
+        };
         let (error, rejected) = match reply {
             Some(Ok(true)) => return Ok(()),
             Some(Ok(false)) => (
@@ -217,6 +258,10 @@ impl ExecChannel {
             self.close_failed_exec().await;
         }
         Err(error)
+    }
+    /// D93 (round 9): why the writer withheld the exec request, if it did (the command did not start).
+    pub fn exec_withheld(&self) -> Option<marathon_core::error::Cancellation> {
+        self.read(|s| s.exec_withheld.clone())
     }
     /// D93: the worker answered the exec request with a refusal, so the command did not start.
     pub fn exec_refused(&self) -> bool {
@@ -531,7 +576,18 @@ async fn writer(
         }
         // Write errors mean the transport is gone; the pump reports that to the channel.
         let _ = match op {
-            Op::Exec(command) => write.exec(true, command).await,
+            Op::Exec {
+                command,
+                gate,
+                withheld,
+            } => match gate.as_ref().and_then(|gate| gate.reason()) {
+                // D93 (round 9): the last look before the command can start.
+                Some(reason) => {
+                    let _ = withheld.send(reason);
+                    write.close().await
+                }
+                None => write.exec(true, command).await,
+            },
             Op::Signal(signal) => write.signal(signal).await,
             Op::Close => write.close().await,
             Op::Adjust(bytes) => handle.adjust_window(id, bytes).await,

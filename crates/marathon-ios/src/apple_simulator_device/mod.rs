@@ -126,6 +126,9 @@ struct State {
     /// D91: sends to this simulator that may still be running, whoever waits for them, which disposal stops and waits
     /// for. Registered under the same lock as `preparations`, so none starts after disposal.
     transfers: Vec<Arc<marathon_apple::cmd::TransferReceipt>>,
+    /// D93 (round 9): pulls from this simulator (artifact jobs, results), registered as its sends are: one still running at
+    /// its disposal keeps the on-dispose lifecycle and the release of its lease from running beside it.
+    pulls: Vec<Arc<marathon_apple::cmd::TransferReceipt>>,
     /// D87: the preparation that has not ended in a ready simulator.
     episode: Option<PreparationEpisode>,
     /// D93: the simulator is stopping, sealed by the run's stop or by its first disposal, whichever came first: when, on
@@ -245,6 +248,7 @@ impl AppleSimulatorDevice {
             running: None,
             preparations: Vec::new(),
             transfers: Vec::new(),
+            pulls: Vec::new(),
             episode: None,
             shutdown: None,
             quarantined: false,

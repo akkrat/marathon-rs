@@ -130,11 +130,6 @@ async fn execute(
     }
     let last_look = context.cancellation.clone();
     let mut child = blocking(runtime.as_ref(), move || {
-        // D93 (round 8): the last look before the process starts: the caller (or its device's command gate, which the
-        // context carries) may have stopped while this waited for a blocking thread.
-        if let Some(reason) = last_look.reason() {
-            return Err(VendorError::Cancelled(reason));
-        }
         let command = request.command.iter().map(|arg| strip_quotes(arg)).collect::<Vec<_>>();
         let (program, args) = command
             .split_first()
@@ -148,6 +143,11 @@ async fn execute(
             .stderr(std::process::Stdio::piped());
         if let Some(path) = &request.workdir {
             builder.current_dir(path);
+        }
+        // D93 (rounds 8, 9): the last look before the process starts, after it is built: the caller (or its device's
+        // command gate, which the context carries) may have stopped meanwhile.
+        if let Some(reason) = last_look.reason() {
+            return Err(VendorError::Cancelled(reason));
         }
         builder.spawn().map_err(io_error)
     })

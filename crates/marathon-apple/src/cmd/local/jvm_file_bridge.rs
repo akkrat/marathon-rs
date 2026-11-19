@@ -117,9 +117,15 @@ impl FileBridge for JvmFileBridge {
         let dst = dst.to_owned();
         let overwrite = self.overwrite;
         let check = stop.cancellation_check();
+        let admit = stop.start_check();
         Box::pin(async move {
             blocking(self.runtime.as_ref(), move || {
                 let _owner = stop;
+                // D93 (round 9): the last look before the copy starts, on its blocking thread: the device's pulls may have
+                // closed while this waited for one.
+                if let Some(reason) = admit() {
+                    return Err(VendorError::Cancelled(reason));
+                }
                 let destination = if dst.is_dir() { dst.join(filename) } else { dst };
                 if !src.exists() {
                     return Ok(false);

@@ -142,6 +142,103 @@ async fn provider_drains_artifacts_before_device_disposal_and_transport_release(
     assert!(device.disposed());
     p.finish().await
 }
+/// A pull that runs until it is stopped, as rsync does, on a task of its own that outlives its caller's future (the
+/// bridge's own transfers are retained the same way); it records when it ended.
+#[derive(Default)]
+struct PullsUntilStopped {
+    started: Arc<SharedDeferred<()>>,
+    ended_at: Arc<std::sync::Mutex<Option<tokio::time::Instant>>>,
+}
+impl marathon_apple::cmd::FileBridge for PullsUntilStopped {
+    fn send<'a>(&'a self, _: &'a std::path::Path, _: &'a str) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        Box::pin(async { Ok(true) })
+    }
+    fn receive<'a>(&'a self, _: &'a str, _: &'a std::path::Path) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        Box::pin(async { Ok(true) })
+    }
+    fn receive_with<'a>(
+        &'a self,
+        _: &'a str,
+        _: &'a std::path::Path,
+        mut stop: marathon_apple::cmd::TransferStop,
+    ) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        let (started, ended_at) = (self.started.clone(), self.ended_at.clone());
+        let transfer = tokio::spawn(async move {
+            started.complete(Ok(()));
+            let stopped = stop.stopped().await;
+            *ended_at.lock().unwrap() = Some(tokio::time::Instant::now());
+            Err(stopped.into_error())
+        });
+        Box::pin(async move { transfer.await.unwrap_or(Ok(false)) })
+    }
+}
+
+/// D93 (round 9, finding 3): an artifact job's pull still runs when the provider's artifact drain (300 s, then 60 s after
+/// its cancel) gives up on it at the run's end. The simulator's disposal finds it among its pulls: no on-dispose
+/// lifecycle runs beside it, the simulator's lease is quarantined, not released, and the pull is stopped, ending within
+/// D91's 40 s bound for a stopped transfer. Before, pulls were not the device's to know of: the lifecycle (here `simctl
+/// shutdown`) ran and the lease was released while the pull went on.
+#[tokio::test(start_paused = true)]
+async fn a_pull_left_running_by_the_artifact_drain_keeps_its_simulator_from_the_lifecycle_d93() -> TestResult {
+    let p = ProviderHarness::new(|v| {
+        v.lifecycle_configuration.on_dispose = vec![marathon_config::vendor::LifecycleAction::Shutdown];
+    })?;
+    let bridge = Arc::new(PullsUntilStopped::default());
+    *p.connections.bridge.lock().unwrap() = Some(bridge.clone());
+    p.update(&["a"]).await.map_err(test_error)?;
+    let device = p.connected(1).await.remove(0);
+    let pulling = device.clone();
+    let context = p.h.services.context.clone();
+    p.h.services
+        .artifacts
+        .submit(
+            "a@local".into(),
+            "bundle".into(),
+            "local".into(),
+            None,
+            Arc::new(move |_| {
+                let (device, context) = (pulling.clone(), context.clone());
+                Box::pin(async move {
+                    let target = std::env::temp_dir();
+                    device
+                        .pull_folder("/tmp/marathon/a.xcresult", &target, &context)
+                        .await?;
+                    Ok(())
+                })
+            }),
+            p.h.services.context.clone(),
+        )
+        .await
+        .map_err(test_error)?;
+    bridge.started.wait().await.map_err(test_error)?;
+    // Booting, so that the on-dispose lifecycle, if it runs, shuts it down.
+    p.h.boot.state.store(3, Ordering::SeqCst);
+    let started = tokio::time::Instant::now();
+    p.provider.terminate().await.map_err(test_error)?;
+    let terminated = tokio::time::Instant::now();
+    assert!(device.disposed());
+    let shutdowns = count(&p.h.worker, &["xcrun", "simctl", "shutdown", "a"]);
+    assert_eq!(shutdowns, 0, "the on-dispose lifecycle ran beside the pull");
+    assert_eq!(
+        p.connections.quarantined.load(Ordering::SeqCst),
+        1,
+        "the lease was not quarantined"
+    );
+    // The drain's 360 s, then the disposal; the stopped pull ends within D91's 40 s of it, here at once.
+    assert!(terminated - started >= std::time::Duration::from_secs(360));
+    eventually(|| bridge.ended_at.lock().unwrap().is_some()).await;
+    let ended = bridge.ended_at.lock().unwrap().unwrap();
+    assert!(
+        ended - started <= std::time::Duration::from_secs(360 + 40),
+        "{:?}",
+        ended - started
+    );
+    assert_eq!(
+        p.connections.acquired.load(Ordering::SeqCst),
+        p.connections.released.load(Ordering::SeqCst) + p.connections.quarantined.load(Ordering::SeqCst)
+    );
+    Ok(())
+}
 #[tokio::test(start_paused = true)]
 async fn a_worker_planning_failure_releases_its_connection_and_does_not_cancel_healthy_workers() -> TestResult {
     let p = ProviderHarness::new(|_| {})?;

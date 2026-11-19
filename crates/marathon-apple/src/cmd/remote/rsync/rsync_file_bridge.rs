@@ -441,7 +441,18 @@ impl Inner {
             runtime: self.runtime.as_ref(),
             hook: &self.hook,
         };
-        let not_started = || Outcome::not_started(stopping.stopped());
+        // D93 (round 9): what refused the start, if its admission did (a device's closed pulls), so that the caller hears
+        // that refusal rather than a stop without a reason.
+        let refused: Arc<Mutex<Option<Cancellation>>> = Arc::default();
+        let not_started = || {
+            Outcome::not_started(stopping.stopped().or_else(|| {
+                refused
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone()
+                    .map(TransferStopped::Cancelled)
+            }))
+        };
         let probe = {
             let (runtime, hook) = (self.runtime.clone(), Hook::of(&self.hook));
             BINARIES.get_or_try_init(move || async move {
@@ -466,7 +477,10 @@ impl Inner {
         let ticket = Arc::new(SpawnTicket(AtomicU8::new(SPAWN_PENDING)));
         {
             let mut admission = self.admission.lock().unwrap_or_else(|e| e.into_inner());
-            if stopping.stopped().is_some() || cancelled.as_ref().is_some_and(|cancelled| cancelled().is_some()) {
+            if let Some(reason) = cancelled.as_ref().and_then(|cancelled| cancelled()) {
+                *refused.lock().unwrap_or_else(|e| e.into_inner()) = Some(reason);
+            }
+            if stopping.stopped().is_some() || refused.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
                 return Ok(not_started());
             }
             if let Some(place) = &place {
@@ -479,9 +493,14 @@ impl Inner {
         // The start is read on the vendor clock as the process starts, not when the spawn's result reaches this task, so a
         // late delivery can't shorten the time a send has been quiet.
         let clock = self.clock.clone();
-        let (starting, seen, hook) = (ticket.clone(), stopping.clone(), Hook::of(&self.hook));
+        let (starting, seen, hook, refusing) =
+            (ticket.clone(), stopping.clone(), Hook::of(&self.hook), refused.clone());
         let spawn = blocking(self.runtime.as_ref(), move || {
-            let stopped = seen.stopped().is_some() || cancelled.as_ref().is_some_and(|cancelled| cancelled().is_some());
+            let reason = cancelled.as_ref().and_then(|cancelled| cancelled());
+            let stopped = seen.stopped().is_some() || reason.is_some();
+            if let Some(reason) = reason {
+                *refusing.lock().unwrap_or_else(|e| e.into_inner()) = Some(reason);
+            }
             if stopped {
                 starting.refuse(false);
             }

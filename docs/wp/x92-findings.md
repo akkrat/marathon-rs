@@ -425,3 +425,52 @@ processes. `cargo fmt --check`; `cargo clippy` of core, apple, ios, macos, andro
 `-D warnings`; `cargo test --no-fail-fast` of those crates: 2,481 passed, 0 failed, 34 ignored, among them D52 (17),
 signal (25), D91 (14), D92 (10) and D93 (42) tests. Not run, by the batch's rule: `scripts/check.sh`,
 `scripts/remote-check.sh`, `cargo test --workspace`.
+
+## Review round 9 (Sol 6.2 high at 2c437313: three P2s)
+
+### Every command and transfer entry point of an Apple device, and where its gate is checked (after round 9)
+
+Rows changed in round 9 are marked **(r9)**; the others are as in round 8.
+
+| Entry point | Path | Where the seal is enforced |
+|---|---|---|
+| Command over SSH | `DeviceCommands::execute` → `SshCommandExecutor::execute` → `start_session` → `exec_gated` → the channel's writer | (1) `DeviceCommands::execute` refuses at once if sealed; (2) the executor rechecks the gate-carrying context after the channel is accepted (closing it instead); **(r9)** (3) `Op::Exec` carries that context to the channel's writer, which looks at it **as it comes to write the exec request**: if closed it writes CLOSE instead and hands the reason back (`exec_withheld`), so the executor returns the refusal as pre-exec (started nothing). No exec can be written after a seal the writer could see. |
+| Command run locally | `DeviceCommands::execute` → `KotlinProcessCommandExecutor::execute` | (1) as above; **(r9)** (2) the blocking closure builds the command (program, arguments, environment, working directory, path resolution) and then looks at the gate **immediately before `spawn()`**, after everything else. |
+| xcodebuild session | as in round 8 | as in round 8. |
+| Send | as in round 8 | as in round 8. |
+| Pull (`pull_file`, `pull_folder`; artifact jobs) | **(r9)** `receive_stop` registers a `TransferReceipt` with the device under the seal's lock (as `send_stop` does) → bridge | Admission by the pull gate (`Disposal` seal, quarantine): **(r9)** rsync looks at it in its admission check under the admission lock and again on its spawn thread, and now returns the gate's own reason when it refuses (it returned a stop without a reason); **(r9)** the local bridge looks at it on its blocking thread just before the copy, not only when the receive is called. Every gate refusal of a pull, wherever it is looked at, comes back as the gate's cancellation, which `gated_pull` turns into a WARN and an undelivered artifact (`false`). **(r9)** At disposal, `settle_pulls` reads the device's pulls: one still running, or one whose cleanup after a stop was not confirmed, makes the verdict unconfirmed (no lifecycle, no lease release, quarantine); after a `RunStop` or `Termination` seal (on iOS past the artifact drain) a running pull is also stopped, and ends on D91's path within its 40 s bound (killed and reaped, or unconfirmed). |
+| On-dispose lifecycle | `run_on_dispose` | **(r9)** Runs only if the verdict is confirmed **and** no pull is left (above); otherwise as in round 8. |
+| Mac lease release | `release_after_disposal` | **(r9)** Skipped when the Mac is quarantined, now also for a pull left at its disposal. |
+| Batch work, preparation, setup, recovery, termination | as in round 8 | as in round 8. |
+
+### Round 9 changes and witnesses
+
+| Item | Change | Witness (fails on 2c437313) |
+|---|---|---|
+| 1 (command admission) | `Op::Exec { command, gate, withheld }`: the SSH writer looks at the gate as it writes the exec (CLOSE instead, the reason through a oneshot, `exec_withheld` on the channel; the executor maps it to `Cancelled(reason)`, started nothing). The local executor's last look moved from the top of the blocking closure to immediately before `spawn()`. | `simulator_world.rs::a_writer_that_comes_to_the_exec_after_the_seal_sends_none_d93`: the real SSH executor against the fake worker, with a gate open to the task that runs the exchange and closed to any other (only the writer, on its own task, sees the seal). On the base the worker ran the command ("the writer sent the exec request after the seal"). |
+| 2 (pull admission) | The local receive looks at the pull gate inside its blocking closure before copying. rsync records the reason its admission or spawn check refused with and returns it (`Outcome::not_started` with `TransferStopped::Cancelled(reason)`), so the device sees its gate's refusal and maps it to WARN + `false`. | `simulator_dispose.rs::a_local_pull_that_waits_for_a_thread_across_a_removal_copies_nothing_d93` (a runtime that holds blocking jobs; the removal comes while the copy waits for its thread; on the base `Ok(true)`, the copy ran) and `an_rsync_pull_refused_by_its_admission_after_a_removal_is_undelivered_d93` (the same with the real `RsyncFileBridge`, rsync never started; on the base `Err(Cancelled("The transfer was stopped"))`, no WARN; skipped where rsync, ssh or ssh-keygen is not installed). |
+| 3 (a pull past the drain) | Pulls registered per device (iOS `State::pulls`, Mac `Execution::pulls`, pruned of confirmed ones as sends are); `device_commands::settle_pulls` at disposal before the lifecycle (iOS) or the release (Mac), and `SealCause::stops_pulls`. | `simulator_provider.rs::a_pull_left_running_by_the_artifact_drain_keeps_its_simulator_from_the_lifecycle_d93`: an artifact job's pull (on a task of its own, as rsync's transfers are) outlives the drain's 300 s + 60 s; at termination no `simctl shutdown`, the lease is quarantined (acquired = released + quarantined) and the pull ends within 40 s of the disposal. On the base the lifecycle ran (`simctl shutdown a`) and the lease was released while the pull went on. |
+
+**Choices (for the reviewer):**
+
+- **Round 8's departure was wrong about the drain.** It said a run's stop could leave pulls open because "the drain ends
+  before disposal". It ends, or gives up: a pull it gives up on was not the device's to know of. Pulls stay open at a
+  run's stop (the drain still wants them), but they are now the device's work at disposal.
+- **A pull left at disposal is unconfirmed, not waited for.** The brief: "a pull still live at disposal → Unconfirmed".
+  The disposal does not wait for it to end (it could only make the verdict confirmed by waiting, and a verdict is not
+  turned confirmed after the fact, round 2); it stops it after a run's stop or the termination, so it ends on D91's
+  bound, and quarantines the device. The disposal itself adds nothing to the 80 s bound.
+- **A removal mid-run does not stop the pull.** The ported Kotlin
+  `real_device_dispose_leaves_active_artifact_work_alive_and_rejects_subsequent_batches` pins that a disposal leaves
+  artifact work under way to finish. Under a `Disposal` seal the pull is left to finish and the simulator is quarantined
+  (no lifecycle, lease kept) instead of running its lifecycle beside it. `SealCause::stops_pulls` is the one line to
+  change if the owner prefers stopping it.
+- **The writer witness's gate is per task.** It does not count looks, so it does not depend on how many times the
+  executor looks before the writer; it models exactly "the seal came after every look on the exchange's task".
+
+**Round 9 verification.** Each round-9 witness fails on 2c437313 (scratch worktree, new tests and the harness's bridge
+slot copied in), each for the reason in the table. Stress, each alone: the four witnesses, the ported
+`real_device_dispose_leaves_active_artifact_work_alive_and_rejects_subsequent_batches` and round 8's SSH witness, 50/50
+each and 20/20 each with 12 busy processes. `cargo fmt --check`; `cargo clippy` of core, apple, ios, macos, android, cli
+and test-support with `-D warnings`; `cargo test --no-fail-fast` of those crates: 2,485 passed, 0 failed, 34 ignored.
+Not run, by the batch's rule: `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test --workspace`.

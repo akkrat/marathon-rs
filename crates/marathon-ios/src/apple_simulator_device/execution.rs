@@ -845,8 +845,18 @@ impl AppleSimulatorDevice {
                 let outcome = panic_as_error(async {
                     let disposed: VendorResult<()> = async {
                         // D93: only work confirmed to have ended lets the on-dispose lifecycle run, within the window.
-                        match device.finish_work().await {
-                            Termination::Confirmed => device.run_on_dispose(&shutdown).await?,
+                        // D93 (round 9): a pull still running keeps the lifecycle from running beside it, as unconfirmed work
+                        // does; one left after the artifact drain is stopped (D91's bound).
+                        let verdict = device.finish_work().await;
+                        let pulls = device.state().pulls.clone();
+                        let pulls_left = marathon_apple::cmd::device_commands::settle_pulls(
+                            &pulls,
+                            &device.serial,
+                            shutdown.cause.stops_pulls(),
+                        );
+                        match verdict {
+                            Termination::Confirmed if pulls_left.is_empty() => device.run_on_dispose(&shutdown).await?,
+                            Termination::Confirmed => device.quarantine_unconfirmed(&pulls_left),
                             Termination::Unconfirmed(left) => device.quarantine_unconfirmed(&left),
                         }
                         Ok(())

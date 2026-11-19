@@ -89,8 +89,17 @@ impl AppleSimulatorDevice {
     }
     /// D54: a receive from it ends only when that connection is lost.
     /// D93 (round 8): also the simulator's pull gate, closed by a disposal's seal or a quarantine.
+    /// D93 (round 9): registered with the simulator, as a send is, so that its disposal finds it if it still runs.
     fn receive_stop(&self) -> marathon_apple::cmd::TransferStop {
-        marathon_apple::cmd::receive_stop_gated(self.executor.as_ref(), self.commands.pull_signal())
+        let receipt = marathon_apple::cmd::TransferReceipt::new();
+        {
+            let mut state = self.state();
+            state
+                .pulls
+                .retain(|t| t.ended() != Some(marathon_apple::cmd::TransferCleanup::Confirmed));
+            state.pulls.push(receipt.clone());
+        }
+        marathon_apple::cmd::receive_stop_gated(self.executor.as_ref(), self.commands.pull_signal()).owned_by(receipt)
     }
     /// D93 (round 8): a pull the simulator's pull gate refused or stopped is an undelivered artifact, with a WARN.
     fn gated_pull(&self, received: VendorResult<bool>, src: &str) -> VendorResult<bool> {

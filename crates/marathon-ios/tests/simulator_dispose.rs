@@ -1896,3 +1896,170 @@ async fn an_open_discovery_session_on_a_removed_simulator_ends_in_a_device_loss_
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }
+
+/// A runtime whose blocking jobs wait for `release` before they get a thread, as when the blocking pool is busy.
+struct HeldBlocking {
+    inner: Arc<dyn marathon_core::runtime::VendorRuntime>,
+    entered: Arc<SharedDeferred<()>>,
+    release: Arc<SharedDeferred<()>>,
+}
+impl marathon_core::runtime::VendorRuntime for HeldBlocking {
+    fn spawn_cancellable(
+        &self,
+        body: marathon_core::runtime::VendorTaskBody,
+    ) -> Arc<dyn marathon_core::runtime::VendorTask> {
+        self.inner.spawn_cancellable(body)
+    }
+    fn spawn(
+        &self,
+        body: marathon_core::runtime::VendorFuture<'static, ()>,
+    ) -> Arc<dyn marathon_core::runtime::VendorTask> {
+        self.inner.spawn(body)
+    }
+    fn spawn_blocking(
+        &self,
+        body: Box<dyn FnOnce() -> marathon_core::error::VendorResult<()> + Send>,
+    ) -> Arc<dyn marathon_core::runtime::VendorTask> {
+        let (inner, entered, release) = (self.inner.clone(), self.entered.clone(), self.release.clone());
+        self.inner.spawn(Box::pin(async move {
+            entered.complete(Ok(()));
+            release.wait().await?;
+            inner.spawn_blocking(body).join().await
+        }))
+    }
+}
+
+/// D93 (round 9, finding 2): a local pull admitted before its simulator's removal, whose copy waits for a blocking thread
+/// until after it: the copy looks at the pull gate on that thread before it starts, so nothing is copied, and the pull
+/// is an undelivered artifact with a WARN. Before, the admission was looked at only as the receive was called, and the
+/// copy ran after the removal.
+#[tokio::test(start_paused = true)]
+async fn a_local_pull_that_waits_for_a_thread_across_a_removal_copies_nothing_d93() -> TestResult {
+    use marathon_apple::apple_device::AppleDevice;
+    let h = long_bound()?;
+    h.services
+        .logging
+        .registry
+        .lock()
+        .unwrap()
+        .set_level("marathon_ios::apple_simulator_device", marathon_logging::Level::WARN);
+    let source = tempfile::tempdir()?;
+    std::fs::create_dir_all(source.path().join("a.xcresult"))?;
+    std::fs::write(source.path().join("a.xcresult/Info.plist"), "x")?;
+    let runtime = Arc::new(HeldBlocking {
+        inner: h.services.runtime.clone(),
+        entered: SharedDeferred::new(),
+        release: SharedDeferred::new(),
+    });
+    let bridge = Arc::new(marathon_apple::cmd::local::jvm_file_bridge::JvmFileBridge::new(
+        runtime.clone(),
+        true,
+    ));
+    let d = on_bridge(&h, bridge).await?;
+    let target = tempfile::tempdir()?;
+    let src = source.path().join("a.xcresult").to_string_lossy().into_owned();
+    let pull = {
+        let (d, dst, context) = (d.clone(), target.path().to_owned(), h.services.context.clone());
+        tokio::spawn(async move { d.pull_folder(&src, &dst, &context).await })
+    };
+    runtime.entered.wait().await.unwrap();
+    d.dispose().await.unwrap();
+    runtime.release.complete(Ok(()));
+    let pulled = pull.await?;
+    assert!(matches!(pulled, Ok(false)), "{pulled:?}");
+    assert_eq!(
+        std::fs::read_dir(target.path())?.count(),
+        0,
+        "the copy ran after the removal"
+    );
+    assert!(
+        h.logs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.1 == marathon_logging::Level::WARN && r.2.starts_with("Not receiving ")),
+        "no WARN for the undelivered pull"
+    );
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+/// D93 (round 9, finding 2): a pull over rsync admitted before its simulator's removal, whose start waits for a blocking
+/// thread until after it: rsync's own admission check refuses it, nothing is started, and the refusal reaches the device
+/// as the pull gate's, so the pull is an undelivered artifact with a WARN. Before, rsync's admission refusal came back as
+/// a stop without a reason, which the device did not recognise as its gate's. rsync is never started here; the look for
+/// it (and ssh, ssh-keygen) needs them installed, so the test is skipped where they are not.
+#[tokio::test(start_paused = true)]
+async fn an_rsync_pull_refused_by_its_admission_after_a_removal_is_undelivered_d93() -> TestResult {
+    use marathon_apple::{
+        apple_device::AppleDevice,
+        cmd::remote::rsync::{RsyncFileBridge, RsyncTarget},
+    };
+    let installed = [
+        ("RSYNC4J_RSYNC", "/usr/bin/rsync"),
+        ("RSYNC4J_SSH", "/usr/bin/ssh"),
+        ("RSYNC4J_SSHKEYGEN", "/usr/bin/ssh-keygen"),
+    ]
+    .iter()
+    .all(|(variable, default)| {
+        std::path::Path::new(&std::env::var(variable).unwrap_or_else(|_| (*default).into())).exists()
+    });
+    if !installed {
+        eprintln!("skipped: rsync, ssh or ssh-keygen is not installed");
+        return Ok(());
+    }
+    let h = long_bound()?;
+    h.services
+        .logging
+        .registry
+        .lock()
+        .unwrap()
+        .set_level("marathon_ios::apple_simulator_device", marathon_logging::Level::WARN);
+    let runtime = Arc::new(HeldBlocking {
+        inner: h.services.runtime.clone(),
+        entered: SharedDeferred::new(),
+        release: SharedDeferred::new(),
+    });
+    let bridge = RsyncFileBridge::new(
+        RsyncTarget {
+            addr: "127.0.0.1".into(),
+            port: 22,
+        },
+        false,
+        h.services.vendor.ssh.clone(),
+        marathon_config::vendor::RsyncConfiguration {
+            remote_path: "/usr/bin/rsync".into(),
+        },
+        Some(marathon_config::vendor::SshAuthentication::PublicKey {
+            username: "fixture".into(),
+            key: "/fixture/key".into(),
+        }),
+        runtime.clone(),
+        h.clock.clone(),
+        h.services.logging.clone(),
+    )
+    .await
+    .map_err(|e| e.failure().to_string().to_owned())?;
+    let d = on_bridge(&h, Arc::new(bridge)).await?;
+    let target = tempfile::tempdir()?;
+    let pull = {
+        let (d, dst, context) = (d.clone(), target.path().to_owned(), h.services.context.clone());
+        tokio::spawn(async move { d.pull_folder("/tmp/marathon/a.xcresult", &dst, &context).await })
+    };
+    runtime.entered.wait().await.unwrap();
+    d.dispose().await.unwrap();
+    runtime.release.complete(Ok(()));
+    let pulled = pull.await?;
+    assert!(matches!(pulled, Ok(false)), "{pulled:?}");
+    assert_eq!(std::fs::read_dir(target.path())?.count(), 0);
+    assert!(
+        h.logs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.1 == marathon_logging::Level::WARN && r.2.starts_with("Not receiving ")),
+        "no WARN for the undelivered pull"
+    );
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}

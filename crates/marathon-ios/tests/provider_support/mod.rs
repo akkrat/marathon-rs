@@ -101,6 +101,8 @@ pub struct Connections {
     pub quarantined: AtomicUsize,
     /// The release with this number, counting from 1, fails after being counted.
     pub fail_release: AtomicUsize,
+    /// The file bridge each connection gets; `BridgeMock` when none.
+    pub bridge: Mutex<Option<Bridge>>,
     pub trace: Arc<Mutex<Vec<String>>>,
 }
 impl ProvisioningConnections for Connections {
@@ -118,7 +120,8 @@ impl ProvisioningConnections for Connections {
                 .lock()
                 .unwrap()
                 .push(format!("acquire:{}", transport.id().to_owned()));
-            Ok((worker, Arc::new(BridgeMock) as Bridge))
+            let bridge = self.bridge.lock().unwrap().clone();
+            Ok((worker, bridge.unwrap_or_else(|| Arc::new(BridgeMock) as Bridge)))
         })
     }
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()> {
@@ -157,6 +160,7 @@ impl ProviderHarness {
             released: 0.into(),
             quarantined: 0.into(),
             fail_release: 0.into(),
+            bridge: Mutex::default(),
             trace: Arc::default(),
         });
         let recovery = Arc::new(Recovery::default());

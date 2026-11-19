@@ -120,6 +120,13 @@ impl SealCause {
     pub fn closes_pulls(self) -> bool {
         self == Self::Disposal
     }
+    /// D93 (round 9): whether a disposal under this cause stops a pull still running. A run's stop and the termination
+    /// dispose of an iOS simulator only after the provider's artifact drain (300 s, 60 s grace), so a pull left then is
+    /// past it; a disposal outside them (a removal mid-run) leaves the artifact work alive, as Kotlin does. Either way the
+    /// device is quarantined (`settle_pulls`).
+    pub fn stops_pulls(self) -> bool {
+        self != Self::Disposal
+    }
 }
 
 tokio::task_local! {
@@ -384,4 +391,34 @@ impl CancellationSignal for GateSignal {
             }
         })
     }
+}
+
+/// D93 (round 9): a disposal's look at the pulls registered with its device, before its on-dispose lifecycle or the
+/// release of its lease. Returns why the device's end is not confirmed: a pull still running, or one whose cleanup after
+/// a stop was not confirmed (now or earlier in the run). Empty: the lifecycle and the release may run. When `stop`, a pull
+/// still running is stopped and so ends on D91's path for a stopped transfer, within its 40 s bound (killed and reaped, or
+/// unconfirmed); it is not waited for, since the device is quarantined either way.
+pub fn settle_pulls(pulls: &[Arc<super::TransferReceipt>], serial: &str, stop: bool) -> Vec<String> {
+    pulls
+        .iter()
+        .filter_map(|pull| match pull.ended() {
+            None => {
+                if stop {
+                    pull.stop(
+                        Cancellation::Requested(failure(
+                            FailureKind::IllegalState,
+                            format!("Device {serial} is being disposed while a pull from it runs"),
+                        )),
+                        None,
+                    );
+                }
+                Some("a pull from it was still running".to_owned())
+            }
+            Some(super::TransferCleanup::Unconfirmed(why)) => Some(format!(
+                "a pull's cleanup was not confirmed ({})",
+                why.message.as_deref().unwrap_or_default()
+            )),
+            Some(super::TransferCleanup::Confirmed) => None,
+        })
+        .collect()
 }

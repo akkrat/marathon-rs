@@ -2776,10 +2776,12 @@ known limit).
   every command the device would send after it is refused as it executes, whoever asked for it, so nothing that was
   registered before the seal starts after it. Only the device's on-dispose lifecycle and the work of the batch it ran
   when sealed (its cleanup and results, which the window waits for) pass; a session's start never does. The gate is
-  looked at again at the last moment before a command is sent: over SSH after its channel is accepted and before the exec
-  (the channel is closed instead), locally just before the process starts. A device's pulls (xcresults, logs, videos from
-  the artifact queue) are refused as they start once a disposal outside a run's stop or a quarantine has closed them, and
-  are then undelivered artifacts; a pull under way finishes, and a run's stop leaves pulls open for its artifact drain.
+  looked at again at the last moment before a command is sent: over SSH after its channel is accepted, and once more by
+  the channel's writer as it writes the exec request (the channel is closed instead), locally just before the process
+  starts. A device's pulls (xcresults, logs, videos from the artifact queue) are refused as they start (rsync's admission,
+  or a local copy on its own thread just before it copies) once a disposal outside a run's stop or a quarantine has
+  closed them, and are then undelivered artifacts, with a WARN; a pull under way finishes, and a run's stop leaves pulls
+  open for its artifact drain, but a pull still running at its device's disposal counts as unfinished work (below).
   An open xcodebuild session that the window's reserve stops gives its reader the seal's refusal, not a cancellation.
   The seal records its cause, and that alone decides what a refusal is: after the run's stop (the Scheduler's, a failure,
   the owner's cancel, a signal) or the provider's termination at the run's end, a cancellation, orderly, with no retry;
@@ -2810,7 +2812,10 @@ known limit).
   xcodebuild without acknowledging it). A failure known to have started nothing does not count against it: over SSH, a
   channel the worker refused or never opened, or an exec request it refused, before which no command reached a shell
   (a transient `MaxSessions` refusal then leaves the simulator confirmed, its lifecycle run and its lease released, and
-  D44 sets it up again as before).
+  D44 sets it up again as before). A pull registers with its device as a send does, and one still running when the device
+  is disposed of makes the verdict unconfirmed. After the run's stop or the provider's termination (on iOS, once the
+  artifact drain is over or has given up on it) the disposal also stops it, and it ends on D91's path for a stopped
+  transfer, within 40 s: killed and reaped, or unconfirmed. A disposal outside them leaves it to finish.
 - **Confirmed or not.** Only work confirmed to have ended lets an iOS simulator's on-dispose lifecycle run, or a Mac's
   lease (and an iOS simulator's at the provider's termination) be released. Otherwise the disposal logs one WARN naming
   the device and what had not ended (`Device <serial>'s work was not confirmed to have ended within 70 s (…); not
@@ -2832,7 +2837,8 @@ known limit).
   window; a connection close that outlasts it goes on in the connection factory's own task. From the stop: device work
   ends within 70 s, the Scheduler is done within 75 s, and each disposal within 5 s after that at most, so 80 s in the
   worst case; on iOS the provider's termination first drains the artifact queue (up to 300 s and a 60 s grace, before
-  any disposal), which is outside this bound and is WP x93's. A disposal outside a run's stop runs the lifecycle and waits
+  any disposal), which is outside this bound and is WP x93's; a pull that drain leaves running no longer runs beside the
+  lifecycle or the lease release, as above. A disposal outside a run's stop runs the lifecycle and waits
   for the release under their own commands' limits, as before.
 
 **Unchanged:** a healthy run (its lifecycle commands and lease releases are the same), the first cause of a failed run
@@ -2852,7 +2858,9 @@ connection open. A sealed device's own listeners (a video recorder's stop, say) 
 other new command after the seal; the on-dispose lifecycle ends a simulator's recordings. The iOS provider's artifact drain before disposal is not within the bound (above). A parsing session
 still open when a lost simulator is disposed of is now in its receipt: the disposal stops it in its reserve and, if it
 cannot confirm its end, quarantines the simulator within its window; D44's recovery reads that verdict and no longer
-waits another 70 s for the session before it sets up the worker's other simulators.
+waits another 70 s for the session before it sets up the worker's other simulators. A simulator removed while one of its
+artifact pulls is under way is now quarantined (no lifecycle, its lease kept) while the pull finishes, where its
+lifecycle ran beside the pull.
 
 Evidence, each failing on 3d945010 where it can be built there:
 `crates/marathon-ios/tests/simulator_dispose.rs::one_window_from_the_runs_stop_and_lifecycle_only_after_confirmed_termination_d93`
@@ -2897,7 +2905,11 @@ and `a_sealed_mac_opens_no_session_d93`. Round 6, failing on d20ecdcc:
 `a_batch_admitted_after_the_runs_stop_is_a_cancellation_d93`,
 `an_open_discovery_session_on_a_removed_simulator_ends_in_a_device_loss_d93`,
 `a_device_that_is_being_disposed_of_starts_no_preparation_u179` and
-`batch.rs::a_preparation_after_an_ordinary_disposal_is_a_device_loss_d93`.
+`batch.rs::a_preparation_after_an_ordinary_disposal_is_a_device_loss_d93`. Round 9, failing on 2c437313:
+`simulator_world.rs::a_writer_that_comes_to_the_exec_after_the_seal_sends_none_d93`,
+`simulator_dispose.rs::a_local_pull_that_waits_for_a_thread_across_a_removal_copies_nothing_d93` and
+`an_rsync_pull_refused_by_its_admission_after_a_removal_is_undelivered_d93`, and
+`crates/marathon-ios/tests/simulator_provider.rs::a_pull_left_running_by_the_artifact_drain_keeps_its_simulator_from_the_lifecycle_d93`.
 Amends D74 and D84.
 
 Approved 2026-11-18 (project owner's decision). See

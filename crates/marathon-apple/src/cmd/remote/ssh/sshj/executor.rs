@@ -208,7 +208,11 @@ async fn execute(
         || format!("Will request to exec `{command}`"),
         None,
     );
-    if let Err(error) = channel.exec(command).await {
+    // D93 (round 9): the writer looks at the context (the caller's, with its device's gate) once more as it writes the exec.
+    if let Err(error) = channel.exec_gated(command, Some(context.cancellation.clone())).await {
+        if let Some(reason) = channel.exec_withheld() {
+            return Err((VendorError::Cancelled(reason), true));
+        }
         let refused = channel.exec_refused();
         return Err((error.into_vendor(), refused));
     }

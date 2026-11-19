@@ -558,6 +558,94 @@ async fn a_session_refused_before_its_exec_is_confirmed_ended_over_ssh_d93() -> 
     .await
 }
 
+/// D93 (round 9): a seal that comes after the executor's last look but before the channel's writer writes the exec
+/// request. The gate below is open to the task that runs the exchange and closed to any other: the writer, which runs on
+/// its own task, is the only one that sees the seal.
+struct SealedForTheWriter {
+    first: std::sync::Mutex<Option<tokio::task::Id>>,
+}
+impl CancellationSignal for SealedForTheWriter {
+    fn reason(&self) -> Option<marathon_core::error::Cancellation> {
+        let me = tokio::task::try_id();
+        let mut first = self.first.lock().unwrap();
+        let first = *first.get_or_insert_with(|| me.expect("a look outside a task"));
+        (Some(first) != me).then(|| {
+            marathon_core::error::Cancellation::Requested(marathon_apple::cmd::failure(
+                marathon_error::FailureKind::IllegalState,
+                "Device x is stopping",
+            ))
+        })
+    }
+    fn cancelled(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = marathon_core::error::Cancellation> + Send + '_>> {
+        Box::pin(std::future::pending())
+    }
+}
+
+/// D93 (round 9, finding 1): the seal comes after the executor's last look, while the exec request waits for the channel's
+/// writer: the writer looks at the gate as it comes to write it and sends CLOSE instead, so the worker never runs the
+/// command and the refusal is the seal's. Before, the writer sent the exec whatever the gate said by then.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_writer_that_comes_to_the_exec_after_the_seal_sends_none_d93() -> TestResult {
+    watchdog(async {
+        let h = Harness::new(|_| {})?;
+        let (wire, _world) = start_wire_worker_with(&h, None).await?;
+        let transport = Transport::Ssh {
+            addr: "127.0.0.1".into(),
+            port: i32::from(wire.worker.ready.endpoint.port()),
+            authentication: Some(SshAuthentication::Password {
+                username: "fixture".into(),
+                password: "fake-password".into(),
+            }),
+            check_reachability: false,
+        };
+        let mut ssh = h.services.vendor.ssh.clone();
+        ssh.keep_alive_interval = duration(0);
+        let factory = ConnectionFactory::new(
+            false,
+            ssh,
+            h.services.vendor.rsync.clone(),
+            duration(60_000),
+            h.services.runtime.clone(),
+            Arc::new(Clock::default()),
+            h.services.logging.clone(),
+        )
+        .map_err(|e| describe(e.into_vendor()))?;
+        let executor = factory
+            .connect_worker(transport.clone(), context())
+            .await
+            .map_err(ConnectionError::into_vendor)
+            .map_err(describe)?;
+        let gate = Arc::new(SealedForTheWriter {
+            first: std::sync::Mutex::new(None),
+        });
+        let outcome = executor
+            .execute(
+                held("probe"),
+                marathon_core::vendor::VendorContext {
+                    cancellation: gate,
+                    ..context()
+                },
+            )
+            .await;
+        let probe = fake_worker::transcript::hash(b"probe");
+        let sent = wire
+            .events("exec")
+            .await?
+            .iter()
+            .any(|line| line["detail"]["sha256"] == probe);
+        if let Ok(session) = &outcome {
+            let _ = session.close().await;
+        }
+        assert!(!sent, "the writer sent the exec request after the seal");
+        assert!(matches!(outcome, Err(VendorError::Cancelled(_))), "{:?}", outcome.err());
+        factory.dispose(executor).await.map_err(describe)?;
+        factory.join_pending().await.map_err(describe)?;
+        TestResult::Ok(())
+    })
+    .await
+}
 /// D93 (round 8, finding 1): a device's command over the real SSH executor whose channel the worker accepts only after
 /// 2 s; the run's stop seals the device meanwhile. After the channel is accepted the executor looks at the device's
 /// command gate again, closes the channel and sends no exec: the worker never runs the command, and the refusal is the

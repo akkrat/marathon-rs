@@ -633,6 +633,7 @@ async fn refused_connections_wait_five_seconds_then_connect_without_restarting_a
         acquired: 0.into(),
         released: 0.into(),
         quarantined: 0.into(),
+        bridge: std::sync::Mutex::default(),
         trace: Arc::default(),
     });
     let recovery = Arc::new(Recovery::default());
