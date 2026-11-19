@@ -412,6 +412,49 @@ retirement witnesses each passed 50 repetitions and one run under CPU load.
 Isolated negative controls reproduced the capacity refusal, early escalation,
 missing retirement request and leftover mutable state.
 
+## x95b round 2 integration and final review
+
+The rebase starts at `1486a5b2`. The merged controller reaper and local
+cleanup rules replace the older launcher implementation. Askpass dispatch
+precedes helper startup. Device and provider command closes use the D97
+deadline for supervised channels too. At 17 s, a token KILL can preempt a
+stalled TERM exchange. The close still needs the worker receipt before
+the 18 s receipt cutoff. A partition still relies on lease expiry.
+
+A video is eligible for the D97 transfer path after finalization. A requested
+movie with any other outcome is reported once as undelivered. Staged rsync
+receives also require the worker sender's receipt before publication.
+The regression witnesses cover refused delivery, publication suppression,
+token KILL during a stalled control request, and the distinction between
+a missing launch and missing cleanup proof.
+
+With no worker supervisor, a legacy launch or stop failure affects only that
+movie. The recorder still gets a best-effort stop and is outside the D93
+receipt decision. The next test can start again. The witness refuses a
+launch and a stop in separate runs, then delivers the following movie and
+releases the simulator. Concurrent worker commands share one failed
+capability probe and the next command tries again.
+
+Local unconfirmed group cleanup drains the available stdout and stderr
+within a byte bound. The real CLI ordinary-exit witness uses the existing
+test-seams feature to leave a running group registered and skip the reaper.
+The retirement witness checks the leader remains waitable at removal, and
+the startup unit test checks READY, both failure bytes and EOF. The spawn
+source check rejects native glob imports followed by spawn calls and
+ignores comments and literals. Each new runtime witness passed 50 isolated
+runs and one run under CPU load. Scratch worktrees reproduced the expected
+failures with the corresponding changes removed.
+
+The rebased loopback used a one-slot data connection, three warmups and
+30 measured commands per case. Times are medians in milliseconds.
+
+| Command | Before round 1 plain | Before round 1 supervised | Rebased plain | Rebased supervised |
+| --- | ---: | ---: | ---: | ---: |
+| `/usr/bin/true` | 13.60 | 104.31 | 12.88 | 17.19 |
+| `/bin/sleep 0.3` | 339.23 | 411.62 | 337.95 | 329.33 |
+
+Ordinary close took 0.09 ms plain and 16.57 ms with worker retirement.
+
 ## Incidental bugs
 
 No additional bug outside x95 was pursued.
