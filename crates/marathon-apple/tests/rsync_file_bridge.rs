@@ -229,6 +229,7 @@ fn real_rsync_roundtrip(password: bool) {
     );
     let argv = std::fs::read_to_string(dir.path().join("argv.jsonl")).unwrap();
     assert!(argv.contains("--partial-dir=.rsync-partial"));
+    assert_eq!(argv.contains("NumberOfPasswordPrompts=1"), password);
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn real_rsync_child() {

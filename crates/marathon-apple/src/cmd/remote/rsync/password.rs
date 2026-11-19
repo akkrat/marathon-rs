@@ -55,7 +55,11 @@ pub(super) async fn supports_forced_askpass(runtime: &Arc<dyn VendorRuntime>) ->
 }
 
 fn supports_version(output: &str) -> bool {
-    let Some(version) = output.trim_start().strip_prefix("OpenSSH_") else {
+    output.lines().any(supports_version_line)
+}
+
+fn supports_version_line(line: &str) -> bool {
+    let Some(version) = line.trim_start().strip_prefix("OpenSSH_") else {
         return false;
     };
     let Some((major, release)) = version.split_once('.') else {
@@ -112,7 +116,12 @@ mod tests {
 
     #[test]
     fn only_openssh_with_force_support_uses_askpass_d96() {
-        for version in ["OpenSSH_8.4p1, LibreSSL", "OpenSSH_9.0", "OpenSSH_10.5p1"] {
+        for version in [
+            "OpenSSH_8.4p1, LibreSSL",
+            "OpenSSH_9.0",
+            "OpenSSH_10.5p1",
+            "warning: wrapper diagnostic\n OpenSSH_9.5p1",
+        ] {
             assert!(supports_version(version));
         }
         for version in ["OpenSSH_8.3p9", "OpenSSH_9.", "OpenSSH_9.x", "another client 9.1", ""] {

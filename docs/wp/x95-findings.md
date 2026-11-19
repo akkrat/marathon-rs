@@ -160,6 +160,11 @@ pre-review launcher, then 1.831 s direct and 1.874 s registered with this change
 were taken during the package checks. They exercise native launch and group confirmation with the
 library reaper disabled, and the variation in the direct runs limits the comparison.
 
+The askpass transport limits OpenSSH to one password prompt and scans each
+line of the version response. The real password rsync round trip passed in
+1.75 s. Its argv witness also verifies that the key-authenticated path carries
+no password prompt limit.
+
 ## Incidental bugs
 
 No additional bug outside x95 was pursued.

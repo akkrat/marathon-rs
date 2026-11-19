@@ -426,7 +426,7 @@ impl Inner {
     #[allow(clippy::too_many_arguments)]
     async fn process(
         &self,
-        argv: Vec<String>,
+        mut argv: Vec<String>,
         arriving: Option<Arriving>,
         password: Option<String>,
         stopping: &Arc<Stopping>,
@@ -480,6 +480,13 @@ impl Inner {
         } else {
             false
         };
+        if password.is_some()
+            && !wrapped
+            && let Some(index) = argv.iter().position(|arg| arg == "--rsh")
+            && let Some(transport) = argv.get_mut(index + 1)
+        {
+            transport.insert_str("ssh ".len(), "-o NumberOfPasswordPrompts=1 ");
+        }
         if wrapped && !WARNED_LEGACY_PASSWORD.swap(true, Ordering::Relaxed) {
             self.logging.log(&self.logging.component("marathon_apple::cmd::remote::rsync::password"), Level::WARN, ||
                 "Local ssh does not report OpenSSH 8.4 or newer. Password rsync uses sshpass and leftover-process containment is reduced.".into(),
