@@ -185,9 +185,10 @@ still apply when upgrading from an older version.
   path. Videos, screen captures and profiling files are attached, and their device copies removed, only after their pull
   was delivered, and APP_DATA file sync removes application data only after its copied files have been delivered.
 - **A refused `run-as` is one warning per device (D97):** Android refuses `run-as` for an app that is not debuggable,
-  so APP_DATA file sync cannot collect its files. 0.15.0-rc.1 logged `archive extraction failed` for that folder after
-  every test; 0.15.0 warns once per device and app that `run-as` was refused and logs later refusals at debug level.
-  Kotlin and 0.14.0 collected nothing there either, without a message. Nothing else changes.
+  so APP_DATA file sync cannot collect its files. With `debug: true`, 0.15.0-rc.1 logged `archive extraction failed`
+  for that folder after every test; 0.15.0 recognises Android's "not debuggable" refusal and warns once per device and
+  app, and again only for a device that reconnects. Other `run-as` failures, such as an unknown package, still report
+  a failed extraction. Kotlin and 0.14.0 collected nothing there either, without a message. Nothing else changes.
 
 ### iOS and macOS
 
@@ -324,23 +325,24 @@ still apply when upgrading from an older version.
   run took 121 s against 40 to 51 s for the others, the difference in a slow app launch inside the tests, whose cause
   remained undetermined.
 - 0.15.0-rc.1's published binaries then ran on the same hosts. On two Android emulators a healthy run gave the same
-  per-test results, JUnit, Allure and `raw.json` as the earlier acceptance run; SIGTERM during a stalled 300 MiB pull
+  per-test results, JUnit and `raw.json` as the earlier acceptance run, and the same per-test JSON and Allure data apart
+  from the video references of recordings that were not delivered (D97); SIGTERM during a stalled 300 MiB pull
   exited 143 20 s after the signal with nothing at the final path (D97); SIGKILL, SIGHUP (129 within a second), a group
   TERM then KILL and a second SIGTERM left no marathon process or tool behind (D96). A test given back incomplete by an
   emulator whose app was force-stopped was retried on the other emulator in both runs (D82), where 0.14.0 handed it
   back to the same emulator three times within 6 s, and copies of different tests ran in turns, `t t1 t2 t t1 t2 t t1
   t2`, where 0.14.0 grouped them (D83). On the Apple side, healthy local and SSH runs gave the same per-test outcomes as
   the earlier acceptance runs; SIGTERM during a stalled xcresult pull exited 143 19 s after the signal with no partial
-  result; after SIGKILL with two recorders active the worker's xcodebuild was gone within 5 s and the recorders within
-  the 79 s lease, both finalized, and the next run on the same simulators delivered every video and xcresult (D96,
-  D97). One simulator refused new recordings after an earlier attempt had been stopped mid-run, until it was
-  restarted; see Known limits. x95f's slow recorder stop was covered by tests only.
+  result; after SIGKILL with two recorders active the worker's xcodebuild was gone at the first sample without it, 5.2 s
+  after the kill, and the recorders within the 79 s lease, both finalized, and the next run on the same simulators delivered every video and xcresult (D96,
+  D97). On the worker, one simulator refused new recordings after an earlier attempt had been stopped mid-run,
+  until it was restarted; see Known limits. x95f's slow recorder stop was covered by tests only.
 - Outside this repository, the maintainer ran 0.15.0-rc.1 on private CI farms against recent runs of the same jobs on
   the JVM build: the macOS build on iOS simulators across many workers and the static Linux build on Android emulators,
   in jobs of up to 1426 tests. Every job ended with the same per-test outcomes as the JVM runs, with wall times equal
   or shorter; retries went to other emulators (D82), and a job with flakiness copies ran fewer executions than
-  0.14.0-rc.2 did (D83). The only new message was the `archive extraction failed` warning for an app that is not
-  debuggable, which this release reports once per device instead. These runs are private and cannot be checked here.
+  0.14.0-rc.2 did (D83). The trial's only reported issue was the `archive extraction failed` warning, after every
+  test, for an app that is not debuggable, which this release reports once per device instead. These runs are private and cannot be checked here.
 - Not exercised on real hosts: the password and askpass path, D90's connection rotation, network faults and delayed
   control replies on a worker (x95f's U248–U250), a terminal D88 monitor failure, and an induced queue or pool drain
   failure. The one-time `run-as` warning was checked with tests and fake adb, not on a CI farm.
@@ -398,9 +400,10 @@ still apply when upgrading from an older version.
   check ([x96 findings](docs/wp/x96-findings.md#verification-limits-and-incidental-bugs)).
 - When adb cannot confirm a stopping Android device's cleanup, the device can keep an instrumentation process, a screen
   recording or trace and its files, a reverse port forward or D85's marker (D92).
-- An iOS simulator whose screen recorder was stopped right after it started can refuse every later recording until it
-  is restarted ("A recording is already in progress"). Marathon reports each lost video once with that error, and test
-  results are unaffected; restart the simulator.
+- An iOS simulator whose screen recorder was stopped after it was launched but before `simctl` confirmed that recording
+  had started can refuse every later recording until the simulator is restarted. On an SSH worker this showed as
+  "A recording is already in progress" for each lost video, reported once per video; test results were unaffected.
+  Restart the simulator.
 - Zero-byte Android videos were seen in a real run, also seen in earlier runs and judged a pre-existing recording
   issue; D97 delivers a complete zero-byte file.
 - A D88 monitor failure that ends Android device tracking has not been provoked on a real device; it is covered only by

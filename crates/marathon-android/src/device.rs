@@ -298,8 +298,9 @@ impl AndroidDevice {
             }),
         }
     }
-    /// x98: whether this is the first `run-as` refusal for `package` on this device. Android refuses it for an app that
-    /// is not debuggable, and it stays refused for every later batch.
+    /// x98: whether this is the first `run-as` refusal for `package` on this device object. Android refuses it for an app
+    /// that is not debuggable, and it stays refused for every later batch. A device made again after a disconnect (D24)
+    /// starts afresh.
     pub(crate) fn first_run_as_refusal(&self, package: &str) -> bool {
         let mut refused = lock(&self.inner.run_as_refused);
         if refused.iter().any(|known| known == package) {

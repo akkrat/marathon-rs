@@ -67,7 +67,7 @@ fn shell(script: &mut Value, command: &str, stdout: &str) {
 }
 fn extract_fixture_app_data(package: &str) -> String {
     format!(
-        "run-as {package} sh -c '[ -d /data/data/{package}/fixture4 ] || exit 44'; check=$?; if [ \"$check\" -eq 44 ]; then echo marathon-app-data-absent; elif [ \"$check\" -ne 0 ]; then echo marathon-app-data-refused; else set -o pipefail && mkdir -p /data/local/tmp/fixture4 && run-as {package} sh -c 'cd /data/data/{package}/fixture4 && tar cf - .' | tar xvf - -C /data/local/tmp/fixture4 && echo marathon-app-data-extracted; fi"
+        "probe=$(run-as {package} sh -c '[ -d /data/data/{package}/fixture4 ] || exit 44' 2>&1); check=$?; if [ \"$check\" -eq 44 ]; then echo marathon-app-data-absent; elif [ \"$check\" -ne 0 ]; then case \"$probe\" in *'not debuggable'*) echo marathon-app-data-refused;; esac; else set -o pipefail && mkdir -p /data/local/tmp/fixture4 && run-as {package} sh -c 'cd /data/data/{package}/fixture4 && tar cf - .' | tar xvf - -C /data/local/tmp/fixture4 && echo marathon-app-data-extracted; fi"
     )
 }
 /// Polls rather than spinning: a yield loop keeps a vendor worker busy and starves the fake
@@ -466,10 +466,9 @@ fn file_sync_with_two_instrumentations_prepares_and_pulls_once_d28() {
         })
     });
 }
-/// x98: a CI build is often not debuggable, so Android refuses `run-as` for it, in every batch. That is said once per
-/// device and application, not as a failed extraction after every test, and nothing is deleted from the app.
-#[test]
-fn a_refused_run_as_is_reported_once_per_device_x98() {
+/// x98: runs `batches` file-sync batches of one APP_DATA folder on one fake-adb device whose app refuses `run-as`, and
+/// returns what was logged about it and the commands sent after setup.
+fn refusing_batches(batches: usize) -> (Vec<(marathon_logging::Level, String)>, Vec<String>) {
     let temp = checked(tempfile::tempdir());
     let mut c = configuration();
     c.output_dir = PathBuf::from(temp.path().to_string_lossy().into_owned());
@@ -478,82 +477,87 @@ fn a_refused_run_as_is_reported_once_per_device_x98() {
         path_root: PathRoot::AppData,
         aggregation_mode: AggregationMode::DeviceAndPool,
     });
+    let logged = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sent = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (into, sent_into) = (logged.clone(), sent.clone());
     run(c, move |mut runtime, context| {
         Box::pin(async move {
             let _temp = temp;
-            let logged = Arc::new(std::sync::Mutex::new(Vec::new()));
-            let into = logged.clone();
             Arc::get_mut(&mut runtime).unwrap().log = Arc::new(move |_, level, message, _| {
-                if message.contains("run-as") || message.contains("not delivered") {
+                if message.contains("not delivered") || message.contains("debuggable") {
                     into.lock().unwrap().push((level, message.to_owned()));
                 }
             });
             let archive = extract_fixture_app_data("com.example");
-            let batch = vec![
-                "rm -r /data/local/tmp/fixture4".to_owned(),
-                "mkdir /data/local/tmp/fixture4".to_owned(),
-                "run-as com.example rm -R /data/data/com.example/fixture4".to_owned(),
-                "run-as com.example mkdir /data/data/com.example/fixture4".to_owned(),
-                archive.clone(),
-                "ls -l /data/local/tmp/fixture4".to_owned(),
-            ];
             let mut script = base_script(27, vec![]);
-            for command in &batch {
-                let reply = if *command == archive {
-                    "marathon-app-data-refused\n"
-                } else {
-                    ""
-                };
-                shell(&mut script, command, reply);
+            let rules = script["shell"].as_array_mut().unwrap();
+            rules.push(json!({"prefix":"probe=$(run-as ","stdout":"marathon-app-data-refused\n"}));
+            for prefix in ["rm ", "mkdir ", "run-as ", "ls -l "] {
+                rules.push(json!({"prefix":prefix,"stdout":""}));
             }
             let server = server(script).await;
             let device = device(&server, runtime);
             device.setup(context.clone()).await?;
-            for _ in 0..2 {
+            for _ in 0..batches {
                 let listener = FileSyncTestRunListener::new(artifacts(&device));
                 listener.before_test_run_in(Some(&info()), context.clone()).await?;
                 listener.after_test_run_in(context.clone()).await?;
             }
-            assert_eq!(
-                commands(&server)[SETUP_COMMANDS.len()..],
-                [batch.clone(), batch].concat()
-            );
-            let logged = std::mem::take(&mut *logged.lock().unwrap());
-            let levels: Vec<_> = logged.iter().map(|(level, _)| *level).collect();
-            assert_eq!(
-                levels,
-                [marathon_logging::Level::WARN, marathon_logging::Level::DEBUG],
-                "{logged:?}"
-            );
-            assert!(logged[0].1.contains("run-as com.example was refused"), "{logged:?}");
-            assert!(
-                logged
-                    .iter()
-                    .all(|(_, message)| !message.contains("archive extraction failed"))
-            );
+            let commands = commands(&server)[SETUP_COMMANDS.len()..].to_vec();
+            assert!(commands.contains(&archive), "{commands:?}");
+            *sent_into.lock().unwrap() = commands;
             finish(server, device).await;
             Ok(())
         })
     });
+    let logged = std::mem::take(&mut *logged.lock().unwrap());
+    let sent = std::mem::take(&mut *sent.lock().unwrap());
+    (logged, sent)
 }
 
-/// x98: the device command itself tells a refused `run-as` from an absent folder and from a copy. A stand-in `run-as`
-/// on `PATH` either refuses as Android does for an app that is not debuggable, or runs the command as the app would.
+/// x98: a CI build is often not debuggable, so Android refuses `run-as` for it, in every batch. That is said once per
+/// device and application, not as a failed extraction after every test, and nothing is deleted from the app.
 #[test]
-fn the_app_data_command_tells_a_refusal_from_an_absent_folder_x98() {
+fn a_refused_run_as_is_reported_once_per_device_x98() {
+    let (logged, sent) = refusing_batches(2);
+    let batch = [
+        "rm -r /data/local/tmp/fixture4".to_owned(),
+        "mkdir /data/local/tmp/fixture4".to_owned(),
+        "run-as com.example rm -R /data/data/com.example/fixture4".to_owned(),
+        "run-as com.example mkdir /data/data/com.example/fixture4".to_owned(),
+        extract_fixture_app_data("com.example"),
+        "ls -l /data/local/tmp/fixture4".to_owned(),
+    ];
+    assert_eq!(sent, [batch.clone(), batch].concat());
+    assert_eq!(logged.len(), 1, "{logged:?}");
+    assert_eq!(logged[0].0, marathon_logging::Level::WARN);
+    assert!(logged[0].1.contains("com.example is not debuggable"), "{logged:?}");
+}
+
+/// x98: the command marathon sends tells a refusal from other failures, an absent folder and a copy. It is replayed
+/// with `bash` and a stand-in `run-as` on `PATH` that answers as Android's does.
+#[test]
+fn the_app_data_command_tells_a_refusal_from_other_failures_x98() {
+    let (_, sent) = refusing_batches(1);
     let root = checked(tempfile::tempdir());
     let bin = root.path().join("bin");
     checked(std::fs::create_dir(&bin));
-    let command =
-        extract_fixture_app_data("com.example").replace("/data/", &format!("{}/data/", root.path().display()));
-    let replay = |run_as: &str| {
+    let command = sent
+        .iter()
+        .find(|command| command.contains("marathon-app-data-extracted"))
+        .unwrap()
+        .replace("/data/", &format!("{}/data/", root.path().display()));
+    let replay = |run_as: Option<&str>| {
         let tool = bin.join("run-as");
-        checked(std::fs::write(&tool, format!("#!/bin/sh\n{run_as}\n")));
-        checked(std::fs::set_permissions(
-            &tool,
-            std::os::unix::fs::PermissionsExt::from_mode(0o755),
-        ));
-        let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+        let _ = std::fs::remove_file(&tool);
+        if let Some(run_as) = run_as {
+            checked(std::fs::write(&tool, format!("#!/bin/sh\n{run_as}\n")));
+            checked(std::fs::set_permissions(
+                &tool,
+                std::os::unix::fs::PermissionsExt::from_mode(0o755),
+            ));
+        }
+        let path = format!("{}:/usr/bin:/bin", bin.display());
         let output = checked(
             std::process::Command::new("bash")
                 .arg("-c")
@@ -568,17 +572,26 @@ fn the_app_data_command_tells_a_refusal_from_an_absent_folder_x98() {
             .to_owned()
     };
     let refuse = "echo \"run-as: package not debuggable: $1\" >&2; exit 1";
+    let unknown = "echo \"run-as: unknown package: $1\" >&2; exit 1";
     let debuggable = "shift; exec \"$@\"";
-    assert_eq!(replay(refuse), "marathon-app-data-refused");
-    assert_eq!(replay(debuggable), "marathon-app-data-absent");
+    let probe_then_refuse =
+        "case \"$*\" in *tar*) echo \"run-as: package not debuggable: $1\" >&2; exit 1;; esac; shift; exec \"$@\"";
+    assert_eq!(replay(Some(refuse)), "marathon-app-data-refused");
+    // Not a refusal: no marker, so marathon reports a failed extraction.
+    assert_eq!(replay(Some(unknown)), "");
+    assert_eq!(replay(None), "");
+    assert_eq!(replay(Some(debuggable)), "marathon-app-data-absent");
     let source = root.path().join("data/data/com.example/fixture4");
     checked(std::fs::create_dir_all(&source));
     checked(std::fs::write(source.join("result.json"), "{}"));
-    assert_eq!(replay(refuse), "marathon-app-data-refused");
-    assert_eq!(replay(debuggable), "marathon-app-data-extracted");
+    assert_eq!(replay(Some(refuse)), "marathon-app-data-refused");
+    // A copy that fails after the folder was found is a failed extraction, whatever the reason.
+    assert_eq!(replay(Some(probe_then_refuse)), "");
+    assert_eq!(replay(Some(debuggable)), "marathon-app-data-extracted");
     let copied = root.path().join("data/local/tmp/fixture4/result.json");
     assert_eq!(checked(std::fs::read_to_string(copied)), "{}");
 }
+
 mod screen_recorder_test_run_listener_test {
     use super::*;
     #[test]

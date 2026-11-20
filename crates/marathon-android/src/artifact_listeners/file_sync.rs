@@ -9,8 +9,8 @@ use std::path::PathBuf;
 
 const APP_DATA_ABSENT: &str = "marathon-app-data-absent";
 const APP_DATA_EXTRACTED: &str = "marathon-app-data-extracted";
-/// x98: the check runs inside `run-as` and ends with 0 or 44, so any other status is `run-as` itself failing, as it does
-/// for an app that is not debuggable.
+/// x98: `run-as` failed and said the app is not debuggable, as Android's `run-as` does in every version. Other failures,
+/// such as an unknown package or a missing `run-as`, stay failed extractions.
 const APP_DATA_REFUSED: &str = "marathon-app-data-refused";
 pub struct FileSyncTestRunListener {
     pub artifacts: ArtifactContext,
@@ -223,7 +223,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                             let from = join(&format!("/data/data/{package}"), &relative);
                             let extracted = device
                                 .safe_execute_shell_command(
-                                    &format!("run-as {package} sh -c '[ -d {from} ] || exit 44'; check=$?; if [ \"$check\" -eq 44 ]; then echo {APP_DATA_ABSENT}; elif [ \"$check\" -ne 0 ]; then echo {APP_DATA_REFUSED}; else set -o pipefail && mkdir -p {remote} && run-as {package} sh -c 'cd {from} && tar cf - .' | tar xvf - -C {remote} && echo {APP_DATA_EXTRACTED}; fi"),
+                                    &format!("probe=$(run-as {package} sh -c '[ -d {from} ] || exit 44' 2>&1); check=$?; if [ \"$check\" -eq 44 ]; then echo {APP_DATA_ABSENT}; elif [ \"$check\" -ne 0 ]; then case \"$probe\" in *'not debuggable'*) echo {APP_DATA_REFUSED};; esac; else set -o pipefail && mkdir -p {remote} && run-as {package} sh -c 'cd {from} && tar cf - .' | tar xvf - -C {remote} && echo {APP_DATA_EXTRACTED}; fi"),
                                     "", context.clone(),
                                 )
                                 .await?;
@@ -235,18 +235,17 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                             {
                                 Some(APP_DATA_EXTRACTED) => copied.push((package, from)),
                                 Some(APP_DATA_ABSENT) => {}
-                                Some(APP_DATA_REFUSED) if device.first_run_as_refusal(package) => device.log_named(
-                                    "FileSyncTestRunListener",
-                                    Level::WARN,
-                                    &format!("Artifact folder {from} was not delivered: run-as {package} was refused, so its application data cannot be collected on this device (run-as works only for a debuggable app). Later refusals on this device are logged at debug level"),
-                                    None,
-                                ),
-                                Some(APP_DATA_REFUSED) => device.log_named(
-                                    "FileSyncTestRunListener",
-                                    Level::DEBUG,
-                                    &format!("Artifact folder {from} was not delivered: run-as {package} was refused"),
-                                    None,
-                                ),
+                                // Refused once is refused for every batch: the first refusal on this device says so.
+                                Some(APP_DATA_REFUSED) => {
+                                    if device.first_run_as_refusal(package) {
+                                        device.log_named(
+                                            "FileSyncTestRunListener",
+                                            Level::WARN,
+                                            &format!("Artifact folder {from} was not delivered: {package} is not debuggable, so run-as cannot read its application data on this device. This is not repeated for later tests on this device"),
+                                            None,
+                                        );
+                                    }
+                                }
                                 _ => device.log_named(
                                     "FileSyncTestRunListener",
                                     Level::WARN,

@@ -3229,7 +3229,7 @@ also needs a finalized recording before transfer. Other recording outcomes are r
 An xcresult is renamed
 as a whole tree under its batch name. A failed pull leaves its remote artifact available for inspection. Android
 APP_DATA file sync removes application data after its copied files have been delivered. Android refuses `run-as` for
-an app that is not debuggable; that refusal is a warning once per device and app, and later ones are debug lines.
+an app that is not debuggable; that refusal is one warning per device and app, and later ones are not logged.
 
 On filesystems that reject rename flags, bundle publication checks that the destination is absent and uses plain
 rename. Another writer can win between the check and rename. An ordinary directory merge on those filesystems
