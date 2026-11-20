@@ -185,9 +185,10 @@ still apply when upgrading from an older version.
   path. Videos, screen captures and profiling files are attached, and their device copies removed, only after their pull
   was delivered, and APP_DATA file sync removes application data only after its copied files have been delivered.
 - **A refused `run-as` is one warning per device (D97):** Android refuses `run-as` for an app that is not debuggable,
-  so APP_DATA file sync cannot collect its files. With `debug: true`, 0.15.0-rc.1 logged `archive extraction failed`
-  for that folder after every test; 0.15.0 recognises Android's "not debuggable" refusal and warns once per device and
-  app, and again only for a device that reconnects. Other `run-as` failures, such as an unknown package, still report
+  so APP_DATA file sync cannot collect its files. 0.15.0-rc.1 logged `archive extraction failed` for that folder after
+  every test; 0.15.0 recognises Android's "not debuggable" refusal and warns once per device and app, naming the
+  device. Like other Android warnings, both show only with `debug: true`. A device that reconnects is a new device
+  instance and can warn once more. Other `run-as` failures, such as an unknown package, still report
   a failed extraction. Kotlin and 0.14.0 collected nothing there either, without a message. Nothing else changes.
 
 ### iOS and macOS

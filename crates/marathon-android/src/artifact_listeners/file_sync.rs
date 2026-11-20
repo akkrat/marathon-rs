@@ -241,7 +241,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                                         device.log_named(
                                             "FileSyncTestRunListener",
                                             Level::WARN,
-                                            &format!("Artifact folder {from} was not delivered: {package} is not debuggable, so run-as cannot read its application data on this device. This is not repeated for later tests on this device"),
+                                            &format!("Artifact folder {from} was not delivered: {package} is not debuggable, so run-as cannot read its application data on device {}. This is not repeated for later tests on that device", device.serial_number()),
                                             None,
                                         );
                                     }

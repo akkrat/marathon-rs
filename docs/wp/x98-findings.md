@@ -16,7 +16,7 @@ extraction, which misled the reader into looking for a broken archive.
   unknown package, a missing `run-as`, a shell error) and a copy that fails after the folder was found still print
   nothing and keep the `archive extraction failed` warning.
 - `device.rs`: the device remembers which applications' refusals it has reported. The first refusal per device and app is
-  a WARN naming the folder and the app; later ones are not logged. The listener is created per batch, so the memory
+  a WARN naming the folder, the app and the device; later ones are not logged. The listener is created per batch, so the memory
   lives on the device. A device object made again after a disconnect (D24) reports once more. Like other Android
   warnings, it shows only with `debug: true`.
 - Nothing is deleted from the app on a refusal, as before (only the extraction marker permits it).
@@ -30,7 +30,8 @@ extraction, which misled the reader into looking for a broken archive.
   replays it with `bash` and a stand-in `run-as` on `PATH`. A `run-as` that refuses as Android's does (`package not
   debuggable`, exit 1) gives `marathon-app-data-refused` whether the folder exists or not; an unknown package, a missing
   `run-as` and a refusal only of the copy give no marker; a debuggable one gives `marathon-app-data-absent`, then
-  `marathon-app-data-extracted` with the file copied.
+  `marathon-app-data-extracted` with the file copied. Every marker comes with exit status 0, which marathon requires, and
+  a refusal of the copy exits nonzero.
 - Both tests fail with the product code of `origin/main` restored (checked).
 - The existing file-sync tests take the new command text through `extract_fixture_app_data`.
 
@@ -45,6 +46,15 @@ Sol, round 1 (all taken):
 | 3 | The shell test replayed the test helper's string, not the command marathon sent | It now replays the command captured from fake adb, with cases for an unknown package, a missing `run-as` and a refusal of the copy |
 | 4 | Evidence wording: Allure and per-test JSON differ in video references; xcodebuild first absent at +5.2 s; "only new message"; CI on the release commit | Wording follows the results files; CI must pass on the release commit before the tag |
 | 5 | Known limit named the wrong recorder phase | Now "after it was launched but before `simctl` confirmed that recording had started", observed on the SSH worker |
+
+Sol, round 2 (no blocking findings; all taken):
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | The warning said "on this device" without naming it | It names the device's serial |
+| 2 | The replay ignored the exit status, which marathon requires to be 0 for a marker | Every marker case asserts status 0; the copy refusal asserts a failed status |
+| 3 | `debug: true` was attached to the rc.1 sentence | The changelog says both show only with `debug: true` and a reconnected device instance can warn again |
+| 4 | The notes say CI passes on the release code | Kept: the tag is made only after CI passes on the exact commit to be tagged |
 
 ## Release docs
 

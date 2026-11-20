@@ -532,6 +532,7 @@ fn a_refused_run_as_is_reported_once_per_device_x98() {
     assert_eq!(logged.len(), 1, "{logged:?}");
     assert_eq!(logged[0].0, marathon_logging::Level::WARN);
     assert!(logged[0].1.contains("com.example is not debuggable"), "{logged:?}");
+    assert!(logged[0].1.contains("on device 127.0.0.1:"), "{logged:?}");
 }
 
 /// x98: the command marathon sends tells a refusal from other failures, an absent folder and a copy. It is replayed
@@ -565,29 +566,36 @@ fn the_app_data_command_tells_a_refusal_from_other_failures_x98() {
                 .env("PATH", path)
                 .output(),
         );
-        String::from_utf8_lossy(&output.stdout)
+        let marker = String::from_utf8_lossy(&output.stdout)
             .lines()
             .last()
             .unwrap_or("")
-            .to_owned()
+            .to_owned();
+        (output.status.success(), marker)
+    };
+    // Marathon reads a marker only from a command that exited 0.
+    let marker = |run_as: Option<&str>| {
+        let (success, marker) = replay(run_as);
+        assert!(success, "{run_as:?} gave {marker:?} with a failed status");
+        marker
     };
     let refuse = "echo \"run-as: package not debuggable: $1\" >&2; exit 1";
     let unknown = "echo \"run-as: unknown package: $1\" >&2; exit 1";
     let debuggable = "shift; exec \"$@\"";
     let probe_then_refuse =
         "case \"$*\" in *tar*) echo \"run-as: package not debuggable: $1\" >&2; exit 1;; esac; shift; exec \"$@\"";
-    assert_eq!(replay(Some(refuse)), "marathon-app-data-refused");
+    assert_eq!(marker(Some(refuse)), "marathon-app-data-refused");
     // Not a refusal: no marker, so marathon reports a failed extraction.
-    assert_eq!(replay(Some(unknown)), "");
-    assert_eq!(replay(None), "");
-    assert_eq!(replay(Some(debuggable)), "marathon-app-data-absent");
+    assert_eq!(marker(Some(unknown)), "");
+    assert_eq!(marker(None), "");
+    assert_eq!(marker(Some(debuggable)), "marathon-app-data-absent");
     let source = root.path().join("data/data/com.example/fixture4");
     checked(std::fs::create_dir_all(&source));
     checked(std::fs::write(source.join("result.json"), "{}"));
-    assert_eq!(replay(Some(refuse)), "marathon-app-data-refused");
-    // A copy that fails after the folder was found is a failed extraction, whatever the reason.
-    assert_eq!(replay(Some(probe_then_refuse)), "");
-    assert_eq!(replay(Some(debuggable)), "marathon-app-data-extracted");
+    assert_eq!(marker(Some(refuse)), "marathon-app-data-refused");
+    // A copy that fails after the folder was found is a failed extraction, whatever the reason: its status fails.
+    assert!(!replay(Some(probe_then_refuse)).0);
+    assert_eq!(marker(Some(debuggable)), "marathon-app-data-extracted");
     let copied = root.path().join("data/local/tmp/fixture4/result.json");
     assert_eq!(checked(std::fs::read_to_string(copied)), "{}");
 }
