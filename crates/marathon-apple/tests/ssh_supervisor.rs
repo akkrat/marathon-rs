@@ -999,8 +999,9 @@ struct SupervisorWorker {
     confirm_recordings: std::sync::atomic::AtomicBool,
     /// D98: the control stream exits at once, as a filtered or failing worker's would.
     refuse_stream: bool,
-    /// D98: a recorder's status requests get no reply while set.
+    /// D98: a recorder's status requests get no reply while set, after the first `answered_statuses`.
     silent_status: std::sync::atomic::AtomicBool,
+    answered_statuses: std::sync::Mutex<usize>,
     recordings: std::sync::Mutex<std::collections::HashMap<String, bool>>,
     batches: std::sync::Mutex<std::collections::HashSet<String>>,
 }
@@ -1036,6 +1037,12 @@ impl fake_worker::router::Handler for SupervisorWorker {
                     if operation == "status"
                         && self.silent_status.load(std::sync::atomic::Ordering::SeqCst)
                         && self.recordings.lock().unwrap().contains_key(token)
+                        && {
+                            let mut left = self.answered_statuses.lock().unwrap();
+                            let silent = *left == 0;
+                            *left = left.saturating_sub(1);
+                            silent
+                        }
                     {
                         return Ok(Some(ssh::hang(vec![])));
                     }
@@ -1326,10 +1333,11 @@ async fn a_supervised_recorder_reports_its_start_from_the_worker_status_d98() {
 #[tokio::test]
 async fn start_probes_do_not_move_the_renewal_schedule_d98() {
     use std::time::{Duration, Instant};
-    support::bounded(60, async {
+    support::bounded(90, async {
         let world = Arc::new(SupervisorWorker::default());
-        // A 4 s renewal interval; the recorder confirms its start 3.5 s after the first renewal.
-        let (fake, executor, recording) = d98_recorder(world.clone(), 4).await;
+        // A 12 s renewal interval; the recorder confirms its start 10 s after the first renewal. The wide interval
+        // keeps the two outcomes 10 s apart, 5 s each side of the bound, whatever the host's scheduling delays.
+        let (fake, executor, recording) = d98_recorder(world.clone(), 12).await;
         let renewals = || async {
             fake.events("supervisor_request")
                 .await
@@ -1347,18 +1355,60 @@ async fn start_probes_do_not_move_the_renewal_schedule_d98() {
             Instant::now()
         };
         let first = wait_for_renewals(1).await;
-        tokio::time::sleep(Duration::from_millis(3500)).await;
+        tokio::time::sleep(Duration::from_secs(10)).await;
         world
             .confirm_recordings
             .store(true, std::sync::atomic::Ordering::SeqCst);
         let mut started = recording.worker_report().unwrap().started;
         started.wait_for(|started| *started).await.unwrap();
         let second = wait_for_renewals(2).await;
-        // On schedule the second renewal is 4 s after the first. Timed from the probe that ended polling it came
-        // 7.5 s after; the bound leaves 2 s for scheduling delays.
+        // On schedule the second renewal is 12 s after the first. Timed from the probe that ended polling it came
+        // 22 s after.
         let gap = second - first;
         println!("renewals {gap:?} apart");
-        assert!(gap < Duration::from_secs(6), "{gap:?}");
+        assert!(gap < Duration::from_secs(17), "{gap:?}");
+        recording.interrupt().unwrap();
+        assert_eq!(recording.await_result(&context()).await.unwrap().exit_code, Some(0));
+        recording.close().await.unwrap();
+        executor.close().await.unwrap();
+        fake.worker.shutdown().await.unwrap();
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn an_unanswered_start_probe_does_not_hold_back_a_renewal_d98() {
+    use std::time::{Duration, Instant};
+    support::bounded(60, async {
+        // The launch probe is answered, which gives the lease its renewal stamp; later probes never are, and renewals
+        // are. The 1 s renewal falls inside the second probe's 4 s wait.
+        let world = Arc::new(SupervisorWorker {
+            silent_status: true.into(),
+            answered_statuses: 1.into(),
+            ..SupervisorWorker::default()
+        });
+        let launched = Instant::now();
+        let (fake, executor, recording) = d98_recorder(world.clone(), 1).await;
+        let renewed = loop {
+            let renewals = fake
+                .events("supervisor_request")
+                .await
+                .iter()
+                .filter(|row| {
+                    String::from_utf8_lossy(&STANDARD.decode(row["detail"]["base64"].as_str().unwrap()).unwrap())
+                        .contains(":renew-")
+                })
+                .count();
+            if renewals > 0 {
+                break Instant::now();
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
+        // Due 1 s after launch; held back by the probe it would come at the probe's 4 s timeout.
+        let first = renewed - launched;
+        println!("first renewal {first:?} after launch");
+        assert!(first < Duration::from_secs(3), "{first:?}");
+        world.silent_status.store(false, std::sync::atomic::Ordering::SeqCst);
         recording.interrupt().unwrap();
         assert_eq!(recording.await_result(&context()).await.unwrap().exit_code, Some(0));
         recording.close().await.unwrap();

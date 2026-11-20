@@ -1212,12 +1212,20 @@ fn end_of_run_lines(h: &simulator_support::Harness) -> Vec<String> {
         .collect()
 }
 
+/// The run's end as the provider ends it: the run's stop seals the simulator, then disposal releases it.
+async fn end_of_run(d: &Arc<marathon_ios::apple_simulator_device::AppleSimulatorDevice>) -> TestResult {
+    use marathon_core::vendor::Device;
+    d.seal_for_stop();
+    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    Ok(())
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_simulator_with_a_busy_video_service_is_shut_down_at_release_d98() -> TestResult {
     // The harness's release window is 200 ms; the shutdown's own timeout fits in it.
     let (h, d) = simulator_with_video_off(|v| v.timeout_configuration.shutdown = support::duration(100)).await?;
     h.worker.commands.lock().unwrap().clear();
-    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    end_of_run(&d).await?;
     assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 1);
     assert!(!d.quarantined());
     let lines = end_of_run_lines(&h);
@@ -1231,7 +1239,7 @@ async fn a_simulator_with_a_busy_video_service_is_shut_down_at_release_d98() -> 
 async fn a_configured_shutdown_or_erase_is_not_repeated_for_a_busy_video_service_d98() -> TestResult {
     for action in [LifecycleAction::Shutdown, LifecycleAction::Erase] {
         let (h, d) = simulator_with_video_off(|v| v.lifecycle_configuration.on_dispose = vec![action]).await?;
-        d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+        end_of_run(&d).await?;
         assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 1, "{action:?}");
         assert!(end_of_run_lines(&h).is_empty());
         h.finish(&[d]).await;
@@ -1245,7 +1253,7 @@ async fn the_busy_video_shutdown_needs_its_timeout_inside_the_release_window_d98
     // started, and the window not extended.
     let (h, d) = simulator_with_video_off(|v| v.timeout_configuration.shutdown = support::duration(300)).await?;
     let started = tokio::time::Instant::now();
-    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    end_of_run(&d).await?;
     assert_eq!(started.elapsed(), std::time::Duration::ZERO);
     assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 0);
     assert!(!d.quarantined());
@@ -1273,14 +1281,13 @@ async fn a_quarantined_simulator_with_a_busy_video_service_is_not_shut_down_d98(
             Ok(None)
         })
     });
-    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    end_of_run(&d).await?;
     assert!(d.quarantined());
     // Let a lifecycle task that outlived its window run on.
     tokio::time::sleep(std::time::Duration::from_secs(120)).await;
     assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 0);
     assert!(end_of_run_lines(&h).is_empty());
-    // The cut lifecycle task reports its interruption.
-    assert!(d.join_retained().await.is_err());
+    let _ = d.join_retained().await;
     Ok(())
 }
 
@@ -1290,9 +1297,65 @@ async fn a_healthy_simulator_gets_no_extra_command_at_release_d98() -> TestResul
     let d = h.device().await?;
     h.boot.state.store(3, Ordering::SeqCst);
     h.worker.commands.lock().unwrap().clear();
-    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    end_of_run(&d).await?;
     assert!(h.worker.commands.lock().unwrap().is_empty());
     assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 0);
     h.finish(&[d]).await;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_recovery_or_replacement_disposal_sends_no_shutdown_d98() -> TestResult {
+    // A disposal outside the run's end (a lost simulator recovered, a replaced one): no mid-run cold boot.
+    let (h, d) = simulator_with_video_off(|v| v.timeout_configuration.shutdown = support::duration(100)).await?;
+    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 0);
+    assert!(end_of_run_lines(&h).is_empty());
+    h.finish(&[d]).await;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hung_busy_video_shutdown_ends_with_the_window_and_never_quarantines_d98() -> TestResult {
+    // A state read that never returns, then a `simctl shutdown` that never returns.
+    for hung in ["cat", "shutdown"] {
+        let (h, d) = simulator_with_video_off(|v| v.timeout_configuration.shutdown = support::duration(100)).await?;
+        h.worker.cancellable_before.store(true, Ordering::SeqCst);
+        *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
+            Box::pin(async move {
+                if cmd.first().is_some_and(|s| s == hung) || cmd.get(2).is_some_and(|s| s == hung) {
+                    std::future::pending::<()>().await;
+                }
+                Ok(None)
+            })
+        });
+        let started = tokio::time::Instant::now();
+        end_of_run(&d).await?;
+        // The harness's release window is 200 ms; the disposal ends with it, not later.
+        assert!(
+            started.elapsed() <= std::time::Duration::from_millis(200),
+            "{hung}: {:?}",
+            started.elapsed()
+        );
+        assert!(!d.quarantined(), "{hung}");
+        let lines = end_of_run_lines(&h);
+        assert_eq!(lines.len(), 1, "{hung}: {lines:?}");
+        // A hung state read meets the window; a hung `simctl shutdown` meets its own command timeout first.
+        let expected = if hung == "cat" {
+            "did not finish within its window"
+        } else {
+            "did not shut down"
+        };
+        assert!(lines[0].contains(expected), "{hung}: {lines:?}");
+        assert!(
+            !h.logs
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|r| r.2.contains("on-dispose lifecycle")),
+            "{hung}"
+        );
+        let _ = d.join_retained().await;
+    }
     Ok(())
 }

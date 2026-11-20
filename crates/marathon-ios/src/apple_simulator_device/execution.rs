@@ -718,15 +718,32 @@ impl AppleSimulatorDevice {
     /// what is left of its window, and at least its force reserve (5 s of 70), within any provider deadline.
     /// Outside a run stop the lifecycle shares the original device window. An unconfirmed command quarantines the lease.
     async fn run_on_dispose(&self, shutdown: &Shutdown) -> VendorResult<VendorResult<()>> {
+        let configured = self.run_configured_on_dispose(shutdown).await?;
+        self.shut_down_busy_video(shutdown).await;
+        Ok(configured)
+    }
+    /// D93: the window's end for the on-dispose lifecycle, on the vendor clock, and now. `floor`: a run-stopped device's
+    /// lifecycle keeps at least the force reserve; D98's extra shutdown never does.
+    fn on_dispose_deadline(&self, shutdown: &Shutdown, floor: bool) -> (i64, i64) {
+        let clock = self.services.context.clock.clone();
+        let reserve =
+            marathon_apple::cmd::device_commands::force_reserve_millis(self.services.timeouts.cancelled_batch_millis);
+        let now = clock.now_millis();
+        let left = shutdown.window.deadline.saturating_sub(now);
+        let left = if shutdown.by_run_stop && floor {
+            left.max(reserve)
+        } else {
+            left
+        };
+        let left = left.min(self.state().provider_deadline.unwrap_or(i64::MAX).saturating_sub(now));
+        let deadline = self
+            .signal_finish
+            .limit(now.saturating_add(left), |finish| finish.devices);
+        (now, deadline)
+    }
+    async fn run_configured_on_dispose(&self, shutdown: &Shutdown) -> VendorResult<VendorResult<()>> {
         let actions = &self.services.vendor.lifecycle_configuration.on_dispose;
-        // D98: a simulator whose video service was left busy records nothing until it restarts. Every simulator's
-        // preparation boots it, so shutting it down here lets the next run start it clean. A configured shutdown or
-        // erase already does that.
-        let busy_video = self.state().video_unavailable
-            && !actions
-                .iter()
-                .any(|action| matches!(action, LifecycleAction::Shutdown | LifecycleAction::Erase));
-        if (actions.is_empty() && !busy_video) || !self.connected() {
+        if actions.is_empty() || !self.connected() {
             return Ok(Ok(()));
         }
         let limit = marathon_core::error::duration_for_log(marathon_apple::bin::java_duration_of_millis(
@@ -742,39 +759,7 @@ impl AppleSimulatorDevice {
             )
         };
         let clock = self.services.context.clock.clone();
-        let reserve =
-            marathon_apple::cmd::device_commands::force_reserve_millis(self.services.timeouts.cancelled_batch_millis);
-        let now = clock.now_millis();
-        let left = shutdown.window.deadline.saturating_sub(now);
-        let left = if shutdown.by_run_stop { left.max(reserve) } else { left };
-        let left = left.min(self.state().provider_deadline.unwrap_or(i64::MAX).saturating_sub(now));
-        let deadline = self
-            .signal_finish
-            .limit(now.saturating_add(left), |finish| finish.devices);
-        // D98: the extra shutdown starts only with its own timeout left in the window, which it never extends; a
-        // signal's short finish skips it.
-        let shutdown_millis = self
-            .services
-            .vendor
-            .timeout_configuration
-            .shutdown
-            .to_millis()
-            .unwrap_or(i64::MAX);
-        let fits = deadline.saturating_sub(now) >= shutdown_millis;
-        if busy_video && !fits {
-            self.log(
-                Level::WARN,
-                format!(
-                    "Simulator {}'s video service is busy and there is no time left to shut it down at the end of the run. Restart the simulator before recording on it again.",
-                    self.udid
-                ),
-                None,
-            );
-        }
-        let busy_video = busy_video && fits;
-        if actions.is_empty() && !busy_video {
-            return Ok(Ok(()));
-        }
+        let (now, deadline) = self.on_dispose_deadline(shutdown, true);
         if deadline <= now {
             lifecycle_cut(self, "had no time left to run");
             return Ok(Ok(()));
@@ -795,13 +780,10 @@ impl AppleSimulatorDevice {
             let (device, actions, ran) = (self.this()?, actions.clone(), ran.clone());
             self.retained
                 .spawn_published_interruptible(self.services.runtime.as_ref(), ran, async move {
-                    let configured =
+                    Ok(
                         marathon_apple::cmd::device_commands::as_lifecycle(device.handle_lifecycle(&actions, &context))
-                            .await;
-                    if busy_video && context.cancellation.reason().is_none() && !device.quarantined() {
-                        marathon_apple::cmd::device_commands::as_lifecycle(device.shut_down_busy_video(&context)).await;
-                    }
-                    Ok(configured)
+                            .await,
+                    )
                 })
         };
         let ended = tokio::select! { biased;
@@ -826,31 +808,82 @@ impl AppleSimulatorDevice {
         }
         Ok(Ok(()))
     }
-    /// D98: one line either way; a failure changes nothing else.
-    async fn shut_down_busy_video(&self, context: &VendorContext) {
-        let (level, message) = match self.shutdown_device(context).await {
-            Ok(true) => (
+    /// D98: at the run's end, a simulator whose video service was left busy, which records nothing until it restarts, is
+    /// shut down so that the next run's preparation, which boots every simulator it uses, starts it clean. Not at a
+    /// recovery or replacement disposal (owner's decision: no mid-run cold boot), not when the configured lifecycle
+    /// already shuts it down or erases it, and not on a quarantined simulator. It starts only with its own timeout left
+    /// in the window, under its own cancellation that ends with the window; a cut or a failure is one line and changes
+    /// nothing else: no quarantine, no later disposal.
+    async fn shut_down_busy_video(&self, shutdown: &Shutdown) {
+        let configured = &self.services.vendor.lifecycle_configuration.on_dispose;
+        if !self.state().video_unavailable
+            || shutdown.cause == SealCause::Disposal
+            || configured
+                .iter()
+                .any(|action| matches!(action, LifecycleAction::Shutdown | LifecycleAction::Erase))
+            || !self.connected()
+            || self.quarantined()
+        {
+            return;
+        }
+        let busy = |what: &str| {
+            format!(
+                "Simulator {}'s video service is busy and {what} at the end of the run. Restart the simulator before recording on it again.",
+                self.udid
+            )
+        };
+        let shutdown_millis = self
+            .services
+            .vendor
+            .timeout_configuration
+            .shutdown
+            .to_millis()
+            .unwrap_or(i64::MAX);
+        let (now, deadline) = self.on_dispose_deadline(shutdown, false);
+        if deadline.saturating_sub(now) < shutdown_millis {
+            self.log(Level::WARN, busy("there was no time left to shut it down"), None);
+            return;
+        }
+        let signal = Signal::new();
+        let context = VendorContext {
+            cancellation: signal.clone(),
+            ..self.services.context.clone()
+        };
+        let ran = SharedDeferred::new();
+        let Ok(device) = self.this() else {
+            return;
+        };
+        let _task =
+            self.retained
+                .spawn_published_interruptible(self.services.runtime.as_ref(), ran.clone(), async move {
+                    Ok(marathon_apple::cmd::device_commands::as_lifecycle(device.shutdown_device(&context)).await)
+                });
+        let clock = self.services.context.clock.clone();
+        let ended = tokio::select! { biased;
+            ended = ran.wait() => Some(ended),
+            _ = self.signal_finish.wait(clock.as_ref(), deadline, |finish| finish.devices) => None,
+        };
+        let (level, message) = match ended.as_ref().map(|ended| ended.as_ref().map(|result| result.as_ref())) {
+            Some(Ok(Ok(true))) => (
                 Level::INFO,
                 format!(
                     "Simulator {} shut down at the end of the run because its video service was busy; its next run boots it again",
                     self.udid
                 ),
             ),
-            Ok(false) => (
+            Some(Ok(Ok(false))) => (Level::WARN, busy("it did not shut down")),
+            Some(Ok(Err(error))) | Some(Err(error)) => (
                 Level::WARN,
-                format!(
-                    "Simulator {}'s video service is busy and it did not shut down at the end of the run. Restart the simulator before recording on it again.",
-                    self.udid
-                ),
+                busy(&format!("it could not be shut down ({})", error.failure().for_log())),
             ),
-            Err(error) => (
-                Level::WARN,
-                format!(
-                    "Simulator {}'s video service is busy and it could not be shut down at the end of the run ({}). Restart the simulator before recording on it again.",
-                    self.udid,
-                    error.failure().for_log()
-                ),
-            ),
+            None => {
+                // The command, cancelled, ends with its executor's own bounded cleanup; the disposal does not wait.
+                signal.cancel(marathon_core::error::Cancellation::Requested(failure(
+                    FailureKind::JobCancelled,
+                    format!("Simulator {}'s shutdown ran out of its window", self.udid),
+                )));
+                (Level::WARN, busy("its shutdown did not finish within its window"))
+            }
         };
         self.log(level, message, None);
     }

@@ -507,8 +507,9 @@ impl Peer {
 
     /// D98: a recorder's start-confirmation status. It uses only an already open control stream: no dial, no
     /// data-session fallback, and a reply that is slow or never comes does not count toward a reconnect. `None` when
-    /// it could not be asked or answered; the worker's own gate protects the recorder either way.
-    async fn probe(&self, token: &str) -> Option<String> {
+    /// it could not be asked or answered; the worker's own gate protects the recorder either way. It waits no later
+    /// than `until`, the renewal then due.
+    async fn probe(&self, token: &str, until: Instant) -> Option<String> {
         let stream = {
             let control = self.control.try_lock().ok()?;
             if !control.active.as_ref().is_some_and(|active| active.is_connected()) {
@@ -518,7 +519,7 @@ impl Peer {
             stream.is_open().then(|| (*stream).clone())?
         };
         let mut request = stream.request(token, "status").ok()?;
-        timeout_at(Instant::now() + CONTROL_TIMEOUT, request.reply())
+        timeout_at((Instant::now() + CONTROL_TIMEOUT).min(until), request.reply())
             .await
             .ok()?
             .ok()
@@ -1008,7 +1009,7 @@ impl Lease {
                 }
                 response = async {
                     if probe {
-                        let output = self.peer.probe(&self.token).await;
+                        let output = self.peer.probe(&self.token, next_renewal.max(first_renewal)).await;
                         Ok(output.and_then(|output| self.peer.interpret(&self.token, &output).ok()))
                     } else {
                         self.peer.ask(&self.token, &operation, request_end, may_hold_reply).await.map(Some)
