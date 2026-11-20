@@ -10,7 +10,7 @@ use marathon_apple::{
     },
     device::batch_failure_policy::BatchLoss,
 };
-use marathon_config::vendor::GrantLifecycle;
+use marathon_config::vendor::{GrantLifecycle, LifecycleAction};
 use marathon_core::executor::shared::Signal;
 use marathon_error::FailureKind;
 
@@ -719,7 +719,14 @@ impl AppleSimulatorDevice {
     /// Outside a run stop the lifecycle shares the original device window. An unconfirmed command quarantines the lease.
     async fn run_on_dispose(&self, shutdown: &Shutdown) -> VendorResult<VendorResult<()>> {
         let actions = &self.services.vendor.lifecycle_configuration.on_dispose;
-        if actions.is_empty() || !self.connected() {
+        // D98: a simulator whose video service was left busy records nothing until it restarts. Every simulator's
+        // preparation boots it, so shutting it down here lets the next run start it clean. A configured shutdown or
+        // erase already does that.
+        let busy_video = self.state().video_unavailable
+            && !actions
+                .iter()
+                .any(|action| matches!(action, LifecycleAction::Shutdown | LifecycleAction::Erase));
+        if (actions.is_empty() && !busy_video) || !self.connected() {
             return Ok(Ok(()));
         }
         let limit = marathon_core::error::duration_for_log(marathon_apple::bin::java_duration_of_millis(
@@ -744,6 +751,30 @@ impl AppleSimulatorDevice {
         let deadline = self
             .signal_finish
             .limit(now.saturating_add(left), |finish| finish.devices);
+        // D98: the extra shutdown starts only with its own timeout left in the window, which it never extends; a
+        // signal's short finish skips it.
+        let shutdown_millis = self
+            .services
+            .vendor
+            .timeout_configuration
+            .shutdown
+            .to_millis()
+            .unwrap_or(i64::MAX);
+        let fits = deadline.saturating_sub(now) >= shutdown_millis;
+        if busy_video && !fits {
+            self.log(
+                Level::WARN,
+                format!(
+                    "Simulator {}'s video service is busy and there is no time left to shut it down at the end of the run. Restart the simulator before recording on it again.",
+                    self.udid
+                ),
+                None,
+            );
+        }
+        let busy_video = busy_video && fits;
+        if actions.is_empty() && !busy_video {
+            return Ok(Ok(()));
+        }
         if deadline <= now {
             lifecycle_cut(self, "had no time left to run");
             return Ok(Ok(()));
@@ -764,10 +795,13 @@ impl AppleSimulatorDevice {
             let (device, actions, ran) = (self.this()?, actions.clone(), ran.clone());
             self.retained
                 .spawn_published_interruptible(self.services.runtime.as_ref(), ran, async move {
-                    Ok(
+                    let configured =
                         marathon_apple::cmd::device_commands::as_lifecycle(device.handle_lifecycle(&actions, &context))
-                            .await,
-                    )
+                            .await;
+                    if busy_video && context.cancellation.reason().is_none() && !device.quarantined() {
+                        marathon_apple::cmd::device_commands::as_lifecycle(device.shut_down_busy_video(&context)).await;
+                    }
+                    Ok(configured)
                 })
         };
         let ended = tokio::select! { biased;
@@ -791,6 +825,34 @@ impl AppleSimulatorDevice {
             }
         }
         Ok(Ok(()))
+    }
+    /// D98: one line either way; a failure changes nothing else.
+    async fn shut_down_busy_video(&self, context: &VendorContext) {
+        let (level, message) = match self.shutdown_device(context).await {
+            Ok(true) => (
+                Level::INFO,
+                format!(
+                    "Simulator {} shut down at the end of the run because its video service was busy; its next run boots it again",
+                    self.udid
+                ),
+            ),
+            Ok(false) => (
+                Level::WARN,
+                format!(
+                    "Simulator {}'s video service is busy and it did not shut down at the end of the run. Restart the simulator before recording on it again.",
+                    self.udid
+                ),
+            ),
+            Err(error) => (
+                Level::WARN,
+                format!(
+                    "Simulator {}'s video service is busy and it could not be shut down at the end of the run ({}). Restart the simulator before recording on it again.",
+                    self.udid,
+                    error.failure().for_log()
+                ),
+            ),
+        };
+        self.log(level, message, None);
     }
     /// The earlier of the run stop's device deadline and provider termination's deadline.
     pub fn shutdown_deadline(&self) -> Option<i64> {

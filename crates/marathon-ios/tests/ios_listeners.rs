@@ -1155,3 +1155,144 @@ async fn a_busy_video_service_turns_video_off_for_the_simulator_once_d98() -> Te
     }
     Ok(())
 }
+
+/// D98: a booted simulator whose first recording met a busy video service.
+async fn simulator_with_video_off(
+    edit: impl FnOnce(&mut IosConfiguration),
+) -> TestResult<(
+    simulator_support::Harness,
+    Arc<marathon_ios::apple_simulator_device::AppleSimulatorDevice>,
+)> {
+    let h = harness(edit)?;
+    let d = h.device().await?;
+    let c = context(&h, d.clone());
+    let test = c.batch.tests[0].clone();
+    let l = ScreenRecordingListener::new(c);
+    let launched = marathon_core::executor::shared::SharedDeferred::new();
+    let launch = launched.clone();
+    *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
+        if !cmd.iter().any(|arg| arg == "recordVideo") {
+            return Ok(None);
+        }
+        launch.complete(Ok(()));
+        let (session, stderr) = simulator_support::unconfirmed_recorder_session(|_| Box::pin(async { Ok(None) }));
+        let (exit, stdout) = (session.base.exit_code.clone(), session.base.stdout.clone());
+        tokio::spawn(async move {
+            stderr.send("A recording is already in progress".into()).await.unwrap();
+            stdout.close(None);
+            stderr.close(None);
+            exit.complete(Ok(Some(16)));
+        });
+        Ok(Some(session))
+    });
+    l.test_started(&test).await.map_err(|e| format!("{e:?}"))?;
+    launched.wait().await.map_err(|e| format!("{e:?}"))?;
+    l.test_passed(&test, 0, 0).await.map_err(|e| format!("{e:?}"))?;
+    l.settle().await.map_err(|e| format!("{e:?}"))?;
+    assert!(
+        h.logs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.2.contains("video service is busy with a recording")),
+        "video is off"
+    );
+    // Booted, as after its preparation.
+    h.boot.state.store(3, Ordering::SeqCst);
+    Ok((h, d))
+}
+
+fn end_of_run_lines(h: &simulator_support::Harness) -> Vec<String> {
+    h.logs
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r.2.contains("at the end of the run"))
+        .map(|r| r.2.clone())
+        .collect()
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_simulator_with_a_busy_video_service_is_shut_down_at_release_d98() -> TestResult {
+    // The harness's release window is 200 ms; the shutdown's own timeout fits in it.
+    let (h, d) = simulator_with_video_off(|v| v.timeout_configuration.shutdown = support::duration(100)).await?;
+    h.worker.commands.lock().unwrap().clear();
+    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 1);
+    assert!(!d.quarantined());
+    let lines = end_of_run_lines(&h);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].contains(d.udid()) && lines[0].contains("because its video service was busy"));
+    h.finish(&[d]).await;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_configured_shutdown_or_erase_is_not_repeated_for_a_busy_video_service_d98() -> TestResult {
+    for action in [LifecycleAction::Shutdown, LifecycleAction::Erase] {
+        let (h, d) = simulator_with_video_off(|v| v.lifecycle_configuration.on_dispose = vec![action]).await?;
+        d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+        assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 1, "{action:?}");
+        assert!(end_of_run_lines(&h).is_empty());
+        h.finish(&[d]).await;
+    }
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_busy_video_shutdown_needs_its_timeout_inside_the_release_window_d98() -> TestResult {
+    // A shutdown timeout longer than the release window (200 ms in this harness, 70 s in a run): the shutdown is not
+    // started, and the window not extended.
+    let (h, d) = simulator_with_video_off(|v| v.timeout_configuration.shutdown = support::duration(300)).await?;
+    let started = tokio::time::Instant::now();
+    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(started.elapsed(), std::time::Duration::ZERO);
+    assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 0);
+    assert!(!d.quarantined());
+    let lines = end_of_run_lines(&h);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].contains("no time left to shut it down"));
+    h.finish(&[d]).await;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_quarantined_simulator_with_a_busy_video_service_is_not_shut_down_d98() -> TestResult {
+    // The configured lifecycle never ends: the release window cuts it and quarantines the simulator.
+    let (h, d) = simulator_with_video_off(|v| {
+        v.lifecycle_configuration.on_dispose = vec![LifecycleAction::Terminate];
+        v.timeout_configuration.shutdown = support::duration(100);
+    })
+    .await?;
+    h.worker.cancellable_before.store(true, Ordering::SeqCst);
+    *h.worker.before.lock().unwrap() = Arc::new(|cmd| {
+        Box::pin(async move {
+            if cmd.get(2).is_some_and(|s| s.starts_with("ps aux")) {
+                std::future::pending::<()>().await;
+            }
+            Ok(None)
+        })
+    });
+    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    assert!(d.quarantined());
+    // Let a lifecycle task that outlived its window run on.
+    tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+    assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 0);
+    assert!(end_of_run_lines(&h).is_empty());
+    // The cut lifecycle task reports its interruption.
+    assert!(d.join_retained().await.is_err());
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_healthy_simulator_gets_no_extra_command_at_release_d98() -> TestResult {
+    let h = harness(|_| {})?;
+    let d = h.device().await?;
+    h.boot.state.store(3, Ordering::SeqCst);
+    h.worker.commands.lock().unwrap().clear();
+    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    assert!(h.worker.commands.lock().unwrap().is_empty());
+    assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 0);
+    h.finish(&[d]).await;
+    Ok(())
+}
