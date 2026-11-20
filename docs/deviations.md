@@ -3246,3 +3246,46 @@ starts at handoff, including when cleanup ends early. The exit watchdog counts t
 from handoff and gives it at most 1 s. Healthy work can advance immediately.
 A signal tightens waits that are already running. Routine completion keeps the 300 s drain and shared 60 s cancellation
 window. Internal failure keeps the 30 s drain and shared 40 s cancellation window.
+
+## D98 — A simulator recorder is never interrupted before it has started
+
+Approved 2026-11-20 (project owner's decision). WP x99. Amends D93 and D96.
+See [x99 findings](wp/x99-findings.md).
+
+In a release-candidate iOS acceptance run on an SSH worker, every recorder on one simulator failed from some point on
+with `Error starting video recorder: … Code=16 "Resource busy" … A recording is already in progress`: three of six
+videos in that run and three or four of six in each of three later runs, 3.5 hours later. No `recordVideo` process was
+left on the worker, and restarting that simulator fixed it. On a disposable simulator, an INT sent to
+`xcrun simctl io <udid> recordVideo` after launch but before simctl printed `Recording started` ended simctl with
+status 2 and left the simulator's video service recording with no client. Every later recording on that simulator
+exited with status 16 until it was shut down and booted again. Marathon could send that INT whenever a test, a batch or
+a simulator stopped within that window, which a slow simulator can make several seconds long.
+
+simctl prints `Recording started` on stderr once the video service has started. A recorder now gets INT only after
+that exact line, never a line that merely contains it. A supervised SSH worker reads the recorder's stderr, holds a
+requested INT until the line arrives and then sends it at once. Its status replies say `recording:` instead of
+`running:` from then on, and the controller polls status every 100 ms over an open control stream for up to 60 s
+after launch to learn it. A local recorder's output is read by the controller, which waits for the line before it
+sends INT. A recorder that has printed the line when its stop is requested gets INT immediately, as before.
+
+The wait never lengthens a stop. A recorder that has not confirmed its start by the INT cutoff gets TERM at that cutoff
+instead of INT, and KILL at the existing KILL cutoff. The INT cutoff is the larger of 15 s and the shell timeout after
+a healthy stop, and 10 s after a cancelled one (two thirds of its 15 s budget, clipped to the simulator's remaining
+window); TERM and KILL keep their existing times after it. On a supervised worker a TERM or KILL
+request, or lease expiry, gives a confirmed recorder INT first, as D96 describes. TERM and KILL keep their times
+whether or not INT was sent: TERM once TERM is requested and at least 2 s after the first stop request, KILL 1 s after
+TERM on a forced stop. A signal before confirmation can still
+leave the video service busy; it is sent only when the recorder would otherwise outlive its stop window.
+
+A recorder that exits with status 16 before confirming its start, while marathon has no other recorder on that
+simulator, means the video service is held by a recording marathon cannot stop. Marathon then logs one warning naming
+the simulator and how to restart it, and records no further video on that simulator for the rest of the run: no
+`recordVideo` command is sent there and the skipped movies are not reported one by one. The failed movie itself is
+reported as undelivered, as before. Test results, retries and the exit status do not change. A later run tries again
+and warns again if the simulator is still busy. Marathon does not restart the simulator itself.
+
+The legacy recorder on a worker without usable Perl redirects simctl's output to `/dev/null`, so neither the start
+nor a busy failure is visible there; it keeps D96's behaviour. macOS devices do not record video.
+
+**Migration action:** none. A simulator that warns that a recording is already in progress needs a restart
+(`xcrun simctl shutdown <udid>`, then `xcrun simctl boot <udid>`) before it records again.

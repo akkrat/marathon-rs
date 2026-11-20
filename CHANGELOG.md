@@ -2,6 +2,17 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
+## Unreleased
+
+- **iOS video no longer wedges a slow simulator (D98, U251–U253):** a screen recorder that was stopped right after it
+  was launched, before `simctl` had confirmed `Recording started`, could leave the simulator unable to record again
+  until it was restarted, losing every later video on it in that run and later runs ("A recording is already in
+  progress"). Marathon now waits for `simctl`'s confirmation before it interrupts a recorder, within the existing stop
+  time, locally and on SSH workers with Perl. If a simulator still reports a recording already in progress, marathon
+  logs one warning naming it and stops recording video on it for the rest of the run instead of failing once per test;
+  restart that simulator to record on it again. Test results and the exit status are unchanged. The legacy recorder
+  on workers without Perl is unchanged.
+
 ## 0.15.0
 
 This release adds run supervision, bounded waits and process ownership, and fixes Android, iOS and macOS
