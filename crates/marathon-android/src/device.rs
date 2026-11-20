@@ -213,6 +213,8 @@ struct Inner {
     preparation_deadline: AtomicI64,
     /// D87: the deadline above was taken over from the instance this one replaces (D85), and the actor keeps it.
     preparation_continued: AtomicBool,
+    /// x98: the applications whose `run-as` refusal this device has already reported.
+    run_as_refused: Mutex<Vec<String>>,
 }
 struct State {
     booted: bool,
@@ -292,8 +294,19 @@ impl AndroidDevice {
                 batch: Mutex::default(),
                 preparation_deadline: AtomicI64::new(i64::MAX),
                 preparation_continued: AtomicBool::new(false),
+                run_as_refused: Mutex::default(),
             }),
         }
+    }
+    /// x98: whether this is the first `run-as` refusal for `package` on this device. Android refuses it for an app that
+    /// is not debuggable, and it stays refused for every later batch.
+    pub(crate) fn first_run_as_refusal(&self, package: &str) -> bool {
+        let mut refused = lock(&self.inner.run_as_refused);
+        if refused.iter().any(|known| known == package) {
+            return false;
+        }
+        refused.push(package.to_owned());
+        true
     }
     /// D24: from now on this object reports disconnected, whatever happens to its serial later.
     pub(crate) fn mark_disconnected(&self) {
