@@ -847,36 +847,41 @@ async fn await_cancellation_kills_nothing_and_is_alive_stays_true() {
     let fake = ssh::fake(ssh::suite_script(), 4).await;
     let executor = ssh::connect(&fake).await;
     let session = start(&executor, &["sleep", "1000"], 600_000).await;
+    let sleeping = fake.events_at_least("exec", 1).await[0]["channel"].clone();
     let ctx = context();
     let scope = Arc::new(marathon_apple::cmd::SessionScope::default());
     let cancellable = marathon_core::vendor::VendorContext {
         cancellation: scope.clone(),
         ..ctx
     };
+    // join! polls the await first, so it is already waiting on the hanging command when the cancel arrives.
     let (result, ()) = tokio::join!(session.await_result(&cancellable), async {
-        tokio::time::sleep(Duration::from_millis(300)).await;
         scope.cancel(cancelled("await cancelled"));
     });
     // T22: cancellation only; the remote command still runs and the executor stays usable.
-    assert!(matches!(result, Err(VendorError::Cancelled(_))));
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(matches!(result, Err(VendorError::Cancelled(_))), "{result:?}");
+    assert!(session.is_alive());
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 60_000).await.unwrap().stdout,
+        ["hello"]
+    );
+    // The fake handles one connection's messages in order and records the later command's exec before it answers
+    // it, so the transcript now holds everything the client sent when the await was cancelled.
     let events = fake.transcript().await;
     assert!(
         !events
             .iter()
-            .any(|e| e["event"] == "signal" || e["event"] == "client_close")
-    );
-    assert!(session.is_alive());
-    assert_eq!(
-        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
-        ["hello"]
+            .any(|e| e["channel"] == sleeping && (e["event"] == "signal" || e["event"] == "client_close")),
+        "{events:?}"
     );
     session.close().await.unwrap();
-    // A11: isAlive was captured at construction and stays true after the command has ended.
-    let finished = start(&executor, &["echo", "hello"], 5000).await;
-    finished.await_result(&context()).await.unwrap();
-    assert!(finished.is_alive());
-    finished.close().await.unwrap();
+    // A11: isAlive was captured at construction and stays true after the command has ended. The command must still
+    // be running at construction: a short command can end first, and the snapshot is then false.
+    let ended = start(&executor, &["sleep", "1000"], 600_000).await;
+    ended.terminate().unwrap();
+    ended.await_result(&context()).await.unwrap();
+    assert!(ended.is_alive());
+    ended.close().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
