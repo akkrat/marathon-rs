@@ -21,7 +21,7 @@ pub mod transfer_receipt;
 pub mod write_file;
 
 use crate::extensions::Durations;
-pub use base_command::{BaseCommand, CommandSession, ExitCode, SessionControl, SessionScope};
+pub use base_command::{BaseCommand, CommandSession, ExitCode, SessionControl, SessionScope, WorkerReport};
 pub use command_session_output::consume_output;
 pub use device_commands::{DeviceCommands, SealCause, ShutdownWindow, Termination};
 use jcompat::jtime::Duration;

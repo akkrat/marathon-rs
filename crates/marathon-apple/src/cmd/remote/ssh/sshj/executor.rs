@@ -286,15 +286,19 @@ async fn execute(
         closing.clone(),
     ))));
     let interrupt = channel.clone();
-    let started = lease
-        .as_ref()
-        .filter(|lease| lease.is_detached())
-        .map(|lease| lease.started());
+    let report =
+        lease
+            .as_ref()
+            .filter(|lease| lease.is_detached())
+            .map(|lease| crate::cmd::base_command::WorkerReport {
+                started: lease.started(),
+                stderr: lease.stderr(),
+            });
     let control = session_control(channel, base.scope.clone(), closing);
     let session = CommandSession::new(base, control)
         .with_interrupt(move || interrupt.signal(Sig::INT).map_err(SshFailure::into_vendor));
-    Ok(match started {
-        Some(started) => session.with_worker_start(started),
+    Ok(match report {
+        Some(report) => session.with_worker_report(report),
         None => session,
     })
 }

@@ -202,6 +202,13 @@ fn supervised_token<'a>(command: &'a str, mode: &str) -> Option<&'a str> {
 struct LatencySupervisor {
     plain: fake_worker::router::Router,
     movies: tokio::sync::Mutex<std::collections::HashMap<String, Vec<fake_worker::script::PublishedFile>>>,
+    /// D98: every recorder exits 16 at once with this stderr, as simctl does on a simulator whose video service is
+    /// busy (or with some other stderr, for a status 16 that is not that refusal).
+    failing: Option<&'static str>,
+    failed: tokio::sync::Mutex<std::collections::HashSet<String>>,
+    /// The world's per-test recorder barriers, released at the first failed launch: a simulator with video off
+    /// launches no recorder for the tests after it.
+    barriers: Vec<String>,
 }
 
 impl fake_worker::router::Handler for LatencySupervisor {
@@ -231,6 +238,12 @@ impl fake_worker::router::Handler for LatencySupervisor {
                     let (token, operation) = item
                         .split_once(':')
                         .ok_or_else(|| std::io::Error::other("invalid item"))?;
+                    if let Some(stderr) = self.failing
+                        && self.failed.lock().await.contains(token)
+                    {
+                        let stderr = base64::engine::general_purpose::STANDARD.encode(stderr);
+                        return Ok(Some(Action::output(&format!("{token} done:16 {stderr}\n"), 0)));
+                    }
                     if operation == "1" {
                         let files = self
                             .movies
@@ -275,6 +288,22 @@ impl fake_worker::router::Handler for LatencySupervisor {
                     }
                     match (mode, routed.plan) {
                         (&"run", Plan::Action(action)) => Ok(Some(action)),
+                        (&"detach", Plan::Action(Action::Publish { started, .. })) if self.failing.is_some() => {
+                            self.failed.lock().await.insert((*token).to_owned());
+                            // The world's tests wait for their recorders' launch, not for their movies.
+                            for file in started {
+                                fs.write(
+                                    &file.path,
+                                    base64::engine::general_purpose::STANDARD.decode(file.base64)?,
+                                    0o600,
+                                )
+                                .await?;
+                            }
+                            for barrier in &self.barriers {
+                                fs.write(barrier, vec![], 0o600).await?;
+                            }
+                            Ok(Some(Action::output("", 0)))
+                        }
                         (&"detach", Plan::Action(Action::Publish { files, started, .. })) => {
                             self.movies.lock().await.insert((*token).to_owned(), files);
                             for file in started {
@@ -378,6 +407,9 @@ async fn six_video_batches_keep_ssh_supervision_off_the_healthy_path_d96() -> Re
                         extensions: handlers.clone(),
                     },
                     movies: Default::default(),
+                    failing: None,
+                    failed: Default::default(),
+                    barriers: vec![],
                 }),
             );
         }
@@ -572,5 +604,155 @@ async fn six_video_batches_keep_ssh_supervision_off_the_healthy_path_d96() -> Re
         timings[0],
         timings[1]
     );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_busy_simulator_on_an_ssh_worker_turns_video_off_once_d98() -> Result {
+    use std::time::Duration;
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let scratch = tempfile::tempdir()?;
+    let host = scratch.path().join("host");
+    let auth = scratch.path().join("key");
+    key(&host).await?;
+    key(&auth).await?;
+    // simctl's busy refusal as the supervisor's receipt carries it, and a status 16 without it.
+    let busy = "Note: No display specified. Defaulting to display: 00000000-0000-0000-0000-000000000000 (screenID: 1, name: LCD)\n\
+                Error starting video recorder: Error Domain=NSPOSIXErrorDomain Code=16 \"Resource busy\" \
+                UserInfo={NSLocalizedFailureReason=A recording is already in progress}.\n\
+                An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=16):\n\
+                The operation couldn’t be completed. A recording is already in progress\n\
+                A recording is already in progress\n";
+    let other = "An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=16):\n";
+    for stderr in [busy, other] {
+        let dir = tempfile::tempdir_in(scratch.path())?;
+        let root = dir.path();
+        bundle(root, "App", "app")?;
+        bundle(root, "Tests", "xctest")?;
+        let mut scenario: Scenario = serde_json::from_slice(&std::fs::read(
+            repo.join("fixtures/fake-worker/apple/ios-media/script/world.json"),
+        )?)?;
+        scenario.expectations.clear();
+        scenario.target = "Tests".into();
+        scenario.tests = (1..=3)
+            .map(|index| fake_worker::apple::Test {
+                class: "SampleTests".into(),
+                method: format!("testCase{index}"),
+                status: "passed".into(),
+            })
+            .collect();
+        let world = World::new(scenario).map_err(|e| e.to_string())?;
+        let mut handlers: Vec<Arc<dyn fake_worker::router::Handler>> = vec![Arc::new(world.clone())];
+        handlers.insert(
+            0,
+            Arc::new(LatencySupervisor {
+                plain: fake_worker::router::Router {
+                    script: Default::default(),
+                    rsync_remote: "/usr/bin/rsync".into(),
+                    rsync_binary: "/usr/bin/rsync".into(),
+                    extensions: handlers.clone(),
+                },
+                movies: Default::default(),
+                failing: Some(stderr),
+                failed: Default::default(),
+                barriers: (1..=3)
+                    .map(|index| format!("/tmp/marathon/.apple-world/testCase{index}.ready"))
+                    .collect(),
+            }),
+        );
+        let transcript = root.join("transcript.jsonl");
+        let worker = fake_worker::start(
+            Config {
+                listen: "127.0.0.1:0".parse()?,
+                root: root.join("worker"),
+                transcript: transcript.clone(),
+                host_key: host.clone(),
+                auth: AuthPolicy {
+                    user: "fixture".into(),
+                    password: None,
+                    authorized_keys: vec![auth.with_extension("pub")],
+                    keyboard_interactive: false,
+                    password_auth: false,
+                },
+                max_sessions: 10,
+                rsync_binary: "/usr/bin/rsync".into(),
+                rsync_remote: "/usr/bin/rsync".into(),
+                script: Default::default(),
+                fixtures: repo.join("fixtures/fake-worker"),
+                run: "ios-busy-recorder".into(),
+            },
+            handlers,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        let port = worker.ready.endpoint.port();
+        std::fs::write(
+            root.join("Marathondevices"),
+            format!(
+                "workers:\n- transport: {{type: ssh, addr: 127.0.0.1, port: {port}, checkReachability: false}}\n  devices: [{{type: simulator, udid: {UDID}}}]\n"
+            ),
+        )?;
+        std::fs::write(
+            root.join("Marathonfile"),
+            format!(
+                "name: ios-busy\noutputDir: report\ndebug: true\nanalyticsTracking: false\nbugsnagReporting: false\nuncompletedTestRetryQuota: 0\nretryStrategy: {{type: no-retry}}\nbatchingStrategy: {{type: fixed-size, size: 1, lastMileLength: 0}}\nscreenRecordingPolicy: ON_ANY\nvendorConfiguration:\n  type: iOS\n  bundle:\n    application: App.app\n    testApplication: Tests.xctest\n    testType: xctest\n  ssh:\n    authentication: {{type: publicKey, username: fixture, key: '{}'}}\n    keepAliveInterval: PT15S\n    shareWorkerConnection: true\n  lifecycle:\n    shutdownUnused: false\n    onPrepare: []\n    onDispose: [SHUTDOWN]\n  deviceLog: false\n  xcresult:\n    pullingPolicy: ALWAYS\n    remoteClean: true\n  screenRecordConfiguration:\n    preferableRecorderType: VIDEO\n    videoConfiguration:\n      enabled: true\n      transcoding: {{enabled: false}}\n    screenshotConfiguration: {{enabled: false}}\n",
+                auth.display()
+            ),
+        )?;
+        let output = tokio::time::timeout(
+            Duration::from_secs(120),
+            tokio::process::Command::new(env!("CARGO_BIN_EXE_marathon"))
+                .current_dir(root)
+                .kill_on_drop(true)
+                .env("FW_REAL_SSH", "/usr/bin/ssh")
+                .env("FW_ARGV_LOG", root.join("host-argv.jsonl"))
+                .env(
+                    "PATH",
+                    format!(
+                        "{}:{}",
+                        repo.join("tools/fake-worker/shims").display(),
+                        std::env::var("PATH").unwrap_or_default()
+                    ),
+                )
+                .output(),
+        )
+        .await??;
+        let rows: Vec<serde_json::Value> = std::fs::read_to_string(transcript)?
+            .lines()
+            .map(serde_json::from_str)
+            .collect::<std::result::Result<_, _>>()?;
+        let execs = rows
+            .iter()
+            .filter(|row| row["event"] == "exec")
+            .map(|row| {
+                let raw = row["detail"]["base64"].as_str().unwrap();
+                String::from_utf8(base64::engine::general_purpose::STANDARD.decode(raw).unwrap()).unwrap()
+            })
+            .collect::<Vec<_>>();
+        worker.shutdown().await.map_err(|e| e.to_string())?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr_text = String::from_utf8_lossy(&output.stderr);
+        // Video never changes a test's outcome or the exit status.
+        assert!(output.status.success(), "{stdout}\n{stderr_text}");
+        assert_eq!(
+            execs.iter().filter(|cmd| cmd.contains("test-without-building")).count(),
+            3
+        );
+        let launches = execs
+            .iter()
+            .filter(|cmd| supervised_token(cmd, "detach").is_some())
+            .count();
+        let warnings = format!("{stdout}{stderr_text}")
+            .matches("video service is busy")
+            .count();
+        if stderr == busy {
+            assert_eq!(launches, 1, "no recorder after the busy refusal");
+            assert_eq!(warnings, 1, "{stdout}");
+            assert!(stdout.contains(&format!("xcrun simctl shutdown {UDID}")));
+        } else {
+            assert_eq!(launches, 3, "a status 16 without the busy refusal leaves video on");
+            assert_eq!(warnings, 0, "{stdout}");
+        }
+    }
     Ok(())
 }

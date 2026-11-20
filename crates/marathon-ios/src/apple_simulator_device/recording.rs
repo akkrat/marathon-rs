@@ -21,6 +21,13 @@ const STOP_BUDGET: i64 = 15_000;
 const START_MARKER: &str = "Recording started";
 /// simctl's exit status when the simulator's video service refuses a second recording (EBUSY).
 const BUSY_STATUS: i32 = 16;
+/// simctl's stderr for that refusal: `Error starting video recorder: Error Domain=NSPOSIXErrorDomain Code=16
+/// "Resource busy" UserInfo={NSLocalizedFailureReason=A recording is already in progress}.` and the same reason again.
+const BUSY_TEXT: [&str; 2] = ["Resource busy", "A recording is already in progress"];
+
+fn reports_busy(stderr: &str) -> bool {
+    BUSY_TEXT.iter().any(|text| stderr.contains(text))
+}
 
 #[derive(Clone, Copy)]
 struct StopWindow {
@@ -218,12 +225,14 @@ impl Recording {
             self.request_stop(protected.clock.as_ref(), None);
             std::future::pending::<()>().await;
         };
-        let (outcome, started) = tokio::select! {
+        let (outcome, started, busy) = tokio::select! {
             _ = cancellation => unreachable!("stop publisher remains active"),
             result = self.run_session(&session, &protected, &mut deadline, video) => result,
         };
+        // Status 16 alone is not enough: only simctl's busy refusal on stderr shows the video service is held.
         if video.is_some()
             && !started
+            && busy
             && session.base.exit_code.termination() == Some(CommandTermination::Status(BUSY_STATUS))
         {
             self.recorder_busy(device);
@@ -318,8 +327,9 @@ impl Recording {
         }
     }
 
-    /// D98: the busy code with no recorder of marathon's own on the simulator means its video service is held by a
-    /// recording nobody can stop (an early signal, a crash, another tool). Every later start fails the same way until
+    /// D98: the busy refusal with no live recorder of marathon's own on the simulator means its video service is held
+    /// by a recording nobody can stop (a signal before the start, including marathon's own TERM or KILL at a stop
+    /// cutoff, a crash, another tool). Every later start fails the same way until
     /// the simulator restarts, so video stops here for the rest of the run with one warning.
     fn recorder_busy(&self, device: &AppleSimulatorDevice) {
         let first = {
@@ -341,8 +351,8 @@ impl Recording {
                 Level::WARN,
                 || {
                     format!(
-                        "Simulator {serial} reports a video recording already in progress that marathon did not start. \
-                         Video recording is off on this simulator for the rest of the run. Restart it \
+                        "Simulator {serial}: its video service is busy with a recording already in progress. Video \
+                         recording is off on this simulator for the rest of the run. Restart the simulator \
                          (xcrun simctl shutdown {udid}, then xcrun simctl boot {udid}) to record again."
                     )
                 },
@@ -351,18 +361,20 @@ impl Recording {
         }
     }
 
-    /// The process outcome, and whether a recorder confirmed its start (D98).
+    /// The process outcome, whether a recorder confirmed its start, and whether its stderr reported the busy refusal
+    /// (D98).
     async fn run_session(
         &self,
         session: &CommandSession,
         context: &VendorContext,
         deadline: &mut watch::Receiver<Option<StopWindow>>,
         video: Option<(&AppleSimulatorDevice, &str)>,
-    ) -> (RecordingFinalization, bool) {
+    ) -> (RecordingFinalization, bool, bool) {
         let clock = context.clock.as_ref();
         // A device log has no start marker and never waits for one.
         let started = watch::channel(video.is_none()).0;
-        let worker = session.worker_start();
+        let worker = session.worker_report();
+        let busy = std::sync::atomic::AtomicBool::new(false);
         // D98: a signal before simctl's start marker leaves the simulator's video service recording with no client,
         // and every later recording on that simulator then fails with the busy code. A supervised SSH worker reads
         // the recorder's stderr and holds INT itself; otherwise the marker is read here and INT waits for it.
@@ -385,12 +397,14 @@ impl Recording {
                 read_output(session, |line| {
                     if line.strip_suffix('\r').unwrap_or(line) == START_MARKER {
                         confirm();
+                    } else if reports_busy(line) {
+                        busy.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
                 })
                 .await
             } else {
                 let reported = async {
-                    if let Some(mut worker) = worker.clone()
+                    if let Some(mut worker) = worker.as_ref().map(|worker| worker.started.clone())
                         && worker.wait_for(|started| *started).await.is_ok()
                     {
                         confirm();
@@ -403,8 +417,13 @@ impl Recording {
                     _ = reported => unreachable!("the start report never ends the wait"),
                 }
             };
-            if worker.as_ref().is_some_and(|worker| *worker.borrow()) {
-                confirm();
+            if let Some(worker) = &worker {
+                if *worker.started.borrow() {
+                    confirm();
+                }
+                if worker.stderr.get().is_some_and(|stderr| reports_busy(stderr)) {
+                    busy.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
             }
             match (result, session.base.exit_code.termination()) {
                 (Ok(()), Some(CommandTermination::Status(0))) => RecordingFinalization::Finalized,
@@ -464,7 +483,11 @@ impl Recording {
             RecordingFinalization::Unconfirmed
         }
         .await;
-        (outcome, *started.borrow())
+        (
+            outcome,
+            *started.borrow(),
+            busy.load(std::sync::atomic::Ordering::Relaxed),
+        )
     }
 }
 

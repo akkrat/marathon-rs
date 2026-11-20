@@ -545,8 +545,18 @@ async fn d98_invoke(
     mode: &str,
     args: &[&str],
 ) -> std::io::Result<std::process::Output> {
+    d98_invoke_with(supervisor, root, "60000", mode, args).await
+}
+
+async fn d98_invoke_with(
+    supervisor: &Path,
+    root: &Path,
+    lease: &str,
+    mode: &str,
+    args: &[&str],
+) -> std::io::Result<std::process::Output> {
     let mut command = tokio::process::Command::new("/usr/bin/perl");
-    command.arg(supervisor).arg(mode).arg(root).arg("60000").args(args);
+    command.arg(supervisor).arg(mode).arg(root).arg(lease).args(args);
     command.kill_on_drop(true);
     command.output().await
 }
@@ -639,6 +649,135 @@ while (1) { select undef, undef, undef, .01 }"#;
     // Hang guard only: the worker loop reads stderr every 25-50 ms.
     assert!(interrupted >= marked && interrupted - marked < 5.0, "{times:?}");
     println!("INT {:.0} ms after the start marker", (interrupted - marked) * 1000.0);
+    assert_eq!(
+        d98_invoke(&supervisor, root.path(), "retire", &[]).await?.stdout,
+        b"MARATHON_D96_1 retired\n"
+    );
+    Ok(())
+}
+
+/// Waits until `path` exists (hang guard only).
+async fn d98_file(path: &Path) -> std::io::Result<()> {
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        while !path.is_file() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .map_err(std::io::Error::other)
+}
+
+#[tokio::test]
+async fn a_start_marker_split_across_writes_counts_only_when_its_line_is_complete_d98()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::time::Duration;
+    if !Path::new("/usr/bin/perl").is_file() {
+        eprintln!("worker witness requires stock Perl");
+        return Ok(());
+    }
+    let (root, supervisor) = d98_root()?;
+    let files = tempfile::tempdir()?;
+    let token = "0123456789abcdef0123456789abcdef";
+    // Three separate writes: "Recording", " started" and the newline, each after its own release. An INT before the
+    // whole line ends the recorder with status 2.
+    let payload = r#"select STDERR; $| = 1; my ($dir) = @ARGV; my $complete;
+sub wait_for { my $f = "$dir/$_[0]"; select undef, undef, undef, .01 until -f $f }
+sub touch { open my $f, '>', "$dir/$_[0]"; close $f }
+$SIG{INT} = sub { if (!$complete) { touch('early'); exit 2 } exit 0 };
+print STDERR "Recording"; touch('first');
+wait_for('release1'); print STDERR " started"; touch('second');
+wait_for('release2'); $complete = 1; print STDERR "\n";
+while (1) { select undef, undef, undef, .01 }"#;
+    let dir = files.path().to_str().unwrap().to_owned();
+    let launched = d98_invoke(
+        &supervisor,
+        root.path(),
+        "detach",
+        &[token, "/usr/bin/perl", "-e", payload, &dir],
+    )
+    .await?;
+    assert!(
+        launched.status.success(),
+        "{}",
+        String::from_utf8_lossy(&launched.stderr)
+    );
+    d98_file(&files.path().join("first")).await?;
+    assert!(
+        d98_invoke(&supervisor, root.path(), "control", &[&format!("{token}:1")])
+            .await?
+            .status
+            .success()
+    );
+    // Each part sits in the worker's pipe for a second, twenty of its read loops.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    std::fs::write(files.path().join("release1"), b"")?;
+    d98_file(&files.path().join("second")).await?;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(
+        !files.path().join("early").exists(),
+        "INT before the marker line was complete"
+    );
+    let status = d98_invoke(&supervisor, root.path(), "control", &[&format!("{token}:status")]).await?;
+    assert!(String::from_utf8(status.stdout)?.starts_with(&format!("{token} running:")));
+    std::fs::write(files.path().join("release2"), b"")?;
+    let (receipt, _) = d98_receipt(&supervisor, root.path(), token).await?;
+    assert_eq!(receipt, "done:0");
+    assert!(!files.path().join("early").exists());
+    assert_eq!(
+        d98_invoke(&supervisor, root.path(), "retire", &[]).await?.stdout,
+        b"MARATHON_D96_1 retired\n"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn lease_expiry_gives_an_unconfirmed_recorder_term_at_the_existing_time_d98()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::time::{Duration, Instant};
+    if !Path::new("/usr/bin/perl").is_file() {
+        eprintln!("worker witness requires stock Perl");
+        return Ok(());
+    }
+    let (root, supervisor) = d98_root()?;
+    let files = tempfile::tempdir()?;
+    let token = "00000000000000000000000000000003";
+    let (ready, int) = (files.path().join("ready"), files.path().join("int"));
+    let payload = r#"my ($ready, $int) = @ARGV; $SIG{INT} = sub { open my $f, '>', $int; close $f };
+$SIG{TERM} = sub { exit 15 }; print STDERR "Note: No display specified.\n"; open my $f, '>', $ready; close $f;
+while (1) { select undef, undef, undef, .01 }"#;
+    let launched_at = Instant::now();
+    // A 1.5 s lease that nobody renews: the controller is gone.
+    let launched = d98_invoke_with(
+        &supervisor,
+        root.path(),
+        "1500",
+        "detach",
+        &[
+            token,
+            "/usr/bin/perl",
+            "-e",
+            payload,
+            ready.to_str().unwrap(),
+            int.to_str().unwrap(),
+        ],
+    )
+    .await?;
+    assert!(
+        launched.status.success(),
+        "{}",
+        String::from_utf8_lossy(&launched.stderr)
+    );
+    d98_file(&ready).await?;
+    let (receipt, ended) = d98_receipt(&supervisor, root.path(), token).await?;
+    assert_eq!(receipt.split(' ').next(), Some("done:15"));
+    assert!(!int.exists(), "INT reached an unconfirmed recorder at lease expiry");
+    // Expiry, then TERM 2 s later as before D98; the upper bound is a hang guard.
+    let elapsed = ended - launched_at;
+    assert!(
+        elapsed >= Duration::from_millis(3500) && elapsed < Duration::from_secs(25),
+        "{elapsed:?}"
+    );
+    println!("expired recorder: {receipt} after {elapsed:?}");
     assert_eq!(
         d98_invoke(&supervisor, root.path(), "retire", &[]).await?.stdout,
         b"MARATHON_D96_1 retired\n"
@@ -857,7 +996,11 @@ struct SupervisorWorker {
     resistant_token: std::sync::Mutex<Option<String>>,
     stall_term: bool,
     /// D98: a running recorder has printed its start marker; status says `recording:`.
-    confirm_recordings: bool,
+    confirm_recordings: std::sync::atomic::AtomicBool,
+    /// D98: the control stream exits at once, as a filtered or failing worker's would.
+    refuse_stream: bool,
+    /// D98: a recorder's status requests get no reply while set.
+    silent_status: std::sync::atomic::AtomicBool,
     recordings: std::sync::Mutex<std::collections::HashMap<String, bool>>,
     batches: std::sync::Mutex<std::collections::HashSet<String>>,
 }
@@ -880,6 +1023,7 @@ impl fake_worker::router::Handler for SupervisorWorker {
                 ["/usr/bin/perl", "-MMIME::Base64", "-e", _, "--", _, _] => {
                     Ok(Some(Action::output(&format!("MARATHON_D96_1 {root}\n"), 0)))
                 }
+                ["/usr/bin/perl", _, "control-stream", ..] if self.refuse_stream => Ok(Some(Action::output("", 1))),
                 ["/usr/bin/perl", program, "retire", directory, _]
                     if *directory == root && *program == format!("{root}/supervisor.pl") =>
                 {
@@ -889,8 +1033,14 @@ impl fake_worker::router::Handler for SupervisorWorker {
                     if *directory == root && *program == format!("{root}/supervisor.pl") =>
                 {
                     let (token, operation) = control.split_once(':').unwrap();
+                    if operation == "status"
+                        && self.silent_status.load(std::sync::atomic::Ordering::SeqCst)
+                        && self.recordings.lock().unwrap().contains_key(token)
+                    {
+                        return Ok(Some(ssh::hang(vec![])));
+                    }
                     if let Some(recording) = self.recordings.lock().unwrap().get_mut(token) {
-                        let running = if self.confirm_recordings {
+                        let running = if self.confirm_recordings.load(std::sync::atomic::Ordering::SeqCst) {
                             "recording:100000"
                         } else {
                             "running:100000"
@@ -1079,66 +1229,180 @@ async fn five_recording_simulators_share_a_ten_session_worker_d96() {
     .await;
 }
 
-#[tokio::test]
-async fn a_supervised_recorder_reports_its_start_from_the_worker_status_d98() {
+/// D98: a fake worker with the given supervisor behaviour, an executor with a 60 s keep-alive interval (so nothing
+/// waits a renewal interval inside a test's hang guard), and a launched detached recorder.
+async fn d98_recorder(
+    world: Arc<SupervisorWorker>,
+    interval_seconds: i64,
+) -> (
+    ssh::Fake,
+    Arc<marathon_apple::cmd::remote::ssh::sshj::SshCommandExecutor>,
+    marathon_apple::cmd::CommandSession,
+) {
     use marathon_apple::bin::{
         Tools,
         xcrun::simctl::{SimctlService, service::IoService},
     };
     use marathon_config::vendor::{AppleTimeoutParameters, Codec, Display, Mask, apple_timeout_configuration};
+    let fake = ssh::fake_with_handlers(ssh::script(vec![]), 10, |_| {}, vec![world]).await;
+    let (logging, _) = ssh::logging(false);
+    let mut factory = ssh::factory(&logging);
+    factory.keep_alive_interval = jcompat::jtime::Duration::of_seconds(interval_seconds);
+    let executor = Arc::new(
+        factory
+            .connect_worker("127.0.0.1", fake.port(), ssh::password(), None, false, Arc::default())
+            .await
+            .unwrap(),
+    );
+    let io = IoService::new(SimctlService::new(Tools {
+        executor: executor.clone(),
+        timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
+        runtime: Arc::new(support::Runtime),
+        logging,
+    }));
+    let recording = io
+        .record_video(
+            "fixture",
+            "/tmp/marathon/video.mp4",
+            Codec::H264,
+            Display::Internal,
+            Mask::Black,
+            &context(),
+        )
+        .await
+        .unwrap();
+    (fake, executor, recording)
+}
+
+async fn d98_execs(fake: &ssh::Fake) -> Vec<String> {
+    fake.events("exec")
+        .await
+        .iter()
+        .map(|row| String::from_utf8(STANDARD.decode(row["detail"]["base64"].as_str().unwrap()).unwrap()).unwrap())
+        .collect()
+}
+
+async fn d98_status_requests(fake: &ssh::Fake) -> usize {
+    fake.events("supervisor_request")
+        .await
+        .iter()
+        .filter(|row| matches_operation(row, ":status"))
+        .count()
+}
+
+#[tokio::test]
+async fn a_supervised_recorder_reports_its_start_from_the_worker_status_d98() {
     for confirmed in [true, false] {
+        // Hang guard only. Without the launch wake the first status comes one 60 s renewal interval later.
         support::bounded(30, async {
             let world = Arc::new(SupervisorWorker {
-                confirm_recordings: confirmed,
+                confirm_recordings: confirmed.into(),
                 ..SupervisorWorker::default()
             });
-            let fake = ssh::fake_with_handlers(ssh::script(vec![]), 10, |_| {}, vec![world.clone()]).await;
-            let (logging, _) = ssh::logging(false);
-            let executor = Arc::new(
-                ssh::factory(&logging)
-                    .connect_worker("127.0.0.1", fake.port(), ssh::password(), None, false, Arc::default())
-                    .await
-                    .unwrap(),
-            );
-            let io = IoService::new(SimctlService::new(Tools {
-                executor: executor.clone(),
-                timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
-                runtime: Arc::new(support::Runtime),
-                logging,
-            }));
-            let start = std::time::Instant::now();
-            let recording = io
-                .record_video(
-                    "fixture",
-                    "/tmp/marathon/video.mp4",
-                    Codec::H264,
-                    Display::Internal,
-                    Mask::Black,
-                    &context(),
-                )
-                .await
-                .unwrap();
-            let mut started = recording.worker_start().expect("a detached recorder reports its start");
+            let (fake, executor, recording) = d98_recorder(world, 60).await;
+            let mut started = recording
+                .worker_report()
+                .expect("a detached recorder reports its start")
+                .started;
             if confirmed {
-                // The watcher asks at launch, not one renewal interval (15 s without keep-alive) later.
                 started.wait_for(|started| *started).await.unwrap();
-                let reported = start.elapsed();
-                println!("start reported {reported:?} after launch");
-                assert!(reported < std::time::Duration::from_secs(5), "{reported:?}");
             } else {
-                // Several status polls after launch, none of which reported a start.
-                let polls = || async {
-                    fake.events("supervisor_request")
-                        .await
-                        .iter()
-                        .filter(|row| matches_operation(row, ":status"))
-                        .count()
-                };
-                while polls().await < 3 {
+                // Several status probes after launch, none of which reported a start.
+                while d98_status_requests(&fake).await < 3 {
                     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                 }
                 assert!(!*started.borrow());
             }
+            recording.interrupt().unwrap();
+            assert_eq!(recording.await_result(&context()).await.unwrap().exit_code, Some(0));
+            recording.close().await.unwrap();
+            executor.close().await.unwrap();
+            fake.worker.shutdown().await.unwrap();
+        })
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn start_probes_do_not_move_the_renewal_schedule_d98() {
+    use std::time::{Duration, Instant};
+    support::bounded(60, async {
+        let world = Arc::new(SupervisorWorker::default());
+        // A 4 s renewal interval; the recorder confirms its start 3.5 s after the first renewal.
+        let (fake, executor, recording) = d98_recorder(world.clone(), 4).await;
+        let renewals = || async {
+            fake.events("supervisor_request")
+                .await
+                .iter()
+                .filter(|row| {
+                    String::from_utf8_lossy(&STANDARD.decode(row["detail"]["base64"].as_str().unwrap()).unwrap())
+                        .contains(":renew-")
+                })
+                .count()
+        };
+        let wait_for_renewals = |count: usize| async move {
+            while renewals().await < count {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            Instant::now()
+        };
+        let first = wait_for_renewals(1).await;
+        tokio::time::sleep(Duration::from_millis(3500)).await;
+        world
+            .confirm_recordings
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let mut started = recording.worker_report().unwrap().started;
+        started.wait_for(|started| *started).await.unwrap();
+        let second = wait_for_renewals(2).await;
+        // On schedule the second renewal is 4 s after the first. Timed from the probe that ended polling it came
+        // 7.5 s after; the bound leaves 2 s for scheduling delays.
+        let gap = second - first;
+        println!("renewals {gap:?} apart");
+        assert!(gap < Duration::from_secs(6), "{gap:?}");
+        recording.interrupt().unwrap();
+        assert_eq!(recording.await_result(&context()).await.unwrap().exit_code, Some(0));
+        recording.close().await.unwrap();
+        executor.close().await.unwrap();
+        fake.worker.shutdown().await.unwrap();
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn the_start_probe_never_dials_falls_back_or_counts_a_miss_d98() {
+    for refuse_stream in [true, false] {
+        support::bounded(60, async {
+            let world = Arc::new(SupervisorWorker {
+                confirm_recordings: true.into(),
+                refuse_stream,
+                silent_status: (!refuse_stream).into(),
+                ..SupervisorWorker::default()
+            });
+            let (fake, executor, recording) = d98_recorder(world.clone(), 60).await;
+            let streams = |execs: &[String]| execs.iter().filter(|wire| wire.contains(" control-stream ")).count();
+            if refuse_stream {
+                // The launch opens the stream once, which exits at once. Probes then find no stream to ask.
+                while streams(&d98_execs(&fake).await) == 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                // Five probe periods: the old launch status dialled and used a data session within this time.
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            } else {
+                // Each probe goes unanswered for 4 s. Two such misses used to replace the control connection, and one
+                // used to send the request again on a data session.
+                while d98_status_requests(&fake).await < 3 {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            }
+            let execs = d98_execs(&fake).await;
+            assert!(
+                !execs.iter().any(|wire| wire.contains("/supervisor.pl control ")),
+                "a start probe used a data session: {execs:#?}"
+            );
+            assert_eq!(streams(&execs), 1, "a start probe dialled or reconnected: {execs:#?}");
+            let report = recording.worker_report().unwrap();
+            assert!(!*report.started.borrow());
+            world.silent_status.store(false, std::sync::atomic::Ordering::SeqCst);
             recording.interrupt().unwrap();
             assert_eq!(recording.await_result(&context()).await.unwrap().exit_code, Some(0));
             recording.close().await.unwrap();

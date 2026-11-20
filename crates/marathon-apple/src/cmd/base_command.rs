@@ -221,6 +221,15 @@ impl BaseCommand {
     }
 }
 
+/// D98: what a supervised worker reports about a detached recorder whose output the controller cannot read.
+#[derive(Clone)]
+pub struct WorkerReport {
+    /// True once the recorder printed its start marker.
+    pub started: watch::Receiver<bool>,
+    /// A failed recorder's stderr, from its exit receipt; set before its exit status is.
+    pub stderr: Arc<std::sync::OnceLock<String>>,
+}
+
 /// Explicit backend operations allow live local isAlive and captured SSH isAlive.
 /// Async close may retain a backend task so dropping its awaiter cannot abort cleanup.
 pub struct SessionControl {
@@ -239,7 +248,7 @@ pub struct CommandSession {
     pub base: Arc<BaseCommand>,
     control: Arc<SessionControl>,
     interrupt: Option<Box<dyn Fn() -> VendorResult<()> + Send + Sync>>,
-    worker_start: Option<watch::Receiver<bool>>,
+    worker: Option<WorkerReport>,
     close_task: Arc<Mutex<CloseSlot>>,
     fixed_result: Option<CommandResult>,
 }
@@ -249,7 +258,7 @@ impl CommandSession {
             base: Arc::new(base),
             control: Arc::new(control),
             interrupt: None,
-            worker_start: None,
+            worker: None,
             close_task: Arc::new(Mutex::new(CloseSlot::default())),
             fixed_result: None,
         }
@@ -281,13 +290,13 @@ impl CommandSession {
         self
     }
     /// D98: a supervised SSH recorder's worker reads the recorder's output, holds INT until the recorder confirms its
-    /// start, and reports that start here. Without it, the caller reads the confirmation from the session's output.
-    pub fn with_worker_start(mut self, started: watch::Receiver<bool>) -> Self {
-        self.worker_start = Some(started);
+    /// start, and reports here. Without it, the caller reads the recorder's output itself.
+    pub fn with_worker_report(mut self, report: WorkerReport) -> Self {
+        self.worker = Some(report);
         self
     }
-    pub fn worker_start(&self) -> Option<watch::Receiver<bool>> {
-        self.worker_start.clone()
+    pub fn worker_report(&self) -> Option<WorkerReport> {
+        self.worker.clone()
     }
     pub fn interrupt(&self) -> VendorResult<()> {
         match &self.interrupt {

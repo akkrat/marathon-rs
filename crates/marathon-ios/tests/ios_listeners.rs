@@ -1063,80 +1063,95 @@ async fn a_confirmed_recorder_gets_int_as_soon_as_its_stop_is_requested_d98() ->
 #[tokio::test(start_paused = true)]
 async fn a_busy_video_service_turns_video_off_for_the_simulator_once_d98() -> TestResult {
     use marathon_ios::apple_simulator_device::recording::RecordingFinalization;
-    let mut h = harness(|_| {})?;
-    Arc::make_mut(&mut h.services.configuration).screen_recording_policy = ScreenRecordingPolicy::OnAny;
-    let d = h.device().await?;
-    let c = context(&h, d.clone());
-    let tests = c.batch.tests.clone();
-    let l = ScreenRecordingListener::new(c);
-    let launched = marathon_core::executor::shared::SharedDeferred::new();
-    let launch = launched.clone();
-    *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
-        if !cmd.iter().any(|arg| arg == "recordVideo") {
-            return Ok(None);
-        }
-        launch.complete(Ok(()));
-        // simctl on a simulator whose video service is still held by an earlier, unstoppable recording.
-        let (session, stderr) = simulator_support::unconfirmed_recorder_session(|_| Box::pin(async { Ok(None) }));
-        let (exit, stdout) = (session.base.exit_code.clone(), session.base.stdout.clone());
-        tokio::spawn(async move {
-            for line in [
-                "Error starting video recorder: Error Domain=NSPOSIXErrorDomain Code=16 \"Resource busy\" \
-                 UserInfo={NSLocalizedFailureReason=A recording is already in progress}.",
-                "A recording is already in progress",
-            ] {
-                stderr.send(line.into()).await.unwrap();
+    // simctl on a simulator whose video service is still held by an earlier, unstoppable recording, and an exit
+    // status 16 for some other reason, which leaves video on.
+    for busy in [true, false] {
+        let mut h = harness(|_| {})?;
+        Arc::make_mut(&mut h.services.configuration).screen_recording_policy = ScreenRecordingPolicy::OnAny;
+        let d = h.device().await?;
+        let c = context(&h, d.clone());
+        let tests = c.batch.tests.clone();
+        let l = ScreenRecordingListener::new(c);
+        let launched = marathon_core::executor::shared::SharedDeferred::new();
+        let launch = launched.clone();
+        *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
+            if !cmd.iter().any(|arg| arg == "recordVideo") {
+                return Ok(None);
             }
-            stdout.close(None);
-            stderr.close(None);
-            exit.complete(Ok(Some(16)));
+            launch.complete(Ok(()));
+            let (session, stderr) = simulator_support::unconfirmed_recorder_session(|_| Box::pin(async { Ok(None) }));
+            let (exit, stdout) = (session.base.exit_code.clone(), session.base.stdout.clone());
+            tokio::spawn(async move {
+                let lines: &[&str] = if busy {
+                    &[
+                        "Error starting video recorder: Error Domain=NSPOSIXErrorDomain Code=16 \"Resource busy\" \
+                         UserInfo={NSLocalizedFailureReason=A recording is already in progress}.",
+                        "An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=16):",
+                        "A recording is already in progress",
+                    ]
+                } else {
+                    &["An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=16):"]
+                };
+                for line in lines {
+                    stderr.send((*line).into()).await.unwrap();
+                }
+                stdout.close(None);
+                stderr.close(None);
+                exit.complete(Ok(Some(16)));
+            });
+            Ok(Some(session))
         });
-        Ok(Some(session))
-    });
-    let recordings = |h: &simulator_support::Harness| {
-        h.worker
-            .commands
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|cmd| cmd.iter().any(|arg| arg == "recordVideo"))
-            .count()
-    };
-    for (index, test) in tests.iter().enumerate() {
-        l.test_started(test).await.map_err(|e| format!("{e:?}"))?;
-        if index == 0 {
-            launched.wait().await.map_err(|e| format!("{e:?}"))?;
-        } else {
-            // Paused time: every runnable task, a launch included, runs before this returns.
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let recordings = |h: &simulator_support::Harness| {
+            h.worker
+                .commands
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|cmd| cmd.iter().any(|arg| arg == "recordVideo"))
+                .count()
+        };
+        for (index, test) in tests.iter().enumerate() {
+            l.test_started(test).await.map_err(|e| format!("{e:?}"))?;
+            if index == 0 {
+                launched.wait().await.map_err(|e| format!("{e:?}"))?;
+            } else {
+                // Paused time: every runnable task, a launch included, runs before this returns.
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+            l.test_failed(test, 0, 0, None).await.map_err(|e| format!("{e:?}"))?;
         }
-        l.test_failed(test, 0, 0, None).await.map_err(|e| format!("{e:?}"))?;
+        l.settle().await.map_err(|e| format!("{e:?}"))?;
+        let logs = h.logs.lock().unwrap().clone();
+        let warnings: Vec<_> = logs
+            .iter()
+            .filter(|r| r.1 == marathon_logging::Level::WARN && r.2.contains("video service is busy"))
+            .map(|r| r.2.clone())
+            .collect();
+        let undelivered: Vec<_> = logs
+            .iter()
+            .filter(|r| r.2.contains("was not delivered"))
+            .map(|r| r.2.clone())
+            .collect();
+        assert!(!logs.iter().any(|r| r.2 == "Video recording did not start"));
+        if busy {
+            assert_eq!(recordings(&h), 1, "no recorder is launched after the busy refusal");
+            assert_eq!(warnings.len(), 1, "{warnings:?}");
+            assert!(warnings[0].contains(d.udid()) && warnings[0].contains("Restart the simulator"));
+            // The failed start still reports its own movie; the skipped one reports nothing per test.
+            assert_eq!(undelivered.len(), 1, "{undelivered:?}");
+            assert!(undelivered[0].ends_with("the recording did not finalize"));
+            l.test_started(&tests[0]).await.map_err(|e| format!("{e:?}"))?;
+            assert_eq!(
+                l.stop().await.map_err(|e| format!("{e:?}"))?,
+                RecordingFinalization::Skipped
+            );
+        } else {
+            assert_eq!(recordings(&h), 2, "a bare status 16 leaves video on");
+            assert!(warnings.is_empty(), "{warnings:?}");
+            assert_eq!(undelivered.len(), 2, "{undelivered:?}");
+        }
+        d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+        h.finish(&[d]).await;
     }
-    l.settle().await.map_err(|e| format!("{e:?}"))?;
-    assert_eq!(recordings(&h), 1, "no recorder is launched after the busy code");
-    let logs = h.logs.lock().unwrap().clone();
-    let warnings: Vec<_> = logs
-        .iter()
-        .filter(|r| r.1 == marathon_logging::Level::WARN && r.2.contains("already in progress"))
-        .map(|r| r.2.clone())
-        .collect();
-    assert_eq!(warnings.len(), 1, "{warnings:?}");
-    assert!(warnings[0].contains(d.udid()) && warnings[0].contains("simctl shutdown"));
-    // The failed start still reports its own movie; the skipped one reports nothing per test.
-    let undelivered: Vec<_> = logs
-        .iter()
-        .filter(|r| r.2.contains("was not delivered"))
-        .map(|r| r.2.clone())
-        .collect();
-    assert_eq!(undelivered.len(), 1, "{undelivered:?}");
-    assert!(undelivered[0].ends_with("the recording did not finalize"));
-    l.test_started(&tests[0]).await.map_err(|e| format!("{e:?}"))?;
-    assert_eq!(
-        l.stop().await.map_err(|e| format!("{e:?}"))?,
-        RecordingFinalization::Skipped
-    );
-    assert!(!logs.iter().any(|r| r.2 == "Video recording did not start"));
-    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
-    h.finish(&[d]).await;
     Ok(())
 }
