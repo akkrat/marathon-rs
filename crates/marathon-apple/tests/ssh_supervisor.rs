@@ -561,6 +561,28 @@ async fn d98_invoke_with(
     command.output().await
 }
 
+/// One control request, repeated while the worker answers `busy` (its token lock was held for that instant; the
+/// request was not applied). Hang guard only.
+async fn d98_control(supervisor: &Path, root: &Path, item: &str) -> std::io::Result<String> {
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            let output = d98_invoke(supervisor, root, "control", &[item]).await?;
+            if !output.status.success() {
+                return Err(std::io::Error::other(
+                    String::from_utf8_lossy(&output.stderr).into_owned(),
+                ));
+            }
+            let reply = String::from_utf8_lossy(&output.stdout).trim_end().to_owned();
+            if !reply.ends_with(" busy") {
+                return Ok(reply);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .map_err(std::io::Error::other)?
+}
+
 /// Polls `token`'s status until it is a receipt; returns the receipt and when it was first seen.
 async fn d98_receipt(supervisor: &Path, root: &Path, token: &str) -> std::io::Result<(String, std::time::Instant)> {
     tokio::time::timeout(std::time::Duration::from_secs(30), async {
@@ -625,15 +647,15 @@ while (1) { select undef, undef, undef, .01 }"#;
         }
     })
     .await?;
-    let interrupt = d98_invoke(&supervisor, root.path(), "control", &[&format!("{token}:1")]).await?;
-    assert!(String::from_utf8(interrupt.stdout)?.starts_with(&format!("{token} running:")));
+    let interrupt = d98_control(&supervisor, root.path(), &format!("{token}:1")).await?;
+    assert!(interrupt.starts_with(&format!("{token} running:")), "{interrupt}");
     // The old worker sent INT within one 50 ms loop. A slow simulator can take seconds to print the marker.
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert!(!early.exists(), "INT reached the recorder before its start marker");
-    let status = d98_invoke(&supervisor, root.path(), "control", &[&format!("{token}:status")]).await?;
+    let status = d98_control(&supervisor, root.path(), &format!("{token}:status")).await?;
     assert!(
-        String::from_utf8(status.stdout)?.starts_with(&format!("{token} running:")),
-        "a lookalike line confirmed the start"
+        status.starts_with(&format!("{token} running:")),
+        "a lookalike line confirmed the start: {status}"
     );
     std::fs::write(&release, b"")?;
     let (receipt, _) = d98_receipt(&supervisor, root.path(), token).await?;
@@ -702,12 +724,8 @@ while (1) { select undef, undef, undef, .01 }"#;
         String::from_utf8_lossy(&launched.stderr)
     );
     d98_file(&files.path().join("first")).await?;
-    assert!(
-        d98_invoke(&supervisor, root.path(), "control", &[&format!("{token}:1")])
-            .await?
-            .status
-            .success()
-    );
+    let interrupt = d98_control(&supervisor, root.path(), &format!("{token}:1")).await?;
+    assert!(interrupt.starts_with(&format!("{token} running:")), "{interrupt}");
     // Each part sits in the worker's pipe for a second, twenty of its read loops.
     tokio::time::sleep(Duration::from_secs(1)).await;
     std::fs::write(files.path().join("release1"), b"")?;
@@ -717,8 +735,8 @@ while (1) { select undef, undef, undef, .01 }"#;
         !files.path().join("early").exists(),
         "INT before the marker line was complete"
     );
-    let status = d98_invoke(&supervisor, root.path(), "control", &[&format!("{token}:status")]).await?;
-    assert!(String::from_utf8(status.stdout)?.starts_with(&format!("{token} running:")));
+    let status = d98_control(&supervisor, root.path(), &format!("{token}:status")).await?;
+    assert!(status.starts_with(&format!("{token} running:")), "{status}");
     std::fs::write(files.path().join("release2"), b"")?;
     let (receipt, _) = d98_receipt(&supervisor, root.path(), token).await?;
     assert_eq!(receipt, "done:0");
@@ -838,8 +856,8 @@ while (1) { select undef, undef, undef, .01 }"#,
         })
         .await?;
         let requested = Instant::now();
-        let stop = d98_invoke(&supervisor, root.path(), "control", &[&format!("{token}:{operation}")]).await?;
-        assert!(stop.status.success());
+        let stop = d98_control(&supervisor, root.path(), &format!("{token}:{operation}")).await?;
+        assert!(stop.starts_with(&format!("{token} running:")), "{stop}");
         let (receipt, ended) = d98_receipt(&supervisor, root.path(), token).await?;
         // A failed recorder's receipt carries its stderr.
         assert_eq!(receipt.split(' ').next(), Some(expected), "{token}");
@@ -1387,27 +1405,33 @@ async fn an_unanswered_start_probe_does_not_hold_back_a_renewal_d98() {
             answered_statuses: 1.into(),
             ..SupervisorWorker::default()
         });
-        let launched = Instant::now();
         let (fake, executor, recording) = d98_recorder(world.clone(), 1).await;
-        let renewed = loop {
-            let renewals = fake
-                .events("supervisor_request")
-                .await
-                .iter()
-                .filter(|row| {
-                    String::from_utf8_lossy(&STANDARD.decode(row["detail"]["base64"].as_str().unwrap()).unwrap())
-                        .contains(":renew-")
-                })
-                .count();
-            if renewals > 0 {
-                break Instant::now();
+        let requests = |operation: &'static str| {
+            let fake = &fake;
+            async move {
+                fake.events("supervisor_request")
+                    .await
+                    .iter()
+                    .filter(|row| {
+                        String::from_utf8_lossy(&STANDARD.decode(row["detail"]["base64"].as_str().unwrap()).unwrap())
+                            .contains(operation)
+                    })
+                    .count()
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
         };
-        // Due 1 s after launch; held back by the probe it would come at the probe's 4 s timeout.
-        let first = renewed - launched;
-        println!("first renewal {first:?} after launch");
-        assert!(first < Duration::from_secs(3), "{first:?}");
+        // The first unanswered probe: the second status request.
+        while requests(":status").await < 2 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let probed = Instant::now();
+        while requests(":renew-").await == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        // The renewal falls due about 0.8 s after that probe was sent; held back by it, it would come with the probe's
+        // 4 s timeout.
+        let waited = probed.elapsed();
+        println!("first renewal {waited:?} after the unanswered probe");
+        assert!(waited < Duration::from_millis(2500), "{waited:?}");
         world.silent_status.store(false, std::sync::atomic::Ordering::SeqCst);
         recording.interrupt().unwrap();
         assert_eq!(recording.await_result(&context()).await.unwrap().exit_code, Some(0));
