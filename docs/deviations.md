@@ -1,7 +1,7 @@
 # Approved differences from Kotlin marathon
 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) is
-canonical. This guide covers D1–D97 (D73 and D89 were reserved and not used). Implementation availability
+canonical. This guide covers D1–D98 (D73 and D89 were reserved and not used). Implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
 shipped differences. D55–D67 ship in 0.13.0. D55–D65 remove JVM artefacts under
