@@ -1395,11 +1395,15 @@ async fn the_start_probe_never_dials_falls_back_or_counts_a_miss_d98() {
                 }
             }
             let execs = d98_execs(&fake).await;
+            let data_requests: Vec<_> = execs
+                .iter()
+                .filter(|wire| wire.contains("/supervisor.pl control "))
+                .collect();
             assert!(
-                !execs.iter().any(|wire| wire.contains("/supervisor.pl control ")),
-                "a start probe used a data session: {execs:#?}"
+                data_requests.is_empty(),
+                "a start probe used a data session: {data_requests:#?}"
             );
-            assert_eq!(streams(&execs), 1, "a start probe dialled or reconnected: {execs:#?}");
+            assert_eq!(streams(&execs), 1, "a start probe dialled or reconnected");
             let report = recording.worker_report().unwrap();
             assert!(!*report.started.borrow());
             world.silent_status.store(false, std::sync::atomic::Ordering::SeqCst);
