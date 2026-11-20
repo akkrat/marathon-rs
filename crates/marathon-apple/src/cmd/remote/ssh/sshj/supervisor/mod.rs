@@ -938,6 +938,12 @@ impl Lease {
             let operation = if wanted > signalled {
                 wanted.to_string()
             } else if polled && now < next_renewal.max(first_renewal) {
+                // A poll never dials or takes a data session; without an open stream it waits for the next one.
+                if !self.peer.stream_ready() {
+                    start_poll = true;
+                    delay = START_POLL.min(self.peer.timing.interval);
+                    continue;
+                }
                 "status".to_string()
             } else if (wanted == 0 || (finalizing && now >= next_renewal))
                 && state.acknowledged
@@ -992,8 +998,7 @@ impl Lease {
                         && wanted == 0
                         && ending.is_none()
                         && !*self.started.borrow()
-                        && now < *start_poll_until.get_or_insert(now + START_POLL_WINDOW)
-                        && self.peer.stream_ready();
+                        && now < *start_poll_until.get_or_insert(now + START_POLL_WINDOW);
                     delay = if needs_renewal {
                         WallDuration::ZERO
                     } else if ending.is_some() || finalizing {
