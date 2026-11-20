@@ -5,16 +5,12 @@ for running Android, iOS and macOS tests with the existing Marathonfile,
 Marathondevices, CLI and report formats, apart from the approved differences in
 [the deviations guide](docs/deviations.md). A Marathonfile must set a finite `uncompletedTestRetryQuota`.
 
-**0.14.0 is the current release; 0.11.0 was the first public release.** 0.14.0 fixes run-stability and device-handling
-bugs (D68–D72, D74–D81) and adds Android coverage for non-debuggable apps; 0.13.0 dropped JVM artefacts under the Phase
-8 contract (D55–D65) and changed SIGQUIT and console completion handling (D66, D67). 0.15.0-rc.1 is a release candidate
-with run-supervision, process-ownership and device-handling fixes (D82–D88, D90–D97); earlier commits of it ran on real
-Android emulators, on iOS simulators and macOS tests locally, and on iOS simulators over SSH to an Apple worker, and runs
-of its own binary are pending. The
-Kotlin tests are ported or marked not applicable with a reason, differential suites compare whole runs with the JVM
-program, and 0.14.0's release candidates ran on real iOS, macOS and Android hosts, as the changelog records. Outside
-this repository the maintainer also ran 0.14.0-rc.2 beside the JVM build on private CI farms, which cannot be checked
-here.
+**0.15.0 is the current release; 0.11.0 was the first public release.** 0.15.0 adds run supervision, bounded waits and
+process ownership and fixes device-handling bugs (D82–D88, D90–D97); 0.14.0 fixed run-stability and device-handling
+bugs (D68–D72, D74–D81) and added Android coverage for non-debuggable apps. The Kotlin tests are ported or marked not
+applicable with a reason, differential suites compare whole runs with the JVM program, and the release candidates ran
+on real iOS, macOS and Android hosts, as the changelog records. Outside this repository the maintainer also ran them
+beside the JVM build on private CI farms, which cannot be checked here.
 No isolated shadow or canary results are recorded in this repository. Trial it in a
 disposable environment and keep your JVM distribution for rollback. See the
 [changelog](CHANGELOG.md) for known limits and

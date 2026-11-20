@@ -114,8 +114,8 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 | rely on an empty `/sdcard` ([D27](deviations.md#d27--prepare-no-longer-wipes-external-storage)) | Prepare no longer runs `rm -r $EXTERNAL_STORAGE`. Videos from an aborted run, or cut short by a lost connection in a run that still exits 0, stay on the device. | Clear what your tests need in the tests or in your device setup. |
 | set `socketIdleTimeout` ([D21](deviations.md#d21--socketidletimeout-means-what-it-says)) | It is now real milliseconds. It bounds only four requests: the adb server's version, a device's features, the property reads after boot and the removal of port forwards when a device is disposed. Kotlin read it as seconds, so `PT30S` lasted 30,000 s. | Remove it, or keep it at 30 s or more. `PT2S` now fails those requests on a slow adb server. |
 | start controller tools that fork background work ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)) | Local tools run in private groups. Cleanup ends registered groups, and a reaper covers controller death. ADB servers keep their independent lifetime. | Keep sessions open for background work that must finish. Use noninteractive SSH authentication and redirect inherited terminal output if `stty tostop` is set. [See below](#cancelling-a-run). |
-| use SSH passwords for Apple transfers ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)) | From 0.15.0-rc.1, OpenSSH 8.4 or newer uses askpass, which keeps rsync and its SSH client together in a private process group that marathon owns. An older or unrecognized SSH client uses `sshpass`, and marathon logs one warning per run that its cleanup then covers fewer processes. | Older or unrecognized SSH clients still need `sshpass`. |
-| filter SSH exec or rsync senders on Apple workers ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)) | D96 is new in 0.15.0-rc.1. Stock `/usr/bin/perl` with its core modules is optional and recommended. A successful pull verifies the sender through rsync's own status. The independent control connection keeps one exec open and can retry token requests on a spare command session. | Allow bootstrap, supervised requests, token controls and supervisor retirement. Allow `control-stream` with stdin intact. Use `exec` to run the original supervised command so a wrapper failure arrives as an SSH signal. |
+| use SSH passwords for Apple transfers ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)) | From 0.15.0, OpenSSH 8.4 or newer uses askpass, which keeps rsync and its SSH client together in a private process group that marathon owns. An older or unrecognized SSH client uses `sshpass`, and marathon logs one warning per run that its cleanup then covers fewer processes. | Older or unrecognized SSH clients still need `sshpass`. |
+| filter SSH exec or rsync senders on Apple workers ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)) | D96 is new in 0.15.0. Stock `/usr/bin/perl` with its core modules is optional and recommended. A successful pull verifies the sender through rsync's own status. The independent control connection keeps one exec open and can retry token requests on a spare command session. | Allow bootstrap, supervised requests, token controls and supervisor retirement. Allow `control-stream` with stdin intact. Use `exec` to run the original supervised command so a wrapper failure arrives as an SSH signal. |
 | filter iOS video commands on the worker ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)) | A supervised recorder detaches and releases its SSH session after launch. Token control sends INT to finalize it and can escalate to TERM and KILL. `timeoutConfiguration.video` bounds the open. | Allow the supervisor bootstrap, detached launcher and token controls. Without Perl, allow the legacy `nohup` launcher, pidfile commands and PID-based stop. OpenSSH rejects channel signals for forced commands and subsystems. |
 | have a forced command or wrapper on an iOS or macOS worker ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails), [D32](deviations.md#d32--xcodebuild-on-a-worker-runs-unbuffered)) | xcodebuild is sent as `env NSUnbufferedIO=YES xcrun xcodebuild …`. Sends and pulls carry `--timeout=300` ([D43](deviations.md#d43--an-rsync-receive-has-a-limit-on-progress)). On a host with rsync 3 the worker's `rsync --server` gets it too, and so does a wrapper set with `RSYNC4J_RSYNC`. | Match `env NSUnbufferedIO=YES xcrun xcodebuild` at the start of `SSH_ORIGINAL_COMMAND`, keep `env` on the worker's `PATH`, and accept the new flag. |
 | run iOS 16 or 17 simulators on a slow host or link ([D38](deviations.md#d38--a-failed-readiness-probe-means-not-running)) | On runtimes 16 and 17 a readiness probe still returns about 20 MB, and a failed or timed-out probe now means "not running". It must arrive within `shell` (30 s by default). From runtime 18 on the probe is about 100 KB ([D46](deviations.md#d46--the-readiness-probe-is-launchctl-print-userforeground-from-runtime-18)). | Raise `shell` on 16 and 17. The time a simulator can then spend is in [D38](deviations.md#d38--a-failed-readiness-probe-means-not-running). |
@@ -126,10 +126,10 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 | count on a stuck worker costing little ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails), [D43](deviations.md#d43--an-rsync-receive-has-a-limit-on-progress)) | A send with no progress for 300 s takes its simulator out of the run, and sends waiting behind it to that worker fail at once. A pull with no progress for 300 s is stopped and is not retried, so each pull costs about 305 to 330 s where it cost 35 to 45 s. A pull whose files keep changing is no longer cut at 30 s. | Nothing, unless a worker can be silent for 5 minutes during a transfer. |
 | set `attempts: 1` with `lateJoin: false`, or expect a lost iOS worker to return after any length of time ([D44](deviations.md#d44--a-lost-simulators-reconnect-has-a-limit)) | A lost simulator is no longer tried every 16 ms until the run ends. It is tried at `workerConnection`'s pace for `lateJoinCutoff` (600 s) after the first failure, and given up when the next pause ends (630 s with the defaults). With `attempts: 1` and `lateJoin: false` it gets one try. A devices update that removes it and adds it back starts this over. | Leave `lateJoin` on, and set `lateJoinCutoff: 0` to wait until the run ends. |
 | use `flakinessStrategy: probability` with analytics disabled, or with a backend that can be down ([D71](deviations.md#d71--unavailable-test-history-adds-no-probability-copies)) | History that cannot be read no longer counts as a 0% success rate: with analytics disabled, a backend that could not be set up, or a failed success-rate query, probability adds no copies and one WARN says why. Working history is unchanged, including `defaults.successRate` for tests it does not name. | To copy every test regardless of history, as disabled analytics used to, switch to `flakinessStrategy: {type: fixed, count: N}` ([D72](deviations.md#d72--flakinessstrategy-fixed-for-stabilization-jobs)). |
-| collect test metrics with Graphite or InfluxDB ([D86](deviations.md#d86--remote-metrics-use-bounded-buffering)) | D86 is new in 0.15.0-rc.1. Admission is immediate with room and waits up to 30 s when full. An expired wait, active cool-off, closed admission or a stopped delivery task drops an event and contributes to the rejection count. Failed or skipped sends and expiry of the 30 s drain-and-close deadline can also lose metrics. | Use local reports for result counts. Look for the analytics warnings when dashboard data is missing or later runs' history changes flakiness copies or duration-based scheduling. |
+| collect test metrics with Graphite or InfluxDB ([D86](deviations.md#d86--remote-metrics-use-bounded-buffering)) | D86 is new in 0.15.0. Admission is immediate with room and waits up to 30 s when full. An expired wait, active cool-off, closed admission or a stopped delivery task drops an event and contributes to the rejection count. Failed or skipped sends and expiry of the 30 s drain-and-close deadline can also lose metrics. | Use local reports for result counts. Look for the analytics warnings when dashboard data is missing or later runs' history changes flakiness copies or duration-based scheduling. |
 | count `flakyFailure` elements in JUnit reports ([D78](deviations.md#d78--junit-lists-only-the-runs-of-a-passed-test-that-did-not-pass)) | A passed test's JUnit case lists as `flakyFailure` only its runs that did not pass, with their traces. Its passing runs, which Kotlin and 0.14.0-rc.1 listed as empty `flakyFailure` elements, are no longer listed, so a test that passed every run of `flakinessStrategy: fixed` or probability copies has none. A failed test's `rerunFailure` elements are unchanged. | If you counted them as the number of extra runs, read `test_result/raw.json`, which lists every run. Counting them as failed runs needs no change. |
 | have devices that go `offline` often ([D41](deviations.md#d41--a-brief-offline-does-not-lose-the-device)) | A device gets up to 10 s to come back, at most 5 times per adb server in a run. The count is never reset. From the sixth `offline` on the device is disconnected at once, as in Kotlin. | Fix the transport. A device that drops more than five times in one run is lost for the rest of that run. |
-| filter adb shell commands or run Android through intermittent adb outages ([D85](deviations.md#d85--android-checks-the-boot-before-resuming-tests)) | D85 is new in 0.15.0-rc.1. Marathon reads `/proc/sys/kernel/random/boot_id` and writes, reads and removes a per-preparation marker under `/data/local/tmp`. During an adb outage or a brief `offline`, a changed boot ID or a confirmed missing or different marker (a full reboot, a snapshot from before preparation) triggers fresh setup. If the marker's creation could not be confirmed, recovery checks the boot ID alone; without readable evidence of a reset, ordinary recovery continues. An unchanged kernel ID and marker can hide a restart of a shared-kernel container that preserves the marker while resetting other state. Marathon gives a still-listed device one more setup after preparation exhausts its retries, within the existing return deadline. | Allow the boot ID read and marker operations if you filter adb commands. Existing Marathonfiles need no changes. |
+| filter adb shell commands or run Android through intermittent adb outages ([D85](deviations.md#d85--android-checks-the-boot-before-resuming-tests)) | D85 is new in 0.15.0. Marathon reads `/proc/sys/kernel/random/boot_id` and writes, reads and removes a per-preparation marker under `/data/local/tmp`. During an adb outage or a brief `offline`, a changed boot ID or a confirmed missing or different marker (a full reboot, a snapshot from before preparation) triggers fresh setup. If the marker's creation could not be confirmed, recovery checks the boot ID alone; without readable evidence of a reset, ordinary recovery continues. An unchanged kernel ID and marker can hide a restart of a shared-kernel container that preserves the marker while resetting other state. Marathon gives a still-listed device one more setup after preparation exhausts its retries, within the existing return deadline. | Allow the boot ID read and marker operations if you filter adb commands. Existing Marathonfiles need no changes. |
 | rely on a run failing quickly when it loses all its devices ([D48](deviations.md#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)) | A pool with tests left waits up to `deviceInitializationTimeoutMillis` (180 s by default), from when its last working device went away (or a test that device reports after leaving ended), for a device that comes back and gets ready before it ends, and then for the devices leaving to finish cleaning up. A killed emulator alone exits 1 after about 180 s, not 12.5 s. | Lower `deviceInitializationTimeoutMillis`, which also bounds the wait for the first device. |
 | have devices that need many slow retries before they get ready ([D87](deviations.md#d87--a-devices-preparation-has-one-deadline)) | A device's preparation, its retries and an iOS simulator's replacements after a failed boot share one deadline: the greater of `deviceInitializationTimeoutMillis` and one preparation's limits (550 s on iOS, 1,104 s on Android with an app and its test app, 812 s on macOS, with the defaults). No retry or replacement starts after it; nothing running is stopped. A device that keeps failing slowly leaves in about 9 to 12 minutes on iOS, 19 on Android and 14 on macOS (scenario estimates) instead of up to 33, 96 and 30. A preparation that fails at once keeps its 30 attempts with the default timeouts; shorter timeouts and wait can make the deadline shorter than those 30 attempts (290 s). | To extend the preparation deadline, raise `deviceInitializationTimeoutMillis` above that calculated allowance (one preparation with its retries at their limits, from the timeouts; the figures above with the defaults); it also bounds the wait for the first device and D48's wait. |
 | use `fixed-size` batching with flaky copies or several test APKs, and set `testBatchTimeoutMillis` close to what a batch took ([D50](deviations.md#d50--a-rejected-test-does-not-use-a-batch-slot)) | Only the tests a batch accepts count against `size` and `durationMillis`, so batches that used to end early hold more tests and take longer. | Check `testBatchTimeoutMillis`. [See below](#batches-hold-more-tests-with-flaky-copies-or-several-test-apks). |
@@ -148,8 +148,8 @@ finishes, SIGINT/SIGTERM are not acted on during console completion. This window
 already existed for about two seconds; a stalled console can now hold exit for
 up to 60 seconds. A wrapper needing a hard stop then must use SIGKILL.
 
-The D68–D81 notes apply to 0.14.0. The D82–D88 and D90–D97 notes apply when moving from 0.14.0 to 0.15.0-rc.1, the
-first release candidate of 0.15.0 (D89 was not used). All of these notes also apply when migrating from Kotlin. D71 is
+The D68–D81 notes apply to 0.14.0. The D82–D88 and D90–D97 notes apply when moving from 0.14.0 to 0.15.0 (D89 was not
+used). All of these notes also apply when migrating from Kotlin. D71 is
 in the table above, and so are D85, D86, D87 and D96.
 
 D68 and D69 need no configuration change. With D68 a run whose test queue
@@ -193,7 +193,7 @@ within a poll and the 10 s retry pause, not after `bootWait` (240 s); one that s
 video recording on a slow worker link, the tests after the first of a batch keep their videos and their durations; the
 stop, transcode and pull of a test's video now run beside the next test instead of before its start is handled.
 
-[D83](deviations.md#d83--copies-of-different-tests-take-turns-in-the-queue) is new in 0.15.0-rc.1 and needs no action. The
+[D83](deviations.md#d83--copies-of-different-tests-take-turns-in-the-queue) is new in 0.15.0 and needs no action. The
 repeated entries of a test in a pool's queue (the copies that `flakinessStrategy` `probability` or `fixed`, or
 `shardingStrategy: count`, make, or a test discovered twice) now take turns with other tests' entries, so a wave of
 devices spreads over the tests. `fast` drops a test's copies that are still queued when it is decided: after its first
@@ -204,7 +204,7 @@ batch gets that batch's Android `coverageFile` path. Which device runs which cop
 device can get another verdict, and with it the run's exit status (with `ignoreFailures: false`), and the final record
 can come from another attempt; the rules for both are unchanged.
 
-[D84](deviations.md#d84--an-unexpected-end-of-the-runs-own-machinery-ends-the-run-with-its-cause) is new in 0.15.0-rc.1 and needs no action. A run
+[D84](deviations.md#d84--an-unexpected-end-of-the-runs-own-machinery-ends-the-run-with-its-cause) is new in 0.15.0 and needs no action. A run
 whose own machinery ends unexpectedly (an actor or the device listener on a cancellation of its own, a failed device
 listener, a pool or the run task that panics) now ends with exit 1 (0 with `ignoreFailures: true`), its reports and a
 `Marathon run failed` line naming the first cause, where it used to hang or name no cause; the cause is logged when it
@@ -217,7 +217,7 @@ with no devices after `deviceInitializationTimeoutMillis`; with simulators conne
 the run finishes is no longer admitted, results that had reached a late pool's queue are now always in the reports,
 and a failing provider termination no longer skips the reports.
 
-[D87](deviations.md#d87--a-devices-preparation-has-one-deadline) is new in 0.15.0-rc.1. It bounds how long a device that cannot be prepared keeps its
+[D87](deviations.md#d87--a-devices-preparation-has-one-deadline) is new in 0.15.0. It bounds how long a device that cannot be prepared keeps its
 place. Its preparation, the retries inside it and an iOS simulator's replacements after a failed boot share one deadline,
 the greater of `deviceInitializationTimeoutMillis` and what one preparation can take with its retries at their limits. No
 retry or replacement starts after it, and nothing running is stopped by it. A simulator whose readiness probe never
@@ -227,27 +227,27 @@ with the defaults). D85's extra setup continues the deadline but always gets its
 fails once are unchanged, and a preparation that fails at once keeps its 30 attempts with the default timeouts; with
 shorter timeouts and a shorter `deviceInitializationTimeoutMillis` the deadline can be shorter than those attempts (290 s). To give slow devices longer, raise `deviceInitializationTimeoutMillis`.
 
-[D88](deviations.md#d88--android-device-monitoring-that-ends-fails-the-run) is new in 0.15.0-rc.1 and needs no action. Android device monitoring
+[D88](deviations.md#d88--android-device-monitoring-that-ends-fails-the-run) is new in 0.15.0 and needs no action. Android device monitoring
 that ends with an error or a panic, other than at the provider's termination, now fails the run with that cause (exit 1,
 0 with `ignoreFailures: true`) where the run went on without device events and could hang; during remote test
 discovery that cause is the run's error instead of a no-device timeout. A failing analytics call for a connected device
 is logged and no longer ends it.
 
-[D90](deviations.md#d90--a-saturated-shared-ssh-connection-is-replaced) is new in 0.15.0-rc.1 and needs no action.
+[D90](deviations.md#d90--a-saturated-shared-ssh-connection-is-replaced) is new in 0.15.0 and needs no action.
 With `shareWorkerConnection: true`, an SSH connection that runs out of session slots after an abandoned channel can
 be replaced while existing leases drain. A worker can have up to two connection generations at once.
 
-[D91](deviations.md#d91--a-stopped-rsync-transfer-gets-40-s-for-its-cleanup-and-its-device-waits-for-it) is new in 0.15.0-rc.1 and needs no action. A
+[D91](deviations.md#d91--a-stopped-rsync-transfer-gets-40-s-for-its-cleanup-and-its-device-waits-for-it) is new in 0.15.0 and needs no action. A
 stopped rsync transfer to an iOS or macOS worker now has at most 40 s for its cleanup and the confirmation of it, and an
 iOS simulator's disposal waits for its sends, also those whose caller had stopped waiting, before its on-dispose
 lifecycle. If the end of rsync and what it started cannot be confirmed, an ERROR line names the worker and rsync's pid,
 and nothing more is sent into that exact destination in the run: a device that needs it leaves its pool. Healthy runs
 are unchanged.
 
-[D92](deviations.md#d92--android-device-cleanup-has-one-deadline) is new in 0.15.0-rc.1 and needs no action.
+[D92](deviations.md#d92--android-device-cleanup-has-one-deadline) is new in 0.15.0 and needs no action.
 Android device cleanup shares one deadline across in-flight work and teardown, 60 s by default. An interrupted staged pull discards its partial output.
 
-[D93](deviations.md#d93--an-apple-devices-stop-has-one-window-and-its-disposal-needs-proof-that-its-work-ended) is new in 0.15.0-rc.1 and needs no action.
+[D93](deviations.md#d93--an-apple-devices-stop-has-one-window-and-its-disposal-needs-proof-that-its-work-ended) is new in 0.15.0 and needs no action.
 When a run stops after a failure, each sealed iOS simulator and Mac shares one 70 s window across its work and its
 disposal. The Scheduler allows 75 s for the device joins, and the device waits now total at most 80 s, down from up to
 145 s that one stuck operation could hold the run; the iOS artifact drain is separate (D94). A device whose work could not be confirmed
@@ -256,18 +256,18 @@ quarantined: its worker connection stays open and takes no new device until the 
 sharing it can go on using it, with one WARN naming the device. Look at that worker before the next run. Healthy runs
 are unchanged.
 
-[D94](deviations.md#d94--scheduler-drains-and-interrupted-ios-artifact-waits-have-deadlines) is new in 0.15.0-rc.1 and needs no action.
+[D94](deviations.md#d94--scheduler-drains-and-interrupted-ios-artifact-waits-have-deadlines) is new in 0.15.0 and needs no action.
 All pool and queue drains share one 65 s deadline after the D93 device joins. The Scheduler warns about stalled
 handlers and continues with committed results. An internal run failure or owner cancellation gives iOS artifacts
 30 s to drain and 40 s for cancellation. Routine termination, including suites with failed assertions, keeps the
 full 300 s drain and shares 60 s across its cancellation waits. The artifact log names bundles that could not
 be retrieved.
 
-[D95](deviations.md#d95--finish-deadlines-for-providers-connections-and-history) is new in 0.15.0-rc.1 and needs no action.
+[D95](deviations.md#d95--finish-deadlines-for-providers-connections-and-history) is new in 0.15.0 and needs no action.
 Provider teardown, Apple lease release and history shutdown use bounded waits. See [Analytics and end-of-run failures](#analytics-and-end-of-run-failures)
 for the shutdown and reporting details.
 
-[D97](deviations.md#d97--publish-complete-artifacts-and-reserve-time-for-signal-cleanup) is new in 0.15.0-rc.1 and needs no configuration change.
+[D97](deviations.md#d97--publish-complete-artifacts-and-reserve-time-for-signal-cleanup) is new in 0.15.0 and needs no configuration change.
 A failed, cancelled or timed-out receive leaves no partial artifact at the final path and preserves the previous
 file, and marathon reports the failed delivery. On
 a filesystem that rejects rename flags, replacing an Apple directory can leave the final path absent for a moment, and

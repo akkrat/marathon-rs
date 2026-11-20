@@ -2,17 +2,18 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
-## 0.15.0-rc.1
+## 0.15.0
 
-The first release candidate of 0.15.0, a pre-release for trial runs. It adds run supervision, bounded waits and process
-ownership, and fixes Android, iOS and macOS device-handling bugs found after 0.14.0, with the approved differences
+This release adds run supervision, bounded waits and process ownership, and fixes Android, iOS and macOS
+device-handling bugs found after 0.14.0, with the approved differences
 D82–D88 and D90–D97 (D89 was reserved and not used). The inputs and the CLI are unchanged; there is no new
 configuration field. The other contracts change only as listed below: D82 and D83 change which device runs a retry or a
 copy, and with it attempts, batches, the order and grouping of test selectors in worker commands, and device-dependent
 verdicts; D84 and D88 turn hangs into failed runs; D85 adds Android shell commands; D96 runs Apple worker commands under
 a supervisor and makes SIGHUP a cancellation with exit status 129; D97 changes which artifacts the reports list. The
 release also bounds waits, buffers remote metrics, and replaces saturated shared SSH connections after an abandoned
-session, as each entry says.
+session, as each entry says. It has the code of 0.15.0-rc.1 apart from one log change under Android, a refused
+`run-as` reported once per device; the release candidate's changes are all listed here.
 
 ### Check before you upgrade
 
@@ -183,6 +184,10 @@ still apply when upgrading from an older version.
   replaces the final file or logs `Transferred`. A pull whose staging fails is undelivered instead of being written straight into the final
   path. Videos, screen captures and profiling files are attached, and their device copies removed, only after their pull
   was delivered, and APP_DATA file sync removes application data only after its copied files have been delivered.
+- **A refused `run-as` is one warning per device (D97):** Android refuses `run-as` for an app that is not debuggable,
+  so APP_DATA file sync cannot collect its files. 0.15.0-rc.1 logged `archive extraction failed` for that folder after
+  every test; 0.15.0 warns once per device and app that `run-as` was refused and logs later refusals at debug level.
+  Kotlin and 0.14.0 collected nothing there either, without a message. Nothing else changes.
 
 ### iOS and macOS
 
@@ -289,12 +294,12 @@ still apply when upgrading from an older version.
 - The findings documents record review rounds and their fixes, including cross-model reviews, from one or two rounds
   for most changes to eleven rounds and a closing audit for D93; [x88](docs/wp/x88-findings.md)'s document records its
   evidence but no review round.
-- CI runs the repository gate on macOS and Linux; it passes at f90a6619, the code of this release candidate. During the
+- CI runs the repository gate on macOS and Linux; it passes at f90a6619, the code of 0.15.0-rc.1, and on the code of
+  this release. During the
   batch six CI runs on `main` failed in a test and two more ended with a cancelled macOS job; later runs passed. Two of
   the failures, in the macOS local batch-timeout witness, exposed U245, a macOS process-group race that is fixed in the
   product (D96).
-- Real-device acceptance ran on two earlier `main` commits, not on this release candidate's binary, and before the last
-  fixes. On 1d88c0a9, before the x95e and x95f changes, the CI static Linux build ran on two API 36 Android emulators on
+- Real-device acceptance first ran on two earlier `main` commits, before the last fixes. On 1d88c0a9, before the x95e and x95f changes, the CI static Linux build ran on two API 36 Android emulators on
   a Linux host. The CI macOS build ran iOS simulator tests (iOS 18.6 and 26.4) and hosted macOS XCTest locally on this
   project's Mac, and iOS simulator tests over SSH to a second Mac as a real worker with stock Perl, key authentication
   and an `exec`-based forced command. The control runs matched the per-test outcomes of the earlier acceptance runs and
@@ -318,10 +323,27 @@ still apply when upgrading from an older version.
   trips of U247 were gone; and SIGTERM during a live stalled xcresult pull exited 143 with nothing published. One healthy
   run took 121 s against 40 to 51 s for the others, the difference in a slow app launch inside the tests, whose cause
   remained undetermined.
+- 0.15.0-rc.1's published binaries then ran on the same hosts. On two Android emulators a healthy run gave the same
+  per-test results, JUnit, Allure and `raw.json` as the earlier acceptance run; SIGTERM during a stalled 300 MiB pull
+  exited 143 20 s after the signal with nothing at the final path (D97); SIGKILL, SIGHUP (129 within a second), a group
+  TERM then KILL and a second SIGTERM left no marathon process or tool behind (D96). A test given back incomplete by an
+  emulator whose app was force-stopped was retried on the other emulator in both runs (D82), where 0.14.0 handed it
+  back to the same emulator three times within 6 s, and copies of different tests ran in turns, `t t1 t2 t t1 t2 t t1
+  t2`, where 0.14.0 grouped them (D83). On the Apple side, healthy local and SSH runs gave the same per-test outcomes as
+  the earlier acceptance runs; SIGTERM during a stalled xcresult pull exited 143 19 s after the signal with no partial
+  result; after SIGKILL with two recorders active the worker's xcodebuild was gone within 5 s and the recorders within
+  the 79 s lease, both finalized, and the next run on the same simulators delivered every video and xcresult (D96,
+  D97). One simulator refused new recordings after an earlier attempt had been stopped mid-run, until it was
+  restarted; see Known limits. x95f's slow recorder stop was covered by tests only.
+- Outside this repository, the maintainer ran 0.15.0-rc.1 on private CI farms against recent runs of the same jobs on
+  the JVM build: the macOS build on iOS simulators across many workers and the static Linux build on Android emulators,
+  in jobs of up to 1426 tests. Every job ended with the same per-test outcomes as the JVM runs, with wall times equal
+  or shorter; retries went to other emulators (D82), and a job with flakiness copies ran fewer executions than
+  0.14.0-rc.2 did (D83). The only new message was the `archive extraction failed` warning for an app that is not
+  debuggable, which this release reports once per device instead. These runs are private and cannot be checked here.
 - Not exercised on real hosts: the password and askpass path, D90's connection rotation, network faults and delayed
   control replies on a worker (x95f's U248–U250), a terminal D88 monitor failure, and an induced queue or pool drain
-  failure. Real-device runs of this release candidate's binary and the maintainer's private CI farm runs are pending
-  and will be recorded before 0.15.0.
+  failure. The one-time `run-as` warning was checked with tests and fake adb, not on a CI farm.
 
 ### Known limits
 
@@ -329,8 +351,8 @@ still apply when upgrading from an older version.
   older than the build and test hosts are not tested.
 - The macOS binary is ad-hoc signed and not notarised; see the note on quarantine in the
   [migration guide](docs/migration.md#install-the-native-entry-point).
-- The static Linux binary is checked at release time with `version` and `--help` in an Alpine container; a CI build of
-  an earlier commit of this release candidate ran on real emulators, and 0.14.0-rc.2 also ran on a CI farm. musl's resolver asks DNS directly, so an adb host given as a name that only the system's own name service knows,
+- The static Linux binary is checked at release time with `version` and `--help` in an Alpine container; 0.15.0-rc.1's
+  static Linux binary ran on real emulators and on a CI farm. musl's resolver asks DNS directly, so an adb host given as a name that only the system's own name service knows,
   such as a `.local` name, is not found; use `localhost` or an address.
 - The `xctest` test parser needs a `libxctest-parser` library that you supply (D20). The differential suites run it with a
   stand-in file, so what the library itself does is not covered by them. The archives do not contain it, and this project's
@@ -376,6 +398,9 @@ still apply when upgrading from an older version.
   check ([x96 findings](docs/wp/x96-findings.md#verification-limits-and-incidental-bugs)).
 - When adb cannot confirm a stopping Android device's cleanup, the device can keep an instrumentation process, a screen
   recording or trace and its files, a reverse port forward or D85's marker (D92).
+- An iOS simulator whose screen recorder was stopped right after it started can refuse every later recording until it
+  is restarted ("A recording is already in progress"). Marathon reports each lost video once with that error, and test
+  results are unaffected; restart the simulator.
 - Zero-byte Android videos were seen in a real run, also seen in earlier runs and judged a pre-existing recording
   issue; D97 delivers a complete zero-byte file.
 - A D88 monitor failure that ends Android device tracking has not been provoked on a real device; it is covered only by
@@ -400,6 +425,11 @@ still apply when upgrading from an older version.
   without them (D25).
 - Apple event/line scheduling can move a boundary line between per-test and batch logs (A20). The Phase 8 differential
   harness gates that interleaving; production retains it ([WP 8.12](docs/wp/8.12-test-changes.md#differential-only-eventline-gates)).
+
+## 0.15.0-rc.1
+
+The first release candidate of 0.15.0, published on 2026-11-20 as a pre-release for trial runs. Its changes are all in
+0.15.0 above.
 
 ## 0.14.0
 
