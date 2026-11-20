@@ -216,6 +216,14 @@ worker sources.
 
 ## Verification limits and incidental bugs
 
+- Review round 4 (orchestrator): D98's end-of-run shutdown now ends the D93 force reserve before the window's end, so
+  the SSH lease release after it is not left with an already-passed deadline (which logged a second "lease release
+  timed out" warning and abandoned the connection). The CLI witness now runs with no on-dispose lifecycle and counts
+  the shutdown commands (1 for the busy refusal, 0 for a bare status 16), so a normal run end (`Termination`) is covered.
+- Known limit: the video-off state belongs to the device object, not the simulator. A simulator replaced during the run
+  gets a fresh object, which tries recording once more (a second warning and one more undelivered movie); a replaced
+  simulator that runs no later test is not shut down at the run's end.
+
 - The SSH path's marker detection ran against real simctl through the worker script on this Mac, not over SSH on a
   remote worker; the orchestrator's acceptance run covers that.
 - A recorder that confirms only after its INT cutoff still gets TERM (and with the supervisor, possibly INT first if

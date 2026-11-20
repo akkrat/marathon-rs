@@ -3296,8 +3296,9 @@ This adds one `xcrun simctl shutdown <udid>` and its state reads to that simulat
 configured on-dispose lifecycle, through the same D93 command gate and within the same window. It runs only on a
 simulator whose work was confirmed to have ended and that is not quarantined, and not when the configured on-dispose
 lifecycle already shuts the simulator down or erases it. It starts only if the shutdown timeout
-(`timeoutConfiguration.shutdown`, 30 s by default) is still left in the window when it would start, without the
-lifecycle's D93 force-reserve floor, and it is cancelled when the window ends, which it never extends. A signal's D97
+(`timeoutConfiguration.shutdown`, 30 s by default) is still left in the window less the D93 force reserve (5 s of
+70) when it would start, without the lifecycle's force-reserve floor, and it is cancelled there, so the lease release
+after it keeps that reserve; it never extends the window. A signal's D97
 finish leaves too little time, so it is skipped there with a warning. One line reports the shutdown or why it did not
 happen; a cut or a failure changes nothing else, and never quarantines the simulator. Test results, retries and the
 exit status do not change.

@@ -812,8 +812,8 @@ impl AppleSimulatorDevice {
     /// shut down so that the next run's preparation, which boots every simulator it uses, starts it clean. Not at a
     /// recovery or replacement disposal (owner's decision: no mid-run cold boot), not when the configured lifecycle
     /// already shuts it down or erases it, and not on a quarantined simulator. It starts only with its own timeout left
-    /// in the window, under its own cancellation that ends with the window; a cut or a failure is one line and changes
-    /// nothing else: no quarantine, no later disposal.
+    /// in the window less the force reserve, under its own cancellation that ends there, leaving the lease release that
+    /// reserve; a cut or a failure is one line and changes nothing else: no quarantine, no later disposal.
     async fn shut_down_busy_video(&self, shutdown: &Shutdown) {
         let configured = &self.services.vendor.lifecycle_configuration.on_dispose;
         if !self.state().video_unavailable
@@ -839,7 +839,11 @@ impl AppleSimulatorDevice {
             .shutdown
             .to_millis()
             .unwrap_or(i64::MAX);
+        // It ends the force reserve before the window does, so that the lease release after it keeps that much time.
+        let reserve =
+            marathon_apple::cmd::device_commands::force_reserve_millis(self.services.timeouts.cancelled_batch_millis);
         let (now, deadline) = self.on_dispose_deadline(shutdown, false);
+        let deadline = deadline.saturating_sub(reserve);
         if deadline.saturating_sub(now) < shutdown_millis {
             self.log(Level::WARN, busy("there was no time left to shut it down"), None);
             return;

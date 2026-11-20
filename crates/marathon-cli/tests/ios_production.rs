@@ -700,7 +700,7 @@ async fn a_busy_simulator_on_an_ssh_worker_turns_video_off_once_d98() -> Result 
         std::fs::write(
             root.join("Marathonfile"),
             format!(
-                "name: ios-busy\noutputDir: report\ndebug: true\nanalyticsTracking: false\nbugsnagReporting: false\nuncompletedTestRetryQuota: 0\nretryStrategy: {{type: no-retry}}\nbatchingStrategy: {{type: fixed-size, size: 1, lastMileLength: 0}}\nscreenRecordingPolicy: ON_ANY\nvendorConfiguration:\n  type: iOS\n  bundle:\n    application: App.app\n    testApplication: Tests.xctest\n    testType: xctest\n  ssh:\n    authentication: {{type: publicKey, username: fixture, key: '{}'}}\n    keepAliveInterval: PT15S\n    shareWorkerConnection: true\n  lifecycle:\n    shutdownUnused: false\n    onPrepare: []\n    onDispose: [SHUTDOWN]\n  deviceLog: false\n  xcresult:\n    pullingPolicy: ALWAYS\n    remoteClean: true\n  screenRecordConfiguration:\n    preferableRecorderType: VIDEO\n    videoConfiguration:\n      enabled: true\n      transcoding: {{enabled: false}}\n    screenshotConfiguration: {{enabled: false}}\n",
+                "name: ios-busy\noutputDir: report\ndebug: true\nanalyticsTracking: false\nbugsnagReporting: false\nuncompletedTestRetryQuota: 0\nretryStrategy: {{type: no-retry}}\nbatchingStrategy: {{type: fixed-size, size: 1, lastMileLength: 0}}\nscreenRecordingPolicy: ON_ANY\nvendorConfiguration:\n  type: iOS\n  bundle:\n    application: App.app\n    testApplication: Tests.xctest\n    testType: xctest\n  ssh:\n    authentication: {{type: publicKey, username: fixture, key: '{}'}}\n    keepAliveInterval: PT15S\n    shareWorkerConnection: true\n  lifecycle:\n    shutdownUnused: false\n    onPrepare: []\n    onDispose: []\n  deviceLog: false\n  xcresult:\n    pullingPolicy: ALWAYS\n    remoteClean: true\n  screenRecordConfiguration:\n    preferableRecorderType: VIDEO\n    videoConfiguration:\n      enabled: true\n      transcoding: {{enabled: false}}\n    screenshotConfiguration: {{enabled: false}}\n",
                 auth.display()
             ),
         )?;
@@ -750,13 +750,24 @@ async fn a_busy_simulator_on_an_ssh_worker_turns_video_off_once_d98() -> Result 
         let warnings = format!("{stdout}{stderr_text}")
             .matches("video service is busy")
             .count();
+        let shutdowns = execs
+            .iter()
+            .filter(|cmd| cmd.contains(&format!("simctl shutdown {UDID}")))
+            .count();
         if stderr == busy {
             assert_eq!(launches, 1, "no recorder after the busy refusal");
             assert_eq!(warnings, 1, "{stdout}");
             assert!(stdout.contains(&format!("xcrun simctl shutdown {UDID}")));
+            // No on-dispose lifecycle is configured: D98's own end-of-run shutdown is the only one.
+            assert_eq!(shutdowns, 1, "{execs:?}");
+            assert!(
+                stdout.contains("shut down at the end of the run because its video service was busy"),
+                "{stdout}"
+            );
         } else {
             assert_eq!(launches, 3, "a status 16 without the busy refusal leaves video on");
             assert_eq!(warnings, 0, "{stdout}");
+            assert_eq!(shutdowns, 0, "{execs:?}");
         }
     }
     Ok(())
