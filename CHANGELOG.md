@@ -4,7 +4,7 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## Unreleased
 
-- **iOS video no longer wedges a slow simulator (D98, U251–U253):** a screen recorder that was stopped right after it
+- **iOS video no longer wedges a slow simulator (D98, U251–U253, U258):** a screen recorder that was stopped right after it
   was launched, before `simctl` had confirmed `Recording started`, could leave the simulator unable to record again
   until it was restarted, losing every later video on it in that run and later runs ("A recording is already in
   progress"). Marathon now waits for `simctl`'s confirmation before it interrupts a recorder, within the existing stop

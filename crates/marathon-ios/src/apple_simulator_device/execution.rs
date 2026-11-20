@@ -811,9 +811,10 @@ impl AppleSimulatorDevice {
     /// D98: at the run's end, a simulator whose video service was left busy, which records nothing until it restarts, is
     /// shut down so that the next run's preparation, which boots every simulator it uses, starts it clean. Not at a
     /// recovery or replacement disposal (owner's decision: no mid-run cold boot), not when the configured lifecycle
-    /// already shuts it down or erases it, and not on a quarantined simulator. It starts only with its own timeout left
-    /// in the window less the force reserve, under its own cancellation that ends there, leaving the lease release that
-    /// reserve; a cut or a failure is one line and changes nothing else: no quarantine, no later disposal.
+    /// already shuts it down or erases it, and not on a quarantined simulator. It runs in the window less the force
+    /// reserve, starting only with the shorter of its timeout and twice the reserve left, under its own cancellation that
+    /// ends there, leaving the lease release that reserve; a cut or a failure is one line and changes nothing else: no
+    /// quarantine, no later disposal.
     async fn shut_down_busy_video(&self, shutdown: &Shutdown) {
         let configured = &self.services.vendor.lifecycle_configuration.on_dispose;
         if !self.state().video_unavailable
@@ -844,7 +845,10 @@ impl AppleSimulatorDevice {
             marathon_apple::cmd::device_commands::force_reserve_millis(self.services.timeouts.cancelled_batch_millis);
         let (now, deadline) = self.on_dispose_deadline(shutdown, false);
         let deadline = deadline.saturating_sub(reserve);
-        if deadline.saturating_sub(now) < shutdown_millis {
+        // x101: the shutdown timeout defaults to the shell timeout, which may be longer than the whole window, while a
+        // shutdown takes seconds. The window, not the timeout, bounds it: it starts with at least the shorter of its
+        // timeout and twice the force reserve (10 s of 70) left, and is cut where the window ends.
+        if deadline.saturating_sub(now) < shutdown_millis.min(reserve.saturating_mul(2)) {
             self.log(Level::WARN, busy("there was no time left to shut it down"), None);
             return;
         }

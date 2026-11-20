@@ -102,7 +102,9 @@ and removal use, sends nothing: owner's decision, no mid-run cold boot), the con
 simulator down nor erases it, and the simulator is connected and not quarantined. It then takes the window's end
 afresh (without the lifecycle's D93 force-reserve floor, already clipped by the provider deadline and D97's signal
 finish) and starts only if the configured `shutdown` timeout (30 s by default) is left; otherwise one WARN says there
-was no time left. `shutdown_device` (state read, `xcrun simctl shutdown <udid>`, state reads until Shutdown) runs in a
+was no time left. (x101 changed this: the shutdown timeout defaults to the shell timeout, which a run may set to
+minutes, so the fit check skipped every shutdown in the x99 acceptance on a remote worker; it now starts with the shorter of that timeout
+and twice the force reserve left, and the window bounds it. See `docs/wp/x101-findings.md`.) `shutdown_device` (state read, `xcrun simctl shutdown <udid>`, state reads until Shutdown) runs in a
 retained task of its own through the command gate (`as_lifecycle`) under its own cancellation. The disposal waits for
 it until the window's end, then cancels it and moves on; the command ends with its executor's bounded cleanup. One
 INFO line names the simulator when it shut down; one WARN when it did not, could not, or did not finish within the
@@ -141,7 +143,8 @@ Each was shown to fail on a scratch worktree with the fix reverted:
 | `a_busy_simulator_on_an_ssh_worker_turns_video_off_once_d98` | built CLI over real SSH, emulated supervisor; `done:16` with and without the busy stderr | busy text ignored / receipt stderr dropped | three launches / video stayed on |
 | `a_simulator_with_a_busy_video_service_is_shut_down_at_release_d98` | virtual time; one `simctl shutdown`, one INFO | extra shutdown removed | no shutdown |
 | `a_configured_shutdown_or_erase_is_not_repeated_for_a_busy_video_service_d98` | SHUTDOWN and ERASE configured | configured check removed | a second shutdown attempt and its line |
-| `the_busy_video_shutdown_needs_its_timeout_inside_the_release_window_d98` | shutdown timeout above the window; no shutdown, no added time, one WARN | fit check removed | shutdown sent |
+| `a_busy_video_shutdown_longer_than_the_release_window_runs_within_it_d98` (x101; replaced `the_busy_video_shutdown_needs_its_timeout_inside_the_release_window_d98`) | shutdown timeout above the window; the shutdown runs within the window, one INFO | full-timeout fit check (x99) | no shutdown |
+| `a_busy_video_shutdown_is_not_started_without_time_left_in_the_window_d98` (x101) | most of the window gone before the release; no shutdown, no added time, one WARN | — | — |
 | `a_quarantined_simulator_with_a_busy_video_service_is_not_shut_down_d98` | on-dispose lifecycle cut at the window and quarantined | (guarded by the quarantine check) | — |
 | `a_hung_busy_video_shutdown_ends_with_the_window_and_never_quarantines_d98` | a state read, then `simctl shutdown`, that never return; disposal within the 200 ms window, not quarantined, one line | round-2 shutdown inside the lifecycle task | quarantined |
 | `a_recovery_or_replacement_disposal_sends_no_shutdown_d98` | a `Disposal` seal | end-of-run check removed | shutdown sent |

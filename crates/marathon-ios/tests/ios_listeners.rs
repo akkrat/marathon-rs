@@ -1248,18 +1248,38 @@ async fn a_configured_shutdown_or_erase_is_not_repeated_for_a_busy_video_service
 }
 
 #[tokio::test(start_paused = true)]
-async fn the_busy_video_shutdown_needs_its_timeout_inside_the_release_window_d98() -> TestResult {
-    // A shutdown timeout longer than the release window (200 ms in this harness, 70 s in a run): the shutdown is not
-    // started, and the window not extended.
+async fn a_busy_video_shutdown_longer_than_the_release_window_runs_within_it_d98() -> TestResult {
+    // A shutdown timeout longer than the release window (200 ms in this harness, 70 s in a run; the timeout defaults to
+    // the shell timeout, which may be minutes): the shutdown still runs, bounded by the window, not by its timeout.
     let (h, d) = simulator_with_video_off(|v| v.timeout_configuration.shutdown = support::duration(300)).await?;
     let started = tokio::time::Instant::now();
     end_of_run(&d).await?;
-    assert_eq!(started.elapsed(), std::time::Duration::ZERO);
+    assert!(started.elapsed() <= std::time::Duration::from_millis(200));
+    assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 1);
+    assert!(!d.quarantined());
+    let lines = end_of_run_lines(&h);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].contains("shut down at the end of the run"), "{lines:?}");
+    h.finish(&[d]).await;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_busy_video_shutdown_is_not_started_without_time_left_in_the_window_d98() -> TestResult {
+    // Most of the 200 ms release window has passed before the release (as after a signal's finish): less than twice the
+    // force reserve is left once the lease release's reserve is set aside, so the shutdown is not started.
+    use marathon_core::vendor::Device;
+    let (h, d) = simulator_with_video_off(|v| v.timeout_configuration.shutdown = support::duration(300)).await?;
+    d.seal_for_stop();
+    tokio::time::advance(std::time::Duration::from_millis(170)).await;
+    let started = tokio::time::Instant::now();
+    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    assert!(started.elapsed() <= std::time::Duration::from_millis(30));
     assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 0);
     assert!(!d.quarantined());
     let lines = end_of_run_lines(&h);
     assert_eq!(lines.len(), 1, "{lines:?}");
-    assert!(lines[0].contains("no time left to shut it down"));
+    assert!(lines[0].contains("no time left to shut it down"), "{lines:?}");
     h.finish(&[d]).await;
     Ok(())
 }
