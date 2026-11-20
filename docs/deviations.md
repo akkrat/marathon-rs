@@ -3249,7 +3249,7 @@ window. Internal failure keeps the 30 s drain and shared 40 s cancellation windo
 
 ## D98 — A simulator recorder is never interrupted before it has started
 
-Approved 2026-11-20 (project owner's decision). WP x99. Amends D93 and D96.
+Approved 2026-11-20 (project owner's decision, including the end-of-run shutdown). WP x99. Amends D93 and D96.
 See [x99 findings](wp/x99-findings.md).
 
 In a release-candidate iOS acceptance run on an SSH worker, every recorder on one simulator failed from some point on
@@ -3264,9 +3264,11 @@ a simulator stopped within that window, which a slow simulator can make several 
 simctl prints `Recording started` on stderr once the video service has started. A recorder now gets INT only after
 that exact line, never a line that merely contains it. A supervised SSH worker reads the recorder's stderr, holds a
 requested INT until the line arrives and then sends it at once. Its status replies say `recording:` instead of
-`running:` from then on, and the controller polls status every 100 ms over an open control stream for up to 60 s
-after launch to learn it. A local recorder's output is read by the controller, which waits for the line before it
-sends INT. A recorder that has printed the line when its stop is requested gets INT immediately, as before.
+`running:` from then on. To log the start, the controller asks for status at the recorder's launch acknowledgement
+and then every 200 ms for up to 60 s, until the start is confirmed. These requests use only an already open control
+stream: they never dial, never fall back to a data session, and an unanswered one never counts toward a reconnect;
+without a stream none is sent. They never move a lease renewal, which stays at the configured interval. A local
+recorder's output is read by the controller, which waits for the line before it sends INT. A recorder that has printed the line when its stop is requested gets INT immediately, as before.
 
 The wait never lengthens a stop. A recorder that has not confirmed its start by the INT cutoff gets TERM at that cutoff
 instead of INT, and KILL at the existing KILL cutoff. The INT cutoff is the larger of 15 s and the shell timeout after
@@ -3277,15 +3279,27 @@ whether or not INT was sent: TERM once TERM is requested and at least 2 s after 
 TERM on a forced stop. A signal before confirmation can still
 leave the video service busy; it is sent only when the recorder would otherwise outlive its stop window.
 
-A recorder that exits with status 16 before confirming its start, while marathon has no other recorder on that
-simulator, means the video service is held by a recording marathon cannot stop. Marathon then logs one warning naming
-the simulator and how to restart it, and records no further video on that simulator for the rest of the run: no
-`recordVideo` command is sent there and the skipped movies are not reported one by one. The failed movie itself is
-reported as undelivered, as before. Test results, retries and the exit status do not change. A later run tries again
-and warns again if the simulator is still busy. Marathon does not restart the simulator itself.
+A recorder that exits with status 16 before confirming its start and whose stderr carries simctl's busy refusal
+(`Resource busy` or `A recording is already in progress`), while marathon has no other launched recorder on that
+simulator, means the video service is held by a recording nobody can stop: a signal before the start, including
+marathon's own TERM or KILL at a stop cutoff, a crash, or another tool. A status 16 without that text changes
+nothing. Locally the controller reads the stderr; on a supervised worker it comes with the recorder's exit receipt.
+Marathon then logs one warning naming the simulator, saying its video service is busy and how to restart it, and
+records no further video on that simulator for the rest of the run: no `recordVideo` command is sent there and the
+skipped movies are not reported one by one. The failed movie itself is reported as undelivered, as before.
+
+At the end of the run, when the simulator is released, marathon shuts it down so the next run boots it clean: every
+simulator's preparation boots it when it is shut down. This adds one `xcrun simctl shutdown <udid>` and its state reads
+to that simulator's worker commands, after the configured on-dispose lifecycle and in the same D93 task, command gate
+and window. It runs only on a simulator whose work was confirmed to have ended and that is not quarantined, only if
+the shutdown timeout (`timeoutConfiguration.shutdown`, 30 s by default) is still left in that window, which it never
+extends, and not when the configured on-dispose lifecycle already shuts the simulator down or erases it. A signal's
+D97 finish leaves too little time, so it is skipped there with a warning. One line reports the shutdown or why it did
+not happen; a failure changes nothing else. Test results, retries and the exit status do not change.
 
 The legacy recorder on a worker without usable Perl redirects simctl's output to `/dev/null`, so neither the start
 nor a busy failure is visible there; it keeps D96's behaviour. macOS devices do not record video.
 
-**Migration action:** none. A simulator that warns that a recording is already in progress needs a restart
-(`xcrun simctl shutdown <udid>`, then `xcrun simctl boot <udid>`) before it records again.
+**Migration action:** none, unless SSH command filters on the worker list allowed commands: allow
+`xcrun simctl shutdown <udid>` there. A simulator whose video service is busy and that marathon could not shut down
+needs a restart (`xcrun simctl shutdown <udid>`, then `xcrun simctl boot <udid>`) before it records again.

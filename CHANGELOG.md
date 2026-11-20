@@ -8,10 +8,11 @@ The section for a version becomes the text of its GitHub release, which carries 
   was launched, before `simctl` had confirmed `Recording started`, could leave the simulator unable to record again
   until it was restarted, losing every later video on it in that run and later runs ("A recording is already in
   progress"). Marathon now waits for `simctl`'s confirmation before it interrupts a recorder, within the existing stop
-  time, locally and on SSH workers with Perl. If a simulator still reports a recording already in progress, marathon
-  logs one warning naming it and stops recording video on it for the rest of the run instead of failing once per test;
-  restart that simulator to record on it again. Test results and the exit status are unchanged. The legacy recorder
-  on workers without Perl is unchanged.
+  time, locally and on SSH workers with Perl. If a simulator's video service is still busy, marathon logs one warning
+  naming it and stops recording video on it for the rest of the run instead of failing once per test, then shuts the
+  simulator down when the run releases it so the next run boots it clean (one extra `xcrun simctl shutdown`, skipped
+  when the on-dispose lifecycle already shuts it down or erases it, or when too little release time is left). Test
+  results and the exit status are unchanged. The legacy recorder on workers without Perl is unchanged.
 
 ## 0.15.0
 
