@@ -144,6 +144,8 @@ struct State {
     /// simulator's stop unconfirmed for the rest of the run, whatever replaces it as the last session.
     sessions: Vec<Arc<marathon_apple::xcodebuild_session::XcodebuildSession>>,
     recordings: Vec<Arc<recording::Recording>>,
+    /// D98: a recorder start failed with the busy code while marathon had no recorder of its own on this simulator.
+    video_unavailable: bool,
 }
 impl State {
     /// U179, D91, D93: why no new batch, preparation or send may start, if none may: disposal, or the run's stop.
@@ -260,6 +262,7 @@ impl AppleSimulatorDevice {
             last_session: None,
             sessions: Vec::new(),
             recordings: Vec::new(),
+            video_unavailable: false,
         };
         Arc::new_cyclic(move |me| Self {
             me: me.clone(),

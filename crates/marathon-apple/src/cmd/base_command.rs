@@ -239,6 +239,7 @@ pub struct CommandSession {
     pub base: Arc<BaseCommand>,
     control: Arc<SessionControl>,
     interrupt: Option<Box<dyn Fn() -> VendorResult<()> + Send + Sync>>,
+    worker_start: Option<watch::Receiver<bool>>,
     close_task: Arc<Mutex<CloseSlot>>,
     fixed_result: Option<CommandResult>,
 }
@@ -248,6 +249,7 @@ impl CommandSession {
             base: Arc::new(base),
             control: Arc::new(control),
             interrupt: None,
+            worker_start: None,
             close_task: Arc::new(Mutex::new(CloseSlot::default())),
             fixed_result: None,
         }
@@ -277,6 +279,15 @@ impl CommandSession {
     pub fn with_interrupt(mut self, interrupt: impl Fn() -> VendorResult<()> + Send + Sync + 'static) -> Self {
         self.interrupt = Some(Box::new(interrupt));
         self
+    }
+    /// D98: a supervised SSH recorder's worker reads the recorder's output, holds INT until the recorder confirms its
+    /// start, and reports that start here. Without it, the caller reads the confirmation from the session's output.
+    pub fn with_worker_start(mut self, started: watch::Receiver<bool>) -> Self {
+        self.worker_start = Some(started);
+        self
+    }
+    pub fn worker_start(&self) -> Option<watch::Receiver<bool>> {
+        self.worker_start.clone()
     }
     pub fn interrupt(&self) -> VendorResult<()> {
         match &self.interrupt {

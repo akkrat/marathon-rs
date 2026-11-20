@@ -165,6 +165,8 @@ impl Media {
     ) -> VendorResult<bool> {
         let reason = match result {
             Ok(RecordingFinalization::Finalized) => return Ok(true),
+            // D98: the simulator warned once when it turned video off.
+            Ok(RecordingFinalization::Skipped) => return Ok(false),
             Ok(RecordingFinalization::NotStarted) => "the recording did not start",
             Ok(RecordingFinalization::Unfinalized) => "the recording did not finalize",
             Ok(RecordingFinalization::Unconfirmed) => "recorder cleanup could not be confirmed",

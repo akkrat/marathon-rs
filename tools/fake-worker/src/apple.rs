@@ -454,6 +454,7 @@ impl World {
                     started: vec![file(&device_barrier(id, &test.method), b"")],
                     on_signal: Some("INT".into()),
                     normal_exit_on_signal: true,
+                    announce: Some("Recording started\n".into()),
                 }
             }
             [
@@ -524,6 +525,7 @@ impl World {
                     started: vec![],
                     on_signal: Some("INT".into()),
                     normal_exit_on_signal: false,
+                    announce: None,
                 }
             }
             _ => {
@@ -840,6 +842,7 @@ impl World {
             started: vec![],
             on_signal: None,
             normal_exit_on_signal: false,
+            announce: None,
         })
     }
 }

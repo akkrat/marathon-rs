@@ -247,8 +247,9 @@ impl fake_worker::router::Handler for LatencySupervisor {
                             .await?;
                         }
                     }
+                    // D98: a live recorder has printed simctl's start marker.
                     let status = if self.movies.lock().await.contains_key(token) {
-                        "running:1000000"
+                        "recording:1000000"
                     } else {
                         "done:0"
                     };
@@ -545,10 +546,16 @@ async fn six_video_batches_keep_ssh_supervision_off_the_healthy_path_d96() -> Re
                 .filter_map(|cmd| supervised_token(cmd, "detach"))
                 .collect::<Vec<_>>();
             assert_eq!(recorders.len(), 6, "one exec per recorder start");
-            for token in recorders {
-                assert_eq!(operations(token), ["1"], "recorder stop for token {token}");
+            // D98: at most one status at launch learns that the recorder confirmed its start (a stop that comes first
+            // makes it unnecessary); then its stop.
+            for token in &recorders {
+                let operations = operations(token);
+                assert!(
+                    operations == ["status", "1"] || operations == ["1"],
+                    "recorder start and stop for token {token}: {operations:?}"
+                );
             }
-            assert_eq!(requests.len(), 6, "control requests across the run");
+            assert!((6..=12).contains(&requests.len()), "control requests across the run");
             assert_eq!(execs.len(), 90, "SSH execs across the run");
         } else {
             assert!(stdout.contains("has no usable /usr/bin/perl"));

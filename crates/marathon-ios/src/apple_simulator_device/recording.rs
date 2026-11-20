@@ -17,6 +17,10 @@ use std::{pin::Pin, sync::Arc};
 use tokio::sync::watch;
 
 const STOP_BUDGET: i64 = 15_000;
+/// simctl's own stderr line once the simulator's video service has started (D98).
+const START_MARKER: &str = "Recording started";
+/// simctl's exit status when the simulator's video service refuses a second recording (EBUSY).
+const BUSY_STATUS: i32 = 16;
 
 #[derive(Clone, Copy)]
 struct StopWindow {
@@ -31,6 +35,8 @@ pub enum RecordingFinalization {
     Finalized,
     Unfinalized,
     Unconfirmed,
+    /// D98: video is off on this simulator for the rest of the run; nothing was launched.
+    Skipped,
 }
 
 enum Capture {
@@ -39,6 +45,7 @@ enum Capture {
 }
 
 pub struct Recording {
+    video: bool,
     deadline: watch::Sender<Option<StopWindow>>,
     legacy: watch::Sender<bool>,
     done: Arc<SharedDeferred<RecordingFinalization>>,
@@ -46,8 +53,9 @@ pub struct Recording {
 }
 
 impl Recording {
-    fn new() -> Arc<Self> {
+    fn new(video: bool) -> Arc<Self> {
         Arc::new(Self {
+            video,
             deadline: watch::channel(None).0,
             legacy: watch::channel(false).0,
             done: SharedDeferred::new(),
@@ -142,6 +150,9 @@ impl Recording {
         {
             return Ok(RecordingFinalization::NotStarted);
         }
+        if matches!(capture, Capture::Video(_)) && device.state().video_unavailable {
+            return Ok(RecordingFinalization::Skipped);
+        }
         if let Capture::Video(path) = &capture {
             match device.uses_legacy_recording().await {
                 Ok(true) => {
@@ -198,24 +209,25 @@ impl Recording {
             Err(_) => return Ok(RecordingFinalization::Unconfirmed),
         };
         self.opened.complete(Ok(()));
-        if let Capture::Video(path) = &capture {
-            let logger = device.services().logging.component("marathon_ios::listener::video");
-            device.services().logging.log(
-                &logger,
-                Level::DEBUG,
-                || format!("started video recording to {path}"),
-                None,
-            );
-        }
+        let video = match &capture {
+            Capture::Video(path) => Some((device, path.as_str())),
+            Capture::DeviceLog(_) => None,
+        };
         let cancellation = async {
             batch.cancelled().await;
             self.request_stop(protected.clock.as_ref(), None);
             std::future::pending::<()>().await;
         };
-        let outcome = tokio::select! {
+        let (outcome, started) = tokio::select! {
             _ = cancellation => unreachable!("stop publisher remains active"),
-            result = self.run_session(&session, &protected, &mut deadline) => result,
+            result = self.run_session(&session, &protected, &mut deadline, video) => result,
         };
+        if video.is_some()
+            && !started
+            && session.base.exit_code.termination() == Some(CommandTermination::Status(BUSY_STATUS))
+        {
+            self.recorder_busy(device);
+        }
         // The outcome comes from the exit report. Closing a channel alone cannot establish it.
         // Retain channel/reader close independently if there is no time left to await it.
         device
@@ -306,49 +318,172 @@ impl Recording {
         }
     }
 
+    /// D98: the busy code with no recorder of marathon's own on the simulator means its video service is held by a
+    /// recording nobody can stop (an early signal, a crash, another tool). Every later start fails the same way until
+    /// the simulator restarts, so video stops here for the rest of the run with one warning.
+    fn recorder_busy(&self, device: &AppleSimulatorDevice) {
+        let first = {
+            let mut state = device.state();
+            // Only a launched recorder can hold the service; the next test's capture can be registered and waiting.
+            let own = state.recordings.iter().any(|recording| {
+                !std::ptr::eq(recording.as_ref(), self)
+                    && recording.video
+                    && recording.opened.completed().is_some_and(|opened| opened.is_ok())
+                    && recording.ended() != Some(true)
+            });
+            !own && !std::mem::replace(&mut state.video_unavailable, true)
+        };
+        if first {
+            let logger = device.services().logging.component("marathon_ios::listener::video");
+            let (serial, udid) = (device.serial.clone(), device.udid.clone());
+            device.services().logging.log(
+                &logger,
+                Level::WARN,
+                || {
+                    format!(
+                        "Simulator {serial} reports a video recording already in progress that marathon did not start. \
+                         Video recording is off on this simulator for the rest of the run. Restart it \
+                         (xcrun simctl shutdown {udid}, then xcrun simctl boot {udid}) to record again."
+                    )
+                },
+                None,
+            );
+        }
+    }
+
+    /// The process outcome, and whether a recorder confirmed its start (D98).
     async fn run_session(
         &self,
         session: &CommandSession,
         context: &VendorContext,
         deadline: &mut watch::Receiver<Option<StopWindow>>,
-    ) -> RecordingFinalization {
+        video: Option<(&AppleSimulatorDevice, &str)>,
+    ) -> (RecordingFinalization, bool) {
         let clock = context.clock.as_ref();
+        // A device log has no start marker and never waits for one.
+        let started = watch::channel(video.is_none()).0;
+        let worker = session.worker_start();
+        // D98: a signal before simctl's start marker leaves the simulator's video service recording with no client,
+        // and every later recording on that simulator then fails with the busy code. A supervised SSH worker reads
+        // the recorder's stderr and holds INT itself; otherwise the marker is read here and INT waits for it.
+        let gated = video.is_some() && worker.is_none();
+        let confirm = || {
+            if !started.send_replace(true)
+                && let Some((device, path)) = video
+            {
+                let logger = device.services().logging.component("marathon_ios::listener::video");
+                device.services().logging.log(
+                    &logger,
+                    Level::DEBUG,
+                    || format!("started video recording to {path}"),
+                    None,
+                );
+            }
+        };
         let exit = std::pin::pin!(async {
-            let result = session.await_result(context).await;
+            let result = if gated {
+                read_output(session, |line| {
+                    if line.strip_suffix('\r').unwrap_or(line) == START_MARKER {
+                        confirm();
+                    }
+                })
+                .await
+            } else {
+                let reported = async {
+                    if let Some(mut worker) = worker.clone()
+                        && worker.wait_for(|started| *started).await.is_ok()
+                    {
+                        confirm();
+                    }
+                    std::future::pending::<()>().await
+                };
+                tokio::select! {
+                    biased;
+                    result = session.await_result(context) => result.map(|_| ()),
+                    _ = reported => unreachable!("the start report never ends the wait"),
+                }
+            };
+            if worker.as_ref().is_some_and(|worker| *worker.borrow()) {
+                confirm();
+            }
             match (result, session.base.exit_code.termination()) {
-                (Ok(_), Some(CommandTermination::Status(0))) => RecordingFinalization::Finalized,
-                (Ok(_), Some(CommandTermination::NotStarted)) => RecordingFinalization::NotStarted,
-                (Ok(_), Some(CommandTermination::Status(_) | CommandTermination::Signal(_))) => {
+                (Ok(()), Some(CommandTermination::Status(0))) => RecordingFinalization::Finalized,
+                (Ok(()), Some(CommandTermination::NotStarted)) => RecordingFinalization::NotStarted,
+                (Ok(()), Some(CommandTermination::Status(_) | CommandTermination::Signal(_))) => {
                     RecordingFinalization::Unfinalized
                 }
                 _ => RecordingFinalization::Unconfirmed,
             }
         });
         let mut exit = exit;
-        tokio::select! {
-            biased;
-            outcome = &mut exit => return outcome,
-            _ = deadline.wait_for(Option::is_some) => {}
-        }
-
-        let start = clock.now_millis();
-        let stages = [
-            CommandSession::interrupt,
-            CommandSession::terminate,
-            CommandSession::kill,
-        ];
-        // Reserve time for TERM, KILL and the exit report. Most of the window is for the movie writer.
-        for (signal, stage) in stages.into_iter().zip([4, 5, 6]) {
-            let sent = signal(session).is_ok();
-            if let Some(outcome) = wait_stage(exit.as_mut(), deadline, clock, start, stage).await {
-                return match (stage, sent, outcome) {
-                    (4, true, _) => outcome,
-                    (_, _, RecordingFinalization::Finalized) => RecordingFinalization::Unfinalized,
-                    _ => outcome,
-                };
+        let outcome = async {
+            tokio::select! {
+                biased;
+                outcome = &mut exit => return outcome,
+                _ = deadline.wait_for(Option::is_some) => {}
             }
+
+            let start = clock.now_millis();
+            // D98: the marker can arrive until the INT cutoff, which this wait never extends. A recorder that has not
+            // confirmed by then gets TERM at that cutoff, as one that ignored INT would.
+            let mut interrupt = true;
+            if gated {
+                let mut confirmed = started.subscribe();
+                let mut waiting = std::pin::pin!(async {
+                    tokio::select! {
+                        biased;
+                        outcome = &mut exit => Some(outcome),
+                        _ = confirmed.wait_for(|started| *started) => None,
+                    }
+                });
+                match wait_stage(waiting.as_mut(), deadline, clock, start, 4).await {
+                    Some(Some(outcome)) => return outcome,
+                    Some(None) => {}
+                    None => interrupt = false,
+                }
+            }
+            let stages = [
+                CommandSession::interrupt,
+                CommandSession::terminate,
+                CommandSession::kill,
+            ];
+            // Reserve time for TERM, KILL and the exit report. Most of the window is for the movie writer.
+            for (signal, stage) in stages.into_iter().zip([4, 5, 6]) {
+                if stage == 4 && !interrupt {
+                    continue;
+                }
+                let sent = signal(session).is_ok();
+                if let Some(outcome) = wait_stage(exit.as_mut(), deadline, clock, start, stage).await {
+                    return match (stage, sent, outcome) {
+                        (4, true, _) => outcome,
+                        (_, _, RecordingFinalization::Finalized) => RecordingFinalization::Unfinalized,
+                        _ => outcome,
+                    };
+                }
+            }
+            RecordingFinalization::Unconfirmed
         }
-        RecordingFinalization::Unconfirmed
+        .await;
+        (outcome, *started.borrow())
+    }
+}
+
+/// Drains a session's output to its exit, as `await_result` does, handing each stderr line to `line`.
+async fn read_output(session: &CommandSession, line: impl Fn(&str)) -> VendorResult<()> {
+    let stderr = async {
+        while let Some(text) = session.base.stderr.receive().await? {
+            line(&text);
+        }
+        Ok(())
+    };
+    let stdout = async {
+        while session.base.stdout.receive().await?.is_some() {}
+        Ok(())
+    };
+    tokio::select! {
+        biased;
+        reason = session.base.scope.cancelled() => Err(marathon_core::error::VendorError::Cancelled(reason)),
+        result = async { tokio::try_join!(stderr, stdout, session.base.exit_code.wait()).map(|_| ()) } => result,
     }
 }
 
@@ -404,18 +539,29 @@ impl AppleSimulatorDevice {
         context: VendorContext,
         ready: VendorFuture<'static, bool>,
     ) -> VendorResult<Arc<Recording>> {
-        let recording = Recording::new();
+        let is_video = matches!(capture, Capture::Video(_));
+        let recording = Recording::new(is_video);
         {
             let mut state = self.state();
             if let Some(error) = state.refusal_error(&self.serial) {
                 return Err(error);
+            }
+            // D98: after a busy video service, later tests launch nothing and report nothing per test.
+            if is_video && state.video_unavailable {
+                recording.opened.complete(Err(marathon_core::error::VendorError::Other(
+                    marathon_apple::cmd::failure(
+                        marathon_error::FailureKind::IllegalState,
+                        "Video recording is off on this simulator",
+                    ),
+                )));
+                recording.done.complete(Ok(RecordingFinalization::Skipped));
+                return Ok(recording);
             }
             state.recordings.retain(|record| record.needs_stop());
             state.recordings.push(recording.clone());
         }
         let device = self.clone();
         let owned = recording.clone();
-        let is_video = matches!(capture, Capture::Video(_));
         self.services.runtime.spawn(Box::pin(async move {
             let result = panic_as_error(owned.run(&device, capture, context, ready)).await;
             if owned.opened.completed().is_none() {

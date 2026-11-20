@@ -21,7 +21,7 @@ sub read_state {
         die "read state: $!";
     }
     my $state = <$file>;
-    defined($state) && $state =~ /\A([012]) (\d+) ([0-3]) ([-a-z0-9:]+)\n\z/
+    defined($state) && $state =~ /\A([0-3]) (\d+) ([0-3]) ([-a-z0-9:]+)\n\z/
         or die "invalid state";
     return ($1, $2, $3, $4);
 }
@@ -64,21 +64,24 @@ sub control {
     my $recorder;
     my $reply = locked($dir, sub {
         my ($started, $expiry, $signal, $receipt) = @_;
-        $recorder = $started == 2;
+        # 2 is a recorder, 3 a recorder that has printed its start marker.
+        $recorder = $started >= 2;
         my $now = clock_ms();
+        my $running = ($started == 3 ? 'recording' : 'running') . ":$expiry";
         return (undef, $receipt) if $receipt ne '-';
         if ($op =~ /\A[1-3]\z/) {
             return ([0, 0, $op, 'not-started'], 'not-started') if !$started;
             $signal = $op if $op > $signal;
         } elsif ($op eq 'status') {
-            return (undef, $started ? "running:$expiry" : 'unknown');
+            return (undef, $started ? $running : 'unknown');
         } elsif ($op =~ /\Arenew-([0-9]+)\z/ && $started && $expiry == $1 && $expiry > $now && $signal < 2) {
             # Retries must carry the same stamp. At most one queued renewal can
             # extend an expiry the controller actually observed.
             my $proposed = $now + $lease;
             $expiry = $proposed if $proposed > $expiry;
+            $running = ($started == 3 ? 'recording' : 'running') . ":$expiry";
         }
-        return ([$started, $expiry, $signal, '-'], $started ? "running:$expiry" : 'unknown');
+        return ([$started, $expiry, $signal, '-'], $started ? $running : 'unknown');
     }) // 'busy';
     if ($reply =~ /\A(?:done:[1-9][0-9]*|unconfirmed)\z/ && open my $file, '<', "$dir.stderr") {
         my $count = read($file, my $diagnostic, 8192);
@@ -91,12 +94,23 @@ sub control {
 }
 
 sub drain_errors {
-    my ($pipe, $tail) = @_;
+    my ($pipe, $tail, $line, $confirmed) = @_;
     for (1..8) {
         last unless readable($pipe, 0);
         last unless sysread($pipe, my $bytes, 4096);
         my $remaining = 8192 - length($$tail);
         $$tail .= substr($bytes, 0, $remaining) if $remaining > 0;
+        next if $$confirmed;
+        # simctl prints this line on stderr once the simulator's video service
+        # has started. Only a whole line counts, never a substring of an error.
+        $$line .= $bytes;
+        while ($$line =~ s/\A([^\n]*)\n//) {
+            if ($1 =~ /\ARecording started\r?\z/) {
+                $$confirmed = 1;
+                last;
+            }
+        }
+        $$line = substr($$line, -256) if length($$line) > 256;
     }
 }
 
@@ -123,7 +137,7 @@ sub control_stream {
                 or die "invalid control frame";
             my ($id, $token, $op) = ($1, $2, $3);
             my ($state, $recorder) = control("$root/$token", $op, $lease);
-            if ($recorder && $op eq '1' && $state =~ /\Arunning:/) {
+            if ($recorder && $op eq '1' && $state =~ /\A(?:running|recording):/) {
                 # INT for a recorder can return its completed receipt on the
                 # same request without stalling other tokens on this stream.
                 if (my $previous = $waiting{$token}) {
@@ -137,7 +151,7 @@ sub control_stream {
         length($buffer) < 256 or die "control frame too large";
         for my $token (keys %waiting) {
             my ($state) = control("$root/$token", 'status', $lease);
-            next if $state =~ /\A(?:running:|busy)/;
+            next if $state =~ /\A(?:running:|recording:|busy)/;
             my $id = delete $waiting{$token};
             push @replies, "$id $token $state\n";
         }
@@ -211,8 +225,8 @@ sub run_owned {
     my $permitted = $group && syswrite($go_w, 'P', 1) == 1;
     my $rc = 125;
     my $seen = 0;
-    my $signal_at;
-    my $diagnostic = '';
+    my ($interrupt_at, $term_at, $interrupted);
+    my ($diagnostic, $line, $confirmed, $published) = ('', '', 0, 0);
     my ($expiry, $wanted) = ($start, 0);
     my $starting = 1;
     eval {
@@ -242,17 +256,32 @@ sub run_owned {
             }
             if (!$starting) {
                 if ($recorder) {
-                    drain_errors($errors, \$diagnostic);
+                    drain_errors($errors, \$diagnostic, \$line, \$confirmed);
+                    if ($confirmed && !$published) {
+                        $published = locked($dir, sub {
+                            my ($started, $expiry, $signal, $receipt) = @_;
+                            return (undef, 1) if $receipt ne '-';
+                            return ([3, $expiry, $signal, '-'], 1);
+                        });
+                    }
+                    my $stopping = $wanted >= 2 || $force;
                     # A disappearing controller can still leave the simulator's
                     # video service busy. Give the recorder the same first
                     # chance to finalize even on a hard stop or lease expiry.
-                    if (($wanted || $force) && !$seen) {
-                        kill 'INT', -$anchor;
-                        ($seen, $signal_at) = (1, $now);
-                    } elsif (($wanted >= 2 || $force) && $seen == 1 && $now - $signal_at >= 2000) {
+                    # A signal before the start marker leaves that service
+                    # recording with no client, so INT waits for the marker.
+                    # TERM and KILL keep their times from the first request.
+                    if ($wanted || $force) {
+                        $interrupt_at //= $now;
+                        if (!$interrupted && $confirmed) {
+                            kill 'INT', -$anchor;
+                            $interrupted = 1;
+                        }
+                    }
+                    if ($stopping && !defined $term_at && $now - $interrupt_at >= 2000) {
                         kill 'TERM', -$anchor;
-                        ($seen, $signal_at) = (2, $now);
-                    } elsif ($force && $seen == 2 && $now - $signal_at >= 1000) {
+                        $term_at = $now;
+                    } elsif ($force && defined $term_at && $now - $term_at >= 1000) {
                         $rc = 137;
                         last;
                     }
@@ -284,7 +313,7 @@ sub run_owned {
         select undef, undef, undef, 0.025;
     }
     if ($recorder) {
-        drain_errors($errors, \$diagnostic);
+        drain_errors($errors, \$diagnostic, \$line, \$confirmed);
         close $errors;
         if (length($diagnostic) && ($rc || !$reaped || !$gone)) {
             # Diagnostics are published before the terminal receipt.

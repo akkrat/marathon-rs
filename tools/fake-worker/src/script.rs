@@ -85,6 +85,10 @@ pub enum Action {
         on_signal: Option<String>,
         #[serde(default)]
         normal_exit_on_signal: bool,
+        /// Printed on stderr once `started` is published, as simctl prints its start marker. A background run
+        /// redirects it to /dev/null, so it adds nothing to that run's transcript.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        announce: Option<String>,
     },
     EchoStdin,
     Filesystem,

@@ -907,3 +907,236 @@ fn a_recording_start_that_panics_fails_after_test_run_d80() -> TestResult {
     );
     Ok(())
 }
+
+type Signals = Arc<std::sync::Mutex<Vec<(&'static str, tokio::time::Instant)>>>;
+
+/// D98: installs a recorder that has not printed simctl's start marker; returns its stderr and the signals it gets.
+fn unconfirmed_recorder(
+    h: &simulator_support::Harness,
+    exit: impl Fn(&'static str) -> Option<i32> + Send + Sync + Copy + 'static,
+) -> (
+    Arc<marathon_core::executor::shared::SharedDeferred<marathon_apple::cmd::channel::LineChannel>>,
+    Signals,
+) {
+    let printed = marathon_core::executor::shared::SharedDeferred::new();
+    let signals: Signals = Arc::default();
+    let (stderr, seen) = (printed.clone(), signals.clone());
+    *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
+        if !cmd.iter().any(|arg| arg == "recordVideo") {
+            return Ok(None);
+        }
+        let seen = seen.clone();
+        let (session, channel) = simulator_support::unconfirmed_recorder_session(move |signal| {
+            seen.lock().unwrap().push((signal, tokio::time::Instant::now()));
+            Box::pin(async move { Ok(exit(signal)) })
+        });
+        stderr.complete(Ok(channel));
+        Ok(Some(session))
+    });
+    (printed, signals)
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stop_before_the_start_marker_holds_int_until_the_marker_d98() -> TestResult {
+    use marathon_ios::apple_simulator_device::recording::RecordingFinalization;
+    let h = harness(|_| {})?;
+    let d = h.device().await?;
+    let c = context(&h, d.clone());
+    let test = c.batch.tests[0].clone();
+    let l = ScreenRecordingListener::new(c);
+    let (stderr, signals) = unconfirmed_recorder(&h, |signal| (signal == "INT").then_some(0));
+    l.test_started(&test).await.map_err(|e| format!("{e:?}"))?;
+    let stderr = stderr.wait().await.map_err(|e| format!("{e:?}"))?;
+    let requested = tokio::time::Instant::now();
+    let script = async {
+        // A slow simulator: the marker comes 5 s after the stop, inside the INT window.
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        assert!(signals.lock().unwrap().is_empty(), "INT before the start marker");
+        stderr.send("Note: No display specified.".into()).await?;
+        stderr.send("Recording started".into()).await?;
+        Ok::<_, VendorError>(tokio::time::Instant::now())
+    };
+    let (stopped, marked) = tokio::join!(l.stop(), script);
+    assert_eq!(stopped.map_err(|e| format!("{e:?}"))?, RecordingFinalization::Finalized);
+    let marked = marked.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(marked - requested, std::time::Duration::from_secs(5));
+    assert_eq!(
+        *signals.lock().unwrap(),
+        [("INT", marked)],
+        "INT follows the marker at once"
+    );
+    assert_eq!(
+        h.logs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.2.starts_with("started video recording"))
+            .count(),
+        1
+    );
+    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    h.finish(&[d]).await;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_recorder_without_a_start_marker_gets_term_and_kill_at_the_existing_cutoffs_d98() -> TestResult {
+    use marathon_ios::apple_simulator_device::recording::RecordingFinalization;
+    for ignore_term in [false, true] {
+        let h = harness(|vendor| vendor.timeout_configuration.shell = support::duration(30_000))?;
+        let d = h.device().await?;
+        let c = context(&h, d.clone());
+        let test = c.batch.tests[0].clone();
+        let l = ScreenRecordingListener::new(c);
+        let (stderr, signals) = if ignore_term {
+            unconfirmed_recorder(&h, |signal| (signal == "KILL").then_some(137))
+        } else {
+            unconfirmed_recorder(&h, |signal| (signal == "TERM").then_some(143))
+        };
+        l.test_started(&test).await.map_err(|e| format!("{e:?}"))?;
+        // The recorder has written only its display note; it never confirms its start.
+        let stderr = stderr.wait().await.map_err(|e| format!("{e:?}"))?;
+        stderr
+            .send("Note: No display specified.".into())
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        let requested = tokio::time::Instant::now();
+        assert_eq!(
+            l.stop().await.map_err(|e| format!("{e:?}"))?,
+            RecordingFinalization::Unfinalized
+        );
+        // A healthy stop: INT window max(shell, 15 s) = 30 s, then 5 s for TERM and KILL, KILL at its midpoint.
+        let seen: Vec<_> = signals
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(signal, at)| (*signal, *at - requested))
+            .collect();
+        let seconds = std::time::Duration::from_millis;
+        if ignore_term {
+            assert_eq!(seen, [("TERM", seconds(30_000)), ("KILL", seconds(32_500))]);
+        } else {
+            assert_eq!(seen, [("TERM", seconds(30_000))]);
+        }
+        d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+        assert!(!d.quarantined());
+        assert!(
+            !h.logs
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|r| r.2.starts_with("started video recording"))
+        );
+        h.finish(&[d]).await;
+    }
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_confirmed_recorder_gets_int_as_soon_as_its_stop_is_requested_d98() -> TestResult {
+    use marathon_ios::apple_simulator_device::recording::RecordingFinalization;
+    let h = harness(|_| {})?;
+    let d = h.device().await?;
+    let c = context(&h, d.clone());
+    let test = c.batch.tests[0].clone();
+    let l = ScreenRecordingListener::new(c);
+    let (stderr, signals) = unconfirmed_recorder(&h, |signal| (signal == "INT").then_some(0));
+    l.test_started(&test).await.map_err(|e| format!("{e:?}"))?;
+    let stderr = stderr.wait().await.map_err(|e| format!("{e:?}"))?;
+    stderr
+        .send("Recording started".into())
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+    // The test runs for a while after the recorder confirmed its start.
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    let requested = tokio::time::Instant::now();
+    assert_eq!(
+        l.stop().await.map_err(|e| format!("{e:?}"))?,
+        RecordingFinalization::Finalized
+    );
+    assert_eq!(*signals.lock().unwrap(), [("INT", requested)]);
+    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    h.finish(&[d]).await;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_busy_video_service_turns_video_off_for_the_simulator_once_d98() -> TestResult {
+    use marathon_ios::apple_simulator_device::recording::RecordingFinalization;
+    let mut h = harness(|_| {})?;
+    Arc::make_mut(&mut h.services.configuration).screen_recording_policy = ScreenRecordingPolicy::OnAny;
+    let d = h.device().await?;
+    let c = context(&h, d.clone());
+    let tests = c.batch.tests.clone();
+    let l = ScreenRecordingListener::new(c);
+    let launched = marathon_core::executor::shared::SharedDeferred::new();
+    let launch = launched.clone();
+    *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
+        if !cmd.iter().any(|arg| arg == "recordVideo") {
+            return Ok(None);
+        }
+        launch.complete(Ok(()));
+        // simctl on a simulator whose video service is still held by an earlier, unstoppable recording.
+        let (session, stderr) = simulator_support::unconfirmed_recorder_session(|_| Box::pin(async { Ok(None) }));
+        let (exit, stdout) = (session.base.exit_code.clone(), session.base.stdout.clone());
+        tokio::spawn(async move {
+            for line in [
+                "Error starting video recorder: Error Domain=NSPOSIXErrorDomain Code=16 \"Resource busy\" \
+                 UserInfo={NSLocalizedFailureReason=A recording is already in progress}.",
+                "A recording is already in progress",
+            ] {
+                stderr.send(line.into()).await.unwrap();
+            }
+            stdout.close(None);
+            stderr.close(None);
+            exit.complete(Ok(Some(16)));
+        });
+        Ok(Some(session))
+    });
+    let recordings = |h: &simulator_support::Harness| {
+        h.worker
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|cmd| cmd.iter().any(|arg| arg == "recordVideo"))
+            .count()
+    };
+    for (index, test) in tests.iter().enumerate() {
+        l.test_started(test).await.map_err(|e| format!("{e:?}"))?;
+        if index == 0 {
+            launched.wait().await.map_err(|e| format!("{e:?}"))?;
+        } else {
+            // Paused time: every runnable task, a launch included, runs before this returns.
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+        l.test_failed(test, 0, 0, None).await.map_err(|e| format!("{e:?}"))?;
+    }
+    l.settle().await.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(recordings(&h), 1, "no recorder is launched after the busy code");
+    let logs = h.logs.lock().unwrap().clone();
+    let warnings: Vec<_> = logs
+        .iter()
+        .filter(|r| r.1 == marathon_logging::Level::WARN && r.2.contains("already in progress"))
+        .map(|r| r.2.clone())
+        .collect();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains(d.udid()) && warnings[0].contains("simctl shutdown"));
+    // The failed start still reports its own movie; the skipped one reports nothing per test.
+    let undelivered: Vec<_> = logs
+        .iter()
+        .filter(|r| r.2.contains("was not delivered"))
+        .map(|r| r.2.clone())
+        .collect();
+    assert_eq!(undelivered.len(), 1, "{undelivered:?}");
+    assert!(undelivered[0].ends_with("the recording did not finalize"));
+    l.test_started(&tests[0]).await.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        l.stop().await.map_err(|e| format!("{e:?}"))?,
+        RecordingFinalization::Skipped
+    );
+    assert!(!logs.iter().any(|r| r.2 == "Video recording did not start"));
+    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    h.finish(&[d]).await;
+    Ok(())
+}

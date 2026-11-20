@@ -35,6 +35,9 @@ pub(super) const EXIT_PROOF_TIMEOUT: WallDuration = WallDuration::from_secs(24);
 const RECONNECT_DELAY: WallDuration = WallDuration::from_secs(1);
 const CLOSE_GRACE: WallDuration = WallDuration::from_secs(20);
 const WATCH_EXIT_TIMEOUT: WallDuration = WallDuration::from_secs(CLOSE_GRACE.as_secs() + 3 * CONTROL_TIMEOUT.as_secs());
+// D98: how often, and for how long after launch, a detached recorder's start is polled on an open control stream.
+const START_POLL: WallDuration = WallDuration::from_millis(200);
+const START_POLL_WINDOW: WallDuration = WallDuration::from_secs(60);
 const BOOTSTRAP: &str = include_str!("bootstrap.pl");
 const WORKER: &str = include_str!("worker.pl");
 
@@ -391,7 +394,8 @@ pub(super) enum Proof {
 
 #[derive(Debug, Eq, PartialEq)]
 enum Reply {
-    Running(u64),
+    /// The expiry, and whether a detached recorder has printed its start marker (D98).
+    Running(u64, bool),
     Busy,
     Unknown,
     Proof(Proof),
@@ -412,7 +416,8 @@ impl Reply {
             "unknown" => Self::Unknown,
             "not-started" => Self::Proof(Proof::NotStarted),
             "unconfirmed" => Self::Unconfirmed,
-            _ if state.starts_with("running:") => Self::Running(state[8..].parse().ok()?),
+            _ if state.starts_with("running:") => Self::Running(state[8..].parse().ok()?, false),
+            _ if state.starts_with("recording:") => Self::Running(state[10..].parse().ok()?, true),
             _ if state.starts_with("done:") => Self::Proof(Proof::Done(i32::from(state[5..].parse::<u8>().ok()?))),
             _ => return None,
         };
@@ -498,6 +503,18 @@ impl Peer {
         control.active = Some(active.clone());
         control.stream = None;
         Ok(active)
+    }
+
+    /// An established control stream, which answers a status request without dialling or using a data session.
+    fn stream_ready(&self) -> bool {
+        self.control.try_lock().is_ok_and(|control| {
+            control.active.as_ref().is_some_and(|active| active.is_connected())
+                && control
+                    .stream
+                    .as_ref()
+                    .and_then(|stream| stream.completed())
+                    .is_some_and(|stream| stream.as_ref().is_ok_and(|stream| stream.is_open()))
+        })
     }
 
     async fn control_lost(&self) {
@@ -731,6 +748,7 @@ pub(super) struct Lease {
     stop: Mutex<Stop>,
     changed: Notify,
     proof: watch::Sender<Option<Result<Proof, Failure>>>,
+    started: watch::Sender<bool>,
 }
 
 impl Lease {
@@ -752,6 +770,7 @@ impl Lease {
             stop: Mutex::default(),
             changed: Notify::new(),
             proof: watch::channel(None).0,
+            started: watch::channel(false).0,
         }
     }
     pub(super) fn wire(&self) -> &str {
@@ -810,6 +829,11 @@ impl Lease {
         self.detached
     }
 
+    /// D98: true once the worker has seen a detached recorder's own start marker. The worker holds INT until then.
+    pub(super) fn started(&self) -> watch::Receiver<bool> {
+        self.started.subscribe()
+    }
+
     pub(super) fn acknowledge(&self) {
         if !self.detached {
             self.stop.lock().unwrap_or_else(|error| error.into_inner()).acknowledged = true;
@@ -819,6 +843,8 @@ impl Lease {
     pub(super) fn data_status(&self, status: i32) {
         if self.detached && status == 0 {
             self.stop.lock().unwrap_or_else(|error| error.into_inner()).acknowledged = true;
+            // D98: the watcher starts looking for the recorder's start marker at launch, not one interval later.
+            self.changed.notify_one();
         }
         if !self.foreground {
             return;
@@ -874,18 +900,24 @@ impl Lease {
         let mut stamp = None;
         let mut ending = None;
         let mut next_renewal = Instant::now();
+        // D98: the acknowledgement of a detached recorder wakes the watcher early. Renewal keeps this schedule.
+        let first_renewal = next_renewal + self.peer.timing.interval;
         let mut signalled = 0;
         let mut delay = self.peer.timing.interval;
+        let mut start_poll_until = None;
+        let mut start_poll = false;
         loop {
+            let mut polled = false;
             if !delay.is_zero() {
                 let wake = Instant::now() + delay;
                 tokio::select! {
                     _ = self.changed.notified() => {},
                     _ = self.peer.control_lost() => {},
                     _ = self.peer.data.shared.wait_dead(), if self.detached && self.peer.data.is_connected() => {},
-                    _ = sleep_until(ending.map_or(wake, |start| wake.min(start + WATCH_EXIT_TIMEOUT))) => {},
+                    _ = sleep_until(ending.map_or(wake, |start| wake.min(start + WATCH_EXIT_TIMEOUT))) => polled = start_poll,
                 }
             }
+            start_poll = false;
             let state = *self.stop.lock().unwrap_or_else(|error| error.into_inner());
             let now = Instant::now();
             let disconnected = state.channel_ended || (self.detached && !self.peer.data.is_connected());
@@ -905,6 +937,8 @@ impl Lease {
             };
             let operation = if wanted > signalled {
                 wanted.to_string()
+            } else if polled && now < next_renewal.max(first_renewal) {
+                "status".to_string()
             } else if (wanted == 0 || (finalizing && now >= next_renewal))
                 && state.acknowledged
                 && let Some(stamp) = stamp
@@ -940,17 +974,34 @@ impl Lease {
                 Ok(Reply::Unconfirmed) => {
                     return Err(protocol_error("Worker process group disappearance was not confirmed"));
                 }
-                Ok(Reply::Running(expiry)) => {
+                Ok(Reply::Running(expiry, started)) => {
+                    if started {
+                        self.started.send_replace(true);
+                    }
                     signalled = wanted;
                     if operation.starts_with("renew-") {
                         next_renewal = now + self.peer.timing.interval;
                     }
-                    let needs_renewal = stamp.is_none() && ending.is_none();
+                    let early = now < first_renewal;
+                    let needs_renewal = stamp.is_none() && ending.is_none() && !early;
                     stamp = Some(expiry);
+                    // D98: until the recorder confirms its start, poll a little after launch so its start is logged
+                    // when it happens. Only an open stream is used; renewals keep their own schedule.
+                    start_poll = self.detached
+                        && state.acknowledged
+                        && wanted == 0
+                        && ending.is_none()
+                        && !*self.started.borrow()
+                        && now < *start_poll_until.get_or_insert(now + START_POLL_WINDOW)
+                        && self.peer.stream_ready();
                     delay = if needs_renewal {
                         WallDuration::ZERO
                     } else if ending.is_some() || finalizing {
                         WallDuration::from_millis(100)
+                    } else if start_poll {
+                        START_POLL.min(self.peer.timing.interval)
+                    } else if early && signalled == 0 {
+                        first_renewal - now
                     } else {
                         self.peer.timing.interval
                     };

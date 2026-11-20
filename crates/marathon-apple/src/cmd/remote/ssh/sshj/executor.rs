@@ -286,9 +286,17 @@ async fn execute(
         closing.clone(),
     ))));
     let interrupt = channel.clone();
+    let started = lease
+        .as_ref()
+        .filter(|lease| lease.is_detached())
+        .map(|lease| lease.started());
     let control = session_control(channel, base.scope.clone(), closing);
-    Ok(CommandSession::new(base, control)
-        .with_interrupt(move || interrupt.signal(Sig::INT).map_err(SshFailure::into_vendor)))
+    let session = CommandSession::new(base, control)
+        .with_interrupt(move || interrupt.signal(Sig::INT).map_err(SshFailure::into_vendor));
+    Ok(match started {
+        Some(started) => session.with_worker_start(started),
+        None => session,
+    })
 }
 
 async fn supervised_exit(channel: &ExecChannel) -> ExitWait {

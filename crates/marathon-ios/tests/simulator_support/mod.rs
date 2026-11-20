@@ -576,16 +576,34 @@ pub fn spawn_batch(
 }
 pub mod artifacts;
 
-/// A foreground recorder whose signal handler chooses whether and when to exit.
+/// A foreground recorder whose signal handler chooses whether and when to exit. Like simctl, it has printed its start
+/// marker on stderr (D98).
 pub fn recorder_session(
     signal: impl Fn(&'static str) -> marathon_core::runtime::VendorFuture<'static, Option<i32>> + Send + Sync + 'static,
 ) -> marathon_apple::cmd::CommandSession {
+    let (session, stderr) = unconfirmed_recorder_session(signal);
+    use futures_util::FutureExt;
+    assert!(
+        stderr.send("Recording started".into()).now_or_never().is_some(),
+        "the empty stderr channel takes the start marker"
+    );
+    session
+}
+
+/// A recorder that has not printed its start marker yet, and its stderr, on which a test can print it (D98).
+pub fn unconfirmed_recorder_session(
+    signal: impl Fn(&'static str) -> marathon_core::runtime::VendorFuture<'static, Option<i32>> + Send + Sync + 'static,
+) -> (
+    marathon_apple::cmd::CommandSession,
+    marathon_apple::cmd::channel::LineChannel,
+) {
     use marathon_apple::cmd::{BaseCommand, CommandSession, SessionControl};
     use marathon_core::runtime::VendorRuntime;
     let runtime = Arc::new(Runtime);
     let base = BaseCommand::new(4, runtime.clone());
     let stdout = base.stdout.clone();
     let stderr = base.stderr.clone();
+    let printed = base.stderr.clone();
     let exit = base.exit_code.clone();
     let send = Arc::new(move |name| {
         let (stdout, stderr, exit, action) = (stdout.clone(), stderr.clone(), exit.clone(), signal(name));
@@ -601,7 +619,7 @@ pub fn recorder_session(
     });
     let term = send.clone();
     let kill = send.clone();
-    CommandSession::new(
+    let session = CommandSession::new(
         base,
         SessionControl {
             is_alive: Box::new(|| true),
@@ -610,5 +628,6 @@ pub fn recorder_session(
             close: Box::new(|| Box::pin(async { Ok(()) })),
         },
     )
-    .with_interrupt(move || send("INT"))
+    .with_interrupt(move || send("INT"));
+    (session, printed)
 }

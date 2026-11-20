@@ -230,17 +230,21 @@ async fn run_action(
     signals: &mut mpsc::Receiver<String>,
     stdin: &mut mpsc::Receiver<Vec<u8>>,
 ) -> Result<()> {
-    let (action, completed_files, started, on_signal, normal_exit_on_signal) = match action {
+    let (action, completed_files, started, on_signal, normal_exit_on_signal, announce) = match action {
         Action::Publish {
             output,
             files,
             started,
             on_signal,
             normal_exit_on_signal,
-        } => (*output, files, started, on_signal, normal_exit_on_signal),
-        action => (action, vec![], vec![], None, false),
+            announce,
+        } => (*output, files, started, on_signal, normal_exit_on_signal, announce),
+        action => (action, vec![], vec![], None, false, None),
     };
     tokio::select! {biased; _=ctx.stop.cancelled()=>return Ok(()),result=publish_files(&ctx.fs, started)=>result?};
+    if let Some(announce) = announce {
+        send_chunk(ctx, announce.into_bytes(), Some(1)).await?;
+    }
     match action {
         Action::Output {
             chunks: output,
