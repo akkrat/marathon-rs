@@ -3299,8 +3299,8 @@ lifecycle already shuts the simulator down or erases it. It runs in the window l
 70), without the lifecycle's force-reserve floor, and is cancelled there, so the lease release after it keeps that
 reserve; it never extends the window. It starts only if the shorter of the shutdown timeout
 (`timeoutConfiguration.shutdown`, which defaults to the shell timeout) and twice the force reserve (10 s of 70) is
-left: a shutdown takes seconds, and a shell timeout of minutes must not prevent it (x101). A signal's D97
-finish leaves too little time, so it is skipped there with a warning. One line reports the shutdown or why it did not
+left after that reserve: a shutdown takes seconds, and a shell timeout of minutes must not prevent it (x101). After a signal it
+is skipped with a warning: the D97 finish is for the exit. One line reports the shutdown or why it did not
 happen; a cut or a failure changes nothing else, and never quarantines the simulator. Test results, retries and the
 exit status do not change.
 

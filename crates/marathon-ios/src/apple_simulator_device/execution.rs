@@ -833,6 +833,11 @@ impl AppleSimulatorDevice {
                 self.udid
             )
         };
+        // D97: after a signal the finish is for the exit (Kotlin's 30 s limit), not for a cold-boot preparation.
+        if self.signal_finish.current().is_some() {
+            self.log(Level::WARN, busy("there was no time left to shut it down"), None);
+            return;
+        }
         let shutdown_millis = self
             .services
             .vendor

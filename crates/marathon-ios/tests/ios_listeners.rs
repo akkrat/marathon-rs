@@ -1254,7 +1254,7 @@ async fn a_busy_video_shutdown_longer_than_the_release_window_runs_within_it_d98
     let (h, d) = simulator_with_video_off(|v| v.timeout_configuration.shutdown = support::duration(300)).await?;
     let started = tokio::time::Instant::now();
     end_of_run(&d).await?;
-    assert!(started.elapsed() <= std::time::Duration::from_millis(200));
+    assert_eq!(started.elapsed(), std::time::Duration::ZERO);
     assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 1);
     assert!(!d.quarantined());
     let lines = end_of_run_lines(&h);
@@ -1275,6 +1275,23 @@ async fn a_busy_video_shutdown_is_not_started_without_time_left_in_the_window_d9
     let started = tokio::time::Instant::now();
     d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
     assert!(started.elapsed() <= std::time::Duration::from_millis(30));
+    assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 0);
+    assert!(!d.quarantined());
+    let lines = end_of_run_lines(&h);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].contains("no time left to shut it down"), "{lines:?}");
+    h.finish(&[d]).await;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_busy_video_shutdown_is_skipped_when_a_signal_stopped_the_run_d98() -> TestResult {
+    // D97: after a signal the finish is for the exit; the shutdown is not started, even with time left in the window.
+    use marathon_core::vendor::Device;
+    let (h, d) = simulator_with_video_off(|v| v.timeout_configuration.shutdown = support::duration(100)).await?;
+    let now = d.services().context.clock.now_millis();
+    d.seal_for_signal(marathon_core::signal_finish::SignalFinish::from_start(now));
+    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
     assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 0);
     assert!(!d.quarantined());
     let lines = end_of_run_lines(&h);
@@ -1337,9 +1354,11 @@ async fn a_recovery_or_replacement_disposal_sends_no_shutdown_d98() -> TestResul
 
 #[tokio::test(start_paused = true)]
 async fn a_hung_busy_video_shutdown_ends_with_the_window_and_never_quarantines_d98() -> TestResult {
-    // A state read that never returns, then a `simctl shutdown` that never returns.
-    for hung in ["cat", "shutdown"] {
-        let (h, d) = simulator_with_video_off(|v| v.timeout_configuration.shutdown = support::duration(100)).await?;
+    // A state read that never returns, then a `simctl shutdown` that never returns, with its own timeout inside the
+    // window and (x101) longer than it.
+    for (hung, timeout) in [("cat", 100), ("shutdown", 100), ("shutdown", 300)] {
+        let (h, d) =
+            simulator_with_video_off(|v| v.timeout_configuration.shutdown = support::duration(timeout)).await?;
         h.worker.cancellable_before.store(true, Ordering::SeqCst);
         *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
             Box::pin(async move {
@@ -1351,16 +1370,17 @@ async fn a_hung_busy_video_shutdown_ends_with_the_window_and_never_quarantines_d
         });
         let started = tokio::time::Instant::now();
         end_of_run(&d).await?;
-        // The harness's release window is 200 ms; the disposal ends with it, not later.
+        // The harness's release window is 200 ms; the disposal ends with it less the 14 ms force reserve, not later.
         assert!(
-            started.elapsed() <= std::time::Duration::from_millis(200),
+            started.elapsed() <= std::time::Duration::from_millis(186),
             "{hung}: {:?}",
             started.elapsed()
         );
         assert!(!d.quarantined(), "{hung}");
         let lines = end_of_run_lines(&h);
         assert_eq!(lines.len(), 1, "{hung}: {lines:?}");
-        // A hung state read meets the window; a hung `simctl shutdown` meets its own command timeout first.
+        // A hung state read meets the window; a hung `simctl shutdown` meets a command timeout inside the window first,
+        // also when the configured shutdown timeout is longer than the window.
         let expected = if hung == "cat" {
             "did not finish within its window"
         } else {
