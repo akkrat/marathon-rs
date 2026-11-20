@@ -95,15 +95,20 @@ Restarting the simulator mid-run (i) was not implemented: marathon has no mid-ru
 The owner decided instead (2026-11-20) to shut such a simulator down at the end of the run.
 
 **End-of-run shutdown.** `run_on_dispose` is reached only when disposal confirmed the simulator's work ended and it
-is not quarantined (D93's verdict). There, when `video_unavailable` is set and the configured on-dispose lifecycle
-neither shuts the simulator down nor erases it, one `shutdown_device` (state read, `xcrun simctl shutdown <udid>`,
-state reads until Shutdown) runs after the configured actions, in the same retained task, through the device's
-command gate (`as_lifecycle`), with the same cancellation and window. It starts only if the configured `shutdown`
-timeout (30 s by default) is left before the window's deadline, which is already clipped by the provider deadline and
-D97's signal finish; otherwise one WARN says there was no time left. It is skipped too if the lifecycle's context was
-cancelled or the simulator was quarantined meanwhile. One INFO line names the simulator when it shut down; one WARN
-when it did not or could not. A failure changes nothing else; a shutdown cut at the window's end is handled as any
-on-dispose command is (D93).
+is not quarantined (D93's verdict). It first runs the configured on-dispose lifecycle exactly as in 0.15.0
+(`run_configured_on_dispose`), then `shut_down_busy_video`. That step returns at once unless `video_unavailable` is
+set, the seal is the run's end (`SealCause::RunStop` or `Termination`; a `Disposal` seal, which recovery, replacement
+and removal use, sends nothing: owner's decision, no mid-run cold boot), the configured lifecycle neither shuts the
+simulator down nor erases it, and the simulator is connected and not quarantined. It then takes the window's end
+afresh (without the lifecycle's D93 force-reserve floor, already clipped by the provider deadline and D97's signal
+finish) and starts only if the configured `shutdown` timeout (30 s by default) is left; otherwise one WARN says there
+was no time left. `shutdown_device` (state read, `xcrun simctl shutdown <udid>`, state reads until Shutdown) runs in a
+retained task of its own through the command gate (`as_lifecycle`) under its own cancellation. The disposal waits for
+it until the window's end, then cancels it and moves on; the command ends with its executor's bounded cleanup. One
+INFO line names the simulator when it shut down; one WARN when it did not, could not, or did not finish within the
+window. Nothing else changes: no quarantine, no D93 "on-dispose lifecycle did not end" line, no later disposal
+(round 3: before, the shutdown ran inside the configured lifecycle's task, whose cut quarantines, so an overrunning
+shutdown quarantined a simulator that had no on-dispose lifecycle at all).
 
 Whether the next run would boot it: every simulator marathon uses goes through `prepare_body`, whose simulator half
 calls `boot_for_preparation` unconditionally, and `boot_failure` boots a simulator whose state is Shutdown. The iOS
@@ -129,14 +134,17 @@ Each was shown to fail on a scratch worktree with the fix reverted:
 | `a_busy_video_service_turns_video_off_for_the_simulator_once_d98` | virtual time; busy text → off once, bare 16 → on | recovery call removed / busy text ignored | a second `recordVideo` launched / bare 16 turned video off |
 | `a_supervised_recorder_reports_its_start_from_the_worker_status_d98` | fake SSH worker, 60 s renewal interval; ordered by events, 30 s hang guard | no wake at acknowledgement / `recording:` ignored | watchdog |
 | `the_start_probe_never_dials_falls_back_or_counts_a_miss_d98` | fake SSH worker; control stream refused, then silent for three 4 s probes | probe through the normal request path | a data-session `control` request |
-| `start_probes_do_not_move_the_renewal_schedule_d98` | fake SSH worker, 4 s interval, start confirmed 3.5 s after the first renewal; second renewal 4.0 s after the first | probe end restarts the interval | 7.7 s |
+| `start_probes_do_not_move_the_renewal_schedule_d98` | fake SSH worker, 12 s interval, start confirmed 10 s after the first renewal; second renewal 12.0 s after the first, bound 17 s (5 s margin each side) | probe end restarts the interval | 7.7 s (at the round-2 4 s interval) |
+| `an_unanswered_start_probe_does_not_hold_back_a_renewal_d98` | fake SSH worker, 1 s interval, probes after the first unanswered; renewal about 0.6–0.8 s after the unanswered probe's request event, bound 2.5 s | probe wait not clipped | about 4 s (4.4 s from launch) |
 | `a_start_marker_split_across_writes_counts_only_when_its_line_is_complete_d98` | stock Perl; `Recording`, ` started`, newline as three writes | match on the partial line | INT before the line was complete |
 | `lease_expiry_gives_an_unconfirmed_recorder_term_at_the_existing_time_d98` | stock Perl; 1.5 s lease, no renewals; `done:15` at ≥ 3.5 s, no INT | 0.15.0 `worker.pl` | INT at expiry |
 | `a_busy_simulator_on_an_ssh_worker_turns_video_off_once_d98` | built CLI over real SSH, emulated supervisor; `done:16` with and without the busy stderr | busy text ignored / receipt stderr dropped | three launches / video stayed on |
 | `a_simulator_with_a_busy_video_service_is_shut_down_at_release_d98` | virtual time; one `simctl shutdown`, one INFO | extra shutdown removed | no shutdown |
 | `a_configured_shutdown_or_erase_is_not_repeated_for_a_busy_video_service_d98` | SHUTDOWN and ERASE configured | configured check removed | a second shutdown attempt and its line |
 | `the_busy_video_shutdown_needs_its_timeout_inside_the_release_window_d98` | shutdown timeout above the window; no shutdown, no added time, one WARN | fit check removed | shutdown sent |
-| `a_quarantined_simulator_with_a_busy_video_service_is_not_shut_down_d98` | on-dispose lifecycle cut at the window and quarantined | (guarded twice: cancellation and quarantine) | — |
+| `a_quarantined_simulator_with_a_busy_video_service_is_not_shut_down_d98` | on-dispose lifecycle cut at the window and quarantined | (guarded by the quarantine check) | — |
+| `a_hung_busy_video_shutdown_ends_with_the_window_and_never_quarantines_d98` | a state read, then `simctl shutdown`, that never return; disposal within the 200 ms window, not quarantined, one line | round-2 shutdown inside the lifecycle task | quarantined |
+| `a_recovery_or_replacement_disposal_sends_no_shutdown_d98` | a `Disposal` seal | end-of-run check removed | shutdown sent |
 | `a_healthy_simulator_gets_no_extra_command_at_release_d98` | control: no command at release | — | — |
 
 Updated pins: the two existing stock-Perl recorder witnesses print the marker (as simctl does) and expect
@@ -149,6 +157,36 @@ regenerated.
 Stress (round 1): the three SSH witnesses passed 50 of 50 runs and 5 of 5 with 18 busy processes on 18 cores; the
 four iOS witnesses passed 50 of 50 and once under the same load; the start-report witness passed 50 of 50. Round 2
 figures are in the next section.
+
+## Round 3
+
+**Linux gate failure of `a_busy_simulator_on_an_ssh_worker_turns_video_off_once_d98` (1 launch instead of 3).** A test
+ordering defect in the witness, not in the product. In the bare-status-16 variant every recorder must launch, but the
+emulated supervisor released all three tests' fake-world barriers at the first failed launch. Batches are serialized
+on video collection, so the race is within one test: once its barrier is down, the fake xcodebuild prints the test's
+start and end back to back, the listener's `test_started` spawns the recording task, and `test_passed` can request its
+stop before that task first runs. `Recording::run` then sees the stop before it launches anything and ends as not
+started, as it always has for a test that ends before its recorder launches (Kotlin behaves the same). The busy
+variant was unaffected because its later recorders are not launched by design. Making test 1's finalization 2 s
+slower did not reproduce it on this Mac, nor did 15 runs under 2× CPU load, which fits a race between two adjacent
+events in one task rather than with the recorder's previous finalization. Fix: in the bare variant each test is
+released only by its own recorder's launch (the `started` barrier the launch publishes), which orders the launch
+before the test's end; only the busy variant pre-releases the later tests. The old form could not be made to fail
+locally, so the fix is shown by reasoning and by 20 + 20 loaded passes, not by a revert.
+
+Other round-3 changes: the end-of-run shutdown above; a start probe on a silent stream waits no later than the renewal
+then due (it waited the full 4 s before); the renewal witness widened to a 12 s interval.
+
+A round-3 stress run under 2× CPU load failed one of five runs of
+`a_start_marker_split_across_writes_counts_only_when_its_line_is_complete_d98`: its one-shot `control status`
+answered `busy`, which the worker returns when its token lock is held for that instant (the request is then not
+applied; the controller's lease watcher retries it). The D98 Perl witnesses now send every one-shot control request
+through `d98_control`, which repeats it while the worker answers `busy`; an INT request that met `busy` would
+otherwise have been lost too.
+
+Round-3 stress on the final tests: the SSH D98 witnesses 50 of 50 and 5 of 5 under 2× CPU load (36 busy processes on
+18 cores); the iOS D98 witnesses 50 of 50 and once under load; the CLI busy-recorder witness 20 of 20 and 20 of 20
+under 2× load.
 
 ## Real-simulator verification (this Mac, Xcode 27)
 
@@ -191,4 +229,7 @@ worker sources.
   unfinalized movie), and nothing wedges that would not have wedged before. Video would then be lost on that Xcode,
   visibly, rather than the simulator, and runs would be slower. The orchestrator checks the stream on the remote
   Xcode 26.6 worker during acceptance.
+- The busy text is matched in English (`Resource busy`, `A recording is already in progress`). A localized simctl
+  failure reason would not match: the simulator would then keep 0.15.0's behaviour, a failed recording per test with
+  its stderr, and no end-of-run shutdown.
 - Incidental: none outside this WP's scope were found.

@@ -3267,7 +3267,8 @@ requested INT until the line arrives and then sends it at once. Its status repli
 `running:` from then on. To log the start, the controller asks for status at the recorder's launch acknowledgement
 and then every 200 ms for up to 60 s, until the start is confirmed. These requests use only an already open control
 stream: they never dial, never fall back to a data session, and an unanswered one never counts toward a reconnect;
-without a stream none is sent. They never move a lease renewal, which stays at the configured interval. A local
+without a stream none is sent. They never move a lease renewal, which stays at the configured interval, and an
+unanswered one waits no later than the renewal then due. A local
 recorder's output is read by the controller, which waits for the line before it sends INT. A recorder that has printed the line when its stop is requested gets INT immediately, as before.
 
 The wait never lengthens a stop. A recorder that has not confirmed its start by the INT cutoff gets TERM at that cutoff
@@ -3289,13 +3290,17 @@ records no further video on that simulator for the rest of the run: no `recordVi
 skipped movies are not reported one by one. The failed movie itself is reported as undelivered, as before.
 
 At the end of the run, when the simulator is released, marathon shuts it down so the next run boots it clean: every
-simulator's preparation boots it when it is shut down. This adds one `xcrun simctl shutdown <udid>` and its state reads
-to that simulator's worker commands, after the configured on-dispose lifecycle and in the same D93 task, command gate
-and window. It runs only on a simulator whose work was confirmed to have ended and that is not quarantined, only if
-the shutdown timeout (`timeoutConfiguration.shutdown`, 30 s by default) is still left in that window, which it never
-extends, and not when the configured on-dispose lifecycle already shuts the simulator down or erases it. A signal's
-D97 finish leaves too little time, so it is skipped there with a warning. One line reports the shutdown or why it did
-not happen; a failure changes nothing else. Test results, retries and the exit status do not change.
+simulator's preparation boots it when it is shut down. Only the run's end does this; a simulator disposed of during
+the run (recovered, replaced or removed) is not shut down, so a re-provisioned simulator is not slowed by a cold boot.
+This adds one `xcrun simctl shutdown <udid>` and its state reads to that simulator's worker commands, after the
+configured on-dispose lifecycle, through the same D93 command gate and within the same window. It runs only on a
+simulator whose work was confirmed to have ended and that is not quarantined, and not when the configured on-dispose
+lifecycle already shuts the simulator down or erases it. It starts only if the shutdown timeout
+(`timeoutConfiguration.shutdown`, 30 s by default) is still left in the window when it would start, without the
+lifecycle's D93 force-reserve floor, and it is cancelled when the window ends, which it never extends. A signal's D97
+finish leaves too little time, so it is skipped there with a warning. One line reports the shutdown or why it did not
+happen; a cut or a failure changes nothing else, and never quarantines the simulator. Test results, retries and the
+exit status do not change.
 
 The legacy recorder on a worker without usable Perl redirects simctl's output to `/dev/null`, so neither the start
 nor a busy failure is visible there; it keeps D96's behaviour. macOS devices do not record video.
