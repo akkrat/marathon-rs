@@ -207,7 +207,8 @@ struct LatencySupervisor {
     failing: Option<&'static str>,
     failed: tokio::sync::Mutex<std::collections::HashSet<String>>,
     /// The world's per-test recorder barriers, released at the first failed launch: a simulator with video off
-    /// launches no recorder for the tests after it.
+    /// launches no recorder for the tests after it. Empty where every test's recorder is expected to launch: each test
+    /// then waits for its own recorder, so the launch is ordered before the test's end.
     barriers: Vec<String>,
 }
 
@@ -655,9 +656,13 @@ async fn a_busy_simulator_on_an_ssh_worker_turns_video_off_once_d98() -> Result 
                 movies: Default::default(),
                 failing: Some(stderr),
                 failed: Default::default(),
-                barriers: (1..=3)
-                    .map(|index| format!("/tmp/marathon/.apple-world/testCase{index}.ready"))
-                    .collect(),
+                barriers: if stderr == busy {
+                    (1..=3)
+                        .map(|index| format!("/tmp/marathon/.apple-world/testCase{index}.ready"))
+                        .collect()
+                } else {
+                    vec![]
+                },
             }),
         );
         let transcript = root.join("transcript.jsonl");
