@@ -5,10 +5,11 @@ The section for a version becomes the text of its GitHub release, which carries 
 ## 0.15.1
 
 This release fixes iOS video recording on slow simulators, with the approved difference D98. The inputs, the CLI and
-the configuration are unchanged, and so are test results and the exit status. The worker-command contract gains one
-command: after a simulator's video service was found busy, marathon runs `xcrun simctl shutdown <udid>` for it at the
-end of the run, unless the on-dispose lifecycle already shuts it down or erases it. Everything else is as in 0.15.0,
-whose notes below still apply.
+the configuration are unchanged, and so are test results and the exit status. Worker commands change in two ways: once
+a simulator's video service is found busy, marathon sends no further `recordVideo` command for that simulator, and at
+the end of the run it can add one `xcrun simctl shutdown <udid>` for it, with its state reads, unless the on-dispose
+lifecycle already shuts it down or erases it. Everything else is as in
+[0.15.0](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG.md#0150), whose notes still apply.
 
 ### Check before you upgrade
 
@@ -17,38 +18,42 @@ whose notes below still apply.
 
 ### iOS
 
-- **iOS video no longer wedges a slow simulator (D98, U251–U253, U258, U259):** a screen recorder that was stopped right after it
-  was launched, before `simctl` had confirmed `Recording started`, could leave the simulator unable to record again
-  until it was restarted, losing every later video on it in that run and later runs ("A recording is already in
-  progress"). Marathon now waits for `simctl`'s confirmation before it interrupts a recorder, within the existing stop
-  time, locally and on SSH workers with Perl. If a simulator's video service is still busy, marathon logs one warning
-  naming it and stops recording video on it for the rest of the run instead of failing once per test, then shuts the
-  simulator down when the run releases it so the next run boots it clean (one extra `xcrun simctl shutdown`, skipped
-  when the on-dispose lifecycle already shuts it down or erases it, or when too little release time is left). This
-  holds per simulator for the whole run: one that marathon sets up again after losing it gets no second
-  warning and no recorder, and one that ran no later test is still shut down at the run's end. Test results and the
-  exit status are unchanged. The legacy recorder on workers without Perl is unchanged.
+- **An early stop no longer interrupts a recorder before it has started (D98, U251–U253, U258, U259):** a screen
+  recorder interrupted right after it was launched, before `simctl` had printed `Recording started`, could leave the
+  simulator's video service busy until the simulator was restarted, losing every later video on it in that run and
+  later runs ("A recording is already in progress"). Marathon now sends INT only after that exact line on `simctl`'s
+  stderr, locally and on SSH workers with Perl, within the existing stop time: a recorder that has not confirmed its
+  start by the INT cutoff gets TERM there, and KILL at the existing KILL cutoff, which can still leave the service busy.
+- **A busy video service costs one warning (D98):** a recorder that exits with status 16 before confirming its start,
+  with simctl's busy text on stderr, while marathon has no other recorder running on that simulator, marks the
+  simulator's video service busy. Marathon logs one warning naming the simulator and launches no further recorder
+  there while the service stays busy, also when the simulator is set up again during the run. A confirmed shutdown,
+  or a preparation that boots the simulator from Shutdown, clears that state. At the end of the run marathon shuts a
+  busy simulator down once so the next run boots it clean, if its work was confirmed to have ended, it is not
+  quarantined and still the run's, and enough release time is left; after a signal the shutdown is skipped with a
+  warning. Test results and the exit status are unchanged. The legacy recorder on workers without Perl is unchanged.
 
 ### Evidence
 
 - The findings documents ([x99](docs/wp/x99-findings.md)–[x102](docs/wp/x102-findings.md)) record the regression
-  witnesses and how each was shown to fail without its fix (one test-ordering fix only by repeated runs under load),
-  and the review rounds and their fixes. The
-  witnesses cover the supervised SSH recorder and the local recorder, the start probes, the busy refusal, the
+  witnesses with their targeted failure checks and the controls that pass either way (one test-ordering fix was shown
+  only by repeated runs under load), and the review rounds and their fixes. The witnesses cover the supervised SSH recorder and the local recorder, the start probes, the busy refusal, the
   end-of-run shutdown and its window, the skip after a signal, and, for x102, the busy state of a simulator set up
   again during the run, in virtual time. [x100](docs/wp/x100-findings.md) orders a test of the SSH session by events
-  instead of sleeps; it had failed once under heavy load during the 0.15.0 release, and the released binary did not
-  change.
+  instead of sleeps; it had failed once under heavy load during the 0.15.0 release, its findings reproduce the old race
+  with an injected delay, and the released binary did not change.
 - CI runs the repository gate on macOS and Linux; it passes on the code of this release.
-- On a freshly booted simulator on this project's Mac (Xcode 27), recorders interrupted 0.05 to 1 s after launch
-  finished their movies and left the simulator able to record, both through the worker supervisor and through the
-  local recorder path; with 0.15.0's supervisor, or the local wait removed, the same early stops left the simulator's
-  video service busy.
+- On a freshly booted simulator on this project's Mac (Xcode 27), INT requests to the worker supervisor 0.05 to 1 s
+  after a recorder's launch all ended with a finished movie and a simulator that recorded again; with 0.15.0's
+  supervisor, four requests at 0.5 s each left the video service busy. Through the local recorder path, stops
+  requested 0, 200 and 500 ms after a test started all finished their recordings; with the local wait removed, the
+  200 and 500 ms stops left the service busy.
 - On a CI build of an earlier `main` commit with D98 (before x101 and x102), iOS simulator runs over SSH to a second
   Mac as a real worker, with stock Perl and an `exec`-based forced command that logged every command, showed the
   change on the worker's Xcode: simctl printed `Recording started` on stderr and a recorder interrupted after it
   finished its movie. Three runs stopped by SIGTERM about 0.1 s after the first recorder launched exited 143 within
-  1.6 s, and every simulator recorded again afterwards; a healthy run on the same simulators delivered all six videos
+  1.6 s, and every simulator recorded again afterwards; one of them caught a recorder before its confirmation, so
+  its INT was held as designed; a healthy run on the same simulators delivered all six videos
   and xcresults with the same report data as the earlier acceptance runs. On a simulator whose video service had been
   made busy on purpose, marathon logged one warning, recorded nothing more there, and shut it down at the end of the
   run when a shutdown timeout was set; the next run booted it and delivered all six videos. Those runs found that the
@@ -56,8 +61,8 @@ whose notes below still apply.
 - On a CI build with x101, the same worker repeated it with that configuration: the busy simulator was shut down at the
   end of the run in about 3.4 s, the next run booted it and delivered all six videos, and with SIGTERM one second after
   the busy warning the shutdown was skipped with a warning and marathon exited 143 0.76 s after the signal.
-- Not exercised on real hosts: x102's per-simulator state (tests only), a whole local run with a busy simulator, and
-  a localized busy message. No Android or macOS code changed.
+- Not exercised on real hosts: x102's per-simulator state (tests only), a whole local run with a busy simulator, a
+  localized busy message, and a `simctl` that does not print its start line on stderr. No Android or macOS code changed.
 
 ### Known limits
 
@@ -71,8 +76,8 @@ whose notes below still apply.
 - The `xctest` test parser needs a `libxctest-parser` library that you supply (D20). The differential suites run it with a
   stand-in file, so what the library itself does is not covered by them. The archives do not contain it, and this project's
   licence does not cover it.
-- The real macOS UI XCTest scenario could not be completed on macOS 27 and is not part of that evidence
-  ([U103](docs/found-bugs.md)).
+- The real macOS UI XCTest scenario could not be completed on macOS 27 and is not part of the real-host evidence of
+  0.15.0 and earlier releases ([U103](docs/found-bugs.md)).
 - No isolated shadow or canary results are recorded in this repository. Trial it in a disposable environment and keep your
   JVM distribution for [rollback](docs/migration.md#trial-and-rollback).
 - An Android device that restarted during an adb outage is set up again when its boot ID changed or its preparation
@@ -113,12 +118,16 @@ whose notes below still apply.
 - When adb cannot confirm a stopping Android device's cleanup, the device can keep an instrumentation process, a screen
   recording or trace and its files, a reverse port forward or D85's marker (D92).
 - On a worker without usable Perl, the legacy recorder can still leave a simulator's video service busy when it is
-  stopped before recording has started, as in 0.15.0 (D98 does not change it). A simulator whose video service is busy
-  and that marathon could not shut down, because a signal arrived or too little release time was left, needs a restart
-  (`xcrun simctl shutdown <udid>`, then `xcrun simctl boot <udid>`) before it records again.
+  stopped before recording has started, as in 0.15.0 (D98 does not change it). A recorder that has not confirmed its
+  start by its INT cutoff gets TERM there and can still leave the service busy; if `simctl` never prints its start
+  line on stderr, every stop of that recorder waits until that cutoff, and its video can be lost (D98).
+- A simulator whose video service is busy and that marathon did not shut down at the end of the run needs a restart
+  (`xcrun simctl shutdown <udid>`, then `xcrun simctl boot <udid>`) before it records again: after a signal, with too
+  little release time left, when its work was not confirmed to have ended or it was quarantined, or when it left the
+  devices file or the run did not hold its lease (D98).
 - Marathon recognises a busy video service by simctl's English text (`Resource busy` or `A recording is already in
-  progress`) with status 16; a localized message is not recognised, and the run then reports each lost video, as
-  0.15.0 did (D98).
+  progress`) with status 16; a localized message without either phrase is not recognised, and the run then reports
+  each lost video, as 0.15.0 did (D98).
 - If a signal arrives during the end-of-run shutdown of a busy simulator, the lease release after it can have no time
   left; it is still bounded by D97's finish. A replacement simulator whose registration failed after it joined the
   provider (D74) is not shut down at the end of the run (D98).

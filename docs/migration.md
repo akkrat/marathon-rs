@@ -283,9 +283,12 @@ by 24 seconds with up to 1 second more for console output. Read the undelivered-
 [D98](deviations.md#d98--a-simulator-recorder-is-never-interrupted-before-it-has-started) is new in 0.15.1 and needs
 no configuration change. An iOS recorder gets INT only after simctl has printed `Recording started`; one that has not
 by its INT cutoff gets TERM there, so a stop takes no longer than before. A simulator whose video service is busy
-(simctl's "A recording is already in progress") gets one warning and no further `recordVideo` command for the rest of
-the run, also after it is set up again during the run, and is shut down once at the end of the run, within its
-existing release window, unless the on-dispose lifecycle already shuts it down or erases it. If SSH command filters
+(simctl's "A recording is already in progress") gets one warning and no further `recordVideo` command while its
+service stays busy, also after it is set up again during the run; a confirmed shutdown or a boot from Shutdown clears
+that. At the end of the run it is shut down once, within its existing release window, unless the on-dispose
+lifecycle already shuts it down or erases it, its work was not confirmed to have ended, it is quarantined or no
+longer the run's, too little time is left, or a signal arrived; such a simulator needs a restart before it records
+again. If SSH command filters
 on a worker list allowed commands, allow `xcrun simctl shutdown <udid>`. Workers without usable Perl keep the legacy
 recorder, which this does not change.
 
