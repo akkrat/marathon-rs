@@ -29,6 +29,16 @@ Sol, round 1 (all taken):
 | 5 | The test evidence overstated failure checks: some witnesses are controls; x100 reproduced the race with an injected delay | Reworded |
 | 6 | "notes below" and "that evidence" lose their referents in the release body | Linked 0.15.0 by URL; the macOS UI limit names whose evidence it is |
 
+Sol, round 2 (all taken):
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | The intro still read as permanent `recordVideo` suppression | "while marathon tracks the service as busy" |
+| 2 | The shutdown is one bounded attempt that can fail; it is skipped when the on-dispose lifecycle shuts down or erases, even if that fails; restart only if still busy | iOS entry, Known limits and migration note say so |
+| 3 | Start-gate wording: name SIGINT; TERM only for a recorder still running, KILL only if it survives TERM; the missing-marker limit applies to a recorder still running | Reworded |
+| 4 | The "only by repeated runs" parenthetical read as x100's | It names the x99 fix |
+| 5 | "No macOS code changed" too broad: the SSH supervisor is shared | "No Android- or macOS-specific code changed", with the shared supervisor named |
+
 ## Incidental bugs
 
 None.

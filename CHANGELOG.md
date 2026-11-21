@@ -5,9 +5,9 @@ The section for a version becomes the text of its GitHub release, which carries 
 ## 0.15.1
 
 This release fixes iOS video recording on slow simulators, with the approved difference D98. The inputs, the CLI and
-the configuration are unchanged, and so are test results and the exit status. Worker commands change in two ways: once
-a simulator's video service is found busy, marathon sends no further `recordVideo` command for that simulator, and at
-the end of the run it can add one `xcrun simctl shutdown <udid>` for it, with its state reads, unless the on-dispose
+the configuration are unchanged, and so are test results and the exit status. Worker commands change in two ways: while
+marathon tracks a simulator's video service as busy, it sends no `recordVideo` command for that simulator, and at the
+end of the run it can add one bounded `xcrun simctl shutdown <udid>` attempt for it, with its state reads, unless the on-dispose
 lifecycle already shuts it down or erases it. Everything else is as in
 [0.15.0](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG.md#0150), whose notes still apply.
 
@@ -18,25 +18,27 @@ lifecycle already shuts it down or erases it. Everything else is as in
 
 ### iOS
 
-- **An early stop no longer interrupts a recorder before it has started (D98, U251–U253, U258, U259):** a screen
+- **An early stop no longer sends SIGINT to a recorder before it has started (D98, U251–U253, U258, U259):** a screen
   recorder interrupted right after it was launched, before `simctl` had printed `Recording started`, could leave the
   simulator's video service busy until the simulator was restarted, losing every later video on it in that run and
   later runs ("A recording is already in progress"). Marathon now sends INT only after that exact line on `simctl`'s
-  stderr, locally and on SSH workers with Perl, within the existing stop time: a recorder that has not confirmed its
-  start by the INT cutoff gets TERM there, and KILL at the existing KILL cutoff, which can still leave the service busy.
+  stderr, locally and on SSH workers with Perl, within the existing stop time. A recorder still running without having confirmed its start at the INT cutoff gets
+  TERM there instead, and KILL at the existing KILL cutoff only if it survives TERM; either can still leave the service
+  busy.
 - **A busy video service costs one warning (D98):** a recorder that exits with status 16 before confirming its start,
   with simctl's busy text on stderr, while marathon has no other recorder running on that simulator, marks the
   simulator's video service busy. Marathon logs one warning naming the simulator and launches no further recorder
   there while the service stays busy, also when the simulator is set up again during the run. A confirmed shutdown,
-  or a preparation that boots the simulator from Shutdown, clears that state. At the end of the run marathon shuts a
-  busy simulator down once so the next run boots it clean, if its work was confirmed to have ended, it is not
-  quarantined and still the run's, and enough release time is left; after a signal the shutdown is skipped with a
+  or a preparation that boots the simulator from Shutdown, clears that state. At the end of the run marathon makes one
+  bounded attempt to shut a busy simulator down so the next run boots it clean, if its work was confirmed to have
+  ended, it is not quarantined and still the run's, enough release time is left, and the on-dispose lifecycle does not
+  already shut it down or erase it; the attempt can fail or time out, and after a signal it is skipped with a
   warning. Test results and the exit status are unchanged. The legacy recorder on workers without Perl is unchanged.
 
 ### Evidence
 
 - The findings documents ([x99](docs/wp/x99-findings.md)–[x102](docs/wp/x102-findings.md)) record the regression
-  witnesses with their targeted failure checks and the controls that pass either way (one test-ordering fix was shown
+  witnesses with their targeted failure checks and the controls that pass either way (one x99 test-ordering fix was shown
   only by repeated runs under load), and the review rounds and their fixes. The witnesses cover the supervised SSH recorder and the local recorder, the start probes, the busy refusal, the
   end-of-run shutdown and its window, the skip after a signal, and, for x102, the busy state of a simulator set up
   again during the run, in virtual time. [x100](docs/wp/x100-findings.md) orders a test of the SSH session by events
@@ -62,7 +64,7 @@ lifecycle already shuts it down or erases it. Everything else is as in
   end of the run in about 3.4 s, the next run booted it and delivered all six videos, and with SIGTERM one second after
   the busy warning the shutdown was skipped with a warning and marathon exited 143 0.76 s after the signal.
 - Not exercised on real hosts: x102's per-simulator state (tests only), a whole local run with a busy simulator, a
-  localized busy message, and a `simctl` that does not print its start line on stderr. No Android or macOS code changed.
+  localized busy message, and a `simctl` that does not print its start line on stderr. No Android- or macOS-specific code changed; the SSH supervisor code D98 changes is shared with macOS.
 
 ### Known limits
 
@@ -120,11 +122,12 @@ lifecycle already shuts it down or erases it. Everything else is as in
 - On a worker without usable Perl, the legacy recorder can still leave a simulator's video service busy when it is
   stopped before recording has started, as in 0.15.0 (D98 does not change it). A recorder that has not confirmed its
   start by its INT cutoff gets TERM there and can still leave the service busy; if `simctl` never prints its start
-  line on stderr, every stop of that recorder waits until that cutoff, and its video can be lost (D98).
-- A simulator whose video service is busy and that marathon did not shut down at the end of the run needs a restart
-  (`xcrun simctl shutdown <udid>`, then `xcrun simctl boot <udid>`) before it records again: after a signal, with too
-  little release time left, when its work was not confirmed to have ended or it was quarantined, or when it left the
-  devices file or the run did not hold its lease (D98).
+  line on stderr, a stop of a recorder still running waits until that cutoff, and its video can be lost (D98).
+- Marathon's end-of-run shutdown of a busy simulator is one bounded attempt, and it is not made after a signal, with
+  too little release time left, when the simulator's work was not confirmed to have ended or it was quarantined, when
+  it left the devices file or the run did not hold its lease, or when the on-dispose lifecycle shuts it down or erases
+  it (even if that lifecycle step fails). If the video service is still busy afterwards, restart the simulator
+  (`xcrun simctl shutdown <udid>`, then `xcrun simctl boot <udid>`) before it records again (D98).
 - Marathon recognises a busy video service by simctl's English text (`Resource busy` or `A recording is already in
   progress`) with status 16; a localized message without either phrase is not recognised, and the run then reports
   each lost video, as 0.15.0 did (D98).
