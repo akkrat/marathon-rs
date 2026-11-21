@@ -157,7 +157,7 @@ impl Recording {
         {
             return Ok(RecordingFinalization::NotStarted);
         }
-        if matches!(capture, Capture::Video(_)) && device.state().video_unavailable {
+        if matches!(capture, Capture::Video(_)) && device.services().busy_video.is_busy(&device.video_key) {
             return Ok(RecordingFinalization::Skipped);
         }
         if let Capture::Video(path) = &capture {
@@ -330,10 +330,12 @@ impl Recording {
     /// D98: the busy refusal with no live recorder of marathon's own on the simulator means its video service is held
     /// by a recording nobody can stop (a signal before the start, including marathon's own TERM or KILL at a stop
     /// cutoff, a crash, another tool). Every later start fails the same way until
-    /// the simulator restarts, so video stops here for the rest of the run with one warning.
+    /// the simulator restarts, so video stops here for the rest of the run with one warning. x102: on the simulator, not
+    /// on this device object, so that an object set up for it later in the run neither records nor warns again.
     fn recorder_busy(&self, device: &AppleSimulatorDevice) {
         let first = {
-            let mut state = device.state();
+            // Under the device's lock, as a capture registers, so that none registered after it misses the state.
+            let state = device.state();
             // Only a launched recorder can hold the service; the next test's capture can be registered and waiting.
             let own = state.recordings.iter().any(|recording| {
                 !std::ptr::eq(recording.as_ref(), self)
@@ -341,7 +343,7 @@ impl Recording {
                     && recording.opened.completed().is_some_and(|opened| opened.is_ok())
                     && recording.ended() != Some(true)
             });
-            !own && !std::mem::replace(&mut state.video_unavailable, true)
+            !own && device.services().busy_video.mark_busy(&device.video_key)
         };
         if first {
             let logger = device.services().logging.component("marathon_ios::listener::video");
@@ -570,7 +572,7 @@ impl AppleSimulatorDevice {
                 return Err(error);
             }
             // D98: after a busy video service, later tests launch nothing and report nothing per test.
-            if is_video && state.video_unavailable {
+            if is_video && self.services.busy_video.is_busy(&self.video_key) {
                 recording.opened.complete(Err(marathon_core::error::VendorError::Other(
                     marathon_apple::cmd::failure(
                         marathon_error::FailureKind::IllegalState,

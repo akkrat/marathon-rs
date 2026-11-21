@@ -1,6 +1,7 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/video/ScreenRecordingListener.kt
 use marathon_error::FailureKind;
 mod listener_support;
+mod provider_support;
 mod simulator_support;
 mod support;
 use listener_support::{Bridge, context, device, harness};
@@ -1165,7 +1166,16 @@ async fn simulator_with_video_off(
 )> {
     let h = harness(edit)?;
     let d = h.device().await?;
-    let c = context(&h, d.clone());
+    turn_video_off(&h, &d).await?;
+    Ok((h, d))
+}
+
+/// D98: `d`'s first recording meets a busy video service; then the simulator is booted, as after its preparation.
+async fn turn_video_off(
+    h: &simulator_support::Harness,
+    d: &Arc<marathon_ios::apple_simulator_device::AppleSimulatorDevice>,
+) -> TestResult {
+    let c = context(h, d.clone());
     let test = c.batch.tests[0].clone();
     let l = ScreenRecordingListener::new(c);
     let launched = marathon_core::executor::shared::SharedDeferred::new();
@@ -1189,17 +1199,52 @@ async fn simulator_with_video_off(
     launched.wait().await.map_err(|e| format!("{e:?}"))?;
     l.test_passed(&test, 0, 0).await.map_err(|e| format!("{e:?}"))?;
     l.settle().await.map_err(|e| format!("{e:?}"))?;
-    assert!(
-        h.logs
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|r| r.2.contains("video service is busy with a recording")),
-        "video is off"
-    );
-    // Booted, as after its preparation.
+    assert_eq!(busy_warnings(h).len(), 1, "video is off");
     h.boot.state.store(3, Ordering::SeqCst);
-    Ok((h, d))
+    Ok(())
+}
+
+fn busy_warnings(h: &simulator_support::Harness) -> Vec<String> {
+    h.logs
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r.1 == marathon_logging::Level::WARN && r.2.contains("video service is busy with a recording"))
+        .map(|r| r.2.clone())
+        .collect()
+}
+
+/// The `recordVideo` launches and the `simctl shutdown` commands sent for the simulator `udid`.
+fn video_commands(h: &simulator_support::Harness, udid: &str) -> (usize, usize) {
+    let commands = h.worker.commands.lock().unwrap();
+    let ours = |cmd: &&Vec<String>| cmd.iter().any(|arg| arg == udid);
+    (
+        commands
+            .iter()
+            .filter(ours)
+            .filter(|cmd| cmd.iter().any(|arg| arg == "recordVideo"))
+            .count(),
+        commands
+            .iter()
+            .filter(|cmd| cmd.iter().map(String::as_str).eq(["xcrun", "simctl", "shutdown", udid]))
+            .count(),
+    )
+}
+
+/// One test on `d` under a screen recording listener; how its recording ended.
+async fn record_one_test(
+    h: &simulator_support::Harness,
+    d: &Arc<marathon_ios::apple_simulator_device::AppleSimulatorDevice>,
+) -> TestResult<marathon_ios::apple_simulator_device::recording::RecordingFinalization> {
+    let c = context(h, d.clone());
+    let test = c.batch.tests[0].clone();
+    let l = ScreenRecordingListener::new(c);
+    l.test_started(&test).await.map_err(|e| format!("{e:?}"))?;
+    // Paused time: every runnable task, a launch included, runs before this returns.
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let ended = l.stop().await.map_err(|e| format!("{e:?}"))?;
+    l.settle().await.map_err(|e| format!("{e:?}"))?;
+    Ok(ended)
 }
 
 fn end_of_run_lines(h: &simulator_support::Harness) -> Vec<String> {
@@ -1397,5 +1442,172 @@ async fn a_hung_busy_video_shutdown_ends_with_the_window_and_never_quarantines_d
         );
         let _ = d.join_retained().await;
     }
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_simulator_set_up_again_in_the_run_keeps_video_off_without_a_second_warning_d98() -> TestResult {
+    use marathon_ios::apple_simulator_device::recording::RecordingFinalization;
+    // x102: a recovery or a re-add sets the simulator up again as a new device object, built from the same run's services.
+    let (h, a) = simulator_with_video_off(|v| v.timeout_configuration.shutdown = support::duration(100)).await?;
+    // The recovery's disposal, during the run: no shutdown.
+    a.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(video_commands(&h, a.udid()), (1, 0));
+    let b = h.device().await?;
+    assert!(!Arc::ptr_eq(&a, &b) && a.udid() == b.udid());
+    assert_eq!(record_one_test(&h, &b).await?, RecordingFinalization::Skipped);
+    assert_eq!(
+        video_commands(&h, b.udid()),
+        (1, 0),
+        "the new object launches no recorder"
+    );
+    assert_eq!(busy_warnings(&h).len(), 1, "and does not warn again");
+    // The run's end shuts the simulator down once, through the object that serves it then.
+    end_of_run(&b).await?;
+    assert_eq!(video_commands(&h, b.udid()), (1, 1));
+    let lines = end_of_run_lines(&h);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].contains("shut down at the end of the run"), "{lines:?}");
+    h.finish(&[a, b]).await;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_busy_simulator_leaves_another_simulator_on_the_worker_recording_d98() -> TestResult {
+    use marathon_ios::apple_simulator_device::recording::RecordingFinalization;
+    let (h, a) = simulator_with_video_off(|v| v.timeout_configuration.shutdown = support::duration(100)).await?;
+    let other = h
+        .device_on(
+            h.worker.clone(),
+            "b",
+            Arc::new(
+                marathon_ios::device::worker_provisioning_context::WorkerProvisioningContext::new(
+                    marathon_config::devices::Transport::Local,
+                    h.clock.clone(),
+                ),
+            ),
+        )
+        .await?;
+    *h.worker.session.lock().unwrap() = Arc::new(|cmd| {
+        if !cmd.iter().any(|arg| arg == "recordVideo") {
+            return Ok(None);
+        }
+        Ok(Some(simulator_support::recorder_session(|signal| {
+            Box::pin(async move { Ok((signal == "INT").then_some(0)) })
+        })))
+    });
+    assert_ne!(record_one_test(&h, &other).await?, RecordingFinalization::Skipped);
+    assert_eq!(video_commands(&h, "b").0, 1);
+    assert_eq!(busy_warnings(&h).len(), 1);
+    end_of_run(&other).await?;
+    end_of_run(&a).await?;
+    assert_eq!(video_commands(&h, "b").1, 0, "a healthy simulator is not shut down");
+    assert_eq!(video_commands(&h, "a"), (1, 1));
+    h.finish(&[a, other]).await;
+    Ok(())
+}
+
+/// x102: a provider over the harness's worker, with the simulator `a` set up and its video service busy.
+async fn provider_with_busy_simulator(
+    h: &simulator_support::Harness,
+) -> TestResult<(
+    Arc<marathon_ios::device::simulator_provider::AppleSimulatorProvider>,
+    Arc<provider_support::Connections>,
+    Arc<marathon_ios::apple_simulator_device::AppleSimulatorDevice>,
+)> {
+    let connections = Arc::new(provider_support::Connections {
+        workers: std::sync::Mutex::new(vec![(marathon_config::devices::Transport::Local, h.worker.clone())]),
+        acquired: 0.into(),
+        released: 0.into(),
+        quarantined: 0.into(),
+        fail_release: 0.into(),
+        bridge: std::sync::Mutex::default(),
+        trace: Arc::default(),
+    });
+    let provider = provider_support::ProviderHarness::build(h, connections.clone(), Arc::default())?;
+    provider
+        .process_update(
+            provider_support::snapshot(vec![(
+                marathon_config::devices::Transport::Local,
+                provider_support::targets(&["a"]),
+            )]),
+            h.services.context.clone(),
+        )
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+    let a = provider.devices().into_iter().next().ok_or("no simulator")?.handle;
+    turn_video_off(h, &a).await?;
+    Ok((provider, connections, a))
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_busy_simulator_disposed_during_the_run_is_shut_down_once_at_its_end_d98() -> TestResult {
+    use marathon_core::vendor::DeviceProvider;
+    // Disposed during the run (a recovery that then could not set it up again, a simulator lost too often): no shutdown
+    // then, and no later object to shut it down at the run's end; the provider's termination does, once.
+    let h = harness(|v| v.timeout_configuration.shutdown = support::duration(100))?;
+    let (provider, connections, a) = provider_with_busy_simulator(&h).await?;
+    a.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(video_commands(&h, "a"), (1, 0));
+    provider.terminate().await.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(video_commands(&h, "a"), (1, 1));
+    assert!(!a.quarantined());
+    let lines = end_of_run_lines(&h);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].contains("shut down at the end of the run"), "{lines:?}");
+    assert_eq!(
+        connections.released.load(Ordering::SeqCst),
+        connections.acquired.load(Ordering::SeqCst)
+    );
+    let _ = a.join_retained().await;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_busy_simulator_still_serving_at_the_end_is_shut_down_once_by_its_own_release_d98() -> TestResult {
+    use marathon_core::vendor::DeviceProvider;
+    // Control: the run-end disposal shuts it down, and the termination's step for disposed objects adds nothing.
+    let h = harness(|v| v.timeout_configuration.shutdown = support::duration(100))?;
+    let (provider, _, a) = provider_with_busy_simulator(&h).await?;
+    provider.terminate().await.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(video_commands(&h, "a"), (1, 1));
+    assert_eq!(end_of_run_lines(&h).len(), 1);
+    let _ = a.join_retained().await;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_busy_simulator_removed_from_the_devices_file_is_not_shut_down_d98() -> TestResult {
+    use marathon_core::vendor::DeviceProvider;
+    // It left the run: marathon no longer manages it.
+    let h = harness(|v| v.timeout_configuration.shutdown = support::duration(100))?;
+    let (provider, _, a) = provider_with_busy_simulator(&h).await?;
+    provider
+        .process_update(provider_support::snapshot(vec![]), h.services.context.clone())
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(a.disposed());
+    provider.terminate().await.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(video_commands(&h, "a"), (1, 0));
+    assert!(end_of_run_lines(&h).is_empty());
+    let _ = a.join_retained().await;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_busy_simulator_disposed_during_a_signal_stopped_run_is_not_shut_down_d98() -> TestResult {
+    use marathon_core::vendor::DeviceProvider;
+    // x101: after a signal the finish is for the exit; one warning instead.
+    let h = harness(|v| v.timeout_configuration.shutdown = support::duration(100))?;
+    let (provider, _, a) = provider_with_busy_simulator(&h).await?;
+    a.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    let now = h.services.context.clock.now_millis();
+    provider.seal_for_signal(marathon_core::signal_finish::SignalFinish::from_start(now));
+    provider.terminate().await.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(video_commands(&h, "a"), (1, 0));
+    let lines = end_of_run_lines(&h);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].contains("no time left to shut it down"), "{lines:?}");
+    let _ = a.join_retained().await;
     Ok(())
 }

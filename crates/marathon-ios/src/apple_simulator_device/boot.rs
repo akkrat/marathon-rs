@@ -320,6 +320,14 @@ impl AppleSimulatorDevice {
         Ok(false)
     }
     pub(super) async fn shutdown_device(&self, context: &VendorContext) -> VendorResult<bool> {
+        let down = self.shut_down(context).await;
+        // D98 (x102): a simulator that has shut down gets a fresh video service when its next preparation boots it.
+        if matches!(down, Ok(true)) {
+            self.services.busy_video.restarted(&self.video_key);
+        }
+        down
+    }
+    async fn shut_down(&self, context: &VendorContext) -> VendorResult<bool> {
         match self.simulator_state(context).await? {
             SimulatorState::Shutdown => Ok(true),
             SimulatorState::Unknown => Ok(false),

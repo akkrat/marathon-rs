@@ -252,6 +252,7 @@ impl Harness {
                 boot_retry_pause_millis: 10,
                 boot_poll_interval_millis: 20,
             },
+            busy_video: Default::default(),
         };
         Ok(Self {
             dir,

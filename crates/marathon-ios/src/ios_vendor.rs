@@ -217,6 +217,7 @@ pub async fn construct_with_parser_libraries(
             track,
             logging: logging.clone(),
             timeouts: Default::default(),
+            busy_video: Default::default(),
         },
         binding: Arc::new(BindingContext {
             profile: marathon_config::binding::Profile::Marathondevices,

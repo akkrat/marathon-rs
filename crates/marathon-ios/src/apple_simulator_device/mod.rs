@@ -4,6 +4,8 @@ use marathon_logging::{Component, Level};
 
 use marathon_error::FailureKind;
 mod boot;
+mod busy_video;
+pub use busy_video::BusyVideoServices;
 mod episode;
 mod execution;
 pub use episode::PreparationEpisode;
@@ -84,6 +86,8 @@ pub struct SimulatorServices {
     pub track: Track,
     pub logging: SshLogging,
     pub timeouts: SimulatorTimeouts,
+    /// D98 (x102): the run's simulators with a busy video service, shared by every device object of each.
+    pub busy_video: Arc<BusyVideoServices>,
 }
 pub struct AppleSimulatorConstructor(pub SimulatorServices);
 impl SimulatorConstructor for AppleSimulatorConstructor {
@@ -144,8 +148,6 @@ struct State {
     /// simulator's stop unconfirmed for the rest of the run, whatever replaces it as the last session.
     sessions: Vec<Arc<marathon_apple::xcodebuild_session::XcodebuildSession>>,
     recordings: Vec<Arc<recording::Recording>>,
-    /// D98: a recorder start failed with the busy code while marathon had no recorder of its own on this simulator.
-    video_unavailable: bool,
 }
 impl State {
     /// U179, D91, D93: why no new batch, preparation or send may start, if none may: disposal, or the run's stop.
@@ -172,6 +174,8 @@ pub struct AppleSimulatorDevice {
     me: Weak<Self>,
     udid: String,
     serial: String,
+    /// D98 (x102): the simulator's key in `services.busy_video`, the provider's id for it (UDID and worker).
+    video_key: String,
     transport: Transport,
     sdk: Sdk,
     bin: Arc<AppleBinaryEnvironment>,
@@ -204,6 +208,7 @@ impl AppleSimulatorDevice {
         } = input;
         let udid = record.udid;
         let serial = format!("{udid}@{}", executor.host().id);
+        let video_key = crate::device::simulator_provider::apple_id(&udid, &transport);
         let storage_path = storage_path_for(&udid);
         let logger = services.logging.component("marathon_ios::apple_simulator_device");
         let remote = RemoteFileManager::new(
@@ -262,12 +267,12 @@ impl AppleSimulatorDevice {
             last_session: None,
             sessions: Vec::new(),
             recordings: Vec::new(),
-            video_unavailable: false,
         };
         Arc::new_cyclic(move |me| Self {
             me: me.clone(),
             udid,
             serial,
+            video_key,
             transport,
             sdk,
             bin,

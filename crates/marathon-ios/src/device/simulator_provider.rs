@@ -1341,12 +1341,24 @@ impl AppleSimulatorProvider {
         let ours = |handle: &Simulator| !handed_back.iter().any(|h| Arc::ptr_eq(h, handle));
         let active = join_all(self.devices().into_iter().map(|device| async move {
             let lease = ours(&device.handle).then(|| device.handle.executor());
+            // D98 (x102): a simulator still in the devices file whose object here was disposed of during the run, and
+            // whose lease is still ours, gets the run's end its disposal skipped. One that left the file is not ours to
+            // restart.
+            let id = apple_id(device.handle.udid(), device.handle.transport());
+            let run_end = lease.is_some() && !self.state().removed.contains(&id);
             // D93 (round 8): the run's end, not a removal: a refusal after it is an orderly cancellation.
             device.handle.seal_for_termination(deadline);
             if abandoned.is_some() {
                 device.handle.quarantine_after_provider_timeout(deadline);
             }
-            dispose_then_release(device.device.0.dispose(), async {
+            let dispose = async {
+                let disposed = device.device.0.dispose().await;
+                if run_end {
+                    device.handle.shut_down_busy_video_after_disposal().await;
+                }
+                disposed
+            };
+            dispose_then_release(dispose, async {
                 match lease {
                     Some(executor) => self.release_lease(&device.handle, executor).await,
                     None => Ok(()),

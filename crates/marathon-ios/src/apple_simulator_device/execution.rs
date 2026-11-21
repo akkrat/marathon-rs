@@ -816,14 +816,39 @@ impl AppleSimulatorDevice {
     /// ends there, leaving the lease release that reserve; a cut or a failure is one line and changes nothing else: no
     /// quarantine, no later disposal.
     async fn shut_down_busy_video(&self, shutdown: &Shutdown) {
+        if shutdown.cause == SealCause::Disposal {
+            return;
+        }
+        let (now, deadline) = self.on_dispose_deadline(shutdown, false);
+        self.shut_down_busy_video_by(now, deadline).await;
+    }
+    /// D98 (x102): the run's end for a simulator whose current device object was disposed of during the run (its
+    /// recovery failed, or it was lost too often), which therefore had no run-end disposal of its own. The provider's
+    /// termination calls it for that object after its disposal and before its lease's release, within the termination's
+    /// deadline (set by `seal_for_termination`), as the run-end disposal would have; it does nothing for any other object.
+    pub(crate) async fn shut_down_busy_video_after_disposal(&self) {
+        let (mid_run, provider_deadline) = {
+            let state = self.state();
+            let mid_run = state.shutdown.as_ref().is_some_and(|s| s.cause == SealCause::Disposal);
+            (mid_run, state.provider_deadline)
+        };
+        let Some(provider_deadline) = provider_deadline.filter(|_| mid_run && self.disposed()) else {
+            return;
+        };
+        let now = self.services.context.clock.now_millis();
+        let deadline = self.signal_finish.limit(provider_deadline, |finish| finish.devices);
+        self.shut_down_busy_video_by(now, deadline).await;
+    }
+    /// D98: the shutdown itself, by `deadline` (the window's end on the vendor clock), at most once per simulator and run
+    /// whichever of its device objects asks (x102).
+    async fn shut_down_busy_video_by(&self, now: i64, deadline: i64) {
         let configured = &self.services.vendor.lifecycle_configuration.on_dispose;
-        if !self.state().video_unavailable
-            || shutdown.cause == SealCause::Disposal
-            || configured
-                .iter()
-                .any(|action| matches!(action, LifecycleAction::Shutdown | LifecycleAction::Erase))
+        if configured
+            .iter()
+            .any(|action| matches!(action, LifecycleAction::Shutdown | LifecycleAction::Erase))
             || !self.connected()
             || self.quarantined()
+            || !self.services.busy_video.claim_run_end(&self.video_key)
         {
             return;
         }
@@ -848,7 +873,6 @@ impl AppleSimulatorDevice {
         // It ends the force reserve before the window does, so that the lease release after it keeps that much time.
         let reserve =
             marathon_apple::cmd::device_commands::force_reserve_millis(self.services.timeouts.cancelled_batch_millis);
-        let (now, deadline) = self.on_dispose_deadline(shutdown, false);
         let deadline = deadline.saturating_sub(reserve);
         // x101: the shutdown timeout defaults to the shell timeout, which may be longer than the whole window, while a
         // shutdown takes seconds. The window, not the timeout, bounds it: it starts with at least the shorter of its
