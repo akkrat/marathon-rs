@@ -84,6 +84,19 @@ run in paused time, and the supervisor witness awaits the recorder's result befo
   receipt after the recorder exits, which the existing D98 supervisor witnesses cover.
 - A localized busy message is still not recognised (the 0.15.1 known limit).
 
+## Review
+
+Fable (Sol and Muse were out of quota), round 1, no blocking findings:
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | "Detection unchanged" overstated: the shared text now also matches "… recording is already in progress" alone | The changelog entry and the D98 note say so; no known simctl output is affected |
+| 2 | The generic SSH supervisor now calls the simctl service module for the busy text, a module cycle (the old literal had the same knowledge) | Kept for this patch release; moving the predicate into `cmd` is a refactor for later |
+| 3 | The supervisor warning is not deduplicated: every receipt with stderr warns, so the farm's three warnings may be fewer recorders | Pre-existing; recorded below |
+| 4 | No test of the subject-less warning form | Unreachable today (only recordings open detached leases); left |
+
 ## Incidental bugs
 
-None found.
+- The worker supervisor's recorder-failure warning is logged for every receipt that carries stderr (start probes and
+  control requests alike), so one refused recorder can produce more than one warning. Pre-existing, not changed
+  here; with U261 each warning names its simulator, so repeats are recognisable.

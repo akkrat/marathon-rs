@@ -11,8 +11,10 @@ The section for a version becomes the text of its GitHub release, which carries 
   did not happen, now print with `debug: false`; in 0.15.1 they showed only with `debug: true`. They log on
   `marathon_ios::busy_video`. On an SSH worker with Perl, the worker supervisor's warning for a recorder that failed
   now names the simulator and the worker besides the recorder's token, and its restart hint also covers Xcode 26.6's
-  wording of the busy refusal ("Host recording is already in progress") and a bare "Resource busy", as D98's
-  detection does. Detection, recording, the shutdown, test results and the exit status are unchanged.
+  wording of the busy refusal ("Host recording is already in progress") and a bare "Resource busy". D98's detection
+  uses the same text, so it now also accepts any "… recording is already in progress" wording on its own, without
+  "Resource busy"; no known `simctl` output is affected. Recording, the shutdown, test results and the exit status
+  are unchanged.
 
 ## 0.15.1
 

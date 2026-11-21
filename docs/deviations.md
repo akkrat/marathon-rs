@@ -3328,7 +3328,9 @@ on). In 0.15.1 they were on ordinary iOS targets, which print only ERROR with de
 the supervisor's warning for a recorder that failed with stderr names the simulator (`simulator <udid>`) and the worker
 (`host:port`) besides the recorder's token, and its restart hint fires on the same busy text as D98's detection, one
 definition for both: `Resource busy`, or either `… recording is already in progress` wording (before Xcode 26.6: `A
-recording`; Xcode 26.6: `Host recording`). Detection, recording and the shutdown are unchanged. See
+recording`; Xcode 26.6: `Host recording`). Detection therefore also accepts either "… recording is already in
+progress" wording on its own, without `Resource busy`, which no known `simctl` output changes. Recording and the
+shutdown are unchanged. See
 [x104 findings](wp/x104-findings.md).
 
 **Migration action:** none, unless SSH command filters on the worker list allowed commands: allow
