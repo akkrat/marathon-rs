@@ -3281,7 +3281,8 @@ TERM on a forced stop. A signal before confirmation can still
 leave the video service busy; it is sent only when the recorder would otherwise outlive its stop window.
 
 A recorder that exits with status 16 before confirming its start and whose stderr carries simctl's busy refusal
-(`Resource busy` or `A recording is already in progress`), while marathon has no other launched recorder on that
+(`Resource busy`, or `A recording is already in progress`, which Xcode 26.6 words `Host recording is already in
+progress`), while marathon has no other launched recorder on that
 simulator, means the video service is held by a recording nobody can stop: a signal before the start, including
 marathon's own TERM or KILL at a stop cutoff, a crash, or another tool. A status 16 without that text changes
 nothing. Locally the controller reads the stderr; on a supervised worker it comes with the recorder's exit receipt.
@@ -3319,6 +3320,16 @@ the same conditions, lines and bounds as above, and with the same warning instea
 simulator left the devices file (it is no longer the run's), when the provider does not hold its lease, or on a
 quarantined simulator. This completes the promise that the next run boots the simulator clean; it adds no command
 beyond the one `simctl shutdown` per busy simulator. See [x102 findings](wp/x102-findings.md).
+
+**x104 (2026-11-21).** D98's own lines print with `debug: false`: the busy warning and every line reporting the
+end-of-run shutdown or why it did not happen (including the skip after a signal and the provider termination's
+shutdown) log on the target `marathon_ios::busy_video`, which keeps INFO and WARN with debug off (DEBUG with debug
+on). In 0.15.1 they were on ordinary iOS targets, which print only ERROR with debug off. On a supervised SSH worker,
+the supervisor's warning for a recorder that failed with stderr names the simulator (`simulator <udid>`) and the worker
+(`host:port`) besides the recorder's token, and its restart hint fires on the same busy text as D98's detection, one
+definition for both: `Resource busy`, or either `… recording is already in progress` wording (before Xcode 26.6: `A
+recording`; Xcode 26.6: `Host recording`). Detection, recording and the shutdown are unchanged. See
+[x104 findings](wp/x104-findings.md).
 
 **Migration action:** none, unless SSH command filters on the worker list allowed commands: allow
 `xcrun simctl shutdown <udid>` there. A simulator whose video service is busy and that marathon could not shut down

@@ -92,7 +92,9 @@ an all-incomplete Apple batch must be diagnosable without debug),
 `marathon_apple::session_close=warn` with debug off (`debug` with debug on;
 an SSH session closed only after KILL, U183),
 `marathon_apple::ssh_session_open=warn` with debug off (`debug` with debug on;
-the first session-open refusal per SSH connection, D90), and
+the first session-open refusal per SSH connection, D90),
+`marathon_ios::busy_video=info` with debug off (`debug` with debug on; D98's
+busy simulator video service and its end-of-run shutdown, U260), and
 `marathon_apple::cmd::remote::ssh::sshj::wire=debug` gated additionally by
 `ssh.debug` on the `Component` (with ssh debug off, only ERROR shows). iOS provisioning timing records are emitted on
 `marathon_core::timing` today; the `marathon_ios::device::timing` directive
@@ -294,6 +296,16 @@ sshj client logger, and no WARN. The target is a floor like `batch_outcome`,
 pinned by `session_close_warns_in_every_configurator_with_debug_off`, the
 directive inventories and the CLI subscriber test. See
 [WP x65](../wp/x65-findings.md).
+
+`marathon_ios::busy_video` carries D98's lines for a simulator whose video service is
+busy: the one WARN naming the simulator when video goes off there, and the one line
+reporting its end-of-run shutdown (INFO) or why it did not happen (WARN), from the
+device's own release or the provider's termination. The 0.15.1 notes promise them
+in a run with `debug: false`. Its floor is INFO, not WARN, so that a completed
+shutdown shows too; the rest of the iOS crate stays at the ordinary level. Pinned by
+`busy_video_shows_info_and_warn_with_debug_off_u260`, the directive inventories, the
+CLI subscriber test and the D98 witnesses in `marathon-ios/tests/ios_listeners.rs`,
+which run with debug off. See [WP x104](../wp/x104-findings.md).
 
 `marathon_core::analytics::event_pipeline` warns on the first D86 admission rejection
 and once more with the total and counts by cause when the last tracker owner releases

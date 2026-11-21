@@ -2,6 +2,18 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
+## Unreleased
+
+### iOS
+
+- **D98's lines show with `debug: false`, and a refused recorder names its simulator (x104, U260–U262, amends D98):**
+  the warning for a simulator whose video service is busy and the line reporting its end-of-run shutdown, or why it
+  did not happen, now print with `debug: false`; in 0.15.1 they showed only with `debug: true`. They log on
+  `marathon_ios::busy_video`. On an SSH worker with Perl, the worker supervisor's warning for a recorder that failed
+  now names the simulator and the worker besides the recorder's token, and its restart hint also covers Xcode 26.6's
+  wording of the busy refusal ("Host recording is already in progress") and a bare "Resource busy", as D98's
+  detection does. Detection, recording, the shutdown, test results and the exit status are unchanged.
+
 ## 0.15.1
 
 This release fixes iOS video recording on slow simulators, with the approved difference D98. The inputs, the CLI and
