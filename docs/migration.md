@@ -149,7 +149,7 @@ already existed for about two seconds; a stalled console can now hold exit for
 up to 60 seconds. A wrapper needing a hard stop then must use SIGKILL.
 
 The D68–D81 notes apply to 0.14.0. The D82–D88 and D90–D97 notes apply when moving from 0.14.0 to 0.15.0 (D89 was not
-used). All of these notes also apply when migrating from Kotlin. D71 is
+used), and the D98 note when moving from 0.15.0 to 0.15.1. All of these notes also apply when migrating from Kotlin. D71 is
 in the table above, and so are D85, D86, D87 and D96.
 
 D68 and D69 need no configuration change. With D68 a run whose test queue
@@ -280,7 +280,7 @@ and ControlPersist settings from SSH config.
 After SIGINT, SIGTERM or SIGHUP, eligible artifacts drain through 12 seconds from the signal, and the exit takes over
 by 24 seconds with up to 1 second more for console output. Read the undelivered-artifact diagnostics to identify missing files.
 
-[D98](deviations.md#d98--a-simulator-recorder-is-never-interrupted-before-it-has-started) is new after 0.15.0 and needs
+[D98](deviations.md#d98--a-simulator-recorder-is-never-interrupted-before-it-has-started) is new in 0.15.1 and needs
 no configuration change. An iOS recorder gets INT only after simctl has printed `Recording started`; one that has not
 by its INT cutoff gets TERM there, so a stop takes no longer than before. A simulator whose video service is busy
 (simctl's "A recording is already in progress") gets one warning and no further `recordVideo` command for the rest of
