@@ -141,8 +141,9 @@ are ordered by events, not by clock races.
 `cargo fmt --check`; `cargo clippy -p marathon-ios -p marathon-apple --all-targets -- -D warnings`; `cargo test` for
 marathon-ios (461 tests) and for marathon-apple's `ssh_supervisor`; marathon-cli's `ios_production`,
 `differential_vendors` and `production_runner`. Not run: `scripts/check.sh`, `remote-check.sh`, `cargo test
---workspace` (orchestrator gates), and the Python validators: no plan, parity-matrix, registry or evidence input
-changed.
+--workspace` (orchestrator gates). `make_registry.py --check` and `check_plan_dag.py` pass. `source_inventory.py
+--check` and `parity_matrix.py --check` report both CSVs out of date against the local Kotlin checkout, and do the same
+on the base ffc6a1e5: that checkout's working tree differs from the frozen sources. This WP changes neither CSV.
 
 ## Golden diffs
 
