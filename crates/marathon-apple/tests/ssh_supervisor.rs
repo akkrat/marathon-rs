@@ -268,6 +268,53 @@ fn cancellation_before_launch_prevents_worker_payload_d96() -> Result<(), Box<dy
     Ok(())
 }
 
+/// A worker `control-stream` as the lease watcher drives it.
+struct ControlStream {
+    stdin: tokio::process::ChildStdin,
+    replies: tokio::io::Lines<tokio::io::BufReader<tokio::process::ChildStdout>>,
+    next: u64,
+}
+
+impl ControlStream {
+    /// Sends `token:operation` with a status request for `sibling` behind it, and returns the request's id and the
+    /// replies that came before the sibling's, which must be `unknown`. The request is sent again under a new id while
+    /// the worker answers `busy` (its token lock was held for that instant; the request was not applied), as the lease
+    /// watcher retries it. Hang guard only.
+    async fn request(&mut self, token: &str, operation: &str, sibling: &str) -> std::io::Result<(u64, Vec<String>)> {
+        use tokio::io::AsyncWriteExt;
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            let mut before = Vec::new();
+            loop {
+                let (id, probe) = (self.next, self.next + 1);
+                self.next += 2;
+                self.stdin
+                    .write_all(format!("{id} {token}:{operation}\n{probe} {sibling}:status\n").as_bytes())
+                    .await?;
+                loop {
+                    let line = self
+                        .replies
+                        .next_line()
+                        .await?
+                        .ok_or_else(|| std::io::Error::other(format!("control stream ended after {before:?}")))?;
+                    if line.starts_with(&format!("{probe} ")) {
+                        assert_eq!(line, format!("{probe} {sibling} unknown"));
+                        break;
+                    }
+                    before.push(line);
+                }
+                let busy = format!("{id} {token} busy");
+                if !before.contains(&busy) {
+                    return Ok((id, before));
+                }
+                before.retain(|line| *line != busy);
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .map_err(std::io::Error::other)?
+    }
+}
+
 #[tokio::test]
 async fn stock_perl_detaches_the_recorder_and_returns_its_own_exit_proof_d96() -> Result<(), Box<dyn std::error::Error>>
 {
@@ -277,7 +324,7 @@ async fn stock_perl_detaches_the_recorder_and_returns_its_own_exit_proof_d96() -
         process::Stdio,
         time::{Duration, Instant},
     };
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::io::{AsyncBufReadExt, BufReader};
     if !Path::new("/usr/bin/perl").is_file() {
         eprintln!("worker witness requires stock Perl");
         return Ok(());
@@ -351,32 +398,32 @@ while (!$interrupted || !-f $release) { select undef, undef, undef, .01 }"#,
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()?;
-    let mut stdin = control.stdin.take().unwrap();
-    let mut replies = BufReader::new(control.stdout.take().unwrap()).lines();
+    let mut stream = ControlStream {
+        stdin: control.stdin.take().unwrap(),
+        replies: BufReader::new(control.stdout.take().unwrap()).lines(),
+        next: 1,
+    };
     let sibling = "00000000000000000000000000000000";
-    stdin
-        .write_all(format!("1 {token}:1\n2 {sibling}:status\n").as_bytes())
-        .await?;
-    let sibling_reply = tokio::time::timeout(Duration::from_secs(60), replies.next_line()).await??;
-    stdin
-        .write_all(format!("3 {token}:1\n4 {sibling}:status\n").as_bytes())
-        .await?;
-    let superseded = tokio::time::timeout(Duration::from_secs(60), replies.next_line()).await??;
+    let (first, early) = stream.request(token, "1", sibling).await?;
+    assert!(
+        early.is_empty(),
+        "a recorder's INT is answered with its receipt: {early:?}"
+    );
+    let (retry, superseded) = stream.request(token, "1", sibling).await?;
     std::fs::write(&release, b"")?;
     let receipt = tokio::time::timeout(Duration::from_secs(60), async {
-        while let Some(line) = replies.next_line().await? {
-            if line.starts_with("3 ") {
+        while let Some(line) = stream.replies.next_line().await? {
+            if line.starts_with(&format!("{retry} ")) {
                 return Ok::<_, std::io::Error>(Some(line));
             }
         }
         Ok(None)
     })
     .await??;
-    assert_eq!(sibling_reply, Some(format!("2 {sibling} unknown")));
-    assert_eq!(receipt, Some(format!("3 {token} done:0")));
+    assert_eq!(receipt, Some(format!("{retry} {token} done:0")));
     assert!(
-        superseded.is_some_and(|line| line.starts_with(&format!("1 {token} recording:"))),
-        "the retry must reply to the superseded INT while the recorder is still running"
+        matches!(&superseded[..], [line] if line.starts_with(&format!("{first} {token} recording:"))),
+        "the retry must reply to the superseded INT while the recorder is still running: {superseded:?}"
     );
 
     let foreground_token = "1234567890abcdef0123456789abcdef";
@@ -393,18 +440,19 @@ while (1) { select undef, undef, undef, .01 }"#,
     let mut foreground_stdout = BufReader::new(foreground.stdout.take().unwrap()).lines();
     let ready = tokio::time::timeout(Duration::from_secs(60), foreground_stdout.next_line()).await??;
     assert_eq!(ready.as_deref(), Some("ready"));
-    stdin
-        .write_all(format!("5 {foreground_token}:1\n6 {sibling}:status\n").as_bytes())
-        .await?;
-    let first = tokio::time::timeout(Duration::from_secs(60), replies.next_line()).await??;
-    stdin.write_all(format!("7 {foreground_token}:2\n").as_bytes()).await?;
+    let (interrupt, replies) = stream.request(foreground_token, "1", sibling).await?;
+    assert!(
+        matches!(&replies[..], [line] if line.starts_with(&format!("{interrupt} {foreground_token} running:"))),
+        "{replies:?}"
+    );
+    stream.request(foreground_token, "2", sibling).await?;
     assert!(
         tokio::time::timeout(Duration::from_secs(60), foreground.wait())
             .await??
             .success()
     );
-    assert!(first.is_some_and(|line| line.starts_with(&format!("5 {foreground_token} running:"))));
 
+    let ControlStream { stdin, .. } = stream;
     drop(stdin);
     assert!(control.wait().await?.success());
     println!(
@@ -418,37 +466,20 @@ while (1) { select undef, undef, undef, .01 }"#,
 #[tokio::test]
 async fn forced_and_expired_recorders_finalize_and_failed_recorders_keep_bounded_stderr_d96()
 -> Result<(), Box<dyn std::error::Error>> {
-    use std::{os::unix::fs::PermissionsExt, time::Duration};
+    use std::time::{Duration, Instant};
     if !Path::new("/usr/bin/perl").is_file() {
         eprintln!("worker witness requires stock Perl");
         return Ok(());
     }
-    let root = tempfile::Builder::new()
-        .prefix("marathon-supervisor-")
-        .rand_bytes(10)
-        .tempdir_in("/tmp")?;
-    std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700))?;
-    let supervisor = root.path().join("supervisor.pl");
-    std::fs::write(
-        &supervisor,
-        include_bytes!("../src/cmd/remote/ssh/sshj/supervisor/worker.pl"),
-    )?;
-    let invoke = |mode: &str, lease: &str, args: &[&str]| {
-        let mut command = tokio::process::Command::new("/usr/bin/perl");
-        command
-            .arg(&supervisor)
-            .arg(mode)
-            .arg(root.path())
-            .arg(lease)
-            .args(args);
-        command.kill_on_drop(true);
-        command.output()
-    };
+    let (root, supervisor) = d98_root()?;
+    let files = tempfile::tempdir()?;
+    // The forced recorder's lease outlasts every hang guard, so only the force can end it in time; every control
+    // request goes through `d98_control`, because a single `busy` answer would drop the force.
     for (token, lease, force) in [
-        ("00000000000000000000000000000001", "1500", false),
-        ("00000000000000000000000000000002", "10000", true),
+        ("00000000000000000000000000000001", "3000", false),
+        ("00000000000000000000000000000002", "120000", true),
     ] {
-        let ready = root.path().join(format!("{token}.ready"));
+        let ready = files.path().join(format!("{token}.ready"));
         let payload = r#"
     $SIG{INT} = sub { exit(0) };
     print STDERR "Recording started\n";
@@ -456,44 +487,37 @@ async fn forced_and_expired_recorders_finalize_and_failed_recorders_keep_bounded
     close $marker;
     while (1) { select undef, undef, undef, .01 }
     "#;
-        let start = invoke(
-            "detach",
+        let start = d98_invoke_with(
+            &supervisor,
+            root.path(),
             lease,
+            "detach",
             &[token, "/usr/bin/perl", "-e", payload, ready.to_str().unwrap()],
         )
         .await?;
         assert!(start.status.success(), "{}", String::from_utf8_lossy(&start.stderr));
-        tokio::time::timeout(Duration::from_secs(4), async {
-            while !ready.is_file() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await?;
+        d98_file(&ready).await?;
+        let requested = Instant::now();
         if force {
+            let reply = d98_control(&supervisor, root.path(), &format!("{token}:3")).await?;
             assert!(
-                invoke("control", lease, &[&format!("{token}:3")])
-                    .await?
-                    .status
-                    .success()
+                [" running:", " recording:"]
+                    .iter()
+                    .any(|state| reply.starts_with(&format!("{token}{state}"))),
+                "{reply}"
             );
         }
-        tokio::time::timeout(Duration::from_secs(6), async {
-            loop {
-                let receipt = invoke("control", lease, &[&format!("{token}:status")]).await?;
-                if receipt.stdout.starts_with(format!("{token} done:").as_bytes()) {
-                    assert_eq!(receipt.stdout, format!("{token} done:0\n").as_bytes());
-                    return Ok::<_, std::io::Error>(());
-                }
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        })
-        .await??;
-        std::fs::remove_file(ready)?;
+        let (receipt, ended) = d98_receipt(&supervisor, root.path(), token).await?;
+        assert_eq!(receipt, "done:0", "{token}");
+        // Hang guard, far below the forced recorder's lease.
+        assert!(ended - requested < Duration::from_secs(30), "{token}");
     }
     let failed = "00000000000000000000000000000003";
-    let start = invoke(
-        "detach",
+    let start = d98_invoke_with(
+        &supervisor,
+        root.path(),
         "8000",
+        "detach",
         &[
             failed,
             "/usr/bin/perl",
@@ -503,23 +527,13 @@ async fn forced_and_expired_recorders_finalize_and_failed_recorders_keep_bounded
     )
     .await?;
     assert!(start.status.success());
-    tokio::time::timeout(Duration::from_secs(6), async {
-        loop {
-            let receipt = invoke("control", "8000", &[&format!("{failed}:status")]).await?;
-            let output = String::from_utf8(receipt.stdout).map_err(std::io::Error::other)?;
-            if output.starts_with(&format!("{failed} done:")) {
-                use base64::{Engine, engine::general_purpose::STANDARD};
-                let encoded = output.trim_end().strip_prefix(&format!("{failed} done:16 ")).unwrap();
-                let stderr = STANDARD.decode(encoded).map_err(std::io::Error::other)?;
-                assert_eq!(stderr.len(), 8192);
-                assert!(stderr.starts_with(b"A recording is already in progress\n"));
-                return Ok::<_, std::io::Error>(());
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await??;
-    assert_eq!(invoke("retire", "8000", &[]).await?.stdout, b"MARATHON_D96_1 retired\n");
+    let (receipt, _) = d98_receipt(&supervisor, root.path(), failed).await?;
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let encoded = receipt.strip_prefix("done:16 ").unwrap_or_else(|| panic!("{receipt}"));
+    let stderr = STANDARD.decode(encoded)?;
+    assert_eq!(stderr.len(), 8192);
+    assert!(stderr.starts_with(b"A recording is already in progress\n"));
+    assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
     Ok(())
 }
 
@@ -574,6 +588,23 @@ async fn d98_control(supervisor: &Path, root: &Path, item: &str) -> std::io::Res
             }
             let reply = String::from_utf8_lossy(&output.stdout).trim_end().to_owned();
             if !reply.ends_with(" busy") {
+                return Ok(reply);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .map_err(std::io::Error::other)?
+}
+
+/// Retires the worker root, repeated while it answers `busy`: a detached supervisor that has published its receipt
+/// still holds the installation lock until it exits. Hang guard only.
+async fn d98_retire(supervisor: &Path, root: &Path) -> std::io::Result<String> {
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            let output = d98_invoke(supervisor, root, "retire", &[]).await?;
+            let reply = String::from_utf8_lossy(&output.stdout).trim_end().to_owned();
+            if reply != "MARATHON_D96_1 busy" {
                 return Ok(reply);
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -671,10 +702,7 @@ while (1) { select undef, undef, undef, .01 }"#;
     // Hang guard only: the worker loop reads stderr every 25-50 ms.
     assert!(interrupted >= marked && interrupted - marked < 5.0, "{times:?}");
     println!("INT {:.0} ms after the start marker", (interrupted - marked) * 1000.0);
-    assert_eq!(
-        d98_invoke(&supervisor, root.path(), "retire", &[]).await?.stdout,
-        b"MARATHON_D96_1 retired\n"
-    );
+    assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
     Ok(())
 }
 
@@ -741,10 +769,7 @@ while (1) { select undef, undef, undef, .01 }"#;
     let (receipt, _) = d98_receipt(&supervisor, root.path(), token).await?;
     assert_eq!(receipt, "done:0");
     assert!(!files.path().join("early").exists());
-    assert_eq!(
-        d98_invoke(&supervisor, root.path(), "retire", &[]).await?.stdout,
-        b"MARATHON_D96_1 retired\n"
-    );
+    assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
     Ok(())
 }
 
@@ -796,10 +821,7 @@ while (1) { select undef, undef, undef, .01 }"#;
         "{elapsed:?}"
     );
     println!("expired recorder: {receipt} after {elapsed:?}");
-    assert_eq!(
-        d98_invoke(&supervisor, root.path(), "retire", &[]).await?.stdout,
-        b"MARATHON_D96_1 retired\n"
-    );
+    assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
     Ok(())
 }
 
@@ -870,10 +892,7 @@ while (1) { select undef, undef, undef, .01 }"#,
         );
         println!("{token} {operation}: {receipt} after {elapsed:?}");
     }
-    assert_eq!(
-        d98_invoke(&supervisor, root.path(), "retire", &[]).await?.stdout,
-        b"MARATHON_D96_1 retired\n"
-    );
+    assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
     Ok(())
 }
 
@@ -930,7 +949,8 @@ async fn worker_expiry_compacts_its_receipt_and_retirement_waits_for_owned_group
         invoke("control", &[&format!("{sibling}:status")]).await?.stdout,
         format!("{sibling} done:0\n").as_bytes()
     );
-    tokio::time::timeout(Duration::from_secs(8), async {
+    // Expiry at 2.2 s, then TERM and KILL by about 5.2 s; the bound is a hang guard.
+    tokio::time::timeout(Duration::from_secs(30), async {
         loop {
             if invoke("control", &[&format!("{live}:status")]).await?.stdout == format!("{live} done:137\n").as_bytes()
             {
@@ -955,7 +975,7 @@ async fn worker_expiry_compacts_its_receipt_and_retirement_waits_for_owned_group
     );
     // The compact receipt still fences attempts to run the same token again.
     assert_eq!(invoke("run", &[live, "/usr/bin/true"]).await?.status.code(), Some(125));
-    assert_eq!(invoke("retire", &[]).await?.stdout, b"MARATHON_D96_1 retired\n");
+    assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
     assert!(!root.path().exists());
     Ok(())
 }
