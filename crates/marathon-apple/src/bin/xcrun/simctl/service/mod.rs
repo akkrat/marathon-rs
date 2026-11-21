@@ -9,7 +9,7 @@ mod simulator;
 mod spawn;
 
 pub use device::DeviceService;
-pub use io::IoService;
+pub use io::{IoService, reports_recording_busy};
 pub use media::MediaService;
 pub use privacy::PrivacyService;
 pub use simulator::SimulatorService;

@@ -3,6 +3,8 @@
 use super::{AppleSimulatorDevice, VendorContext, VendorResult};
 use marathon_apple::{
     apple_device::AppleDevice,
+    // simctl's stderr for the busy refusal; one definition with the worker supervisor's restart hint (U262).
+    bin::xcrun::simctl::service::reports_recording_busy as reports_busy,
     cmd::{
         CommandExecutor, CommandRequest, CommandSession, base_command::CommandTermination,
         device_commands::as_lifecycle, exec_outcome, retained_tasks::panic_as_error,
@@ -21,13 +23,6 @@ const STOP_BUDGET: i64 = 15_000;
 const START_MARKER: &str = "Recording started";
 /// simctl's exit status when the simulator's video service refuses a second recording (EBUSY).
 const BUSY_STATUS: i32 = 16;
-/// simctl's stderr for that refusal: `Error starting video recorder: Error Domain=NSPOSIXErrorDomain Code=16
-/// "Resource busy" UserInfo={NSLocalizedFailureReason=A recording is already in progress}.` and the same reason again.
-const BUSY_TEXT: [&str; 2] = ["Resource busy", "A recording is already in progress"];
-
-fn reports_busy(stderr: &str) -> bool {
-    BUSY_TEXT.iter().any(|text| stderr.contains(text))
-}
 
 #[derive(Clone, Copy)]
 struct StopWindow {
@@ -346,19 +341,14 @@ impl Recording {
             !own && device.services().busy_video.mark_busy(&device.video_key)
         };
         if first {
-            let logger = device.services().logging.component("marathon_ios::listener::video");
-            let (serial, udid) = (device.serial.clone(), device.udid.clone());
-            device.services().logging.log(
-                &logger,
+            let (serial, udid) = (&device.serial, &device.udid);
+            device.log_busy_video(
                 Level::WARN,
-                || {
-                    format!(
-                        "Simulator {serial}: its video service is busy with a recording already in progress. Video \
-                         recording is off on this simulator for the rest of the run. Restart the simulator \
-                         (xcrun simctl shutdown {udid}, then xcrun simctl boot {udid}) to record again."
-                    )
-                },
-                None,
+                format!(
+                    "Simulator {serial}: its video service is busy with a recording already in progress. Video \
+                     recording is off on this simulator for the rest of the run. Restart the simulator \
+                     (xcrun simctl shutdown {udid}, then xcrun simctl boot {udid}) to record again."
+                ),
             );
         }
     }

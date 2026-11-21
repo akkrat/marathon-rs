@@ -860,7 +860,7 @@ impl AppleSimulatorDevice {
         };
         // D97: after a signal the finish is for the exit (Kotlin's 30 s limit), not for a cold-boot preparation.
         if self.signal_finish.current().is_some() {
-            self.log(Level::WARN, busy("there was no time left to shut it down"), None);
+            self.log_busy_video(Level::WARN, busy("there was no time left to shut it down"));
             return;
         }
         let shutdown_millis = self
@@ -878,7 +878,7 @@ impl AppleSimulatorDevice {
         // shutdown takes seconds. The window, not the timeout, bounds it: it starts with at least the shorter of its
         // timeout and twice the force reserve (10 s of 70) left, and is cut where the window ends.
         if deadline.saturating_sub(now) < shutdown_millis.min(reserve.saturating_mul(2)) {
-            self.log(Level::WARN, busy("there was no time left to shut it down"), None);
+            self.log_busy_video(Level::WARN, busy("there was no time left to shut it down"));
             return;
         }
         let signal = Signal::new();
@@ -922,7 +922,7 @@ impl AppleSimulatorDevice {
                 (Level::WARN, busy("its shutdown did not finish within its window"))
             }
         };
-        self.log(level, message, None);
+        self.log_busy_video(level, message);
     }
     /// The earlier of the run stop's device deadline and provider termination's deadline.
     pub fn shutdown_deadline(&self) -> Option<i64> {

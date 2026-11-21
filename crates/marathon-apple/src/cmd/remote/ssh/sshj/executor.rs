@@ -216,7 +216,12 @@ async fn execute(
     let command = exec_string(&request);
     let lease = match supervisor {
         Some(supervisor) => supervisor
-            .prepare(&connection, &command, request.detached_worker)
+            .prepare(
+                &connection,
+                &command,
+                request.detached_worker,
+                request.worker_subject.clone(),
+            )
             .await
             .map_err(|error| (error, true))?,
         None => None,

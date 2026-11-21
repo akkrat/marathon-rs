@@ -155,6 +155,7 @@ impl Supervisor {
         connection: &Arc<SshConnection>,
         command: &str,
         detached: bool,
+        subject: Option<String>,
     ) -> VendorResult<Option<Arc<Lease>>> {
         // An absolute command made solely of shell literals needs no extra
         // shell. All other commands retain the executor's shell semantics.
@@ -171,7 +172,7 @@ impl Supervisor {
         Ok(self
             .peer(connection)
             .await?
-            .map(|peer| Arc::new(Lease::new(peer, if detached { "detach" } else { "run" }, argv))))
+            .map(|peer| Arc::new(Lease::new(peer, if detached { "detach" } else { "run" }, argv, subject))))
     }
 
     pub(super) async fn prepare_rsync(
@@ -183,7 +184,7 @@ impl Supervisor {
         Ok(self.peer(connection).await?.map(|peer| WorkerRsync {
             // openrsync rebuilds the remote command from argv and removes
             // shell quotes. Keep the envelope free of shell syntax.
-            lease: Arc::new(Lease::new(peer, "rsync", STANDARD.encode(program))),
+            lease: Arc::new(Lease::new(peer, "rsync", STANDARD.encode(program), None)),
             auth,
             started: false,
         }))
@@ -287,6 +288,7 @@ impl Supervisor {
             root: root.to_owned(),
             timing: self.timing,
             logging: self.logging.clone(),
+            worker: format!("{}:{}", self.worker.0, self.worker.1),
         })))
     }
 }
@@ -376,6 +378,8 @@ struct Peer {
     root: String,
     timing: Timing,
     logging: SshLogging,
+    /// `host:port`, for diagnostics (U261).
+    worker: String,
 }
 
 impl Drop for Peer {
@@ -665,19 +669,20 @@ impl Peer {
         }
     }
 
-    /// The reply and a failed recorder's stderr from its receipt.
+    /// The reply and a failed recorder's stderr from its receipt. `subject` names what the process serves.
     async fn ask(
         &self,
         token: &str,
+        subject: Option<&str>,
         operation: &str,
         deadline: Instant,
         may_hold_reply: bool,
     ) -> VendorResult<(Reply, Option<String>)> {
         let output = self.control_request(token, operation, deadline, may_hold_reply).await?;
-        self.interpret(token, &output)
+        self.interpret(token, subject, &output)
     }
 
-    fn interpret(&self, token: &str, output: &str) -> VendorResult<(Reply, Option<String>)> {
+    fn interpret(&self, token: &str, subject: Option<&str>, output: &str) -> VendorResult<(Reply, Option<String>)> {
         let (reply, diagnostic) = Reply::parse(output, token)
             .ok_or_else(|| protocol_error("Worker supervisor returned an invalid token receipt"))?;
         if let Some(stderr) = &diagnostic {
@@ -686,8 +691,16 @@ impl Peer {
                 &logger,
                 Level::WARN,
                 || {
-                    let mut message = format!("Worker recorder {token} failed ({reply:?}). stderr: {stderr:?}");
-                    if stderr.contains("A recording is already in progress") {
+                    // U261: the token alone does not tell an operator which simulator and worker were refused.
+                    let worker = &self.worker;
+                    let mut message = match subject {
+                        Some(subject) => format!(
+                            "Worker recorder {token} for {subject} on worker {worker} failed ({reply:?}). stderr: {stderr:?}"
+                        ),
+                        None => format!("Worker recorder {token} on worker {worker} failed ({reply:?}). stderr: {stderr:?}"),
+                    };
+                    // U262: the same busy text as D98's detection, Xcode 26.6's "Host recording ..." wording included.
+                    if crate::bin::xcrun::simctl::service::reports_recording_busy(stderr) {
                         message.push_str(
                             ". Stop the active recording or restart the affected simulator before recording again.",
                         );
@@ -769,10 +782,12 @@ pub(super) struct Lease {
     proof: watch::Sender<Option<Result<Proof, Failure>>>,
     started: watch::Sender<bool>,
     stderr: Arc<std::sync::OnceLock<String>>,
+    /// What the process serves (`simulator <udid>` for a recorder), for diagnostics (U261).
+    subject: Option<String>,
 }
 
 impl Lease {
-    fn new(peer: Arc<Peer>, mode: &str, argv: String) -> Self {
+    fn new(peer: Arc<Peer>, mode: &str, argv: String, subject: Option<String>) -> Self {
         let token = format!("{:032x}", rand::random::<u128>());
         let foreground = mode == "run";
         let detached = mode == "detach";
@@ -792,6 +807,7 @@ impl Lease {
             proof: watch::channel(None).0,
             started: watch::channel(false).0,
             stderr: Arc::default(),
+            subject,
         }
     }
     pub(super) fn wire(&self) -> &str {
@@ -1010,9 +1026,14 @@ impl Lease {
                 response = async {
                     if probe {
                         let output = self.peer.probe(&self.token, next_renewal.max(first_renewal)).await;
-                        Ok(output.and_then(|output| self.peer.interpret(&self.token, &output).ok()))
+                        Ok(output.and_then(|output| {
+                            self.peer.interpret(&self.token, self.subject.as_deref(), &output).ok()
+                        }))
                     } else {
-                        self.peer.ask(&self.token, &operation, request_end, may_hold_reply).await.map(Some)
+                        self.peer
+                            .ask(&self.token, self.subject.as_deref(), &operation, request_end, may_hold_reply)
+                            .await
+                            .map(Some)
                     }
                 } => response,
             };

@@ -100,6 +100,8 @@ fn configurators_preserve_levels_and_compact_output() -> Result<(), Box<dyn std:
                 tracing::warn!(target: "marathon_apple::batch_outcome", "visible batch outcome");
                 tracing::warn!(target: "marathon_apple::session_close", "visible session close");
                 tracing::warn!(target: "marathon_apple::ssh_session_open", "visible session refusal");
+                tracing::info!(target: "marathon_ios::busy_video", "visible busy video shutdown");
+                tracing::debug!(target: "marathon_ios::busy_video", "debug busy video");
                 tracing::warn!(target: "marathon_core::reporters::timeline", "timeline");
                 tracing::info!(target: "unrelated", "hidden dependency");
                 tracing::trace!(target: "marathon_adb::client::log", "hidden trace");
@@ -114,6 +116,8 @@ fn configurators_preserve_levels_and_compact_output() -> Result<(), Box<dyn std:
             assert!(text.contains("WARN marathon_apple::batch_outcome: visible batch outcome\n"));
             assert!(text.contains("WARN marathon_apple::session_close: visible session close\n"));
             assert!(text.contains("WARN marathon_apple::ssh_session_open: visible session refusal\n"));
+            assert!(text.contains("INFO marathon_ios::busy_video: visible busy video shutdown\n"));
+            assert_eq!(text.contains(": debug busy video\n"), debug);
             assert!(!text.contains("hidden"));
             assert_eq!(
                 text.contains(": timeline\n"),

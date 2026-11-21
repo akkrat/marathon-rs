@@ -54,10 +54,12 @@ impl SimctlService {
         &self,
         timeout: Duration,
         args: Vec<String>,
+        udid: &str,
         context: &VendorContext,
     ) -> VendorResult<CommandSession> {
         let mut request = self.tools.request(Self::command(args), timeout);
         request.detached_worker = true;
+        request.worker_subject = Some(format!("simulator {udid}"));
         self.tools.executor.execute(request, context.clone()).await
     }
     pub(crate) async fn critical_exec(

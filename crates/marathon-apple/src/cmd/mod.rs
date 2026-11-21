@@ -99,6 +99,8 @@ impl CommandException {
 #[derive(Clone, Debug)]
 pub struct CommandRequest {
     pub(crate) detached_worker: bool,
+    /// What a supervised worker process serves, for its diagnostics (U261): `simulator <udid>` for a recorder.
+    pub(crate) worker_subject: Option<String>,
     pub command: Vec<String>,
     pub timeout: Duration,
     pub idle_timeout: Duration,
@@ -110,6 +112,7 @@ impl CommandRequest {
     pub fn new(command: impl IntoIterator<Item = impl Into<String>>, timeout: Duration) -> Self {
         Self {
             detached_worker: false,
+            worker_subject: None,
             command: command.into_iter().map(Into::into).collect(),
             timeout,
             idle_timeout: Durations::INFINITE,

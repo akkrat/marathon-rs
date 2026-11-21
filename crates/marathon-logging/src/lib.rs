@@ -81,6 +81,12 @@ pub fn filter(configurator: Vendor, debug: bool) -> Targets {
             "marathon_apple::cmd::remote::ssh::sshj::supervisor",
             if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
         )
+        // D98 (U260): a busy simulator video service and its end-of-run shutdown, which the 0.15.1 notes promise
+        // with debug off. A floor at INFO, so that the shutdown's own INFO line shows too.
+        .with_target(
+            "marathon_ios::busy_video",
+            if debug { LevelFilter::DEBUG } else { LevelFilter::INFO },
+        )
         .with_target("marathon_core::diagnostics", LevelFilter::WARN)
         .with_target("marathon_process", LevelFilter::WARN)
         .with_target("marathon_core::timing", LevelFilter::INFO)
@@ -384,6 +390,10 @@ mod tests {
                 "marathon_apple::cmd::remote::ssh::sshj::supervisor",
                 if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
             ),
+            (
+                "marathon_ios::busy_video",
+                if debug { LevelFilter::DEBUG } else { LevelFilter::INFO },
+            ),
             ("marathon_core::diagnostics", LevelFilter::WARN),
             ("marathon_process", LevelFilter::WARN),
             ("marathon_core::timing", LevelFilter::INFO),
@@ -508,6 +518,31 @@ mod tests {
                 let mut settings = LogSettings::default();
                 settings.configure(debug, vendor);
                 assert!(settings.enabled_target(target, Level::WARN));
+            }
+        }
+    }
+    #[test]
+    fn busy_video_shows_info_and_warn_with_debug_off_u260() {
+        let target = "marathon_ios::busy_video";
+        for vendor in [
+            Vendor::Apple { compact_output: false },
+            Vendor::Apple { compact_output: true },
+        ] {
+            for debug in [false, true] {
+                let filter = filter(vendor, debug);
+                assert!(filter.would_enable(target, &Level::INFO));
+                assert!(filter.would_enable(target, &Level::WARN));
+                assert_eq!(filter.would_enable(target, &Level::DEBUG), debug);
+                let mut settings = LogSettings::default();
+                settings.configure(debug, vendor);
+                assert!(settings.enabled_target(target, Level::INFO));
+                assert!(settings.enabled_target(target, Level::WARN));
+                assert_eq!(settings.enabled_target(target, Level::DEBUG), debug);
+                // A floor for this target only: the rest of the iOS crate stays at the ordinary level.
+                assert_eq!(
+                    settings.enabled_target("marathon_ios::listener::video", Level::WARN),
+                    debug
+                );
             }
         }
     }

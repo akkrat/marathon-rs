@@ -10,6 +10,18 @@ use marathon_config::vendor::{Codec, Display, Mask, ScreenshotType};
 use marathon_core::{error::VendorResult, vendor::VendorContext};
 use marathon_logging::{Component, Level};
 
+/// simctl's stderr when the simulator's video service refuses a recording (status 16, EBUSY), D98. Xcode 16 to 26.x
+/// before 26.6 print `Error starting video recorder: Error Domain=NSPOSIXErrorDomain Code=16 "Resource busy"
+/// UserInfo={NSLocalizedFailureReason=A recording is already in progress}.` and the reason again; Xcode 26.6 has
+/// `Host recording is already in progress` as the reason (U262). The one definition for the recorder's busy detection
+/// and the worker supervisor's restart hint.
+const RECORDING_BUSY_TEXT: [&str; 2] = ["Resource busy", "recording is already in progress"];
+
+/// Whether a recorder's stderr carries simctl's busy refusal.
+pub fn reports_recording_busy(stderr: &str) -> bool {
+    RECORDING_BUSY_TEXT.iter().any(|text| stderr.contains(text))
+}
+
 pub struct IoService {
     service: SimctlService,
     logger: Component,
@@ -70,7 +82,9 @@ impl IoService {
     ) -> VendorResult<CommandSession> {
         let args = Self::record_video_args(udid, remote_path, codec, display, mask);
         // The recording's owner drives stop. An executor timeout would send TERM before INT.
-        self.service.open_recording(Durations::INFINITE, args, context).await
+        self.service
+            .open_recording(Durations::INFINITE, args, udid, context)
+            .await
     }
     #[allow(clippy::too_many_arguments)]
     pub async fn record_video_nohup(

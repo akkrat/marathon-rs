@@ -10,6 +10,10 @@
 use indexmap::IndexMap;
 use std::sync::Mutex;
 
+/// U260: the busy warning and every end-of-run shutdown line, which the 0.15.1 notes promise with `debug: false`.
+/// `marathon_logging::filter` gives this target an INFO floor; the rest of the iOS crate stays at ERROR with debug off.
+pub(crate) const TARGET: &str = "marathon_ios::busy_video";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Busy {
     /// Video is off on the simulator; the run's end has not dealt with it yet.

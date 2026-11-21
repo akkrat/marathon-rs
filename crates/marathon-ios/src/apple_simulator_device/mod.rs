@@ -307,6 +307,13 @@ impl AppleSimulatorDevice {
             (self.services.logging.sink)(&self.logger, level, message.into(), error);
         }
     }
+    /// D98 (U260): a busy video service and its end-of-run shutdown log on their own target, visible with debug off.
+    fn log_busy_video(&self, level: Level, message: impl Into<String>) {
+        let logger = self.services.logging.component(busy_video::TARGET);
+        if self.services.logging.enabled(&logger, level) {
+            (self.services.logging.sink)(&logger, level, message.into(), None);
+        }
+    }
     pub fn serial(&self) -> &str {
         &self.serial
     }

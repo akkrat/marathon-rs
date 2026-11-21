@@ -1064,9 +1064,13 @@ async fn a_confirmed_recorder_gets_int_as_soon_as_its_stop_is_requested_d98() ->
 #[tokio::test(start_paused = true)]
 async fn a_busy_video_service_turns_video_off_for_the_simulator_once_d98() -> TestResult {
     use marathon_ios::apple_simulator_device::recording::RecordingFinalization;
-    // simctl on a simulator whose video service is still held by an earlier, unstoppable recording, and an exit
-    // status 16 for some other reason, which leaves video on.
-    for busy in [true, false] {
+    // simctl on a simulator whose video service is still held by an earlier, unstoppable recording (before Xcode 26.6
+    // and, U262, as Xcode 26.6 words it), and an exit status 16 for some other reason, which leaves video on.
+    for (busy, reason) in [
+        (true, "A recording is already in progress"),
+        (true, "Host recording is already in progress"),
+        (false, ""),
+    ] {
         let mut h = harness(|_| {})?;
         Arc::make_mut(&mut h.services.configuration).screen_recording_policy = ScreenRecordingPolicy::OnAny;
         let d = h.device().await?;
@@ -1083,18 +1087,20 @@ async fn a_busy_video_service_turns_video_off_for_the_simulator_once_d98() -> Te
             let (session, stderr) = simulator_support::unconfirmed_recorder_session(|_| Box::pin(async { Ok(None) }));
             let (exit, stdout) = (session.base.exit_code.clone(), session.base.stdout.clone());
             tokio::spawn(async move {
-                let lines: &[&str] = if busy {
-                    &[
-                        "Error starting video recorder: Error Domain=NSPOSIXErrorDomain Code=16 \"Resource busy\" \
-                         UserInfo={NSLocalizedFailureReason=A recording is already in progress}.",
-                        "An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=16):",
-                        "A recording is already in progress",
+                let lines: Vec<String> = if busy {
+                    vec![
+                        format!(
+                            "Error starting video recorder: Error Domain=NSPOSIXErrorDomain Code=16 \"Resource busy\" \
+                             UserInfo={{NSLocalizedFailureReason={reason}}}."
+                        ),
+                        "An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=16):".into(),
+                        reason.into(),
                     ]
                 } else {
-                    &["An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=16):"]
+                    vec!["An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=16):".into()]
                 };
                 for line in lines {
-                    stderr.send((*line).into()).await.unwrap();
+                    stderr.send(line).await.unwrap();
                 }
                 stdout.close(None);
                 stderr.close(None);
@@ -1126,6 +1132,7 @@ async fn a_busy_video_service_turns_video_off_for_the_simulator_once_d98() -> Te
         let warnings: Vec<_> = logs
             .iter()
             .filter(|r| r.1 == marathon_logging::Level::WARN && r.2.contains("video service is busy"))
+            .inspect(|r| assert_eq!(r.0, BUSY_VIDEO_TARGET, "{r:?}"))
             .map(|r| r.2.clone())
             .collect();
         let undelivered: Vec<_> = logs
@@ -1171,10 +1178,12 @@ async fn simulator_with_video_off(
 }
 
 /// D98: `d`'s first recording meets a busy video service; then the simulator is booted, as after its preparation.
+/// From here on the run logs with `debug: false`, as on a CI farm: D98's own lines must still show (U260).
 async fn turn_video_off(
     h: &simulator_support::Harness,
     d: &Arc<marathon_ios::apple_simulator_device::AppleSimulatorDevice>,
 ) -> TestResult {
+    set_debug(h, false);
     let c = context(h, d.clone());
     let test = c.batch.tests[0].clone();
     let l = ScreenRecordingListener::new(c);
@@ -1204,12 +1213,25 @@ async fn turn_video_off(
     Ok(())
 }
 
+/// U260: D98's lines have their own target, which `marathon_logging::filter` keeps visible with debug off.
+const BUSY_VIDEO_TARGET: &str = "marathon_ios::busy_video";
+
+fn set_debug(h: &simulator_support::Harness, debug: bool) {
+    h.services
+        .logging
+        .registry
+        .lock()
+        .unwrap()
+        .configure(debug, marathon_logging::Vendor::Apple { compact_output: false });
+}
+
 fn busy_warnings(h: &simulator_support::Harness) -> Vec<String> {
     h.logs
         .lock()
         .unwrap()
         .iter()
         .filter(|r| r.1 == marathon_logging::Level::WARN && r.2.contains("video service is busy with a recording"))
+        .inspect(|r| assert_eq!(r.0, BUSY_VIDEO_TARGET, "{r:?}"))
         .map(|r| r.2.clone())
         .collect()
 }
@@ -1253,6 +1275,7 @@ fn end_of_run_lines(h: &simulator_support::Harness) -> Vec<String> {
         .unwrap()
         .iter()
         .filter(|r| r.2.contains("at the end of the run"))
+        .inspect(|r| assert_eq!(r.0, BUSY_VIDEO_TARGET, "{r:?}"))
         .map(|r| r.2.clone())
         .collect()
 }
@@ -1404,6 +1427,8 @@ async fn a_hung_busy_video_shutdown_ends_with_the_window_and_never_quarantines_d
     for (hung, timeout) in [("cat", 100), ("shutdown", 100), ("shutdown", 300)] {
         let (h, d) =
             simulator_with_video_off(|v| v.timeout_configuration.shutdown = support::duration(timeout)).await?;
+        // The check below for no on-dispose lifecycle line needs the device's ordinary target, hidden with debug off.
+        set_debug(&h, true);
         h.worker.cancellable_before.store(true, Ordering::SeqCst);
         *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
             Box::pin(async move {
