@@ -3310,8 +3310,8 @@ nor a busy failure is visible there; it keeps D96's behaviour. macOS devices do 
 **x102 (2026-11-21).** The busy state belongs to the simulator, by worker and UDID, for the whole run, not to the
 device object that found it. A simulator set up again during the run (recovered after a loss, or added back to the
 devices file) gets a new device object; that object launches no `recordVideo` and logs no second warning. The state
-ends when the simulator is confirmed shut down (by the on-dispose or on-prepare lifecycle, a boot retry or this
-shutdown), since its next preparation boots it with a fresh video service. At the run's end each busy simulator is
+ends when the simulator is confirmed shut down (by the on-dispose or on-prepare lifecycle or this shutdown) or
+when a preparation boots it from Shutdown (after a crash or a failed boot), since it then has a fresh video service. At the run's end each busy simulator is
 shut down at most once, by the device object that serves it then. If that object was disposed of during the run (its
 recovery could not set it up again, or it was lost too often), the provider's termination shuts the simulator down
 after that disposal and before releasing its lease, within the termination's 70 s window less the force reserve, with

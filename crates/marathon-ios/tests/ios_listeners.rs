@@ -1507,6 +1507,41 @@ async fn a_busy_simulator_leaves_another_simulator_on_the_worker_recording_d98()
     Ok(())
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_busy_simulator_booted_again_from_shutdown_records_again_d98() -> TestResult {
+    use marathon_ios::apple_simulator_device::recording::RecordingFinalization;
+    // x102: a simulator that went down without marathon's shutdown (a crash, a failed boot's own shutdown) and that
+    // the recovery's preparation boots from Shutdown has a fresh video service.
+    let (h, a) = simulator_with_video_off(|v| v.timeout_configuration.shutdown = support::duration(100)).await?;
+    a.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    h.boot.state.store(1, Ordering::SeqCst);
+    let b = h.device().await?;
+    assert!(b.boot(&h.services.context).await.map_err(|e| format!("{e:?}"))?);
+    *h.worker.session.lock().unwrap() = Arc::new(|cmd| {
+        if !cmd.iter().any(|arg| arg == "recordVideo") {
+            return Ok(None);
+        }
+        Ok(Some(simulator_support::recorder_session(|signal| {
+            Box::pin(async move { Ok((signal == "INT").then_some(0)) })
+        })))
+    });
+    assert_ne!(record_one_test(&h, &b).await?, RecordingFinalization::Skipped);
+    assert_eq!(
+        video_commands(&h, b.udid()),
+        (2, 0),
+        "the booted simulator records again"
+    );
+    assert_eq!(busy_warnings(&h).len(), 1);
+    end_of_run(&b).await?;
+    assert_eq!(
+        video_commands(&h, b.udid()).1,
+        0,
+        "and is not shut down at the run's end"
+    );
+    h.finish(&[a, b]).await;
+    Ok(())
+}
+
 /// x102: a provider over the harness's worker, with the simulator `a` set up and its video service busy.
 async fn provider_with_busy_simulator(
     h: &simulator_support::Harness,

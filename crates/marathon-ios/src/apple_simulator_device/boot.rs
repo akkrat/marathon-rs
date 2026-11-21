@@ -183,7 +183,9 @@ impl AppleSimulatorDevice {
                     return Ok(out_of_time(Some(first)));
                 }
                 match self.bin.xcrun.simctl.simulator.boot(&self.udid, &[], context).await {
-                    Ok(_) => {}
+                    // D98 (x102): booted from Shutdown, whoever shut it down (a crash, a failed boot's own shutdown):
+                    // its video service is fresh.
+                    Ok(_) => self.services.busy_video.restarted(&self.video_key),
                     Err(error) => {
                         if error.failure().kind != FailureKind::Apple(AppleKind::Command) {
                             return Err(error);

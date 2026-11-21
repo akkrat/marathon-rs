@@ -79,10 +79,11 @@ file.
 - **Video off.** `recorder_busy` marks the simulator under the device's lock, as a capture registers, so a capture
   registered after the mark sees it, as before; only the first mark logs the warning. `begin_capture` and the
   recording's post-`ready` check read the registry. Lock order is device state, then registry, never the reverse.
-- **Restart ends it.** `shutdown_device` clears the simulator's entry when it returns a confirmed shutdown. Every
-  shutdown marathon makes goes through it: the on-dispose and on-prepare lifecycles, a boot retry, and D98's own
-  shutdown. A simulator shut down that way gets a fresh video service when its next preparation boots it, so a new
-  object for it records again (as every new object did before x102). Without this, an on-dispose `SHUTDOWN` at a
+- **Restart ends it.** `shutdown_device` clears the simulator's entry when it returns a confirmed shutdown: the
+  on-dispose and on-prepare lifecycles and D98's own shutdown go through it. A boot from `Shutdown` in a preparation
+  (`boot_failure`'s successful `simctl boot`) clears it too, which covers the simulator that went down without
+  `shutdown_device` (a crash, or `shutdown_after_failed_boot`, which calls `simctl shutdown` directly). Either way the
+  simulator gets a fresh video service, so a new object for it records again (as every new object did before x102). Without this, an on-dispose `SHUTDOWN` at a
   recovery would have kept video off on a simulator that was already clean.
 - **Exactly once at the run's end.** `shut_down_busy_video_by` claims the simulator (`claim_run_end`, `Off` to
   `Claimed` under the registry lock) after the silent skips (configured shutdown or erase, not connected, quarantined)

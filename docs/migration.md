@@ -285,9 +285,9 @@ no configuration change. An iOS recorder gets INT only after simctl has printed 
 by its INT cutoff gets TERM there, so a stop takes no longer than before. A simulator whose video service is busy
 (simctl's "A recording is already in progress") gets one warning and no further `recordVideo` command for the rest of
 the run, also after it is set up again during the run, and is shut down once at the end of the run, within its
-existing release window, unless the on-dispose lifecycle already shuts it down or erases it. If SSH command filters on a worker list allowed commands,
-allow `xcrun simctl shutdown <udid>`. Workers without usable Perl keep the legacy recorder, which this does not
-change.
+existing release window, unless the on-dispose lifecycle already shuts it down or erases it. If SSH command filters
+on a worker list allowed commands, allow `xcrun simctl shutdown <udid>`. Workers without usable Perl keep the legacy
+recorder, which this does not change.
 
 ### A finite `uncompletedTestRetryQuota` (D47)
 

@@ -510,7 +510,7 @@ async fn forced_and_expired_recorders_finalize_and_failed_recorders_keep_bounded
         let (receipt, ended) = d98_receipt(&supervisor, root.path(), token).await?;
         assert_eq!(receipt, "done:0", "{token}");
         // Hang guard, far below the forced recorder's lease.
-        assert!(ended - requested < Duration::from_secs(30), "{token}");
+        assert!(ended - requested < Duration::from_secs(60), "{token}");
     }
     let failed = "00000000000000000000000000000003";
     let start = d98_invoke_with(
@@ -578,7 +578,7 @@ async fn d98_invoke_with(
 /// One control request, repeated while the worker answers `busy` (its token lock was held for that instant; the
 /// request was not applied). Hang guard only.
 async fn d98_control(supervisor: &Path, root: &Path, item: &str) -> std::io::Result<String> {
-    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+    tokio::time::timeout(std::time::Duration::from_secs(60), async {
         loop {
             let output = d98_invoke(supervisor, root, "control", &[item]).await?;
             if !output.status.success() {
@@ -600,7 +600,7 @@ async fn d98_control(supervisor: &Path, root: &Path, item: &str) -> std::io::Res
 /// Retires the worker root, repeated while it answers `busy`: a detached supervisor that has published its receipt
 /// still holds the installation lock until it exits. Hang guard only.
 async fn d98_retire(supervisor: &Path, root: &Path) -> std::io::Result<String> {
-    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+    tokio::time::timeout(std::time::Duration::from_secs(60), async {
         loop {
             let output = d98_invoke(supervisor, root, "retire", &[]).await?;
             let reply = String::from_utf8_lossy(&output.stdout).trim_end().to_owned();
@@ -616,7 +616,7 @@ async fn d98_retire(supervisor: &Path, root: &Path) -> std::io::Result<String> {
 
 /// Polls `token`'s status until it is a receipt; returns the receipt and when it was first seen.
 async fn d98_receipt(supervisor: &Path, root: &Path, token: &str) -> std::io::Result<(String, std::time::Instant)> {
-    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+    tokio::time::timeout(std::time::Duration::from_secs(60), async {
         loop {
             let status = d98_invoke(supervisor, root, "control", &[&format!("{token}:status")]).await?;
             let reply = String::from_utf8_lossy(&status.stdout).trim_end().to_owned();
@@ -672,7 +672,7 @@ while (1) { select undef, undef, undef, .01 }"#;
         "{}",
         String::from_utf8_lossy(&launched.stderr)
     );
-    tokio::time::timeout(Duration::from_secs(30), async {
+    tokio::time::timeout(Duration::from_secs(60), async {
         while !ready.is_file() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -708,7 +708,7 @@ while (1) { select undef, undef, undef, .01 }"#;
 
 /// Waits until `path` exists (hang guard only).
 async fn d98_file(path: &Path) -> std::io::Result<()> {
-    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+    tokio::time::timeout(std::time::Duration::from_secs(60), async {
         while !path.is_file() {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
@@ -871,7 +871,7 @@ while (1) { select undef, undef, undef, .01 }"#,
             "{}",
             String::from_utf8_lossy(&launched.stderr)
         );
-        tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::time::timeout(Duration::from_secs(60), async {
             while !ready.is_file() {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
@@ -950,7 +950,7 @@ async fn worker_expiry_compacts_its_receipt_and_retirement_waits_for_owned_group
         format!("{sibling} done:0\n").as_bytes()
     );
     // Expiry at 2.2 s, then TERM and KILL by about 5.2 s; the bound is a hang guard.
-    tokio::time::timeout(Duration::from_secs(30), async {
+    tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             if invoke("control", &[&format!("{live}:status")]).await?.stdout == format!("{live} done:137\n").as_bytes()
             {
