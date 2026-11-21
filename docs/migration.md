@@ -290,7 +290,7 @@ that. At the end of the run marathon makes one bounded attempt to shut it down, 
 unless the on-dispose lifecycle already shuts it down or erases it, its work was not confirmed to have ended, it is
 quarantined or no longer the run's, too little time is left, or a signal arrived. If its video service is still busy
 after that, restart the simulator before it records again. The busy warning and the line reporting the shutdown, or
-why it did not happen, print with `debug: false` (x104); in 0.15.1 they needed `debug: true`. If SSH command filters
+why it did not happen, print with `debug: false` from 0.15.2 (x104); in 0.15.1 they needed `debug: true`. If SSH command filters
 on a worker list allowed commands, allow `xcrun simctl shutdown <udid>`. Workers without usable Perl keep the legacy
 recorder, which this does not change.
 

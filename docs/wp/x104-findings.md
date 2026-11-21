@@ -95,6 +95,12 @@ Fable (Sol and Muse were out of quota), round 1, no blocking findings:
 | 3 | The supervisor warning is not deduplicated: every receipt with stderr warns, so the farm's three warnings may be fewer recorders | Pre-existing; recorded below |
 | 4 | No test of the subject-less warning form | Unreachable today (only recordings open detached leases); left |
 
+Fable, review of the 0.15.2 notes (all taken): the busy-text limit names the Xcode 26.6 wording; the evidence no
+longer implies D98 emitted hidden lines (what held the service is unknown) and gives the retry cost of video on; the
+intro's "unchanged" is qualified by the detection widening and links D98; "planned" wording replaced by what is not
+recorded, including the unshown `simctl shutdown` permission on a farm; the supervisor limit moved next to the D98
+limits; the migration note and the deviations guide name 0.15.2.
+
 ## Incidental bugs
 
 - The worker supervisor's recorder-failure warning is logged for every receipt that carries stderr (start probes and

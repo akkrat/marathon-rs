@@ -12,7 +12,7 @@ PLAN §3.11 records no per-row approval dates for D55–D65. Its heading date,
 2026-10-12, is the section's original approval date. D68–D81 ship in 0.14.0 (D68–D72 and D74–D77
 first in 0.14.0-rc.1, D78–D81 in 0.14.0-rc.2); they fix run-stability and device-handling bugs, add a native-only
 flakiness strategy (D72), and change JUnit retry elements, the iOS boot wait and video transfers, and Android coverage
-without `run-as`. D82–D88 and D90–D97 ship in 0.15.0, first in 0.15.0-rc.1, and D98 in 0.15.1. D82 sends Android retries to another device
+without `run-as`. D82–D88 and D90–D97 ship in 0.15.0, first in 0.15.0-rc.1, and D98 in 0.15.1 (its log lines print with `debug: false` from 0.15.2). D82 sends Android retries to another device
 and D83 gives copies of different tests turns in the queue. D84–D88 and D90 improve run stability, D91–D95 bound teardown,
 D96 establishes process ownership, and D97 publishes complete artifacts and reserves time for signal cleanup.
 See the [changelog](../CHANGELOG.md).
@@ -3321,7 +3321,7 @@ simulator left the devices file (it is no longer the run's), when the provider d
 quarantined simulator. This completes the promise that the next run boots the simulator clean; it adds no command
 beyond the one `simctl shutdown` per busy simulator. See [x102 findings](wp/x102-findings.md).
 
-**x104 (2026-11-21).** D98's own lines print with `debug: false`: the busy warning and every line reporting the
+**x104 (2026-11-21, 0.15.2).** D98's own lines print with `debug: false`: the busy warning and every line reporting the
 end-of-run shutdown or why it did not happen (including the skip after a signal and the provider termination's
 shutdown) log on the target `marathon_ios::busy_video`, which keeps INFO and WARN with debug off (DEBUG with debug
 on). In 0.15.1 they were on ordinary iOS targets, which print only ERROR with debug off. On a supervised SSH worker,

@@ -5,8 +5,11 @@ The section for a version becomes the text of its GitHub release, which carries 
 ## 0.15.2
 
 This release makes 0.15.1's iOS video handling visible in ordinary logs. The inputs, the CLI, the configuration,
-worker commands, test results and the exit status are unchanged. D98's lines (one warning for a simulator whose video
-service is busy, and the line reporting its end-of-run shutdown or why it did not happen) now print with
+worker commands, test results and the exit status are unchanged for every known `simctl` output (see the iOS entry
+for the one widening of busy detection). The lines of
+[D98](docs/deviations.md#d98--a-simulator-recorder-is-never-interrupted-before-it-has-started) (one warning for a
+simulator whose video service is busy, and the line reporting its end-of-run shutdown or why it did not happen) now
+print with
 `debug: false`, so a run's log has a few more INFO and WARN lines when that happens. Everything else is as in
 [0.15.1](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG.md#0151), whose notes still apply.
 
@@ -25,16 +28,19 @@ service is busy, and the line reporting its end-of-run shutdown or why it did no
 ### Evidence
 
 - A run of the full iOS UI-test job of a private CI farm with video recording turned on (0.15.1, Xcode 26.6 workers,
-  `debug: false`) gave the same per-test results as with video off and delivered a video for every failed attempt,
-  none undelivered. It found what this release fixes: three recorders refused with Xcode 26.6's wording of the busy
-  refusal, and no D98 line in the log, because those lines were filtered out with `debug: false`.
+  `debug: false`) gave the same per-test results as with video off after retries, and delivered a video for every
+  failed attempt, none undelivered. It had more failed attempts than with video off (28 against 10), as the JVM build
+  did with video on (33), so that is the cost of recording. It found what this release fixes: three recorders were
+  refused with Xcode 26.6's wording of the busy refusal, and the log could not show whether D98 marked those simulators
+  busy or shut them down, because its lines were filtered out with `debug: false`; what held their video service is
+  not known.
 - The [x104 findings](docs/wp/x104-findings.md) record the witnesses, each shown to fail without its fix: a filter test
   of the new log target, the D98 witnesses rerun with `debug: false` and checked for the target of each line, and a
   supervisor witness on a fake SSH worker that checks the simulator and worker names and the restart hint for the old
   wording, the Xcode 26.6 wording and a bare "Resource busy". A review by another model found nothing blocking.
 - CI runs the repository gate on macOS and Linux; it passes on the code of this release.
-- Not exercised on real hosts before this release: the changed lines themselves. A farm run with video on is planned
-  on this release.
+- Not exercised on real hosts: the changed lines themselves. No farm run of this release with video on is recorded here,
+  and whether a farm's simulator manager permits D98's `xcrun simctl shutdown` is still not shown.
 
 ### Known limits
 
@@ -98,12 +104,15 @@ service is busy, and the line reporting its end-of-run shutdown or why it did no
   it left the devices file or the run did not hold its lease, or when the on-dispose lifecycle shuts it down or erases
   it (even if that lifecycle step fails). If the video service is still busy afterwards, restart the simulator
   (`xcrun simctl shutdown <udid>`, then `xcrun simctl boot <udid>`) before it records again (D98).
-- Marathon recognises a busy video service by simctl's English text (`Resource busy` or `A recording is already in
-  progress`) with status 16; a localized message without either phrase is not recognised, and the run then reports
-  each lost video, as 0.15.0 did (D98).
+- Marathon recognises a busy video service by simctl's English text (`Resource busy`, or `A recording is already in
+  progress`, which Xcode 26.6 words `Host recording is already in progress`) with status 16; a localized message
+  without either phrase is not recognised, and the run then reports each lost video, as 0.15.0 did (D98).
 - If a signal arrives during the end-of-run shutdown of a busy simulator, the lease release after it can have no time
   left; it is still bounded by D97's finish. A replacement simulator whose registration failed after it joined the
   provider (D74) is not shut down at the end of the run (D98).
+- On an SSH worker with Perl, the worker supervisor's warning for a refused recorder is logged for every reply that
+  carries the recorder's stderr, so one refused recorder can produce more than one warning; each names its simulator
+  and worker (x104).
 - Zero-byte Android videos were seen in a real run, also seen in earlier runs and judged a pre-existing recording
   issue; D97 delivers a complete zero-byte file.
 - A D88 monitor failure that ends Android device tracking has not been provoked on a real device; it is covered only by
@@ -128,8 +137,6 @@ service is busy, and the line reporting its end-of-run shutdown or why it did no
   without them (D25).
 - Apple event/line scheduling can move a boundary line between per-test and batch logs (A20). The Phase 8 differential
   harness gates that interleaving; production retains it ([WP 8.12](docs/wp/8.12-test-changes.md#differential-only-eventline-gates)).
-- The worker supervisor's warning for a refused recorder is logged for every reply that carries the recorder's
-  stderr, so one refused recorder can produce more than one warning; each names its simulator and worker (x104).
 
 ## 0.15.1
 
