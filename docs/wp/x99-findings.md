@@ -223,9 +223,9 @@ worker sources.
   the SSH lease release after it is not left with an already-passed deadline (which logged a second "lease release
   timed out" warning and abandoned the connection). The CLI witness now runs with no on-dispose lifecycle and counts
   the shutdown commands (1 for the busy refusal, 0 for a bare status 16), so a normal run end (`Termination`) is covered.
-- Known limit: the video-off state belongs to the device object, not the simulator. A simulator replaced during the run
-  gets a fresh object, which tries recording once more (a second warning and one more undelivered movie); a replaced
-  simulator that runs no later test is not shut down at the run's end.
+- The video-off state belonged to the device object, not the simulator, so a simulator set up again during the run
+  tried recording once more and one disposed of during the run was not shut down at its end. x102 (U259) moved it to
+  the simulator for the whole run; see [x102 findings](x102-findings.md).
 
 - The SSH path's marker detection ran against real simctl through the worker script on this Mac, not over SSH on a
   remote worker; the orchestrator's acceptance run covers that.

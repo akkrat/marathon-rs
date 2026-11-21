@@ -3307,6 +3307,19 @@ exit status do not change.
 The legacy recorder on a worker without usable Perl redirects simctl's output to `/dev/null`, so neither the start
 nor a busy failure is visible there; it keeps D96's behaviour. macOS devices do not record video.
 
+**x102 (2026-11-21).** The busy state belongs to the simulator, by worker and UDID, for the whole run, not to the
+device object that found it. A simulator set up again during the run (recovered after a loss, or added back to the
+devices file) gets a new device object; that object launches no `recordVideo` and logs no second warning. The state
+ends when the simulator is confirmed shut down (by the on-dispose or on-prepare lifecycle, a boot retry or this
+shutdown), since its next preparation boots it with a fresh video service. At the run's end each busy simulator is
+shut down at most once, by the device object that serves it then. If that object was disposed of during the run (its
+recovery could not set it up again, or it was lost too often), the provider's termination shuts the simulator down
+after that disposal and before releasing its lease, within the termination's 70 s window less the force reserve, with
+the same conditions, lines and bounds as above, and with the same warning instead after a signal. It does not when the
+simulator left the devices file (it is no longer the run's), when the provider does not hold its lease, or on a
+quarantined simulator. This completes the promise that the next run boots the simulator clean; it adds no command
+beyond the one `simctl shutdown` per busy simulator. See [x102 findings](wp/x102-findings.md).
+
 **Migration action:** none, unless SSH command filters on the worker list allowed commands: allow
 `xcrun simctl shutdown <udid>` there. A simulator whose video service is busy and that marathon could not shut down
 needs a restart (`xcrun simctl shutdown <udid>`, then `xcrun simctl boot <udid>`) before it records again.

@@ -4,15 +4,17 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## Unreleased
 
-- **iOS video no longer wedges a slow simulator (D98, U251–U253, U258):** a screen recorder that was stopped right after it
+- **iOS video no longer wedges a slow simulator (D98, U251–U253, U258, U259):** a screen recorder that was stopped right after it
   was launched, before `simctl` had confirmed `Recording started`, could leave the simulator unable to record again
   until it was restarted, losing every later video on it in that run and later runs ("A recording is already in
   progress"). Marathon now waits for `simctl`'s confirmation before it interrupts a recorder, within the existing stop
   time, locally and on SSH workers with Perl. If a simulator's video service is still busy, marathon logs one warning
   naming it and stops recording video on it for the rest of the run instead of failing once per test, then shuts the
   simulator down when the run releases it so the next run boots it clean (one extra `xcrun simctl shutdown`, skipped
-  when the on-dispose lifecycle already shuts it down or erases it, or when too little release time is left). Test
-  results and the exit status are unchanged. The legacy recorder on workers without Perl is unchanged.
+  when the on-dispose lifecycle already shuts it down or erases it, or when too little release time is left). This
+  holds per simulator for the whole run: one that marathon sets up again after losing it gets no second
+  warning and no recorder, and one that ran no later test is still shut down at the run's end. Test results and the
+  exit status are unchanged. The legacy recorder on workers without Perl is unchanged.
 
 ## 0.15.0
 
