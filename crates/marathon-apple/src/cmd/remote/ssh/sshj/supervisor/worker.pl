@@ -258,11 +258,10 @@ sub run_owned {
     close $errors_w if $recorder;
     my $group = setpgrp($anchor, $anchor);
     my $permitted = $group && syswrite($go_w, 'P', 1) == 1;
-    # Created after the fork, so neither the anchor nor the payload holds it.
-    # The first state read below follows it, so no earlier request is missed.
-    my ($wake, $wake_w) = $permitted ? open_wake($dir) : ();
-    # Without a wake FIFO the state is polled as often as before it existed.
-    my $poll = $wake ? 1000 : 25;
+    # Short commands end before the wake FIFO is due and never pay for it
+    # (loading POSIX and the FIFO cost more than their few 25 ms polls).
+    my ($wake, $wake_w);
+    my $wake_due = clock_ms() + 250;
     my $rc = 125;
     my $seen = 0;
     my ($interrupt_at, $term_at, $interrupted, $stopping);
@@ -273,6 +272,15 @@ sub run_owned {
     my $trace = defined $ENV{MARATHON_D96_TEST_WAKES} ? '' : undef;
     eval {
         while ($permitted) {
+            # Opened after the fork, so neither the anchor nor the payload
+            # holds it, and before this pass reads the state, so a request
+            # committed before it existed is seen now.
+            if (defined $wake_due && clock_ms() >= $wake_due) {
+                ($wake, $wake_w) = open_wake($dir);
+                undef $wake_due;
+            }
+            # Without the FIFO the state is polled as often as before it existed.
+            my $poll = $wake ? 1000 : 25;
             my $observed = locked($dir, sub { (undef, [$_[1], $_[2]]) });
             ($expiry, $wanted) = @$observed if defined $observed;
             my $now = clock_ms();

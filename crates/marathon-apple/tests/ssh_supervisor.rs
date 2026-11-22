@@ -2301,6 +2301,14 @@ open my $f, '>', $ready or die $!; close $f; while (1) { select undef, undef, un
         &trace,
     )?;
     d98_file(&ready).await?;
+    // The owner opens its wake FIFO once the command has run for 250 ms; until then it polls as before.
+    let fifo = root.path().join(format!("{token}.wake"));
+    tokio::time::timeout(Duration::from_secs(60), async {
+        while std::fs::symlink_metadata(&fifo).is_err() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
     let requested = Instant::now();
     let reply = d98_control(&supervisor, root.path(), &format!("{token}:1")).await?;
     assert!(reply.starts_with(&format!("{token} running:")), "{reply}");
@@ -2317,7 +2325,7 @@ open my $f, '>', $ready or die $!; close $f; while (1) { select undef, undef, un
     // The INT request wrote to the owner's wake FIFO and the owner read it there, not on a later poll. The force
     // request may end the loop before its own wake is read.
     assert!(trace.contains('w'), "{trace}");
-    assert!(!root.path().join(format!("{token}.wake")).exists());
+    assert!(std::fs::symlink_metadata(&fifo).is_err());
     assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
     Ok(())
 }
@@ -2387,9 +2395,10 @@ open my $f, '>', $ARGV[0] or die $!; close $f; while (1) { select undef, undef, 
     let elapsed = started.elapsed();
     let traces = x111_traces(&trace)?;
     assert_eq!(traces.len(), 2, "{traces:?}");
-    // About one fallback poll a second, plus the few events of a start and a stop. The old loop passed at least 20
-    // times a second (40 when idle), so it exceeds this for any window of a second or more.
-    let ceiling = elapsed.as_secs() as usize + 8;
+    // The old cadence for the first 250 ms (at most 10 passes), then about one fallback poll a second, plus the few
+    // events of a start and a stop. The old loop passed 40 times a second when idle, so it exceeds this for any
+    // window of a second or more.
+    let ceiling = elapsed.as_secs() as usize + 20;
     for trace in &traces {
         println!("{} passes in {elapsed:?}: {trace}", trace.len());
         assert!(trace.len() <= ceiling, "{} passes in {elapsed:?}: {trace}", trace.len());
