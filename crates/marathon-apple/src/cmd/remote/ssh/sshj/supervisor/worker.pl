@@ -155,7 +155,7 @@ sub open_wake {
 # The longest sleep of an owner whose wake FIFO is open. select's timeout is
 # relative, so an owner descheduled after choosing its sleep sleeps the rest of
 # it after resuming: this bounds how late that makes it to act on a deadline.
-my $longest_sleep = 100;
+use constant LONGEST_SLEEP => 100;
 
 # The time in ms until the owner's next pass and what it waits for: the lease
 # expiry until the pass has acted on it (force), a recorder's TERM deadline (2 s
@@ -338,7 +338,7 @@ sub run_owned {
             }
             # x111-test-hook: pass
             # Without the FIFO the state is polled as often as before it existed.
-            my $poll = $wake ? $longest_sleep : 25;
+            my $poll = $wake ? LONGEST_SLEEP : 25;
             # x111-test-hook: poll
             my $observed = locked($dir, sub { (undef, [$_[1], $_[2]]) });
             ($expiry, $wanted) = @$observed if defined $observed;

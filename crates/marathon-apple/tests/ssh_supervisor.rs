@@ -2457,7 +2457,11 @@ fn the_shipped_worker_script_has_no_test_hooks_and_the_tests_run_its_logic_x111(
     assert!(x111_hook_violation(&dropped).is_some(), "a missing marker");
     // And a copy that changes anything but the markers is not the shipped logic.
     let changed = [
-        copy.replacen("my $longest_sleep = 100;", "my $longest_sleep = 1000;", 1),
+        copy.replacen(
+            "use constant LONGEST_SLEEP => 100;",
+            "use constant LONGEST_SLEEP => 1000;",
+            1,
+        ),
         copy.replacen("\nsub readable {", "\nmy $x = 1;\nsub readable {", 1),
         copy.replacen("$now += $skew;", "$now += $skew + 1;", 1),
         format!("{copy}1;\n"),
@@ -2786,6 +2790,7 @@ fn the_worker_supervisor_sleeps_until_its_next_deadline_x111() -> Result<(), Box
     ];
     let worker = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/cmd/remote/ssh/sshj/supervisor/worker.pl");
     let program = r#"my $worker = shift; do $worker or die "load worker: ", $@ || $!;
+print main::LONGEST_SLEEP(), "\n";
 for (@ARGV) { print join(' ', next_wake(map { $_ eq '-' ? undef : $_ } split / /)), "\n" }"#;
     let output = std::process::Command::new("/usr/bin/perl")
         .arg("-e")
@@ -2795,7 +2800,11 @@ for (@ARGV) { print join(' ', next_wake(map { $_ eq '-' ? undef : $_ } split / /
         .output()?;
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let stdout = String::from_utf8(output.stdout)?;
-    let chosen: Vec<&str> = stdout.lines().collect();
+    let mut chosen = stdout.lines();
+    // An owner whose wake FIFO is open sleeps at most 100 ms: after being descheduled anywhere in a pass, it acts on
+    // a deadline that passed meanwhile within 100 ms of resuming.
+    assert_eq!(chosen.next(), Some("100"), "the longest sleep");
+    let chosen: Vec<&str> = chosen.collect();
     assert_eq!(chosen.len(), cases.len(), "{stdout}");
     for ((case, expected, why), chosen) in cases.iter().zip(chosen) {
         assert_eq!(chosen, *expected, "{why}: {case}");
@@ -2883,8 +2892,8 @@ while (1) { select undef, undef, undef, .01 }"#;
 /// its sleep from a stale sample (`sample`), or after it chose its sleep, right before `select` (`sleep`). It stops
 /// itself with SIGSTOP until the test continues it past the expiry. It must act on the expiry within its longest
 /// sleep (100 ms) of resuming, not sleep the stale 5 s its sample put before the expiry: a `run` command ends
-/// `done:137` well within 2.5 s of SIGCONT, which separates the two (round 3 slept the 5 s; round 4 woke with a
-/// kernel timer).
+/// `done:137` well within 2.5 s of SIGCONT, which separates the two. The 100 ms itself is pinned by
+/// `the_worker_supervisor_sleeps_until_its_next_deadline_x111`, not by a real-time bound.
 async fn x111_descheduled_witness(point: &str) -> Result<(), Box<dyn std::error::Error>> {
     use std::time::{Duration, Instant};
     let (root, supervisor) = x111_root()?;
