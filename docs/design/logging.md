@@ -100,6 +100,17 @@ busy simulator video service and its end-of-run shutdown, U260), and
 `marathon_core::timing` today; the `marathon_ios::device::timing` directive
 is kept for that module's own records.
 
+Run-end timing lines (WP x110) are INFO on `marathon_core::timing`, once per
+run, worded by `marathon_core::run_end` for every vendor: `Artifact
+finalization at run end took …` (iOS's wait for its artifact queue, with the
+items it found unfinished), `Device release at run end took …` (each
+provider's disposal of its devices, with their count and, for several, the
+slowest) and `Reports at run end took …` (the reporters' generation, after the
+stdout summary). They carry no `(+N ms since start)` suffix: that suffix reads
+the labelled wall clock, which replay tapes would have to script. Comparisons
+with JVM recordings leave out exactly these lines
+(`marathon_test_support::run_end`).
+
 Two registry details matter:
 
 - `LogSettings::enabled_target` with no vendor configured yet

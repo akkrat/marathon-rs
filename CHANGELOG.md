@@ -2,6 +2,16 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
+## Unreleased
+
+- **The log now shows how long the end of a run took (x110):** with `debug: false` too, a run's log now says how long
+  each step after the last test took: artifact delivery (iOS: the wait for xcresult pulls and remote cleanups still
+  queued, and how many there were), device release (every vendor: how long disposing of all devices took, how many,
+  and the slowest one), and reports (how long writing them took, and the slowest reporter). Each is one INFO line on
+  `marathon_core::timing`, for example `Device release at run end took 2.9 s (iOS, 4 devices; slowest <udid>, 2.9 s)`.
+  The reports line comes after the run summary. Nothing else changes: the summary, the report files, test results
+  and the exit status are the same.
+
 ## 0.15.3
 
 This release stops marathon from starting a recorder beside its own previous one on local iOS simulators and

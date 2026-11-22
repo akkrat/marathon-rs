@@ -375,21 +375,27 @@ async fn run_end_logs_artifact_finalization_and_device_release_timings_without_d
         },
         70_000,
     )?;
-    // Once the run ends, a's disposal takes 2 s (its shutdown does). The fake's boot state is shared, so b is shut down
-    // by then and its disposal is immediate.
+    // Once the run ends, the first simulator shut down takes 2 s for it, and is the slowest to dispose of. The fake's boot
+    // state is shared, so the other one finds its simulator shut down by then, or shuts it down at once.
     let ending = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let slow = Arc::new(std::sync::Mutex::new(None::<String>));
     let boot = p.h.boot.clone();
     *p.h.worker.before.lock().unwrap() = Arc::new({
-        let ending = ending.clone();
+        let (ending, slow) = (ending.clone(), slow.clone());
         move |command| {
             let answer = boot.answer(&command);
-            let slow = ending.load(Ordering::SeqCst)
-                && command
+            let first = ending.load(Ordering::SeqCst)
+                && command.len() == 4
+                && command[..3]
                     .iter()
                     .map(String::as_str)
-                    .eq(["xcrun", "simctl", "shutdown", "a"]);
+                    .eq(["xcrun", "simctl", "shutdown"])
+                && {
+                    let mut slow = slow.lock().unwrap();
+                    slow.is_none() && slow.replace(command[3].clone()).is_none()
+                };
             Box::pin(async move {
-                if slow {
+                if first {
                     tokio::time::sleep(Duration::from_secs(2)).await;
                 }
                 Ok(answer)
@@ -447,7 +453,10 @@ async fn run_end_logs_artifact_finalization_and_device_release_timings_without_d
             ),
             (
                 marathon_logging::Level::INFO,
-                "Device release at run end took 2.0 s (iOS, 2 devices; slowest a, 2.0 s)".to_owned()
+                format!(
+                    "Device release at run end took 2.0 s (iOS, 2 devices; slowest {}, 2.0 s)",
+                    slow.lock().unwrap().clone().expect("no simulator was shut down")
+                )
             ),
         ]
     );
