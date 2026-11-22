@@ -6,6 +6,10 @@ use Errno qw(ENOENT ESRCH EAGAIN EWOULDBLOCK EINTR);
 
 sub clock_ms { int(clock_gettime(CLOCK_MONOTONIC) * 1000) }
 
+# Test hooks. The shipped script never sets one, so every branch that reads
+# them is dead; the tests run a copy in which this line fills the table.
+my %hook;
+
 sub readable {
     my ($file, $delay) = @_;
     my $bits = '';
@@ -56,7 +60,7 @@ sub locked {
         my $suffix = $done ? 'receipt' : 'state';
         rename "$token.pending", "$token.$suffix" or die "commit state: $!";
         # Test hook: a control request killed between its commit and its exit.
-        kill 'KILL', $$ if $notify && $ENV{MARATHON_D96_TEST_KILL_AFTER_COMMIT};
+        kill 'KILL', $$ if $notify && $hook{kill_after_commit};
         unlink "$token.state", "$token.lock" if $done;
     }
     close $lock or die "close lock: $!";
@@ -106,8 +110,8 @@ sub control {
 # byte while it holds the token lock, before it commits the state. Any state
 # read that succeeds after the byte was written therefore follows the commit
 # (or the writer's death without one): a woken owner sees the change or finds
-# the lock busy and retries in 10 ms. A byte the owner has not drained keeps
-# its next select from sleeping.
+# the lock busy and retries (1 ms, then every 10 ms). A byte the owner has not
+# drained keeps its next select from sleeping.
 sub wake {
     my ($dir) = @_;
     my $fifo;
@@ -146,15 +150,16 @@ sub open_wake {
 }
 
 # The time in ms until the owner's next pass and what it waits for: the lease
-# expiry while it is ahead, a recorder's TERM deadline (2 s after the first stop
-# request or expiry, until TERM is sent) and KILL deadline (1 s after TERM when
-# forced), a busy retry ($retry ms, 0 for none), or the fallback poll.
-# Deadlines win ties; never below 10 ms except for a shorter retry.
+# expiry until the pass has acted on it (force), a recorder's TERM deadline (2 s
+# after the first stop request or expiry, until TERM is sent) and KILL deadline
+# (1 s after TERM when forced), a busy retry ($retry ms, 0 for none), or the
+# fallback poll. A deadline that is due or past is never dropped: it gets the
+# floor. Deadlines win ties; never below 10 ms except for a shorter retry.
 sub next_wake {
     my ($now, $expiry, $interrupt_at, $term_at, $stopping, $force, $retry, $poll) = @_;
     my @due = ([$poll, 'p']);
     push @due, [$retry, 'b'] if $retry;
-    push @due, [$expiry - $now, 'd'] if $now < $expiry;
+    push @due, [$expiry - $now, 'd'] if !$force;
     if (defined $interrupt_at) {
         push @due, [$interrupt_at + 2000 - $now, 'd'] if $stopping && !defined $term_at;
         push @due, [$term_at + 1000 - $now, 'd'] if $force && defined $term_at;
@@ -313,9 +318,10 @@ sub run_owned {
     my $starting = 1;
     my $woken = 0;
     # Test hook: one letter per pass of the loop, by what woke it.
-    my $trace = defined $ENV{MARATHON_D96_TEST_WAKES} ? '' : undef;
+    my $trace = defined $hook{wakes} ? '' : undef;
     # Test hook: a longer fallback poll, so a witness can tell a wake from a poll.
-    my $fallback = ($ENV{MARATHON_D96_TEST_FALLBACK_MS} // '') =~ /\A([1-9][0-9]{0,6})\z/ ? $1 : 1000;
+    my $fallback = $hook{fallback_ms} // 1000;
+    my $paused;
     eval {
         while ($permitted) {
             # Opened after the fork, so neither the anchor nor the payload
@@ -401,8 +407,24 @@ sub run_owned {
             # its commit, a moment later, so the first retry after a wake comes
             # sooner; a lock held longer is retried every 10 ms.
             my $retry = !defined $observed || ($confirmed && !$published) ? ($woken ? 1 : 10) : 0;
-            my ($delay, $cause) = next_wake(clock_ms(), $expiry, $interrupt_at, $term_at, $stopping, $force,
+            # Test hook: the owner is descheduled across the lease expiry
+            # between this pass's checks and its sleep.
+            if ($hook{pause_across_expiry} && $wake && !$paused && $now < $expiry) {
+                $paused = 1;
+                $trace .= '!' if defined $trace;
+                while ((my $left = $expiry - clock_ms()) >= 0) {
+                    select undef, undef, undef, ($left + 5) / 1000;
+                }
+            }
+            # The pass's own clock sample, the one its checks used, chooses
+            # what to wait for, so a deadline those checks found ahead is
+            # never dropped. Only the time this pass has taken since that
+            # sample is taken off the sleep: it wakes at the chosen time, or
+            # at once if that has passed.
+            my ($delay, $cause) = next_wake($now, $expiry, $interrupt_at, $term_at, $stopping, $force,
                 $retry, $poll);
+            $delay -= clock_ms() - $now;
+            $delay = 0 if $delay < 0;
             my $bits = '';
             vec($bits, fileno($status), 1) = 1;
             vec($bits, fileno($ready), 1) = 1 if $starting;
@@ -447,7 +469,7 @@ sub run_owned {
             }
         }
     }
-    if (defined $trace && open my $file, '>>', $ENV{MARATHON_D96_TEST_WAKES}) {
+    if (defined $trace && open my $file, '>>', $hook{wakes}) {
         print {$file} "$trace\n";
         close $file;
     }

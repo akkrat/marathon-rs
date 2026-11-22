@@ -2248,9 +2248,51 @@ async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-/// Starts `mode` (`run` or `detach`) with the worker's wake trace hook on: the owner appends one letter per pass of
-/// its monitor loop to `trace`, by what woke it (`e` a pipe, `w` the wake FIFO, `d` a deadline, `b` a busy retry, `p`
-/// the fallback poll), once it has ended and before its receipt. `env` sets further test hooks.
+/// The shipped worker script's hook table: empty, and never written anywhere else in the script.
+const X111_HOOKS: &str = "\nmy %hook;\n";
+
+/// A worker root like [`d98_root`] whose `supervisor.pl` is a copy of the worker script with its test hooks filled
+/// from the environment: `MARATHON_D96_TEST_<NAME>` sets hook `<name>`. The shipped script reads no such variable.
+fn x111_root() -> std::io::Result<(tempfile::TempDir, std::path::PathBuf)> {
+    let (root, supervisor) = d98_root()?;
+    let script = include_str!("../src/cmd/remote/ssh/sshj/supervisor/worker.pl");
+    assert_eq!(script.matches(X111_HOOKS).count(), 1);
+    let hooked = script.replacen(
+        X111_HOOKS,
+        "\nmy %hook = map { /\\AMARATHON_D96_TEST_([A-Z_]+)\\z/ ? (lc $1, $ENV{$_}) : () } keys %ENV;\n",
+        1,
+    );
+    std::fs::write(&supervisor, hooked)?;
+    Ok((root, supervisor))
+}
+
+/// The test hooks are inert in the shipped script: its hook table is declared empty once and never written, and it
+/// reads no test variable from its environment, so no worker environment or controller can turn one on.
+#[test]
+fn the_shipped_worker_script_has_no_reachable_test_hooks_x111() {
+    let script = include_str!("../src/cmd/remote/ssh/sshj/supervisor/worker.pl");
+    assert_eq!(script.matches(X111_HOOKS).count(), 1);
+    assert_eq!(script.matches("%hook").count(), 1, "the table is only declared");
+    assert!(!script.contains("MARATHON_D96_TEST"));
+    let mut reads = 0;
+    for (at, _) in script.match_indices("$hook{") {
+        reads += 1;
+        let rest = &script[at..];
+        let after = rest[rest.find('}').unwrap() + 1..].trim_start();
+        assert!(
+            !after.starts_with('=') || after.starts_with("=="),
+            "a hook is written: {}",
+            &rest[..rest.find('\n').unwrap_or(rest.len())]
+        );
+        assert!(!script[..at].ends_with("delete "), "a hook is deleted");
+    }
+    assert!(reads >= 4, "{reads}");
+}
+
+/// Starts `mode` (`run` or `detach`) of the hooked script of [`x111_root`] with its wake trace hook on: the owner
+/// appends one letter per pass of its monitor loop to `trace`, by what woke it (`e` a pipe, `w` the wake FIFO, `d` a
+/// deadline, `b` a busy retry, `p` the fallback poll), once it has ended and before its receipt. `env` sets further
+/// test hooks.
 fn x111_spawn(
     supervisor: &Path,
     root: &Path,
@@ -2281,12 +2323,12 @@ fn x111_traces(trace: &Path) -> std::io::Result<Vec<String>> {
 /// A `run` payload that writes `int` and exits 3 on INT gets INT as the only control request, sent once its owner has
 /// the wake FIFO open for reading. With `kill_after_commit`, the control process is killed right after its commit,
 /// while it still holds the token lock. The owner's fallback poll is 120 s, so INT reaches the payload within the
-/// 60 s hang guard only if the request woke the owner (or was committed before the owner's first state read after
-/// opening the FIFO, which then sees it at once).
+/// 60 s hang guard only if the request woke the owner, or was committed before the owner's first state read after
+/// opening the FIFO, which then sees it at once and may see the payload exit in the same pass, before any `select`.
 async fn x111_stop_witness(kill_after_commit: bool) -> Result<(), Box<dyn std::error::Error>> {
     use std::os::unix::{fs::OpenOptionsExt, process::ExitStatusExt};
     use std::time::{Duration, Instant};
-    let (root, supervisor) = d98_root()?;
+    let (root, supervisor) = x111_root()?;
     let files = tempfile::tempdir()?;
     let trace = files.path().join("trace");
     let (ready, int) = (files.path().join("ready"), files.path().join("int"));
@@ -2363,8 +2405,9 @@ open my $f, '>', $ready or die $!; close $f; while (1) { select undef, undef, un
     let traces = x111_traces(&trace)?;
     let [trace] = &traces[..] else { panic!("{traces:?}") };
     println!("trace {trace}");
-    // The request's one byte, read from the FIFO.
-    assert_eq!(trace.matches('w').count(), 1, "{trace}");
+    // The request's one byte, read from the FIFO, or none: a request committed after the owner opened the FIFO but
+    // before its first state read is seen by that read, and the payload's exit can follow in the same pass.
+    assert!(trace.matches('w').count() <= 1, "{trace}");
     assert!(std::fs::symlink_metadata(&fifo).is_err());
     assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
     Ok(())
@@ -2396,7 +2439,7 @@ async fn an_idle_supervised_command_and_recorder_wake_rarely_x111() -> Result<()
         eprintln!("worker witness requires stock Perl");
         return Ok(());
     }
-    let (root, supervisor) = d98_root()?;
+    let (root, supervisor) = x111_root()?;
     let files = tempfile::tempdir()?;
     let trace = files.path().join("trace");
     let (command, recorder) = ("00000000000000000000000000000001", "00000000000000000000000000000002");
@@ -2487,9 +2530,34 @@ fn the_worker_supervisor_sleeps_until_its_next_deadline_x111() -> Result<(), Box
         ("1000 3000 - - 0 0 0 1000", "1000 p", "the fallback poll is due first"),
         ("1000 2000 - - 0 0 0 1000", "1000 d", "a deadline wins a tie"),
         (
-            "1000 1000 - - 0 0 0 25",
+            "1000 1000 - - 0 1 0 25",
             "25 p",
-            "an expired lease is acted on in the pass, not waited for",
+            "an expired lease the pass has acted on (forced) is not waited for",
+        ),
+        (
+            "1000 1000 - - 0 0 0 120000",
+            "10 d",
+            "a lease expiring exactly now that the pass has not acted on gets the floor, never the fallback",
+        ),
+        (
+            "1050 1000 - - 0 0 0 120000",
+            "10 d",
+            "a lease expired 50 ms ago that the pass has not acted on gets the floor, never the fallback",
+        ),
+        (
+            "1000 1000 - - 0 0 1 120000",
+            "1 d",
+            "a due deadline with a 1 ms busy retry pending sleeps that 1 ms, not the 10 ms floor",
+        ),
+        (
+            "3000 60000 1000 - 1 0 0 120000",
+            "10 d",
+            "a TERM deadline exactly now gets the floor",
+        ),
+        (
+            "4050 60000 1000 3000 1 1 0 120000",
+            "10 d",
+            "a KILL deadline 50 ms past gets the floor",
         ),
         ("1000 1004 - - 0 0 0 25", "10 d", "never below 10 ms"),
         ("1000 9000 - - 0 0 10 1000", "10 b", "a busy lock is retried in 10 ms"),
@@ -2529,9 +2597,14 @@ fn the_worker_supervisor_sleeps_until_its_next_deadline_x111() -> Result<(), Box
             "no KILL deadline without force",
         ),
         (
-            "3700 3800 1000 3000 1 1 0 1000",
-            "100 d",
+            "2500 2700 1000 - 1 0 0 1000",
+            "200 d",
             "the nearest of several deadlines",
+        ),
+        (
+            "3700 3800 1000 3000 1 1 0 1000",
+            "300 d",
+            "a forced recorder no longer waits for its lease expiry",
         ),
     ];
     let worker = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/cmd/remote/ssh/sshj/supervisor/worker.pl");
@@ -2553,6 +2626,86 @@ for (@ARGV) { print join(' ', next_wake(map { $_ eq '-' ? undef : $_ } split / /
     Ok(())
 }
 
+/// The reviewer's interleaving, made deterministic by a test hook: on its first pass with the wake FIFO open, the
+/// owner's checks find the lease expiry ahead, and the owner is then descheduled until just past it before it chooses
+/// its sleep. With the fallback poll at 120 s, the expiry must still be acted on at once: a `run` command ends 137 and
+/// a confirmed recorder gets INT (and finalizes `done:0`) well within the 30 s bound. A timeout choice from a second
+/// clock sample taken after the pause dropped the expiry and slept the full fallback poll.
+#[tokio::test]
+async fn a_pass_descheduled_across_the_lease_expiry_still_acts_on_it_x111() -> Result<(), Box<dyn std::error::Error>> {
+    use std::time::{Duration, Instant};
+    if !Path::new("/usr/bin/perl").is_file() {
+        eprintln!("worker witness requires stock Perl");
+        return Ok(());
+    }
+    let (root, supervisor) = x111_root()?;
+    let files = tempfile::tempdir()?;
+    let trace = files.path().join("trace");
+    let hooks = [
+        ("MARATHON_D96_TEST_FALLBACK_MS", "120000"),
+        ("MARATHON_D96_TEST_PAUSE_ACROSS_EXPIRY", "1"),
+    ];
+    // Far below the 120 s fallback poll, far above the 1.5 s lease; a hang guard otherwise.
+    let bound = Duration::from_secs(30);
+    let command = "00000000000000000000000000000001";
+    let started = Instant::now();
+    let owner = x111_spawn(
+        &supervisor,
+        root.path(),
+        "1500",
+        "run",
+        &[command, "/bin/sleep", "600"],
+        &trace,
+        &hooks,
+    )?;
+    let output = tokio::time::timeout(bound, owner.wait_with_output()).await??;
+    println!("command ended {:?} after its start", started.elapsed());
+    assert_eq!(output.status.code(), Some(137));
+    let (receipt, _) = d98_receipt(&supervisor, root.path(), command).await?;
+    assert_eq!(receipt, "done:137");
+    let recorder = "00000000000000000000000000000002";
+    let (ready, int) = (files.path().join("ready"), files.path().join("int"));
+    let payload = r#"my ($ready, $int) = @ARGV; $SIG{INT} = sub { open my $f, '>', $int; close $f; exit 0 };
+print STDERR "Recording started\n"; open my $f, '>', $ready or die $!; close $f;
+while (1) { select undef, undef, undef, .01 }"#;
+    let started = Instant::now();
+    let detached = x111_spawn(
+        &supervisor,
+        root.path(),
+        "1500",
+        "detach",
+        &[
+            recorder,
+            "/usr/bin/perl",
+            "-e",
+            payload,
+            ready.to_str().unwrap(),
+            int.to_str().unwrap(),
+        ],
+        &trace,
+        &hooks,
+    )?;
+    let output = tokio::time::timeout(bound, detached.wait_with_output()).await??;
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    tokio::time::timeout(bound, d98_file(&int)).await??;
+    println!("recorder got INT {:?} after its start", started.elapsed());
+    let (receipt, _) = d98_receipt(&supervisor, root.path(), recorder).await?;
+    assert_eq!(receipt, "done:0");
+    let traces = x111_traces(&trace)?;
+    assert_eq!(traces.len(), 2, "{traces:?}");
+    for trace in &traces {
+        println!("trace {trace}");
+        // The hook paused exactly one pass, and no pass after it slept the fallback poll (the `p` passes before it
+        // are the 25 ms polls of the owner's first 250 ms, before its FIFO opens).
+        let [_, after] = trace.split('!').collect::<Vec<_>>()[..] else {
+            panic!("{trace}")
+        };
+        assert!(!after.contains('p'), "{trace}");
+    }
+    assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
+    Ok(())
+}
+
 #[tokio::test]
 async fn escalation_and_lease_expiry_end_with_their_receipts_x111() -> Result<(), Box<dyn std::error::Error>> {
     use std::time::Duration;
@@ -2560,7 +2713,7 @@ async fn escalation_and_lease_expiry_end_with_their_receipts_x111() -> Result<()
         eprintln!("worker witness requires stock Perl");
         return Ok(());
     }
-    let (root, supervisor) = d98_root()?;
+    let (root, supervisor) = x111_root()?;
     let files = tempfile::tempdir()?;
     // An unconfirmed recorder that ignores TERM: the KILL request sends TERM 2 s after it and ends the group 1 s later.
     // The cutoffs themselves are pinned by the D98 tests above.
