@@ -6,9 +6,10 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 This release stops marathon from starting a recorder beside its own previous one on local iOS simulators and
 supervised SSH workers, and writes the end-of-run reports of large runs sooner. The inputs, the CLI, the configuration, test results, report formats and the
-exit status are unchanged, and no new worker commands are needed. With video on, very short or skipped tests back to
-back no longer cause "recording is already in progress" refusals and the restart advice that came with them; in that
-scenario a run launches fewer recorders and can have videos that 0.15.2 lost. The busy case of
+exit status are unchanged, and no new worker commands are needed. With video on, a short test that ends before its recorder gets a
+turn now skips that launch instead of starting a recorder that simctl refuses with "recording is already in
+progress"; in the supervised worker check below that meant two launches instead of four, no refusals, and the later
+test's video kept. The busy case of
 [D98](docs/deviations.md#d98--a-simulator-recorder-is-never-interrupted-before-it-has-started) is unchanged. Recorder
 failures are logged in a different place: see the iOS entry and the
 [migration guide](docs/migration.md#ios-recorder-warnings) if your log alerts match them. Everything else is as in [0.15.2](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG.md#0152).
@@ -23,11 +24,11 @@ failures are logged in a different place: see the iOS entry and the
   recording on that simulator has exited. A test does not wait for its recorder, so its video can miss the test's
   start, or be absent if the test ends first; that is mostly very short or skipped tests, which mostly had no video
   before either.
-- **Recorder warnings (x106, U264):** in 0.15.2 each such refusal was a supervisor warning advising to stop the
-  recording or restart a simulator that was fine. The worker supervisor's `Worker recorder … failed` line is now
-  debug-only, and marathon's iOS recording code reports each recorder problem once, as a warning on
-  `marathon_ios::busy_video`: a recorder that ended with output on stderr (with the restart advice only for simctl's
-  busy text), a recorder whose launch or exit marathon could not confirm (no further videos on that simulator until it
+- **Recorder warnings (x106, U264):** in the 0.15.2 farm run described below, the worker supervisor advised stopping
+  the active recording or restarting the affected simulator after each of the three busy refusals. The worker
+  supervisor's `Worker recorder … failed` line is now debug-only, and marathon's iOS recording code emits at most one
+  warning per recorder on `marathon_ios::busy_video`: for a recorder that failed with nonempty stderr (with the restart advice only for simctl's
+  busy text), for a recorder whose launch or exit marathon could not confirm (no further videos on that simulator until it
   is set up again), and D98's busy warning, which is unchanged. A recorder on a simulator on this machine is reported
   the same way; before, only D98's busy case was. The [migration guide](docs/migration.md#ios-recorder-warnings)
   lists the messages. Test results and the exit status are unchanged.
@@ -46,7 +47,7 @@ failures are logged in a different place: see the iOS entry and the
 - After 0.15.2's release, a 0.15.2 run of the full iOS UI-test job of a private CI farm with video on (Xcode 26.6
   workers, `debug: false`) logged three busy refusals ("Resource busy … Host recording is already in progress"),
   each with the supervisor's restart advice and each in a simulator's first batch, where five skipped tests ended in
-  about 0.3 s; D98's lines, visible since 0.15.2, showed no simulator marked busy. That pattern is consistent with the
+  about 0.3 s; the log contained no D98 busy warning or shutdown line, which print with `debug: false` since 0.15.2. That pattern is consistent with the
   overlap that x106's tests and the real worker below reproduce. The cause of the farm refusals was not verified, and
   the overlap check was not run on Xcode 26.6.
 - The [x106 findings](docs/wp/x106-findings.md) record the witnesses, each shown to fail without its fix: the overlap

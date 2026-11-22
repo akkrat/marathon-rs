@@ -298,20 +298,24 @@ recorder, which this does not change.
 ### iOS recorder warnings
 
 From 0.15.3 (x106) the worker supervisor's `Worker recorder … failed` line is DEBUG, and marathon's iOS recording code
-reports each recorder problem itself, as WARN on `marathon_ios::busy_video` (printed with `debug: false`). To alert on
-recorder problems, match these messages on that target:
+emits at most one warning per recorder, as WARN on `marathon_ios::busy_video` (printed with `debug: false`). To alert
+on recorder problems, match these messages on that target:
 
-- `its video service is busy with a recording already in progress`: D98's busy warning, once per simulator; it tells
-  you to shut the simulator down and boot it again.
-- `did not confirm its launch in time`, `failed to launch, and marathon could not confirm that nothing was started`
-  and `did not report how it ended`: marathon could not confirm a recorder's launch or exit and records no further
-  videos on that simulator until it is set up again. These can appear without any stderr.
-- `failed (<reason>). stderr:`: a recorder that ended with output on stderr. The reason is `status <n>`, `signal <n>`,
+- `its video service is busy with a recording already in progress`: D98's busy warning, once per simulator until a
+  confirmed restart clears the busy state; it tells you to shut the simulator down and boot it again.
+- `did not confirm its launch in time`: marathon stopped waiting for the launch to be confirmed.
+- `failed to launch, and marathon could not confirm that nothing was started`: the launch returned an error without
+  establishing that no recorder started.
+- `did not report how it ended`: marathon could not confirm the exit after the launch; it includes any captured
+  stderr.
+- `failed (<reason>). stderr:`: a recorder that failed with nonempty stderr. The reason is `status <n>`, `signal <n>`,
   `it did not start` or `no exit status`. It adds `Stop the active recording or restart the simulator before recording
-  again` only when the stderr has simctl's busy text. An ordinary failure without stderr gets no warning.
+  again` only when the stderr has simctl's busy text. A failure without stderr gets no warning.
 
-The messages name the simulator and the video file, and the first 8 characters of the worker recorder's token when
-there is one (not for a simulator on this machine).
+The three unconfirmed cases stop further video on that simulator until it is set up again; they can appear without
+any stderr. Every warning names the simulator. The launch, exit and failure warnings name the video file, and only the
+exit and failure warnings include the first 8 characters of the worker recorder's token, when a worker session
+supplied one.
 
 ### A finite `uncompletedTestRetryQuota` (D47)
 

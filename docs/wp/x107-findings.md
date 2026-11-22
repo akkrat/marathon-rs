@@ -46,6 +46,11 @@ moved to a new migration section, "iOS recorder warnings", listing every message
 "reports equal as data" dropped from the real-run evidence (videos and timings differ); the intro and README scope the
 overlap fix to local simulators and supervised workers.
 
+Second re-check (REQUEST_CHANGES), all taken: the iOS entry quotes what the farm log shows (the restart advice, no
+D98 line) without calling the simulators fine; the migration section explains each unconfirmed message separately
+and says which warnings carry the file and the token; "each recorder problem" became "at most one warning per
+recorder"; the intro describes the skipped launch and gives the check's numbers as that check's.
+
 ## Incidental bugs
 
 None.
