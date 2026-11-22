@@ -762,7 +762,11 @@ async fn a_busy_simulator_on_an_ssh_worker_turns_video_off_once_d98() -> Result 
             assert_eq!(failures, 0, "{stdout}");
         } else {
             assert_eq!(failures, 3, "{stdout}");
-            assert_eq!(output_text.matches("failed (status 16). stderr: ").count(), 3, "{stdout}");
+            assert_eq!(
+                output_text.matches("failed (status 16). stderr: ").count(),
+                3,
+                "{stdout}"
+            );
         }
         if stderr == busy {
             assert_eq!(launches, 1, "no recorder after the busy refusal");

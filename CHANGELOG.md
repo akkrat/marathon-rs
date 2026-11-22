@@ -2,6 +2,21 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
+## Unreleased
+
+- **Faster report generation for large runs (x106, U263):** the reports at the end of a run are written sooner. The
+  run summary that the reports share was computed in time growing with the square of the number of test results
+  (about 0.5 s at 10 000 results and 19 s at 50 000); it is now linear (about 5 ms and 22 ms). The HTML report and
+  the per-test JSON results also do their file work in fewer hand-offs to the I/O threads. On a 10 000-result run the
+  time from the last test to the exit drops from about 3.8 s to 2.7 s. The report files are unchanged.
+- **Fewer misleading iOS recorder warnings (x106, U264):** when a simulator's video recorder is refused because
+  marathon's own previous recording on that simulator was still running (very short or skipped tests back to back),
+  the log now has one INFO line saying that test's video is not recorded, instead of a warning advising to restart
+  the simulator. A simulator whose video service is really busy still gets D98's single warning. Any other recorder
+  failure is one warning per recorder with simctl's output, also for simulators on this machine, which reported
+  nothing before. The worker supervisor's own line for a failed recorder is now debug-only. Recording, test results
+  and the exit status are unchanged.
+
 ## 0.15.2
 
 This release makes 0.15.1's iOS video handling visible in ordinary logs. The inputs, the CLI, the configuration,
