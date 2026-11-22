@@ -2,7 +2,7 @@ use strict;
 use warnings;
 use Time::HiRes qw(clock_gettime CLOCK_MONOTONIC);
 use Fcntl qw(:DEFAULT :flock);
-use Errno qw(ENOENT ESRCH EAGAIN EWOULDBLOCK);
+use Errno qw(ENOENT ESRCH EAGAIN EWOULDBLOCK EINTR);
 
 sub clock_ms { int(clock_gettime(CLOCK_MONOTONIC) * 1000) }
 
@@ -27,7 +27,7 @@ sub read_state {
 }
 
 sub locked {
-    my ($token, $op) = @_;
+    my ($token, $op, $notify) = @_;
     my @receipt = read_state("$token.receipt");
     if (@receipt) {
         return ($op->(@receipt))[1];
@@ -51,8 +51,12 @@ sub locked {
         print {$file} join(' ', @$new), "\n" or die "write state: $!";
         close $file or die "close state: $!";
         my $done = $new->[3] ne '-';
+        # Before the commit and under the lock: see wake.
+        $notify->($new) if $notify;
         my $suffix = $done ? 'receipt' : 'state';
         rename "$token.pending", "$token.$suffix" or die "commit state: $!";
+        # Test hook: a control request killed between its commit and its exit.
+        kill 'KILL', $$ if $notify && $ENV{MARATHON_D96_TEST_KILL_AFTER_COMMIT};
         unlink "$token.state", "$token.lock" if $done;
     }
     close $lock or die "close lock: $!";
@@ -82,9 +86,12 @@ sub control {
             $running = ($started == 3 ? 'recording' : 'running') . ":$expiry";
         }
         return ([$started, $expiry, $signal, '-'], $started ? $running : 'unknown');
+    }, sub {
+        # Every change to a running token wakes its owner; status requests
+        # change nothing and terminal states have no owner left.
+        my ($new) = @_;
+        wake($dir) if $new->[0] && $new->[3] eq '-';
     }) // 'busy';
-    # Every change an owner must act on wakes it; status requests change nothing.
-    wake($dir) if $op ne 'status' && $reply =~ /\A(?:running|recording):/;
     if ($reply =~ /\A(?:done:[1-9][0-9]*|unconfirmed)\z/ && open my $file, '<', "$dir.stderr") {
         my $count = read($file, my $diagnostic, 8192);
         if ($count) {
@@ -95,18 +102,32 @@ sub control {
     return ($reply, $recorder);
 }
 
-# The owner of a running token reads this FIFO; a control request writes a byte
-# after it has committed the state. The owner drains it before it reads the
-# state, so a byte written after that read keeps the FIFO readable and a change
-# is never slept through.
+# The owner of a running token reads this FIFO. A control request writes its
+# byte while it holds the token lock, before it commits the state. Any state
+# read that succeeds after the byte was written therefore follows the commit
+# (or the writer's death without one): a woken owner sees the change or finds
+# the lock busy and retries in 10 ms. A byte the owner has not drained keeps
+# its next select from sleeping.
 sub wake {
     my ($dir) = @_;
-    # No owner reads it any more: no FIFO (ENOENT) or no reader (ENXIO).
-    sysopen my $fifo, "$dir.wake", O_WRONLY|O_NONBLOCK|O_NOFOLLOW or return;
+    my $fifo;
+    until (sysopen $fifo, "$dir.wake", O_WRONLY|O_NONBLOCK|O_NOFOLLOW) {
+        next if $! == EINTR;
+        # No FIFO (ENOENT) or no reader (ENXIO): the owner's loop has ended, or
+        # it opens the FIFO later than this request took the lock and reads the
+        # state after that. Anything else leaves the change to the fallback
+        # poll, as before the FIFO existed.
+        return;
+    }
     # The owner may close its end between this open and the write.
     local $SIG{PIPE} = 'IGNORE';
-    # A full FIFO (EAGAIN) already holds a pending wake.
-    syswrite($fifo, 'W', 1) if -p $fifo;
+    if (-p $fifo) {
+        # One byte is written whole or not at all. EAGAIN means the FIFO is
+        # full, so a wake is already pending; EPIPE that the owner is gone.
+        until (defined syswrite($fifo, 'W', 1)) {
+            last unless $! == EINTR;
+        }
+    }
     close $fifo;
 }
 
@@ -122,6 +143,28 @@ sub open_wake {
     }
     unlink "$dir.wake";
     return;
+}
+
+# The time in ms until the owner's next pass and what it waits for: the lease
+# expiry while it is ahead, a recorder's TERM deadline (2 s after the first stop
+# request or expiry, until TERM is sent) and KILL deadline (1 s after TERM when
+# forced), a busy retry ($retry ms, 0 for none), or the fallback poll.
+# Deadlines win ties; never below 10 ms except for a shorter retry.
+sub next_wake {
+    my ($now, $expiry, $interrupt_at, $term_at, $stopping, $force, $retry, $poll) = @_;
+    my @due = ([$poll, 'p']);
+    push @due, [$retry, 'b'] if $retry;
+    push @due, [$expiry - $now, 'd'] if $now < $expiry;
+    if (defined $interrupt_at) {
+        push @due, [$interrupt_at + 2000 - $now, 'd'] if $stopping && !defined $term_at;
+        push @due, [$term_at + 1000 - $now, 'd'] if $force && defined $term_at;
+    }
+    my ($delay, $cause) = @{shift @due};
+    for (@due) {
+        ($delay, $cause) = @$_ if $_->[0] <= $delay;
+    }
+    my $floor = $retry && $retry < 10 ? $retry : 10;
+    return ($delay < $floor ? $floor : $delay, $cause);
 }
 
 sub drain_errors {
@@ -268,8 +311,11 @@ sub run_owned {
     my ($diagnostic, $line, $confirmed, $published, $errors_closed) = ('', '', 0, 0, 0);
     my ($expiry, $wanted) = ($start, 0);
     my $starting = 1;
+    my $woken = 0;
     # Test hook: one letter per pass of the loop, by what woke it.
     my $trace = defined $ENV{MARATHON_D96_TEST_WAKES} ? '' : undef;
+    # Test hook: a longer fallback poll, so a witness can tell a wake from a poll.
+    my $fallback = ($ENV{MARATHON_D96_TEST_FALLBACK_MS} // '') =~ /\A([1-9][0-9]{0,6})\z/ ? $1 : 1000;
     eval {
         while ($permitted) {
             # Opened after the fork, so neither the anchor nor the payload
@@ -280,7 +326,7 @@ sub run_owned {
                 undef $wake_due;
             }
             # Without the FIFO the state is polled as often as before it existed.
-            my $poll = $wake ? 1000 : 25;
+            my $poll = $wake ? $fallback : 25;
             my $observed = locked($dir, sub { (undef, [$_[1], $_[2]]) });
             ($expiry, $wanted) = @$observed if defined $observed;
             my $now = clock_ms();
@@ -350,32 +396,24 @@ sub run_owned {
             }
             # Sleep until a pipe or the wake FIFO has something, the next
             # deadline, or the fallback poll, whichever comes first.
-            my @due;
-            push @due, [$expiry, 'd'] if $now < $expiry;
-            if ($recorder && defined $interrupt_at) {
-                push @due, [$interrupt_at + 2000, 'd'] if $stopping && !defined $term_at;
-                push @due, [$term_at + 1000, 'd'] if $force && defined $term_at;
-            }
             # A busy token lock is retried soon, as is a start not yet published.
-            push @due, [10, 'b'] if !defined $observed || ($confirmed && !$published);
-            push @due, [$poll, 'p'];
-            $now = clock_ms();
-            my ($delay, $cause) = (undef, '');
-            for (@due) {
-                my $left = $_->[1] eq 'd' ? $_->[0] - $now : $_->[0];
-                ($delay, $cause) = ($left, $_->[1]) if !defined $delay || $left < $delay;
-            }
-            $delay = 10 if $delay < 10;
+            # A request that has just woken the owner holds the lock only until
+            # its commit, a moment later, so the first retry after a wake comes
+            # sooner; a lock held longer is retried every 10 ms.
+            my $retry = !defined $observed || ($confirmed && !$published) ? ($woken ? 1 : 10) : 0;
+            my ($delay, $cause) = next_wake(clock_ms(), $expiry, $interrupt_at, $term_at, $stopping, $force,
+                $retry, $poll);
             my $bits = '';
             vec($bits, fileno($status), 1) = 1;
             vec($bits, fileno($ready), 1) = 1 if $starting;
             vec($bits, fileno($errors), 1) = 1 if $recorder && !$starting && !$errors_closed;
             vec($bits, fileno($wake), 1) = 1 if $wake;
             my $found = select(my $out = $bits, undef, undef, $delay / 1000);
+            $woken = 0;
             if ($found > 0) {
                 $cause = 'e';
                 if ($wake && vec($out, fileno($wake), 1)) {
-                    $cause = 'w';
+                    ($cause, $woken) = ('w', 1);
                     1 while sysread($wake, my $bytes, 64);
                 }
             }
@@ -435,6 +473,8 @@ sub exit_owned {
     exit(125);
 }
 
+# Loaded with `do` (the timeout tests), only the subroutines are defined.
+return 1 if caller;
 my $mode = shift @ARGV // die "no mode";
 if ($mode eq 'init') {
     require File::Temp;
