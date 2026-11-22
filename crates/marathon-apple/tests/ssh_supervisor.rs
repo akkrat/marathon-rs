@@ -2305,6 +2305,7 @@ if ($first_open && ($hook{stop_at} // '') eq 'sample') {
     $trace .= '!' if defined $trace;
 }"##,
     ),
+    ("term", "$term_at += $hook{kill_later} if $hook{kill_later};"),
     (
         "sleep",
         r##"if ($first_open && ($hook{stop_at} // '') eq 'sleep') {
@@ -2816,9 +2817,11 @@ for (@ARGV) { print join(' ', next_wake(map { $_ eq '-' ? undef : $_ } split / /
 /// next pass (the `late_after_exit` hook moves its clock 700 s on, past the 600 s lease), keeps its own status: the
 /// next pass finds the reported exit before its clock sample. A `run` command whose payload exits 0 must end
 /// `done:0`, not be killed for the expiry it missed (`done:137`); a forced recorder that exits 0 on TERM must end
-/// `done:0`, not `done:137` for its KILL deadline 1 s after TERM. Each payload ends only once its owner sleeps: the
+/// `done:0`, not `done:137` for its KILL deadline after TERM. Each payload ends only once its owner sleeps: the
 /// command when the test opens its gate after the owner parked, the recorder on TERM, which the owner sends in the
-/// pass before its sleep (its stderr is closed at once, so only its exit can wake that sleep).
+/// pass before its sleep (its stderr is closed at once, so only its exit can wake that sleep). The `kill_later` hook
+/// moves the recorder's KILL deadline 300 s past its real 1 s, beyond the 60 s hang guard, so however late its exit
+/// after TERM is reported, nothing but that exit can end the recorder before the clock moves past the deadline.
 #[tokio::test]
 async fn an_exit_seen_before_a_missed_deadline_keeps_its_own_status_x111() -> Result<(), Box<dyn std::error::Error>> {
     if !Path::new("/usr/bin/perl").is_file() {
@@ -2833,6 +2836,7 @@ async fn an_exit_seen_before_a_missed_deadline_keeps_its_own_status_x111() -> Re
         ("MARATHON_D96_TEST_FALLBACK_MS", "120000"),
         ("MARATHON_D96_TEST_LATE_AFTER_EXIT", "700000"),
         ("MARATHON_D96_TEST_PARKED", parked.to_str().unwrap()),
+        ("MARATHON_D96_TEST_KILL_LATER", "300000"),
     ];
     let command = "00000000000000000000000000000001";
     let owner = x111_spawn(
@@ -2848,7 +2852,7 @@ async fn an_exit_seen_before_a_missed_deadline_keeps_its_own_status_x111() -> Re
             gate.to_str().unwrap(),
         ],
         &trace,
-        &hooks,
+        &hooks[..3],
     )?;
     d98_file(&parked).await?;
     std::fs::write(&gate, b"")?;
@@ -2867,12 +2871,12 @@ while (1) { select undef, undef, undef, .01 }"#;
         "detach",
         &[recorder, "/usr/bin/perl", "-e", payload, ready.to_str().unwrap()],
         &trace,
-        &hooks[..2],
+        &[hooks[0], hooks[1], hooks[3]],
     )?;
     let output = tokio::time::timeout(std::time::Duration::from_secs(60), detached.wait_with_output()).await??;
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     d98_file(&ready).await?;
-    // KILL: an unconfirmed recorder gets TERM 2 s later and, if still running, KILL 1 s after that.
+    // KILL: an unconfirmed recorder gets TERM 2 s later and, if still running, KILL 1 s after that (here 301 s).
     let reply = d98_control(&supervisor, root.path(), &format!("{recorder}:3")).await?;
     assert!(reply.starts_with(&format!("{recorder} running:")), "{reply}");
     let (receipt, _) = d98_receipt(&supervisor, root.path(), recorder).await?;

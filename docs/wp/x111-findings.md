@@ -1,7 +1,12 @@
 # x111 findings: a quieter worker supervisor
 
-Base `281c4005`. Worker-side implementation detail of D96; no D-row: the worker commands, their protocol, outputs,
-receipts, the controller and every run outcome are unchanged. No U row: no product bug was found.
+Base `281c4005`. Worker-side implementation detail of D96. The worker commands, their protocol, outputs and
+receipts, the controller and the run outcomes are unchanged except in two documented windows: an exit reported after
+the lease expiry is now always treated as expired (base could accept one up to its 25 ms poll after the expiry; see
+[Exit or deadline](#exit-or-deadline-which-receipt)), and an owner that was descheduled acts on a deadline that
+passed meanwhile within 100 ms of resuming instead of 25 ms. No D-row (orchestrator decision, round 6): the lease
+expiry is the controller's deadline, so an exit after it is late by definition, and base's 25 ms was its poll
+granularity, not a contract. No U row: no product bug was found.
 
 ## Problem
 
@@ -63,10 +68,16 @@ pass, which starts with the check, takes it.
 
 How the two rules compare:
 
-- **Owner not descheduled:** an exit before the expiry wakes the owner and is taken; at the expiry the owner wakes
-  from its deadline timeout (at most the 10 ms floor late), samples, and kills unless the exit has already been
-  reported. So an exit is attributed to itself if it comes before the expiry, or up to about 10 ms after it (base:
-  up to 25 ms after it). The recorder's KILL deadline is decided the same way.
+- **Owner not descheduled (the post-expiry window; accepted, round 6):** an exit before the expiry wakes the owner
+  and is taken. At the expiry the owner wakes from its deadline timeout, checks the status pipe, samples the clock
+  and kills unless the exit was reported before that sample. So **an exit reported after the lease expiry is now
+  always treated as expired** (only the scheduling latency between the expiry and the sample, a few ms, can still
+  admit one). Base decided force at the start of a pass and then waited up to 25 ms on the status pipe, so an exit
+  reported up to one such wait after the expiry (up to about 25 ms) could still be taken. The fifth review's probe:
+  base accepted an exit 21.5 ms after the expiry (`done:0`); round 5 killed at the expiry + 3.1 ms (`done:137`).
+  Outcomes in that window are not unchanged; everywhere else they are. The recorder's KILL deadline is decided the
+  same way. This is accepted without a D-row (orchestrator decision): the expiry is the controller's deadline and
+  base's 25 ms was its poll granularity, not a promise.
 - **Owner descheduled:** an exit while the owner is stopped is attributed by where it was stopped. Stopped between
   the status check and the clock sample (a window of two statements), a pass that resumes after the expiry kills
   (`done:137`) even if the payload exited before the expiry; stopped anywhere else, the exit wins (`done:<status>`)
@@ -86,6 +97,7 @@ copies with a probe that stops the owner at the given point; lease 1.5 s; 5 runs
 | B: owner stopped before its status wait / `select`; payload exits 95 ms after the expiry; resumed 200 ms after that | 0 | 0 |
 | C: not descheduled; payload exits about 50 ms before the expiry | 0 | 0 |
 | D: not descheduled; payload exits about 95 ms after the expiry | 137 | 137 |
+| E: not descheduled; payload exits about 21.5 ms after the expiry (fifth review's probe; the accepted window) | 0 | 137 |
 
 The fourth review's own probes of round 4 (its exit check came before the state read) reported `done:137` for an
 exit before the expiry with the owner stopped just after that check, and `done:0` for an exit 95 ms after the expiry
@@ -139,7 +151,8 @@ unchanged.
 ### Test hooks
 
 The shipped `worker.pl` contains no test code (round 5): at each hook point it has only an inert comment line
-`# x111-test-hook: <name>` (`table`, `clock`, `commit`, `loop`, `pass`, `poll`, `sample`, `sleep`, `woken`, `end`).
+`# x111-test-hook: <name>` (`table`, `clock`, `commit`, `loop`, `pass`, `poll`, `sample`, `term`, `sleep`, `woken`,
+`end`).
 The tests install a copy in which each such line is replaced by test code from `X111_HOOKS` in
 `crates/marathon-apple/tests/ssh_supervisor.rs`, indented like it; the `table` code fills a hook table from the
 `MARATHON_D96_TEST_<NAME>` environment variables. So no environment, argument, controller or added definition can
@@ -171,6 +184,8 @@ The hooks:
   `select`, the owner writes its pid and the ms left to its expiry to the file and stops itself with `SIGSTOP`.
 - `late_after_exit=<ms>`: after the first `select` that found the status pipe readable, the owner's clock moves
   `<ms>` on, as if it had been descheduled that long right after seeing the exit.
+- `kill_later=<ms>` (round 6): when the owner sends a recorder TERM, its KILL deadline moves `<ms>` later (it
+  moves the TERM time the KILL deadline counts from).
 
 For the selection test, `worker.pl` returns before its command dispatch when it is loaded with `do` (`return 1 if
 caller`); run as a script, as every worker command runs it, it is unchanged.
@@ -184,7 +199,8 @@ caller`); run as a script, as every worker command runs it, it is unchanged.
   descriptors only decide when that pass runs.
 - Reaction times: a stop is applied 1 to 2 ms after its wake (the first busy retry; a request's whole locked section
   takes about 0.14 ms median, measured in round 3, the FIFO adding about 12 µs) instead of on the old 25 to 50 ms
-  loop. A deadline is acted on when the owner's sleep towards it ends: at most the 10 ms floor late when the owner
+  loop, once the wake FIFO is open; in a command's first 250 ms, before it opens, a stop is seen on the next 25 ms
+  poll of the state (old loop: up to 50 ms). A deadline is acted on when the owner's sleep towards it ends: at most the 10 ms floor late when the owner
   runs, at most C (100 ms) after it resumes when it was descheduled (old loop: 25 ms after resuming). Stderr, start
   and exit are seen as they happen.
 
@@ -219,6 +235,10 @@ caller`); run as a script, as every worker command runs it, it is unchanged.
   (past the 600 s lease) and a 120 s longest sleep, (1) a `run` payload that exits 0 once the test opens its gate
   after the owner parked must end `done:0`; (2) an unconfirmed recorder given KILL, whose payload closed its stderr at
   once and exits 0 on TERM, must end `done:0`, not `done:137` for its KILL deadline. Each trace shows the hook once.
+  Round 6 (fifth review, P2): the recorder half assumed the payload's exit after TERM is reported within the real
+  1 s before KILL; stopping only the payload through that second gave `done:137`. With `kill_later=300000` its KILL
+  deadline is 301 s after TERM, beyond the 60 s hang guard, so only the payload's own exit can end it before the
+  `late_after_exit` jump carries the clock past that deadline; the order is decided by events, not by real time.
 - `the_shipped_worker_script_has_no_test_hooks_and_the_tests_run_its_logic_x111` (round 5): see Test hooks.
 - (c') `escalation_and_lease_expiry_end_with_their_receipts_x111`: the receipts only: an unconfirmed recorder that
   ignores TERM, given KILL, ends `done:137`; a `run` command with an unrenewed 1.5 s lease exits 137 with `done:137`.
@@ -251,7 +271,18 @@ hook had nothing left to move; (c) and (d) cover a deadline found due or passed 
 - Earlier rounds (round 1 to 4, recorded in their commits): the base script fails (a), (b) and (c) (no FIFO, no
   `next_wake`); round 1's `9c972f86` fails (a'); dropping a deadline or the floor from `next_wake` fails (c).
 
-### Stress (final script)
+### Round 6 (scratch worktree of the final tests)
+
+- The fifth review's race, reproduced: with a payload that sleeps 2 s in its TERM handler before exiting 0, round 5's
+  test fails (`done:137`: KILL 1 s after TERM came first); the final test passes (`done:0`).
+- The exit check moved after the kill decisions (round 3's order) fails both halves of (e): the command `done:137`
+  and, with the command half's assertions turned into prints, the recorder `done:137` 2.4 s after the start of the
+  test, that is right after TERM and the clock jump, not at its 301 s KILL deadline.
+- The guard test passes with the new `term` marker and its hook in `X111_HOOKS`.
+- (e) 50 times unloaded (load average about 1.4 to 1.6) and 20 times under 18 busy loops (load average rising to
+  13.6): all passed.
+
+### Stress (round 5 script)
 
 All nine x111 tests 50 times unloaded (load average about 1.1 to 1.7), then 20 times under 18 busy loops on this
 18-core Mac (load average rising to 23): all passed.
@@ -305,6 +336,10 @@ signals and a lateness bound that holds by construction.
   B above), the stop witness did not wait for the payload's INT handler, and the hook reader could be overridden. The
   timer is gone in favour of the 100 ms cap; the exit check sits right before the clock sample; the stop witness waits
   for the handler; the shipped script has no hook code at all.
+- Round 6 (fifth review): the post-expiry window (an exit reported after the expiry is now always treated as
+  expired; base could accept one up to its 25 ms poll later) is accepted and documented, with no code change; the
+  recorder half of (e) is ordered by events (`kill_later` hook); the findings and the CHANGELOG no longer claim
+  unchanged outcomes for the two documented windows.
 
 ## Not verified
 
@@ -315,8 +350,9 @@ signals and a lateness bound that holds by construction.
   numbers close.
 - Linux workers were not exercised here; the code uses only POSIX FIFOs, `select` and `mkfifo`, and the remote gate
   runs the witnesses there.
-- The attribution of an exit within the 10 ms floor after the expiry, owner not descheduled, is argued, not pinned
-  (a witness would need real-time ordering against the owner's own clock).
+- The post-expiry window (an exit reported after the expiry is treated as expired) is documented and was probed by
+  the fifth review (row E), not pinned by a witness (one would need real-time ordering against the owner's own
+  clock).
 - A control process stopped (SIGSTOP) while it holds the token lock is not covered by a witness; it blocks every state
   read until it resumes or dies, as before x111.
 

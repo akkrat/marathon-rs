@@ -403,6 +403,7 @@ sub run_owned {
                     if ($stopping && !defined $term_at && $now - $interrupt_at >= 2000) {
                         kill 'TERM', -$anchor;
                         $term_at = $now;
+                        # x111-test-hook: term
                     } elsif ($force && defined $term_at && $now - $term_at >= 1000) {
                         $rc = 137;
                         last;

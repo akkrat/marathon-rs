@@ -16,9 +16,13 @@ The section for a version becomes the text of its GitHub release, which carries 
   supervisor that watches each command and video recorder used to wake 40 times a second for as long as the command
   ran. It now wakes when something happens (the command ends, a recorder starts, marathon asks it to stop) or when a
   time limit is due, and otherwise 10 times a second: in a local measurement an idle minute cost it about 0.15
-  CPU-seconds instead of about 0.4, and a stop request is acted on within a few milliseconds instead of up to 50. The
-  cutoffs are unchanged (a recorder's TERM 2 s after the first stop request and KILL 1 s after TERM, the lease
-  expiry), and so are the worker commands, their results and the exit status.
+  CPU-seconds instead of about 0.4. A stop request is acted on within a few milliseconds instead of up to 50 ms once
+  the command has run for a quarter of a second, and within 25 ms before that. The cutoffs are unchanged (a
+  recorder's TERM 2 s after the first stop request and KILL 1 s after TERM, the lease expiry), and so are the worker
+  commands, their results and the exit status, except at two edges: a command that ends after its lease has expired
+  is now always treated as expired (before, an end reported up to about 25 ms after the expiry could still count),
+  and a supervisor that the worker's system paused acts on a cutoff that passed meanwhile within 100 ms of resuming
+  instead of 25 ms.
 
 ## 0.15.3
 
