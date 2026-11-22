@@ -175,6 +175,7 @@ impl TrackerInternal for ExecutionReportGenerator {
             let interval = Duration::from_secs(60);
             let mut next_notice = Deadline::now() + interval;
             let mut timed = crate::run_end::Slowest::default();
+            let mut stopped = None;
             for reporter in &self.reporters {
                 let reporter_started = Deadline::now();
                 let mut generate = reporter.generate(&report);
@@ -191,18 +192,25 @@ impl TrackerInternal for ExecutionReportGenerator {
                     }
                 };
                 timed.add(short_type_name(reporter.name()), millis_since(reporter_started));
-                if let Err(error) = result {
-                    close_failed(&mut first, error, &self.log)?;
+                if let Err(error) = result
+                    && let Err(error) = close_failed(&mut first, error, &self.log)
+                {
+                    stopped = Some(error);
+                    break;
                 }
             }
-            // A run always has reporters; a generator without any (a tracker-only test) has nothing to time.
+            // A run always has reporters; a generator without any (a tracker-only test) has nothing to time. A close
+            // that stops at a cancellation still says what the reporters that ran took, then returns the same error.
             if let Some((log, _)) = &self.log
                 && timed.count() > 0
             {
                 let line = crate::run_end::reports(millis_since(started), &timed);
                 log(&Component::timings(), Level::INFO, &line, None);
             }
-            first.map_or(Ok(()), Err)
+            match stopped {
+                Some(error) => Err(error),
+                None => first.map_or(Ok(()), Err),
+            }
         })
     }
 }
@@ -1161,6 +1169,56 @@ mod kind_tests {
         ] {
             assert!(marathon_logging::filter(vendor, false).would_enable(marathon_logging::TIMINGS, &Level::INFO));
         }
+    }
+
+    struct CancelledReporter;
+    impl Reporter for CancelledReporter {
+        fn generate<'a>(&'a self, _: &'a ExecutionReport) -> ServiceFuture<'a, ()> {
+            Box::pin(async {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                Err(OperationError::Cancelled(Cancellation::Requested(
+                    crate::executor::shared::failure(marathon_error::FailureKind::IllegalState, "the run is stopping"),
+                )))
+            })
+        }
+    }
+    /// x110: a close that a reporter's cancellation stops still logs what the reporters that ran took, then returns
+    /// the cancellation unchanged; the reporters after it do not run, as before.
+    #[tokio::test(start_paused = true)]
+    async fn a_cancelled_reports_close_still_logs_the_reporters_that_ran() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let log: ServiceLog = {
+            let lines = lines.clone();
+            Arc::new(move |logger, level, line, _| {
+                lines
+                    .lock()
+                    .unwrap()
+                    .push((logger.target().to_owned(), level, line.to_owned()))
+            })
+        };
+        let started = Deadline::now();
+        let result = ExecutionReportGenerator::new(vec![
+            Arc::new(QuickReporter),
+            Arc::new(CancelledReporter),
+            Arc::new(SlowReporter),
+        ])
+        .with_close_log(log, LogSettings::default().component("reports"))
+        .close()
+        .await;
+        assert!(
+            matches!(&result, Err(OperationError::Cancelled(Cancellation::Requested(failure)))
+                if failure.message.as_deref() == Some("the run is stopping")),
+            "{result:?}"
+        );
+        assert_eq!(started.elapsed(), Duration::from_millis(1700));
+        assert_eq!(
+            *lines.lock().unwrap(),
+            [(
+                marathon_logging::TIMINGS.to_owned(),
+                Level::INFO,
+                "Reports at run end took 1.7 s (2 reporters; slowest QuickReporter, 1.5 s)".to_owned()
+            )]
+        );
     }
 
     #[test]

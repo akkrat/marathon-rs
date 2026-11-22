@@ -92,7 +92,7 @@ pub struct AppleMacosProvider {
     /// U200: set by termination while it holds `devices`, and read by `connect` under the same lock, so a Mac either
     /// joins the map and registry before termination takes them or never joins them.
     terminated: AtomicBool,
-    /// x110: the run-end device release line is logged by the first termination only.
+    /// x110: claimed, under `devices`, by the termination that takes the Macs, which alone logs their release.
     release_logged: AtomicBool,
     /// Every device constructed, for `join_pending`, including one whose setup failed or that was replaced.
     retained: Mutex<Vec<Arc<MacosDevice>>>,
@@ -502,10 +502,15 @@ impl DeviceProvider for AppleMacosProvider {
             self.channel.close(None);
             // D74: termination takes the Macs out first, so a repeated call after a fatal disposal finds none to release
             // again.
-            let devices = {
+            let (devices, first) = {
                 let mut devices = self.devices.lock().unwrap_or_else(|e| e.into_inner());
                 self.terminated.store(true, Ordering::SeqCst);
-                std::mem::take(&mut *devices)
+                // x110: the termination that takes the Macs logs their release; claimed with them, under the same
+                // lock, so an overlapping one that finds none cannot log first and stand for it.
+                (
+                    std::mem::take(&mut *devices),
+                    !self.release_logged.swap(true, Ordering::SeqCst),
+                )
             };
             let clock = &self.options.dependencies.clock;
             let release_started = clock.now_millis();
@@ -538,11 +543,12 @@ impl DeviceProvider for AppleMacosProvider {
                 timed.add(udid, millis);
                 outcome = outcome.and(result);
             }
-            if !self.release_logged.swap(true, Ordering::SeqCst) {
+            if first {
                 let line = marathon_core::run_end::device_release(
-                    "macOS",
+                    marathon_core::run_end::Platform::Macos,
                     clock.now_millis().saturating_sub(release_started),
                     &timed,
+                    None,
                 );
                 self.options
                     .logging

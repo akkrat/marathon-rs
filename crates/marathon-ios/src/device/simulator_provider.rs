@@ -1296,6 +1296,9 @@ impl AppleSimulatorProvider {
                 finalized.unfinished,
             ));
         }
+        // x110: the device release line covers the rest of the termination, including its joins of the provider's own
+        // tasks before and after the devices' release, so the artifact and device lines add up to the provider's tail.
+        let rest_started = clock.now_millis();
         let deadline = clock
             .now_millis()
             .saturating_add(SimulatorTimeouts::default().cancelled_batch_millis);
@@ -1394,26 +1397,20 @@ impl AppleSimulatorProvider {
                 clock.now_millis().saturating_sub(started),
             )
         }));
-        let released = if self.signal_finish.current().is_none() {
+        let (mut released, replaced) = if self.signal_finish.current().is_none() {
             let released = active.await;
-            self.release_replaced(&handed_back, deadline, abandoned.is_some()).await;
-            released
+            (
+                released,
+                self.release_replaced(&handed_back, deadline, abandoned.is_some()).await,
+            )
         } else {
             tokio::join!(
                 active,
                 self.release_replaced(&handed_back, deadline, abandoned.is_some())
             )
-            .0
         };
-        let mut devices = marathon_core::run_end::Slowest::default();
-        for (udid, millis) in released {
-            devices.add(udid, millis);
-        }
-        self.log_timing(marathon_core::run_end::device_release(
-            "iOS",
-            clock.now_millis().saturating_sub(release_started),
-            &devices,
-        ));
+        released.extend(replaced);
+        let release_ended = clock.now_millis();
 
         tokio::select! { biased;
             _ = JoiningTasks(self.events.take()).join() => {},
@@ -1423,9 +1420,25 @@ impl AppleSimulatorProvider {
                 }
             },
         }
+        let ended = clock.now_millis();
+        let mut devices = marathon_core::run_end::Slowest::default();
+        for (udid, millis) in released {
+            devices.add(udid, millis);
+        }
+        let stopping = release_started
+            .saturating_sub(rest_started)
+            .saturating_add(ended.saturating_sub(release_ended));
+        self.log_timing(marathon_core::run_end::device_release(
+            marathon_core::run_end::Platform::Ios,
+            ended.saturating_sub(rest_started),
+            &devices,
+            Some(stopping),
+        ));
         artifacts.map(|_| ())
     }
-    async fn release_replaced(&self, handed_back: &[Simulator], deadline: i64, abandoned: bool) {
+    /// Releases the leases of the simulators replaced during the run; each one's udid and how long it took (x110).
+    async fn release_replaced(&self, handed_back: &[Simulator], deadline: i64, abandoned: bool) -> Vec<(String, i64)> {
+        let clock = &self.services.context.clock;
         let replaced = {
             let mut state = self.state();
             state.devices.clear();
@@ -1436,14 +1449,16 @@ impl AppleSimulatorProvider {
                 .into_iter()
                 .filter(|d| !handed_back.iter().any(|h| Arc::ptr_eq(h, d)))
                 .map(|device| async move {
+                    let started = clock.now_millis();
                     device.seal_for_termination(deadline);
                     if abandoned && !device.disposed() {
                         device.quarantine_after_provider_timeout(deadline);
                     }
                     let _ = self.release_lease(&device, device.executor()).await;
+                    (device.udid().to_owned(), clock.now_millis().saturating_sub(started))
                 }),
         )
-        .await;
+        .await
     }
 }
 impl DeviceProvider for AppleSimulatorProvider {

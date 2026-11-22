@@ -34,6 +34,8 @@ pub struct Recovery {
     pub ticks: AtomicUsize,
     pub stopped: AtomicUsize,
     pub joins: AtomicUsize,
+    /// How long `terminate` takes, on the test's clock (x110).
+    pub termination_millis: std::sync::atomic::AtomicU64,
     pub missing: Mutex<Vec<Vec<AppleTarget>>>,
     pub failed: Mutex<Vec<Vec<AppleTarget>>>,
     /// Returned once by the next `reconnect`, which the provider's monitor calls after each update (D84 witnesses).
@@ -89,6 +91,10 @@ impl ProviderRecovery for Recovery {
     fn terminate(&self) -> VendorFuture<'_, ()> {
         Box::pin(async {
             self.joins.fetch_add(1, Ordering::SeqCst);
+            let millis = self.termination_millis.load(Ordering::SeqCst);
+            if millis > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(millis)).await;
+            }
             if self.fail_termination.load(Ordering::SeqCst) {
                 return Err(marathon_core::error::VendorError::Other(marathon_apple::cmd::failure(
                     FailureKind::IllegalState,

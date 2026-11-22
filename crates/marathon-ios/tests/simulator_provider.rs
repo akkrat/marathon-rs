@@ -375,6 +375,8 @@ async fn run_end_logs_artifact_finalization_and_device_release_timings_without_d
         },
         70_000,
     )?;
+    // Stopping the provider's recovery takes 0.7 s, outside every simulator's own release.
+    p.recovery.termination_millis.store(700, Ordering::SeqCst);
     // Once the run ends, the first simulator shut down takes 2 s for it, and is the slowest to dispose of. The fake's boot
     // state is shared, so the other one finds its simulator shut down by then, or shuts it down at once.
     let ending = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -454,7 +456,7 @@ async fn run_end_logs_artifact_finalization_and_device_release_timings_without_d
             (
                 marathon_logging::Level::INFO,
                 format!(
-                    "Device release at run end took 2.0 s (iOS, 2 devices; slowest {}, 2.0 s)",
+                    "Device release at run end took 2.7 s (iOS, 2 devices; slowest {}, 2.0 s; stopping monitoring, recovery and events 700 ms)",
                     slow.lock().unwrap().clone().expect("no simulator was shut down")
                 )
             ),
@@ -464,6 +466,46 @@ async fn run_end_logs_artifact_finalization_and_device_release_timings_without_d
         marathon_logging::filter(marathon_logging::Vendor::Apple { compact_output: false }, false)
             .would_enable("marathon_core::timing", &marathon_logging::Level::INFO)
     );
+    p.finish().await
+}
+/// x110: a simulator replaced during the run has its lease released at the run's end, and that release is one of the
+/// devices the run-end line counts.
+#[tokio::test(start_paused = true)]
+async fn run_end_device_release_counts_a_replaced_simulator() -> TestResult {
+    let p = ProviderHarness::new(|_| {})?;
+    p.update(&["a"]).await?;
+    let predecessor = p.connected(1).await.remove(0);
+    p.connections
+        .connect(Transport::Local, p.h.services.context.clone())
+        .await
+        .map_err(test_error)?;
+    let replacement =
+        p.h.factory()
+            .create(
+                Transport::Local,
+                p.h.worker.clone(),
+                Arc::new(support::BridgeMock),
+                "a".into(),
+                Arc::new(WorkerProvisioningContext::new(Transport::Local, p.h.clock.clone())),
+                p.h.services.context.clone(),
+            )
+            .await?;
+    p.provider.register("a@local".into(), replacement).await?;
+    assert!(predecessor.disposed());
+    tokio::time::timeout(std::time::Duration::from_secs(160), p.provider.terminate())
+        .await?
+        .map_err(test_error)?;
+    let lines: Vec<_> =
+        p.h.logs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(logger, _, line, _)| logger == "marathon_core::timing" && line.starts_with("Device release "))
+            .map(|(_, level, line, _)| (*level, line.clone()))
+            .collect();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(lines[0].0, marathon_logging::Level::INFO);
+    assert!(lines[0].1.contains("(iOS, 2 devices; slowest "), "{}", lines[0].1);
     p.finish().await
 }
 /// A pull that owns a task independently of its caller, like the bridge's

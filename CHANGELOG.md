@@ -8,7 +8,8 @@ The section for a version becomes the text of its GitHub release, which carries 
   each step after the last test took: artifact delivery (iOS: the wait for xcresult pulls and remote cleanups still
   queued, and how many there were), device release (every vendor: how long disposing of all devices took, how many,
   and the slowest one), and reports (how long writing them took, and the slowest reporter). Each is one INFO line on
-  `marathon_core::timing`, for example `Device release at run end took 2.9 s (iOS, 4 devices; slowest <udid>, 2.9 s)`.
+  `marathon_core::timing`, for example `Device release at run end took 3.4 s (iOS, 4 devices; slowest <udid>, 2.9 s;
+  stopping monitoring, recovery and events 500 ms)`.
   The reports line comes after the run summary. Nothing else changes: the summary, the report files, test results
   and the exit status are the same.
 

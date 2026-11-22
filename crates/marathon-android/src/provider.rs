@@ -1140,9 +1140,10 @@ impl AdamDeviceProvider {
             &Component::timings(),
             Level::INFO,
             &marathon_core::run_end::device_release(
-                "Android",
+                marathon_core::run_end::Platform::Android,
                 clock.now_millis().saturating_sub(release_started),
                 &released,
+                None,
             ),
             None,
         );

@@ -104,12 +104,14 @@ Run-end timing lines (WP x110) are INFO on `marathon_core::timing`, once per
 run, worded by `marathon_core::run_end` for every vendor: `Artifact
 finalization at run end took …` (iOS's wait for its artifact queue, with the
 items it found unfinished), `Device release at run end took …` (each
-provider's disposal of its devices, with their count and, for several, the
-slowest) and `Reports at run end took …` (the reporters' generation, after the
-stdout summary). They carry no `(+N ms since start)` suffix: that suffix reads
+provider's disposal of its devices, with their count and the slowest; on iOS
+also the part spent stopping its monitoring, recovery and events) and
+`Reports at run end took …` (the reporters' generation, after the stdout
+summary). They carry no `(+N ms since start)` suffix: that suffix reads
 the labelled wall clock, which replay tapes would have to script. Comparisons
 with JVM recordings leave out exactly these lines
-(`marathon_test_support::run_end`).
+(`marathon_test_support::run_end`). Android and macOS have no artifact
+queue at the run's end, so they print no artifact line, not a zero-item one.
 
 Two registry details matter:
 

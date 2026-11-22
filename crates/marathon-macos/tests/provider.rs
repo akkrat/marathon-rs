@@ -1178,8 +1178,16 @@ async fn run_end_logs_the_device_release_timing_without_debug() -> R {
         .lock()
         .unwrap()
         .configure(false, marathon_logging::Vendor::Apple { compact_output: false });
-    v(tokio::time::timeout(std::time::Duration::from_secs(60), p.terminate()).await?)?;
-    // A repeated termination releases nothing and logs no second line.
+    // The termination is polled once, so it takes the Mac and waits on its bound; an overlapping one then finds
+    // none and must not log first and stand for it. A repeated one after both releases nothing and logs nothing.
+    let mut first = p.terminate();
+    std::future::poll_fn(|cx| {
+        assert!(first.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    v(p.terminate().await)?;
+    v(tokio::time::timeout(std::time::Duration::from_secs(60), first).await?)?;
     v(p.terminate().await)?;
     let lines: Vec<_> = h
         .logs
@@ -1192,7 +1200,10 @@ async fn run_end_logs_the_device_release_timing_without_debug() -> R {
         lines,
         [(
             marathon_logging::Level::INFO,
-            "Device release at run end took 300 ms (macOS, 1 device)".to_owned()
+            format!(
+                "Device release at run end took 300 ms (macOS, 1 device; slowest {}, 300 ms)",
+                device.udid()
+            )
         )]
     );
     assert!(
