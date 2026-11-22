@@ -308,13 +308,14 @@ on recorder problems, match these messages on that target:
   establishing that no recorder started.
 - `did not report how it ended`: marathon could not confirm the exit after the launch; it includes any captured
   stderr.
-- `failed (<reason>). stderr:`: a recorder that failed with nonempty stderr. The reason is `status <n>`, `signal <n>`,
+- `failed (`, the reason, then `). stderr:`: a recorder that failed with nonempty stderr. The reason is `status <n>`, `signal <n>`,
   `it did not start` or `no exit status`. It adds `Stop the active recording or restart the simulator before recording
-  again` only when the stderr has simctl's busy text. A failure without stderr gets no warning.
+  again` only when the stderr has simctl's busy text. This warning is omitted when stderr is empty; the unconfirmed
+  warnings above can still appear.
 
 The three unconfirmed cases stop further video on that simulator until it is set up again; they can appear without
-any stderr. Every warning names the simulator. The launch, exit and failure warnings name the video file, and only the
-exit and failure warnings include the first 8 characters of the worker recorder's token, when a worker session
+any stderr. Every warning names the simulator. D98's busy warning names neither a video file nor a token. The launch warnings
+name the video file but carry no token; only the exit and failure warnings include the first 8 characters of the worker recorder's token, when a worker session
 supplied one.
 
 ### A finite `uncompletedTestRetryQuota` (D47)

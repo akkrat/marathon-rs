@@ -6,10 +6,10 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 This release stops marathon from starting a recorder beside its own previous one on local iOS simulators and
 supervised SSH workers, and writes the end-of-run reports of large runs sooner. The inputs, the CLI, the configuration, test results, report formats and the
-exit status are unchanged, and no new worker commands are needed. With video on, a short test that ends before its recorder gets a
-turn now skips that launch instead of starting a recorder that simctl refuses with "recording is already in
-progress"; in the supervised worker check below that meant two launches instead of four, no refusals, and the later
-test's video kept. The busy case of
+exit status are unchanged, and no new worker commands are needed. With video on, a recorder waits for marathon's previous
+recording on its simulator to exit, and a short test that ends before its recorder gets a turn skips that launch; in
+the supervised worker check below that meant two launches instead of four, no "recording is already in progress"
+refusals, and the later test's video kept. The busy case of
 [D98](docs/deviations.md#d98--a-simulator-recorder-is-never-interrupted-before-it-has-started) is unchanged. Recorder
 failures are logged in a different place: see the iOS entry and the
 [migration guide](docs/migration.md#ios-recorder-warnings) if your log alerts match them. Everything else is as in [0.15.2](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG.md#0152).

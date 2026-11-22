@@ -51,6 +51,10 @@ D98 line) without calling the simulators fine; the migration section explains ea
 and says which warnings carry the file and the token; "each recorder problem" became "at most one warning per
 recorder"; the intro describes the skipped launch and gives the check's numbers as that check's.
 
+A third, small re-check (another model) asked for four wording fixes, all taken: the intro no longer implies every
+skipped launch would have been refused; the failure message is described as a template; an empty stderr omits only
+the failure warning; which warnings carry the file and the token is stated per warning.
+
 ## Incidental bugs
 
 None.
