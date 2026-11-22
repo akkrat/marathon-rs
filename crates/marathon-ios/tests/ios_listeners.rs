@@ -1174,6 +1174,16 @@ async fn a_busy_video_service_turns_video_off_for_the_simulator_once_d98() -> Te
 /// U264: a recorder that exits at once with `status` and `stderr`. A local recorder's stderr comes on its stream; a
 /// supervised worker's comes with the exit receipt, set before the exit status, as the supervisor publishes it.
 fn exiting_recorder(supervised: bool, status: i32, stderr: &[&str]) -> marathon_apple::cmd::CommandSession {
+    exiting_recorder_after(supervised, status, stderr, async {})
+}
+
+/// `exiting_recorder` whose exit comes only once `after` has completed.
+fn exiting_recorder_after(
+    supervised: bool,
+    status: i32,
+    stderr: &[&str],
+    after: impl std::future::Future<Output = ()> + Send + 'static,
+) -> marathon_apple::cmd::CommandSession {
     let (session, channel) = simulator_support::unconfirmed_recorder_session(|_| Box::pin(async { Ok(None) }));
     let receipt = Arc::new(std::sync::OnceLock::new());
     let (started, report) = tokio::sync::watch::channel(false);
@@ -1181,6 +1191,7 @@ fn exiting_recorder(supervised: bool, status: i32, stderr: &[&str]) -> marathon_
         session.with_worker_report(marathon_apple::cmd::base_command::WorkerReport {
             started: report,
             stderr: receipt.clone(),
+            token: format!("{:032x}", 0x5eed_u128),
         })
     } else {
         session
@@ -1188,6 +1199,7 @@ fn exiting_recorder(supervised: bool, status: i32, stderr: &[&str]) -> marathon_
     let lines: Vec<String> = stderr.iter().map(|line| (*line).to_owned()).collect();
     let (exit, stdout) = (session.base.exit_code.clone(), session.base.stdout.clone());
     tokio::spawn(async move {
+        after.await;
         if supervised {
             let _ = receipt.set(lines.iter().map(|line| format!("{line}\n")).collect::<String>());
         } else {
@@ -1221,62 +1233,243 @@ fn recorder_lines(h: &simulator_support::Harness) -> Vec<(marathon_logging::Leve
         .collect()
 }
 
-#[tokio::test(start_paused = true)]
-async fn a_refusal_that_overlaps_marathon_s_own_recording_is_one_info_line_and_video_stays_on_u264() -> TestResult {
-    for supervised in [false, true] {
-        let h = harness(|_| {})?;
-        set_debug(&h, false);
-        let d = h.device().await?;
-        // Two listeners on one simulator: the first one's recorder is still running when the second one starts.
-        let (first, second) = (context(&h, d.clone()), context(&h, d.clone()));
-        let tests = second.batch.tests.clone();
-        let (holder, refused) = (
-            ScreenRecordingListener::new(first),
-            ScreenRecordingListener::new(second),
-        );
-        let launches = Arc::new(AtomicUsize::new(0));
-        let counted = launches.clone();
+/// U265, U266: a simulator video service as simctl runs it: a recorder launched while another one there is live is
+/// refused with status 16 and the busy text (at once, or only once the live one has ended: `late_refusal`). The first
+/// recorder stays starting (no start marker yet) until the test releases it; it then exits 0 on INT. Every later
+/// recorder that finds the service free starts and exits 0 on INT.
+struct VideoService {
+    launches: AtomicUsize,
+    live: AtomicUsize,
+    /// The launch indices of the recorders that finalized (exit 0 on INT).
+    finalized: std::sync::Mutex<Vec<usize>>,
+    first: Arc<marathon_core::executor::shared::SharedDeferred<marathon_apple::cmd::channel::LineChannel>>,
+    started: tokio::sync::watch::Sender<bool>,
+    release: Arc<marathon_core::executor::shared::SharedDeferred<()>>,
+    first_ended: Arc<marathon_core::executor::shared::SharedDeferred<()>>,
+}
+
+impl VideoService {
+    fn install(h: &simulator_support::Harness, supervised: bool, late_refusal: bool) -> Arc<Self> {
+        let service = Arc::new(Self {
+            launches: AtomicUsize::new(0),
+            live: AtomicUsize::new(0),
+            finalized: std::sync::Mutex::default(),
+            first: marathon_core::executor::shared::SharedDeferred::new(),
+            started: tokio::sync::watch::channel(false).0,
+            release: marathon_core::executor::shared::SharedDeferred::new(),
+            first_ended: marathon_core::executor::shared::SharedDeferred::new(),
+        });
+        let installed = service.clone();
         *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
             if !cmd.iter().any(|arg| arg == "recordVideo") {
                 return Ok(None);
             }
-            Ok(Some(match counted.fetch_add(1, Ordering::SeqCst) {
-                1 => exiting_recorder(supervised, 16, &HOST_BUSY),
-                _ => simulator_support::recorder_session(|signal| {
-                    Box::pin(async move { Ok((signal == "INT").then_some(0)) })
-                }),
+            let service = installed.clone();
+            let index = service.launches.fetch_add(1, Ordering::SeqCst);
+            if service.live.load(Ordering::SeqCst) > 0 {
+                let ended = service.first_ended.clone();
+                return Ok(Some(if late_refusal {
+                    exiting_recorder_after(supervised, 16, &HOST_BUSY, async move {
+                        let _ = ended.wait().await;
+                    })
+                } else {
+                    exiting_recorder(supervised, 16, &HOST_BUSY)
+                }));
+            }
+            service.live.fetch_add(1, Ordering::SeqCst);
+            let interrupted = service.clone();
+            let (session, stderr) = simulator_support::unconfirmed_recorder_session(move |signal| {
+                let service = interrupted.clone();
+                Box::pin(async move {
+                    if signal != "INT" {
+                        return Ok(None);
+                    }
+                    // A supervised worker holds INT until the start marker; the first recorder starts when released.
+                    let _ = service.release.wait().await;
+                    service.live.fetch_sub(1, Ordering::SeqCst);
+                    service.finalized.lock().unwrap().push(index);
+                    if index == 0 {
+                        service.first_ended.complete(Ok(()));
+                    }
+                    Ok(Some(0))
+                })
+            });
+            if index == 0 {
+                service.first.complete(Ok(stderr.clone()));
+            } else {
+                use futures_util::FutureExt;
+                assert!(stderr.send("Recording started".into()).now_or_never().is_some());
+            }
+            Ok(Some(if supervised {
+                let started = if index == 0 {
+                    service.started.subscribe()
+                } else {
+                    tokio::sync::watch::channel(true).1
+                };
+                session.with_worker_report(marathon_apple::cmd::base_command::WorkerReport {
+                    started,
+                    stderr: Arc::default(),
+                    token: format!("{index:032x}"),
+                })
+            } else {
+                session
             }))
         });
-        holder.test_started(&tests[0]).await.map_err(|e| format!("{e:?}"))?;
-        // Paused time: every runnable task, a launch included, runs before this returns.
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        refused.test_started(&tests[1]).await.map_err(|e| format!("{e:?}"))?;
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        refused
-            .test_failed(&tests[1], 0, 0, None)
+        service
+    }
+
+    /// The first recorder prints its start marker (or its worker reports it) and may now finalize.
+    async fn start_first(&self) -> TestResult {
+        let stderr = self.first.wait().await.map_err(|e| format!("{e:?}"))?;
+        self.release.complete(Ok(()));
+        self.started.send_replace(true);
+        stderr
+            .send("Recording started".into())
             .await
             .map_err(|e| format!("{e:?}"))?;
-        refused.settle().await.map_err(|e| format!("{e:?}"))?;
-        assert_eq!(launches.load(Ordering::SeqCst), 2);
+        Ok(())
+    }
+}
+
+/// U265, U266: one listener, as in production; the first recorder is still starting while three very short tests
+/// end, and then a normal-length test runs.
+async fn short_tests_behind_a_starting_recorder(supervised: bool, late_refusal: bool) -> TestResult {
+    use marathon_ios::apple_simulator_device::recording::RecordingFinalization;
+    let h = harness(|_| {})?;
+    set_debug(&h, false);
+    let d = h.device().await?;
+    let c = context(&h, d.clone());
+    let tests: Vec<_> = (1..=5)
+        .map(|n| marathon_core::model::Test {
+            pkg: "Tests".into(),
+            clazz: "Suite".into(),
+            method: format!("short{n}"),
+            meta_properties: vec![],
+        })
+        .collect();
+    let l = ScreenRecordingListener::new(c);
+    let service = VideoService::install(&h, supervised, late_refusal);
+    l.test_started(&tests[0]).await.map_err(|e| format!("{e:?}"))?;
+    service.first.wait().await.map_err(|e| format!("{e:?}"))?;
+    l.test_ignored(&tests[0], 0, 0).await.map_err(|e| format!("{e:?}"))?;
+    for test in &tests[1..4] {
+        l.test_started(test).await.map_err(|e| format!("{e:?}"))?;
+        // Paused time: every runnable task, a launch included, runs before this returns.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        l.test_ignored(test, 0, 0).await.map_err(|e| format!("{e:?}"))?;
+    }
+    // A normal-length test: its recorder waits for the first one, which then starts, gets INT and finalizes.
+    l.test_started(&tests[4]).await.map_err(|e| format!("{e:?}"))?;
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let beside = service.launches.load(Ordering::SeqCst) - 1;
+    service.start_first().await?;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    let stopped = l.stop().await.map_err(|e| format!("{e:?}"))?;
+    l.settle().await.map_err(|e| format!("{e:?}"))?;
+    // U266 first, then U265: what each costs a user; then their common cause.
+    let busy = busy_warnings(&h);
+    assert!(busy.is_empty(), "D98 turned video off: {busy:?}");
+    assert_eq!(
+        stopped,
+        RecordingFinalization::Finalized,
+        "the normal-length test has its video"
+    );
+    let lines = recorder_lines(&h);
+    assert!(lines.is_empty(), "{lines:?}");
+    assert_eq!(beside, 0, "no recorder beside the first one");
+    assert_eq!(service.launches.load(Ordering::SeqCst), 2);
+    assert_eq!(*service.finalized.lock().unwrap(), [0, 1]);
+    // Video stays on for the next test.
+    l.test_started(&tests[0]).await.map_err(|e| format!("{e:?}"))?;
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(service.launches.load(Ordering::SeqCst), 3, "video stays on");
+    assert_eq!(
+        l.stop().await.map_err(|e| format!("{e:?}"))?,
+        RecordingFinalization::Finalized
+    );
+    assert!(recorder_lines(&h).is_empty(), "{:?}", recorder_lines(&h));
+    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    h.finish(&[d]).await;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn short_tests_never_launch_a_recorder_beside_marathon_s_starting_one_u265() -> TestResult {
+    for supervised in [false, true] {
+        short_tests_behind_a_starting_recorder(supervised, false).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refusal_seen_after_marathon_s_own_recorder_ended_cannot_turn_video_off_u266() -> TestResult {
+    for supervised in [false, true] {
+        short_tests_behind_a_starting_recorder(supervised, true).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_recorder_marathon_stops_waiting_for_is_one_warning_u264() -> TestResult {
+    use marathon_ios::apple_simulator_device::recording::RecordingFinalization;
+    // A recorder whose launch never confirms (local), and a started one that never exits, whatever it is sent (local
+    // and supervised): a supervised worker's receipt, if one came now, would be logged only at DEBUG.
+    for (launch_hangs, supervised) in [(true, false), (false, false), (false, true)] {
+        let h = harness(|_| {})?;
+        set_debug(&h, false);
+        let d = h.device().await?;
+        let c = context(&h, d.clone());
+        let test = c.batch.tests[0].clone();
+        let l = ScreenRecordingListener::new(c);
+        if launch_hangs {
+            *h.worker.before.lock().unwrap() = Arc::new(|cmd| {
+                Box::pin(async move {
+                    if cmd.iter().any(|arg| arg == "recordVideo") {
+                        std::future::pending::<()>().await;
+                    }
+                    Ok(Some(ok(Vec::<String>::new())))
+                })
+            });
+        } else {
+            *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
+                if !cmd.iter().any(|arg| arg == "recordVideo") {
+                    return Ok(None);
+                }
+                let session = simulator_support::recorder_session(|_| Box::pin(async { Ok(None) }));
+                Ok(Some(if supervised {
+                    session.with_worker_report(marathon_apple::cmd::base_command::WorkerReport {
+                        started: tokio::sync::watch::channel(true).1,
+                        stderr: Arc::default(),
+                        token: format!("{:032x}", 0xfeed_u128),
+                    })
+                } else {
+                    session
+                }))
+            });
+        }
+        l.test_started(&test).await.map_err(|e| format!("{e:?}"))?;
+        tokio::time::sleep(std::time::Duration::from_secs(if launch_hangs { 301 } else { 1 })).await;
+        assert_eq!(
+            l.stop().await.map_err(|e| format!("{e:?}"))?,
+            RecordingFinalization::Unconfirmed
+        );
         let lines = recorder_lines(&h);
         assert_eq!(lines.len(), 1, "{lines:?}");
         let (level, message) = &lines[0];
-        assert_eq!(*level, marathon_logging::Level::INFO, "{message}");
+        assert_eq!(*level, marathon_logging::Level::WARN, "{message}");
         assert!(message.contains(d.serial()), "{message}");
-        assert!(
-            message.ends_with(
-                "overlapped marathon's previous recording on this simulator; this test's video is not recorded."
-            ),
-            "{message}"
-        );
-        assert!(!message.to_lowercase().contains("restart"), "{message}");
-        // Video stays on: the simulator's next test records.
-        refused.test_started(&tests[0]).await.map_err(|e| format!("{e:?}"))?;
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        assert_eq!(launches.load(Ordering::SeqCst), 3, "the next test records");
-        refused.stop().await.map_err(|e| format!("{e:?}"))?;
-        holder.stop().await.map_err(|e| format!("{e:?}"))?;
-        assert_eq!(recorder_lines(&h).len(), 1, "{:?}", recorder_lines(&h));
+        if launch_hangs {
+            assert!(
+                message.ends_with("did not confirm its launch in time; marathon stopped waiting for it."),
+                "{message}"
+            );
+        } else {
+            assert!(
+                message.contains("did not report how it ended; marathon stopped waiting for it."),
+                "{message}"
+            );
+            assert_eq!(message.contains("(worker recorder 00000000)"), supervised, "{message}");
+        }
         d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
         h.finish(&[d]).await;
     }

@@ -229,6 +229,8 @@ pub struct WorkerReport {
     /// A failed recorder's stderr, from its exit receipt (or an unconfirmed one); set before its exit status (or the
     /// failure to confirm it) is published. Its controller reports the failure (U264).
     pub stderr: Arc<std::sync::OnceLock<String>>,
+    /// The recorder's worker token, which the supervisor's own lines name (U264, x106).
+    pub token: String,
 }
 
 /// Explicit backend operations allow live local isAlive and captured SSH isAlive.

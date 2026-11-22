@@ -685,8 +685,9 @@ impl Peer {
         Reply::parse(output, token).ok_or_else(|| protocol_error("Worker supervisor returned an invalid token receipt"))
     }
 
-    /// U264: a failed recorder's stderr, once per recorder and at DEBUG. Its controller (the iOS recording) decides
-    /// how the failure is reported, because only it knows whether the refusal overlapped marathon's own recording.
+    /// U264: a failed recorder's stderr, once per recorder and at DEBUG. Its controller (the iOS recording) reports the
+    /// failure once, with D98's busy decision, which needs what only it knows (the start marker, the device's own
+    /// recordings); one that has stopped waiting for the receipt has already warned, naming this token.
     fn log_recorder_failure(&self, token: &str, subject: Option<&str>, reply: &Reply, stderr: &str) {
         let logger = self.logging.component(TARGET);
         self.logging.log(
@@ -867,6 +868,10 @@ impl Lease {
     /// D98: a failed detached recorder's stderr from its receipt, set before its exit proof is published.
     pub(super) fn stderr(&self) -> Arc<std::sync::OnceLock<String>> {
         self.stderr.clone()
+    }
+
+    pub(super) fn token(&self) -> &str {
+        &self.token
     }
 
     pub(super) fn acknowledge(&self) {

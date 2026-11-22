@@ -298,6 +298,7 @@ async fn execute(
             .map(|lease| crate::cmd::base_command::WorkerReport {
                 started: lease.started(),
                 stderr: lease.stderr(),
+                token: lease.token().to_owned(),
             });
     let control = session_control(channel, base.scope.clone(), closing);
     let session = CommandSession::new(base, control)

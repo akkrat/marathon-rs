@@ -148,6 +148,10 @@ struct State {
     /// simulator's stop unconfirmed for the rest of the run, whatever replaces it as the last session.
     sessions: Vec<Arc<marathon_apple::xcodebuild_session::XcodebuildSession>>,
     recordings: Vec<Arc<recording::Recording>>,
+    /// U265 (x106): the one video recording of marathon's own that may hold the simulator's video service: it took its
+    /// turn before launching and holds it until its run has ended (`done`), that is until its exit was observed or it
+    /// was given up as unconfirmed. No other video recording on the device launches meanwhile.
+    video_holder: Option<Arc<recording::Recording>>,
 }
 impl State {
     /// U179, D91, D93: why no new batch, preparation or send may start, if none may: disposal, or the run's stop.
@@ -267,6 +271,7 @@ impl AppleSimulatorDevice {
             last_session: None,
             sessions: Vec::new(),
             recordings: Vec::new(),
+            video_holder: None,
         };
         Arc::new_cyclic(move |me| Self {
             me: me.clone(),

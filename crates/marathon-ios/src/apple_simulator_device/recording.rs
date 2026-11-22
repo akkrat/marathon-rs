@@ -125,7 +125,7 @@ impl Recording {
     }
 
     async fn run(
-        &self,
+        self: &Arc<Self>,
         device: &AppleSimulatorDevice,
         capture: Capture,
         context: VendorContext,
@@ -143,14 +143,43 @@ impl Recording {
             _ = batch.cancelled() => return Ok(RecordingFinalization::NotStarted),
             result = ready => result?,
         };
-        if !ready
-            || device
-                .state()
-                .recordings
-                .iter()
-                .any(|recording| recording.ended() == Some(false))
-        {
+        if !ready {
             return Ok(RecordingFinalization::NotStarted);
+        }
+        // U265 (x106): a video recorder launches only once no other video recording of marathon's own on the device
+        // may still hold the simulator's video service; simctl refuses a second one. The listener's chain alone did not
+        // ensure it: a recording stopped before its turn ends at once, and the next one then waited only for that one.
+        // The wait runs in this task, not on the test's path, and ends with this recording's own stop or the batch.
+        loop {
+            let holder = {
+                let mut state = device.state();
+                if state
+                    .recordings
+                    .iter()
+                    .any(|recording| recording.ended() == Some(false))
+                {
+                    return Ok(RecordingFinalization::NotStarted);
+                }
+                let live = state
+                    .video_holder
+                    .clone()
+                    .filter(|holder| holder.done.completed().is_none());
+                match live {
+                    Some(holder) if self.video => holder,
+                    _ => {
+                        if self.video {
+                            state.video_holder = Some(self.clone());
+                        }
+                        break;
+                    }
+                }
+            };
+            tokio::select! {
+                biased;
+                _ = deadline.wait_for(Option::is_some) => return Ok(RecordingFinalization::NotStarted),
+                _ = batch.cancelled() => return Ok(RecordingFinalization::NotStarted),
+                _ = holder.done.wait() => {}
+            }
         }
         if matches!(capture, Capture::Video(_)) && device.services().busy_video.is_busy(&device.video_key) {
             return Ok(RecordingFinalization::Skipped);
@@ -202,13 +231,31 @@ impl Recording {
                 }
             }
         };
-        let Some((session, started_nothing)) = opened else {
-            return Ok(RecordingFinalization::Unconfirmed);
-        };
-        let session = match session {
-            Ok(session) => session,
-            Err(_) if started_nothing => return Ok(RecordingFinalization::NotStarted),
-            Err(_) => return Ok(RecordingFinalization::Unconfirmed),
+        let session = match opened {
+            Some((Ok(session), _)) => session,
+            Some((Err(_), true)) => return Ok(RecordingFinalization::NotStarted),
+            // The launch may have reached the worker. Whatever a supervised worker's receipt says later (at DEBUG, with
+            // its token), this is the recorder's one line (U264).
+            unconfirmed => {
+                if let Capture::Video(path) = &capture {
+                    let serial = &device.serial;
+                    device.log_busy_video(
+                        Level::WARN,
+                        match unconfirmed {
+                            Some((Err(error), _)) => format!(
+                                "Simulator {serial}: the video recorder for {path} failed to launch, and marathon could \
+                                 not confirm that nothing was started: {}",
+                                error.failure().for_log()
+                            ),
+                            _ => format!(
+                                "Simulator {serial}: the video recorder for {path} did not confirm its launch in time; \
+                                 marathon stopped waiting for it."
+                            ),
+                        },
+                    );
+                }
+                return Ok(RecordingFinalization::Unconfirmed);
+            }
         };
         self.opened.complete(Ok(()));
         let video = match &capture {
@@ -225,7 +272,14 @@ impl Recording {
             result = self.run_session(&session, &protected, &mut deadline, video) => result,
         };
         if let Some((device, path)) = video {
-            self.report_end(device, path, &end, session.base.exit_code.termination());
+            let token = session.worker_report().map(|worker| worker.token);
+            self.report_end(
+                device,
+                path,
+                &end,
+                session.base.exit_code.termination(),
+                token.as_deref(),
+            );
         }
         let outcome = end.outcome;
         // The outcome comes from the exit report. Closing a channel alone cannot establish it.
@@ -318,25 +372,27 @@ impl Recording {
         }
     }
 
-    /// U264: how a video recorder that did not succeed is reported, decided in one place, because only here is it known
-    /// whether simctl's busy refusal met marathon's own recording. One line per recorder at most; the worker supervisor
-    /// only keeps a DEBUG line with its token.
+    /// U264: how a video recorder that did not succeed is reported, decided in one place, from what its own run saw.
+    /// One line per recorder at most; the worker supervisor only keeps a DEBUG line with its token.
     ///
-    /// - The busy refusal before a start while another recorder of marathon's own is live on the simulator: that
-    ///   recording held the video service, which is free again once it ends. One INFO line; video stays on.
-    /// - D98: the busy refusal with status 16 and no live recorder of marathon's own means the video service is held
-    ///   by a recording nobody can stop (a signal before the start, including marathon's own TERM or KILL at a stop
-    ///   cutoff, a crash, another tool). Every later start fails the same way until the simulator restarts, so video
-    ///   stops here for the rest of the run with one warning. x102: on the simulator, not on this device object, so
-    ///   that an object set up for it later in the run neither records nor warns again.
+    /// - D98: the busy refusal with status 16 before a start means the video service is held by a recording nobody can
+    ///   stop (a signal before the start, including marathon's own TERM or KILL at a stop cutoff, a crash, another
+    ///   tool). Every later start fails the same way until the simulator restarts, so video stops here for the rest of
+    ///   the run with one warning. x102: on the simulator, not on this device object, so that an object set up for it
+    ///   later in the run neither records nor warns again. U265, U266 (x106): this recording holds the device's turn
+    ///   (`State::video_holder`) from before its launch until its run has ended, so no other recorder of marathon's own
+    ///   on the device can be live beside it, whatever order their exits are seen in.
     /// - Any other failure that printed something on stderr: one warning with that stderr, and the restart advice only
     ///   if it is the busy text after all (with another status, or after a start).
+    /// - An exit that could not be confirmed: one warning, with whatever stderr there is, since a supervised worker's
+    ///   receipt that comes after this run gave up is logged only at DEBUG (with the token this line names).
     fn report_end(
         &self,
         device: &AppleSimulatorDevice,
         path: &str,
         end: &SessionEnd,
         termination: Option<CommandTermination>,
+        token: Option<&str>,
     ) {
         let status = termination.as_ref().and_then(|termination| match termination {
             CommandTermination::Status(status) => Some(*status),
@@ -346,58 +402,48 @@ impl Recording {
             return;
         }
         let serial = &device.serial;
-        if !end.started && end.busy {
-            let (own, first) = {
-                // Under the device's lock, as a capture registers, so that none registered after it misses the state.
-                let state = device.state();
-                // Only a launched recorder can hold the service; the next test's capture can be registered and waiting.
-                let own = state.recordings.iter().any(|recording| {
-                    !std::ptr::eq(recording.as_ref(), self)
-                        && recording.video
-                        && recording.opened.completed().is_some_and(|opened| opened.is_ok())
-                        && recording.ended() != Some(true)
-                });
-                // Status 16 alone is not enough: only simctl's busy refusal on stderr shows the video service is held.
-                let busy = !own && status == Some(BUSY_STATUS);
-                (own, busy && device.services().busy_video.mark_busy(&device.video_key))
-            };
-            if own {
+        // Status 16 alone is not enough: only simctl's busy refusal on stderr shows the video service is held.
+        if !end.started && end.busy && status == Some(BUSY_STATUS) {
+            if device.services().busy_video.mark_busy(&device.video_key) {
+                let udid = &device.udid;
                 device.log_busy_video(
-                    Level::INFO,
+                    Level::WARN,
                     format!(
-                        "Simulator {serial}: the video recorder for {path} overlapped marathon's previous recording on \
-                         this simulator; this test's video is not recorded."
+                        "Simulator {serial}: its video service is busy with a recording already in progress. Video \
+                         recording is off on this simulator for the rest of the run. Restart the simulator \
+                         (xcrun simctl shutdown {udid}, then xcrun simctl boot {udid}) to record again."
                     ),
                 );
-                return;
             }
-            if status == Some(BUSY_STATUS) {
-                if first {
-                    let udid = &device.udid;
-                    device.log_busy_video(
-                        Level::WARN,
-                        format!(
-                            "Simulator {serial}: its video service is busy with a recording already in progress. Video \
-                             recording is off on this simulator for the rest of the run. Restart the simulator \
-                             (xcrun simctl shutdown {udid}, then xcrun simctl boot {udid}) to record again."
-                        ),
-                    );
-                }
-                return;
-            }
-        }
-        let Some(stderr) = end.stderr.as_deref().filter(|stderr| !stderr.is_empty()) else {
             return;
+        }
+        // The supervisor's DEBUG line names the whole token; its first characters are enough to find it.
+        let recorder = token.map_or_else(String::new, |token| {
+            format!(" (worker recorder {})", token.get(..8).unwrap_or(token))
+        });
+        let stderr = end.stderr.as_deref().filter(|stderr| !stderr.is_empty());
+        let mut message = if end.outcome == RecordingFinalization::Unconfirmed {
+            format!(
+                "Simulator {serial}: the video recorder for {path}{recorder} did not report how it ended; marathon \
+                 stopped waiting for it."
+            )
+        } else {
+            if stderr.is_none() {
+                return;
+            }
+            let ended = match termination {
+                Some(CommandTermination::Status(status)) => format!("status {status}"),
+                Some(CommandTermination::Signal(signal)) => format!("signal {signal}"),
+                Some(CommandTermination::NotStarted) => "it did not start".into(),
+                _ => "no exit status".into(),
+            };
+            format!("Simulator {serial}: the video recorder for {path}{recorder} failed ({ended}).")
         };
-        let ended = match termination {
-            Some(CommandTermination::Status(status)) => format!("status {status}"),
-            Some(CommandTermination::Signal(signal)) => format!("signal {signal}"),
-            _ => "an unconfirmed exit".into(),
-        };
-        let mut message =
-            format!("Simulator {serial}: the video recorder for {path} failed ({ended}). stderr: {stderr:?}");
-        if reports_busy(stderr) {
-            message.push_str(". Stop the active recording or restart the simulator before recording again.");
+        if let Some(stderr) = stderr {
+            message.push_str(&format!(" stderr: {stderr:?}"));
+            if reports_busy(stderr) {
+                message.push_str(". Stop the active recording or restart the simulator before recording again.");
+            }
         }
         device.log_busy_video(Level::WARN, message);
     }
