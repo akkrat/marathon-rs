@@ -226,7 +226,8 @@ impl BaseCommand {
 pub struct WorkerReport {
     /// True once the recorder printed its start marker.
     pub started: watch::Receiver<bool>,
-    /// A failed recorder's stderr, from its exit receipt; set before its exit status is.
+    /// A failed recorder's stderr, from its exit receipt (or an unconfirmed one); set before its exit status (or the
+    /// failure to confirm it) is published. Its controller reports the failure (U264).
     pub stderr: Arc<std::sync::OnceLock<String>>,
 }
 

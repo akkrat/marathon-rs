@@ -1328,88 +1328,83 @@ async fn d98_recorder(
 }
 
 #[tokio::test]
-async fn a_refused_recorder_warning_names_the_simulator_and_worker_with_the_busy_hint_u261_u262() {
+async fn a_refused_recorder_is_one_debug_line_and_its_stderr_reaches_the_controller_u261_u264() {
     use marathon_apple::bin::{
         Tools,
         xcrun::simctl::{SimctlService, service::IoService},
     };
     use marathon_config::vendor::{AppleTimeoutParameters, Codec, Display, Mask, apple_timeout_configuration};
-    const HINT: &str = "restart the affected simulator";
-    for (stderr, hint) in [
-        // Xcode 26.6.
-        (
-            "Error starting video recorder: Error Domain=NSPOSIXErrorDomain Code=16 \"Resource busy\" \
-             UserInfo={NSLocalizedFailureReason=Host recording is already in progress}.\n",
-            true,
-        ),
-        // Earlier Xcode versions.
-        (
-            "Error starting video recorder: Error Domain=NSPOSIXErrorDomain Code=16 \"Resource busy\" \
-             UserInfo={NSLocalizedFailureReason=A recording is already in progress}.\n",
-            true,
-        ),
-        ("Resource busy\n", true),
-        ("A recording is already in progress\n", true),
-        ("Host recording is already in progress\n", true),
-        // Any other refusal: the warning, without the hint.
-        ("Invalid device: fixture\n", false),
+    for stderr in [
+        // Xcode 26.6's busy refusal; before U264 the supervisor warned about it with restart advice (U262).
+        "Error starting video recorder: Error Domain=NSPOSIXErrorDomain Code=16 \"Resource busy\" \
+         UserInfo={NSLocalizedFailureReason=Host recording is already in progress}.\n",
+        "Invalid device: fixture\n",
     ] {
-        support::bounded(30, async {
-            let world = Arc::new(SupervisorWorker {
-                refused_stderr: Some(stderr.into()),
-                ..SupervisorWorker::default()
-            });
-            let fake = ssh::fake_with_handlers(ssh::script(vec![]), 10, |_| {}, vec![world]).await;
-            // Debug off, as on a CI farm: the supervisor's target keeps its WARN floor.
-            let (logging, events) = ssh::logging(false);
-            let executor = Arc::new(
-                ssh::factory(&logging)
-                    .connect_worker("127.0.0.1", fake.port(), ssh::password(), None, false, Arc::default())
-                    .await
-                    .unwrap(),
-            );
-            let io = IoService::new(SimctlService::new(Tools {
-                executor: executor.clone(),
-                timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
-                runtime: Arc::new(support::Runtime),
-                logging,
-            }));
-            let recording = io
-                .record_video(
-                    "fixture-udid",
-                    "/tmp/marathon/video.mp4",
-                    Codec::H264,
-                    Display::Internal,
-                    Mask::Black,
-                    &context(),
-                )
-                .await
-                .unwrap();
-            recording.interrupt().unwrap();
-            assert_eq!(recording.await_result(&context()).await.unwrap().exit_code, Some(16));
-            let warnings: Vec<_> = events
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|(_, level, message, _)| *level == Level::WARN && message.starts_with("Worker recorder "))
-                .map(|(_, _, message, _)| message.clone())
-                .collect();
-            assert!(!warnings.is_empty(), "{stderr}");
-            for warning in &warnings {
-                assert!(
-                    warning.contains(&format!(
-                        " for simulator fixture-udid on worker 127.0.0.1:{} failed",
-                        fake.port()
-                    )),
-                    "{warning}"
+        for debug in [false, true] {
+            support::bounded(30, async {
+                let world = Arc::new(SupervisorWorker {
+                    refused_stderr: Some(stderr.into()),
+                    ..SupervisorWorker::default()
+                });
+                let fake = ssh::fake_with_handlers(ssh::script(vec![]), 10, |_| {}, vec![world]).await;
+                let (logging, events) = ssh::logging(debug);
+                let executor = Arc::new(
+                    ssh::factory(&logging)
+                        .connect_worker("127.0.0.1", fake.port(), ssh::password(), None, false, Arc::default())
+                        .await
+                        .unwrap(),
                 );
-                assert_eq!(warning.contains(HINT), hint, "{warning}");
-            }
-            recording.close().await.unwrap();
-            executor.close().await.unwrap();
-            fake.worker.shutdown().await.unwrap();
-        })
-        .await;
+                let io = IoService::new(SimctlService::new(Tools {
+                    executor: executor.clone(),
+                    timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
+                    runtime: Arc::new(support::Runtime),
+                    logging,
+                }));
+                let recording = io
+                    .record_video(
+                        "fixture-udid",
+                        "/tmp/marathon/video.mp4",
+                        Codec::H264,
+                        Display::Internal,
+                        Mask::Black,
+                        &context(),
+                    )
+                    .await
+                    .unwrap();
+                recording.interrupt().unwrap();
+                assert_eq!(recording.await_result(&context()).await.unwrap().exit_code, Some(16));
+                // The controller (the iOS recording) reports the failure, once, from the receipt's stderr.
+                let report = recording.worker_report().unwrap();
+                assert_eq!(report.stderr.get().map(String::as_str), Some(stderr));
+                let lines: Vec<_> = events
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|(_, _, message, _)| message.starts_with("Worker recorder "))
+                    .map(|(_, level, message, _)| (*level, message.clone()))
+                    .collect();
+                if debug {
+                    assert_eq!(lines.len(), 1, "{lines:?}");
+                    let (level, line) = &lines[0];
+                    assert_eq!(*level, Level::DEBUG, "{line}");
+                    // U261: the simulator and worker are named.
+                    assert!(
+                        line.contains(&format!(
+                            " for simulator fixture-udid on worker 127.0.0.1:{} failed",
+                            fake.port()
+                        )),
+                        "{line}"
+                    );
+                    assert!(!line.contains("restart"), "{line}");
+                } else {
+                    assert!(lines.is_empty(), "nothing with debug off: {lines:?}");
+                }
+                recording.close().await.unwrap();
+                executor.close().await.unwrap();
+                fake.worker.shutdown().await.unwrap();
+            })
+            .await;
+        }
     }
 }
 

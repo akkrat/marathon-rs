@@ -1066,10 +1066,13 @@ async fn a_busy_video_service_turns_video_off_for_the_simulator_once_d98() -> Te
     use marathon_ios::apple_simulator_device::recording::RecordingFinalization;
     // simctl on a simulator whose video service is still held by an earlier, unstoppable recording (before Xcode 26.6
     // and, U262, as Xcode 26.6 words it), and an exit status 16 for some other reason, which leaves video on.
-    for (busy, reason) in [
-        (true, "A recording is already in progress"),
-        (true, "Host recording is already in progress"),
-        (false, ""),
+    // U264: on a local simulator and on a supervised worker (stderr from the exit receipt) alike.
+    for (busy, reason, supervised) in [
+        (true, "A recording is already in progress", false),
+        (true, "Host recording is already in progress", false),
+        (false, "", false),
+        (true, "Host recording is already in progress", true),
+        (false, "", true),
     ] {
         let mut h = harness(|_| {})?;
         Arc::make_mut(&mut h.services.configuration).screen_recording_policy = ScreenRecordingPolicy::OnAny;
@@ -1084,29 +1087,20 @@ async fn a_busy_video_service_turns_video_off_for_the_simulator_once_d98() -> Te
                 return Ok(None);
             }
             launch.complete(Ok(()));
-            let (session, stderr) = simulator_support::unconfirmed_recorder_session(|_| Box::pin(async { Ok(None) }));
-            let (exit, stdout) = (session.base.exit_code.clone(), session.base.stdout.clone());
-            tokio::spawn(async move {
-                let lines: Vec<String> = if busy {
-                    vec![
-                        format!(
-                            "Error starting video recorder: Error Domain=NSPOSIXErrorDomain Code=16 \"Resource busy\" \
-                             UserInfo={{NSLocalizedFailureReason={reason}}}."
-                        ),
-                        "An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=16):".into(),
-                        reason.into(),
-                    ]
-                } else {
-                    vec!["An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=16):".into()]
-                };
-                for line in lines {
-                    stderr.send(line).await.unwrap();
-                }
-                stdout.close(None);
-                stderr.close(None);
-                exit.complete(Ok(Some(16)));
-            });
-            Ok(Some(session))
+            let lines: Vec<String> = if busy {
+                vec![
+                    format!(
+                        "Error starting video recorder: Error Domain=NSPOSIXErrorDomain Code=16 \"Resource busy\" \
+                         UserInfo={{NSLocalizedFailureReason={reason}}}."
+                    ),
+                    "An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=16):".into(),
+                    reason.into(),
+                ]
+            } else {
+                vec!["An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=16):".into()]
+            };
+            let lines: Vec<&str> = lines.iter().map(String::as_str).collect();
+            Ok(Some(exiting_recorder(supervised, 16, &lines)))
         });
         let recordings = |h: &simulator_support::Harness| {
             h.worker
@@ -1141,6 +1135,19 @@ async fn a_busy_video_service_turns_video_off_for_the_simulator_once_d98() -> Te
             .map(|r| r.2.clone())
             .collect();
         assert!(!logs.iter().any(|r| r.2 == "Video recording did not start"));
+        // U264: one line per refused recorder, and the busy warning is the only one.
+        let lines = recorder_lines(&h);
+        if busy {
+            assert_eq!(lines.len(), 1, "{lines:?}");
+            assert_eq!(lines[0].0, marathon_logging::Level::WARN);
+        } else {
+            assert_eq!(lines.len(), 2, "{lines:?}");
+            for (level, message) in &lines {
+                assert_eq!(*level, marathon_logging::Level::WARN, "{message}");
+                assert!(message.contains("failed (status 16). stderr: "), "{message}");
+                assert!(!message.contains("restart"), "{message}");
+            }
+        }
         if busy {
             assert_eq!(recordings(&h), 1, "no recorder is launched after the busy refusal");
             assert_eq!(warnings.len(), 1, "{warnings:?}");
@@ -1160,6 +1167,162 @@ async fn a_busy_video_service_turns_video_off_for_the_simulator_once_d98() -> Te
         }
         d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
         h.finish(&[d]).await;
+    }
+    Ok(())
+}
+
+/// U264: a recorder that exits at once with `status` and `stderr`. A local recorder's stderr comes on its stream; a
+/// supervised worker's comes with the exit receipt, set before the exit status, as the supervisor publishes it.
+fn exiting_recorder(supervised: bool, status: i32, stderr: &[&str]) -> marathon_apple::cmd::CommandSession {
+    let (session, channel) = simulator_support::unconfirmed_recorder_session(|_| Box::pin(async { Ok(None) }));
+    let receipt = Arc::new(std::sync::OnceLock::new());
+    let (started, report) = tokio::sync::watch::channel(false);
+    let session = if supervised {
+        session.with_worker_report(marathon_apple::cmd::base_command::WorkerReport {
+            started: report,
+            stderr: receipt.clone(),
+        })
+    } else {
+        session
+    };
+    let lines: Vec<String> = stderr.iter().map(|line| (*line).to_owned()).collect();
+    let (exit, stdout) = (session.base.exit_code.clone(), session.base.stdout.clone());
+    tokio::spawn(async move {
+        if supervised {
+            let _ = receipt.set(lines.iter().map(|line| format!("{line}\n")).collect::<String>());
+        } else {
+            for line in lines {
+                channel.send(line).await.unwrap();
+            }
+        }
+        stdout.close(None);
+        channel.close(None);
+        exit.complete(Ok(Some(status)));
+        drop(started);
+    });
+    session
+}
+
+const HOST_BUSY: [&str; 3] = [
+    "Error starting video recorder: Error Domain=NSPOSIXErrorDomain Code=16 \"Resource busy\" \
+     UserInfo={NSLocalizedFailureReason=Host recording is already in progress}.",
+    "An error was encountered processing the command (domain=NSPOSIXErrorDomain, code=16):",
+    "Host recording is already in progress",
+];
+
+/// Every line on D98's target (U260), which shows with `debug: false`: (level, message).
+fn recorder_lines(h: &simulator_support::Harness) -> Vec<(marathon_logging::Level, String)> {
+    h.logs
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r.0 == BUSY_VIDEO_TARGET)
+        .map(|r| (r.1, r.2.clone()))
+        .collect()
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refusal_that_overlaps_marathon_s_own_recording_is_one_info_line_and_video_stays_on_u264() -> TestResult {
+    for supervised in [false, true] {
+        let h = harness(|_| {})?;
+        set_debug(&h, false);
+        let d = h.device().await?;
+        // Two listeners on one simulator: the first one's recorder is still running when the second one starts.
+        let (first, second) = (context(&h, d.clone()), context(&h, d.clone()));
+        let tests = second.batch.tests.clone();
+        let (holder, refused) = (
+            ScreenRecordingListener::new(first),
+            ScreenRecordingListener::new(second),
+        );
+        let launches = Arc::new(AtomicUsize::new(0));
+        let counted = launches.clone();
+        *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
+            if !cmd.iter().any(|arg| arg == "recordVideo") {
+                return Ok(None);
+            }
+            Ok(Some(match counted.fetch_add(1, Ordering::SeqCst) {
+                1 => exiting_recorder(supervised, 16, &HOST_BUSY),
+                _ => simulator_support::recorder_session(|signal| {
+                    Box::pin(async move { Ok((signal == "INT").then_some(0)) })
+                }),
+            }))
+        });
+        holder.test_started(&tests[0]).await.map_err(|e| format!("{e:?}"))?;
+        // Paused time: every runnable task, a launch included, runs before this returns.
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        refused.test_started(&tests[1]).await.map_err(|e| format!("{e:?}"))?;
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        refused
+            .test_failed(&tests[1], 0, 0, None)
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        refused.settle().await.map_err(|e| format!("{e:?}"))?;
+        assert_eq!(launches.load(Ordering::SeqCst), 2);
+        let lines = recorder_lines(&h);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        let (level, message) = &lines[0];
+        assert_eq!(*level, marathon_logging::Level::INFO, "{message}");
+        assert!(message.contains(d.serial()), "{message}");
+        assert!(
+            message.ends_with(
+                "overlapped marathon's previous recording on this simulator; this test's video is not recorded."
+            ),
+            "{message}"
+        );
+        assert!(!message.to_lowercase().contains("restart"), "{message}");
+        // Video stays on: the simulator's next test records.
+        refused.test_started(&tests[0]).await.map_err(|e| format!("{e:?}"))?;
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        assert_eq!(launches.load(Ordering::SeqCst), 3, "the next test records");
+        refused.stop().await.map_err(|e| format!("{e:?}"))?;
+        holder.stop().await.map_err(|e| format!("{e:?}"))?;
+        assert_eq!(recorder_lines(&h).len(), 1, "{:?}", recorder_lines(&h));
+        d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+        h.finish(&[d]).await;
+    }
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn any_other_recorder_failure_is_one_warning_with_its_stderr_u264() -> TestResult {
+    // Another refusal; and the busy text with a status other than 16, the only way the restart advice remains.
+    for (status, stderr, advice) in [(1, &["Invalid device: fixture"][..], false), (1, &HOST_BUSY[..], true)] {
+        for supervised in [false, true] {
+            let h = harness(|_| {})?;
+            set_debug(&h, false);
+            let d = h.device().await?;
+            let c = context(&h, d.clone());
+            let tests = c.batch.tests.clone();
+            let l = ScreenRecordingListener::new(c);
+            let launches = Arc::new(AtomicUsize::new(0));
+            let counted = launches.clone();
+            let lines: Vec<&'static str> = stderr.to_vec();
+            *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
+                if !cmd.iter().any(|arg| arg == "recordVideo") {
+                    return Ok(None);
+                }
+                counted.fetch_add(1, Ordering::SeqCst);
+                Ok(Some(exiting_recorder(supervised, status, &lines)))
+            });
+            for test in &tests {
+                l.test_started(test).await.map_err(|e| format!("{e:?}"))?;
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                l.test_failed(test, 0, 0, None).await.map_err(|e| format!("{e:?}"))?;
+            }
+            l.settle().await.map_err(|e| format!("{e:?}"))?;
+            assert_eq!(launches.load(Ordering::SeqCst), tests.len(), "video stays on");
+            let warnings = recorder_lines(&h);
+            assert_eq!(warnings.len(), tests.len(), "one line per recorder: {warnings:?}");
+            for (level, message) in &warnings {
+                assert_eq!(*level, marathon_logging::Level::WARN, "{message}");
+                assert!(message.contains(d.serial()), "{message}");
+                assert!(message.contains("failed (status 1). stderr: "), "{message}");
+                assert!(message.contains(stderr[stderr.len() - 1]), "{message}");
+                assert_eq!(message.contains("restart the simulator"), advice, "{message}");
+            }
+            d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+            h.finish(&[d]).await;
+        }
     }
     Ok(())
 }

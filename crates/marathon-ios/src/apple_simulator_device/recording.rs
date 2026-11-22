@@ -220,18 +220,14 @@ impl Recording {
             self.request_stop(protected.clock.as_ref(), None);
             std::future::pending::<()>().await;
         };
-        let (outcome, started, busy) = tokio::select! {
+        let end = tokio::select! {
             _ = cancellation => unreachable!("stop publisher remains active"),
             result = self.run_session(&session, &protected, &mut deadline, video) => result,
         };
-        // Status 16 alone is not enough: only simctl's busy refusal on stderr shows the video service is held.
-        if video.is_some()
-            && !started
-            && busy
-            && session.base.exit_code.termination() == Some(CommandTermination::Status(BUSY_STATUS))
-        {
-            self.recorder_busy(device);
+        if let Some((device, path)) = video {
+            self.report_end(device, path, &end, session.base.exit_code.termination());
         }
+        let outcome = end.outcome;
         // The outcome comes from the exit report. Closing a channel alone cannot establish it.
         // Retain channel/reader close independently if there is no time left to await it.
         device
@@ -322,51 +318,104 @@ impl Recording {
         }
     }
 
-    /// D98: the busy refusal with no live recorder of marathon's own on the simulator means its video service is held
-    /// by a recording nobody can stop (a signal before the start, including marathon's own TERM or KILL at a stop
-    /// cutoff, a crash, another tool). Every later start fails the same way until
-    /// the simulator restarts, so video stops here for the rest of the run with one warning. x102: on the simulator, not
-    /// on this device object, so that an object set up for it later in the run neither records nor warns again.
-    fn recorder_busy(&self, device: &AppleSimulatorDevice) {
-        let first = {
-            // Under the device's lock, as a capture registers, so that none registered after it misses the state.
-            let state = device.state();
-            // Only a launched recorder can hold the service; the next test's capture can be registered and waiting.
-            let own = state.recordings.iter().any(|recording| {
-                !std::ptr::eq(recording.as_ref(), self)
-                    && recording.video
-                    && recording.opened.completed().is_some_and(|opened| opened.is_ok())
-                    && recording.ended() != Some(true)
-            });
-            !own && device.services().busy_video.mark_busy(&device.video_key)
-        };
-        if first {
-            let (serial, udid) = (&device.serial, &device.udid);
-            device.log_busy_video(
-                Level::WARN,
-                format!(
-                    "Simulator {serial}: its video service is busy with a recording already in progress. Video \
-                     recording is off on this simulator for the rest of the run. Restart the simulator \
-                     (xcrun simctl shutdown {udid}, then xcrun simctl boot {udid}) to record again."
-                ),
-            );
+    /// U264: how a video recorder that did not succeed is reported, decided in one place, because only here is it known
+    /// whether simctl's busy refusal met marathon's own recording. One line per recorder at most; the worker supervisor
+    /// only keeps a DEBUG line with its token.
+    ///
+    /// - The busy refusal before a start while another recorder of marathon's own is live on the simulator: that
+    ///   recording held the video service, which is free again once it ends. One INFO line; video stays on.
+    /// - D98: the busy refusal with status 16 and no live recorder of marathon's own means the video service is held
+    ///   by a recording nobody can stop (a signal before the start, including marathon's own TERM or KILL at a stop
+    ///   cutoff, a crash, another tool). Every later start fails the same way until the simulator restarts, so video
+    ///   stops here for the rest of the run with one warning. x102: on the simulator, not on this device object, so
+    ///   that an object set up for it later in the run neither records nor warns again.
+    /// - Any other failure that printed something on stderr: one warning with that stderr, and the restart advice only
+    ///   if it is the busy text after all (with another status, or after a start).
+    fn report_end(
+        &self,
+        device: &AppleSimulatorDevice,
+        path: &str,
+        end: &SessionEnd,
+        termination: Option<CommandTermination>,
+    ) {
+        let status = termination.as_ref().and_then(|termination| match termination {
+            CommandTermination::Status(status) => Some(*status),
+            _ => None,
+        });
+        if status == Some(0) {
+            return;
         }
+        let serial = &device.serial;
+        if !end.started && end.busy {
+            let (own, first) = {
+                // Under the device's lock, as a capture registers, so that none registered after it misses the state.
+                let state = device.state();
+                // Only a launched recorder can hold the service; the next test's capture can be registered and waiting.
+                let own = state.recordings.iter().any(|recording| {
+                    !std::ptr::eq(recording.as_ref(), self)
+                        && recording.video
+                        && recording.opened.completed().is_some_and(|opened| opened.is_ok())
+                        && recording.ended() != Some(true)
+                });
+                // Status 16 alone is not enough: only simctl's busy refusal on stderr shows the video service is held.
+                let busy = !own && status == Some(BUSY_STATUS);
+                (own, busy && device.services().busy_video.mark_busy(&device.video_key))
+            };
+            if own {
+                device.log_busy_video(
+                    Level::INFO,
+                    format!(
+                        "Simulator {serial}: the video recorder for {path} overlapped marathon's previous recording on \
+                         this simulator; this test's video is not recorded."
+                    ),
+                );
+                return;
+            }
+            if status == Some(BUSY_STATUS) {
+                if first {
+                    let udid = &device.udid;
+                    device.log_busy_video(
+                        Level::WARN,
+                        format!(
+                            "Simulator {serial}: its video service is busy with a recording already in progress. Video \
+                             recording is off on this simulator for the rest of the run. Restart the simulator \
+                             (xcrun simctl shutdown {udid}, then xcrun simctl boot {udid}) to record again."
+                        ),
+                    );
+                }
+                return;
+            }
+        }
+        let Some(stderr) = end.stderr.as_deref().filter(|stderr| !stderr.is_empty()) else {
+            return;
+        };
+        let ended = match termination {
+            Some(CommandTermination::Status(status)) => format!("status {status}"),
+            Some(CommandTermination::Signal(signal)) => format!("signal {signal}"),
+            _ => "an unconfirmed exit".into(),
+        };
+        let mut message =
+            format!("Simulator {serial}: the video recorder for {path} failed ({ended}). stderr: {stderr:?}");
+        if reports_busy(stderr) {
+            message.push_str(". Stop the active recording or restart the simulator before recording again.");
+        }
+        device.log_busy_video(Level::WARN, message);
     }
 
-    /// The process outcome, whether a recorder confirmed its start, and whether its stderr reported the busy refusal
-    /// (D98).
     async fn run_session(
         &self,
         session: &CommandSession,
         context: &VendorContext,
         deadline: &mut watch::Receiver<Option<StopWindow>>,
         video: Option<(&AppleSimulatorDevice, &str)>,
-    ) -> (RecordingFinalization, bool, bool) {
+    ) -> SessionEnd {
         let clock = context.clock.as_ref();
         // A device log has no start marker and never waits for one.
         let started = watch::channel(video.is_none()).0;
         let worker = session.worker_report();
         let busy = std::sync::atomic::AtomicBool::new(false);
+        // A local recorder's stderr, bounded as the worker supervisor bounds a receipt's (U264).
+        let stderr = std::sync::Mutex::new(String::new());
         // D98: a signal before simctl's start marker leaves the simulator's video service recording with no client,
         // and every later recording on that simulator then fails with the busy code. A supervised SSH worker reads
         // the recorder's stderr and holds INT itself; otherwise the marker is read here and INT waits for it.
@@ -387,6 +436,7 @@ impl Recording {
         let exit = std::pin::pin!(async {
             let result = if gated {
                 read_output(session, |line| {
+                    keep_stderr(&mut stderr.lock().unwrap_or_else(|e| e.into_inner()), line);
                     if line.strip_suffix('\r').unwrap_or(line) == START_MARKER {
                         confirm();
                     } else if reports_busy(line) {
@@ -475,11 +525,41 @@ impl Recording {
             RecordingFinalization::Unconfirmed
         }
         .await;
-        (
+        let stderr = match &worker {
+            Some(worker) => worker.stderr.get().cloned(),
+            None => Some(std::mem::take(&mut *stderr.lock().unwrap_or_else(|e| e.into_inner()))),
+        };
+        SessionEnd {
             outcome,
-            *started.borrow(),
-            busy.load(std::sync::atomic::Ordering::Relaxed),
-        )
+            started: *started.borrow(),
+            busy: busy.load(std::sync::atomic::Ordering::Relaxed),
+            stderr,
+        }
+    }
+}
+
+/// How a capture's process ended, for its reporting.
+struct SessionEnd {
+    outcome: RecordingFinalization,
+    /// The recorder confirmed its start (D98).
+    started: bool,
+    /// Its stderr carried simctl's busy refusal (D98).
+    busy: bool,
+    /// Its stderr: read here for a local recorder, from the exit receipt for a supervised one (only if it failed).
+    stderr: Option<String>,
+}
+
+/// The worker supervisor's bound on a recorder's stderr.
+const STDERR_LIMIT: usize = 8192;
+
+fn keep_stderr(kept: &mut String, line: &str) {
+    for piece in [line, "\n"] {
+        let room = STDERR_LIMIT.saturating_sub(kept.len());
+        let mut take = piece.len().min(room);
+        while !piece.is_char_boundary(take) {
+            take -= 1;
+        }
+        kept.push_str(&piece[..take]);
     }
 }
 

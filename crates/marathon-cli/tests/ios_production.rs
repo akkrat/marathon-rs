@@ -754,6 +754,16 @@ async fn a_busy_simulator_on_an_ssh_worker_turns_video_off_once_d98() -> Result 
             .iter()
             .filter(|cmd| cmd.contains(&format!("simctl shutdown {UDID}")))
             .count();
+        // U264: one line per refused recorder, from the iOS recording; the supervisor keeps a DEBUG line only.
+        let output_text = format!("{stdout}{stderr_text}");
+        let failures = output_text.matches(": the video recorder for ").count();
+        assert!(!output_text.contains("Stop the active recording"), "{stdout}");
+        if stderr == busy {
+            assert_eq!(failures, 0, "{stdout}");
+        } else {
+            assert_eq!(failures, 3, "{stdout}");
+            assert_eq!(output_text.matches("failed (status 16). stderr: ").count(), 3, "{stdout}");
+        }
         if stderr == busy {
             assert_eq!(launches, 1, "no recorder after the busy refusal");
             assert_eq!(warnings, 1, "{stdout}");

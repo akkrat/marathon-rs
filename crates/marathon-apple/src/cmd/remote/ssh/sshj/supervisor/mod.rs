@@ -669,48 +669,41 @@ impl Peer {
         }
     }
 
-    /// The reply and a failed recorder's stderr from its receipt. `subject` names what the process serves.
+    /// The reply and a failed recorder's stderr from its receipt.
     async fn ask(
         &self,
         token: &str,
-        subject: Option<&str>,
         operation: &str,
         deadline: Instant,
         may_hold_reply: bool,
     ) -> VendorResult<(Reply, Option<String>)> {
         let output = self.control_request(token, operation, deadline, may_hold_reply).await?;
-        self.interpret(token, subject, &output)
+        self.interpret(token, &output)
     }
 
-    fn interpret(&self, token: &str, subject: Option<&str>, output: &str) -> VendorResult<(Reply, Option<String>)> {
-        let (reply, diagnostic) = Reply::parse(output, token)
-            .ok_or_else(|| protocol_error("Worker supervisor returned an invalid token receipt"))?;
-        if let Some(stderr) = &diagnostic {
-            let logger = self.logging.component(TARGET);
-            self.logging.log(
-                &logger,
-                Level::WARN,
-                || {
-                    // U261: the token alone does not tell an operator which simulator and worker were refused.
-                    let worker = &self.worker;
-                    let mut message = match subject {
-                        Some(subject) => format!(
-                            "Worker recorder {token} for {subject} on worker {worker} failed ({reply:?}). stderr: {stderr:?}"
-                        ),
-                        None => format!("Worker recorder {token} on worker {worker} failed ({reply:?}). stderr: {stderr:?}"),
-                    };
-                    // U262: the same busy text as D98's detection, Xcode 26.6's "Host recording ..." wording included.
-                    if crate::bin::xcrun::simctl::service::reports_recording_busy(stderr) {
-                        message.push_str(
-                            ". Stop the active recording or restart the affected simulator before recording again.",
-                        );
-                    }
-                    message
-                },
-                None,
-            );
-        }
-        Ok((reply, diagnostic))
+    fn interpret(&self, token: &str, output: &str) -> VendorResult<(Reply, Option<String>)> {
+        Reply::parse(output, token).ok_or_else(|| protocol_error("Worker supervisor returned an invalid token receipt"))
+    }
+
+    /// U264: a failed recorder's stderr, once per recorder and at DEBUG. Its controller (the iOS recording) decides
+    /// how the failure is reported, because only it knows whether the refusal overlapped marathon's own recording.
+    fn log_recorder_failure(&self, token: &str, subject: Option<&str>, reply: &Reply, stderr: &str) {
+        let logger = self.logging.component(TARGET);
+        self.logging.log(
+            &logger,
+            Level::DEBUG,
+            || {
+                // U261: the token alone does not tell an operator which simulator and worker were refused.
+                let worker = &self.worker;
+                match subject {
+                    Some(subject) => format!(
+                        "Worker recorder {token} for {subject} on worker {worker} failed ({reply:?}). stderr: {stderr:?}"
+                    ),
+                    None => format!("Worker recorder {token} on worker {worker} failed ({reply:?}). stderr: {stderr:?}"),
+                }
+            },
+            None,
+        );
     }
 }
 
@@ -1027,11 +1020,11 @@ impl Lease {
                     if probe {
                         let output = self.peer.probe(&self.token, next_renewal.max(first_renewal)).await;
                         Ok(output.and_then(|output| {
-                            self.peer.interpret(&self.token, self.subject.as_deref(), &output).ok()
+                            self.peer.interpret(&self.token, &output).ok()
                         }))
                     } else {
                         self.peer
-                            .ask(&self.token, self.subject.as_deref(), &operation, request_end, may_hold_reply)
+                            .ask(&self.token, &operation, request_end, may_hold_reply)
                             .await
                             .map(Some)
                     }
@@ -1049,8 +1042,13 @@ impl Lease {
             };
             let response = response.map(|reply| {
                 reply.map(|(reply, stderr)| {
-                    if let (Reply::Proof(_), Some(stderr)) = (&reply, stderr) {
-                        let _ = self.stderr.set(stderr);
+                    // A probe and a later request can both carry the receipt: the first one is kept and logged.
+                    if let (Reply::Proof(_) | Reply::Unconfirmed, Some(stderr)) = (&reply, stderr)
+                        && self.stderr.set(stderr).is_ok()
+                        && let Some(stderr) = self.stderr.get()
+                    {
+                        self.peer
+                            .log_recorder_failure(&self.token, self.subject.as_deref(), &reply, stderr);
                     }
                     reply
                 })
