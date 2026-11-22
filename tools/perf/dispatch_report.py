@@ -401,7 +401,7 @@ def analyse_trace(lines, last_end_ms, exit_ms):
 def stats(values):
     if not values:
         return None
-    return dict(n=len(values), p50=percentile(values, .5), p95=percentile(values, .95), max=max(values),
+    return dict(n=len(values), min=min(values), p50=percentile(values, .5), p95=percentile(values, .95), max=max(values),
                 mean=statistics.fmean(values))
 
 
