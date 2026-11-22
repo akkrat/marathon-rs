@@ -4,14 +4,15 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## 0.15.3
 
-This release fixes iOS video recording after very short tests and writes the end-of-run reports of large runs sooner.
-The inputs, the CLI, the configuration, worker commands, test results, report files and the exit status are
-unchanged. With video on, a simulator's recorder now starts only after marathon's own previous recording there has
-ended, so the "recording is already in progress" refusals that short or skipped tests back to back caused, and the
-warnings that came with them, are gone; the busy case of
-[D98](docs/deviations.md#d98--a-simulator-recorder-is-never-interrupted-before-it-has-started) is unchanged. A failed
-recorder is reported in one warning from marathon's iOS code, and the worker supervisor's own line for it is
-debug-only. Everything else is as in [0.15.2](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG.md#0152).
+This release stops marathon from starting an iOS simulator recorder beside its own previous one, and writes the
+end-of-run reports of large runs sooner. The inputs, the CLI, the configuration, test results, report formats and the
+exit status are unchanged, and no new worker commands are needed. With video on, very short or skipped tests back to
+back no longer cause "recording is already in progress" refusals and the restart advice that came with them, so a
+run launches fewer recorders and can have videos that 0.15.2 lost. The busy case of
+[D98](docs/deviations.md#d98--a-simulator-recorder-is-never-interrupted-before-it-has-started) is unchanged. Recorder
+failures are logged in a different place: see the iOS entry and the
+[migration guide](docs/migration.md#changes-that-need-action) if your log alerts match
+them. Everything else is as in [0.15.2](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG.md#0152).
 
 ### iOS
 
@@ -19,45 +20,50 @@ debug-only. Everything else is as in [0.15.2](https://github.com/akkrat/marathon
   tests back to back could make marathon start a simulator recorder while its own previous recording there was still
   starting. simctl refused it, a normal-length test after them could lose its video, and when the refusal was seen
   after the other recording had ended, the simulator was wrongly taken for busy and video was off on it for the rest
-  of the run. A recorder now starts only after marathon's previous recording on that simulator has ended; a test that
-  ends before then has no video, as such short tests mostly had none before. The tests themselves are not delayed.
-- **Fewer misleading iOS recorder warnings (x106, U264):** the refusals above made about three warnings per video run
-  on a farm, each advising to restart a simulator that was fine; they no longer happen. A simulator video recorder
-  that fails is now reported once, in one warning naming the simulator, the worker recorder and simctl's output, with
-  the restart advice only for simctl's busy text when marathon could not decide on its own; a recorder marathon
-  stopped waiting for is one warning too. A simulator whose video service is really busy still gets D98's single
-  warning. Simulators on this machine are reported the same way (before, only D98's busy case was). The worker
-  supervisor's own line for a failed recorder is now debug-only. Test results and the exit status are unchanged.
+  of the run. On local simulators and supervised SSH workers, the next recorder now waits until marathon's previous
+  recording on that simulator has exited. A test does not wait for its recorder, so its video can miss the test's
+  start, or be absent if the test ends first; that is mostly very short or skipped tests, which mostly had no video
+  before either.
+- **Recorder warnings (x106, U264):** the refusals above made about three warnings per video run on a farm, each
+  advising to restart a simulator that was fine; they no longer happen. A recorder that fails with output on stderr
+  is now reported in one warning on `marathon_ios::busy_video`: `Simulator <serial>: the video recorder for <file>
+  (worker recorder <first 8 characters of its token>) failed (status <n>). stderr: "…"`, without the token for a
+  simulator on this machine (before, a local recorder was reported only in D98's busy case). It adds the advice to stop
+  the recording or restart the simulator only when that output has simctl's busy text. A recorder whose launch or exit
+  marathon could not confirm gets one warning that it records no further videos on that simulator until it is set up
+  again. A simulator whose video service is really busy still gets only D98's single warning. The worker
+  supervisor's `Worker recorder … failed` line is now debug-only. Test results and the exit status are unchanged.
 
 ### Reports
 
-- **Faster report generation for large runs (x106, U263):** the reports at the end of a run are written sooner. The
-  run summary that the reports share was computed in time growing with the square of the number of test results
-  (about 0.5 s at 10 000 results and 19 s at 50 000); it is now linear (about 5 ms and 22 ms). The HTML report and
-  the per-test JSON results also do their file work in fewer hand-offs to the I/O threads. On a 10 000-result run the
-  time from the last test to the exit drops from about 3.8 s to 2.7 s. The report files are unchanged.
+- **Faster end-of-run reports for large runs (x106, U263):** the run summary that the reports share now indexes the
+  results once instead of scanning them again for every result. In a benchmark with unique tests it took 5.4 ms
+  instead of 428 ms at 10 000 results, and 22 ms instead of 18.6 s at 50 000. The HTML report and the per-test JSON
+  results also do their file work in fewer hand-offs to the I/O threads. With fake adb, local storage and no
+  attachments, the median time from the last of 10 000 results to the exit fell from 3.78 s to 2.69 s. The report
+  formats are unchanged.
 
 ### Evidence
 
-- A run of the full iOS UI-test job of a private CI farm with video recording turned on (0.15.2, Xcode 26.6 workers,
-  `debug: false`) showed three recorders refused with "Resource busy … Host recording is already in progress", each
-  in the first batch of a simulator where five skipped tests end in about 0.3 s, while marathon's own previous
-  recorder there was still starting. D98 correctly did not take them for a busy service. The
-  [x106 findings](docs/wp/x106-findings.md) trace them to the overlap this release removes, and record the witnesses,
-  each shown to fail without its fix: the overlap with an exit seen in either order, the stopped-waiting warning, one
-  warning per failed recorder on a fake SSH worker through the real CLI, and the linear report summary at 50 000
-  results. Two review rounds by another model ended with nothing blocking.
+- A 0.15.2 run of the full iOS UI-test job of a private CI farm with video on (Xcode 26.6 workers, `debug: false`)
+  recorded three busy refusals ("Resource busy … Host recording is already in progress"), each in a simulator's first
+  batch, where five skipped tests ended in about 0.3 s. D98 marked none of those simulators busy. The pattern is
+  consistent with the overlap that x106's tests and the real worker below reproduce; it was not rerun on Xcode 26.6.
+- The [x106 findings](docs/wp/x106-findings.md) record the witnesses, each shown to fail without its fix: the overlap
+  with an exit seen in either order, the stopped-waiting warning, one warning per failed recorder on a fake SSH worker
+  through the real CLI, and the report summary at 50 000 results. Two review rounds by another model ended with
+  nothing blocking.
 - On a real SSH worker with Perl (Xcode 27.2 simulators), a batch of five instant tests followed by a failing one,
   with video on, gave 7 refusals in 4 runs with 0.15.2 and none in 4 runs with this release, which launched two
-  recorders per run instead of four, logged no recorder warning and delivered the failing test's video every time; the
-  tests took no longer and the reports were equal as data. On the same worker, two ordinary video runs delivered every
-  video and result bundle, a simulator whose video service was wedged on purpose got only D98's warning with
-  `debug: false` and was shut down at the end, and a stop at the first recorder launch ended within a second with
-  every recorder held until it had started. The overlap could not be run under Xcode 26.6, whose xcodebuild did not run
-  the test runner built for this check.
-- The [x105 measurement](docs/perf/x105-dispatch-and-report-tail.md) found the gap between a device's batches at 1 to
-  3 ms (no change needed) and the end-of-run report tail at about 3.7 s for 10 000 results; with this release that
-  tail is about 2.7 s.
+  recorders per run instead of four, logged no recorder warning and delivered the failing test's video every time.
+  The failing test took 2.26–2.32 s, against 2.31–2.60 s on 0.15.2, and the reports were equal as data. On the same
+  worker, two ordinary video runs delivered 6/6 videos and result bundles each. A simulator whose video service was
+  wedged on purpose got one D98 warning with `debug: false` and no supervisor warning, was shut down at the end, and
+  delivered 6/6 after booting on the next run. SIGTERM at the first recorder launch exited in 0.75 s; the recorders
+  waited for `Recording started`, exited 0, and the next run delivered 6/6. The overlap could not be run under
+  Xcode 26.6, whose xcodebuild did not run the test runner built for this check.
+- The [x105 measurement](docs/perf/x105-dispatch-and-report-tail.md), with fake adb, found a median gap of 1 to 3 ms
+  between a device's batches (no change needed) and the report tail that this release shortens.
 - CI runs the repository gate on macOS and Linux; it passes on the code of this release.
 - Not exercised: a farm run of this release, with or without video.
 
@@ -73,8 +79,8 @@ debug-only. Everything else is as in [0.15.2](https://github.com/akkrat/marathon
 - The `xctest` test parser needs a `libxctest-parser` library that you supply (D20). The differential suites run it with a
   stand-in file, so what the library itself does is not covered by them. The archives do not contain it, and this project's
   licence does not cover it.
-- The real macOS UI XCTest scenario could not be completed on macOS 27 and is not part of the real-host evidence of
-  0.15.0 and earlier releases ([U103](docs/found-bugs.md)).
+- The real macOS UI XCTest scenario on macOS 27 remains unverified and is outside the real-host evidence of this and
+  earlier releases ([U103](docs/found-bugs.md)).
 - No isolated shadow or canary results are recorded in this repository. Trial it in a disposable environment and keep your
   JVM distribution for [rollback](docs/migration.md#trial-and-rollback).
 - An Android device that restarted during an adb outage is set up again when its boot ID changed or its preparation
@@ -129,10 +135,12 @@ debug-only. Everything else is as in [0.15.2](https://github.com/akkrat/marathon
 - If a signal arrives during the end-of-run shutdown of a busy simulator, the lease release after it can have no time
   left; it is still bounded by D97's finish. A replacement simulator whose registration failed after it joined the
   provider (D74) is not shut down at the end of the run (D98).
-- With video on, an iOS test that ends before marathon's previous recording on its simulator has ended has no video;
-  that is mostly very short or skipped tests, and with `screenRecordingPolicy: ON_ANY` each such test still logs one
-  error that its video was not delivered, as in 0.15.2 (x106). A recorder that marathon stopped waiting for turns video off on
-  that simulator until it is set up again, as before (D98).
+- With video on, a test that ends while its recorder still waits for marathon's previous recording on its simulator
+  has no video, and with `screenRecordingPolicy: ON_ANY` it logs one error that its video `was not delivered: the
+  recording did not start`, as such tests did in 0.15.2 (x106). If marathon cannot confirm a recorder's launch or
+  exit, it warns once and records no further video on that simulator until it is set up again (D98, x106).
+- On a worker without usable Perl, the legacy recorder has no start confirmation, stderr or exit status, so its
+  failures are not reported in the recorder warning above (x106).
 - Zero-byte Android videos were seen in a real run, also seen in earlier runs and judged a pre-existing recording
   issue; D97 delivers a complete zero-byte file.
 - A D88 monitor failure that ends Android device tracking has not been provoked on a real device; it is covered only by

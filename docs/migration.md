@@ -290,10 +290,12 @@ that. At the end of the run marathon makes one bounded attempt to shut it down, 
 unless the on-dispose lifecycle already shuts it down or erases it, its work was not confirmed to have ended, it is
 quarantined or no longer the run's, too little time is left, or a signal arrived. If its video service is still busy
 after that, restart the simulator before it records again. The busy warning and the line reporting the shutdown, or
-why it did not happen, print with `debug: false` from 0.15.2 (x104); in 0.15.1 they needed `debug: true`. From 0.15.3 (x106) a recorder that fails is one warning, `Simulator <serial>: the
-video recorder for <file> (worker recorder <first 8 characters of its token>) failed …`, on the same target, and the
-worker supervisor's `Worker recorder … failed` line is debug-only, so log alerts that matched it should match the new
-warning. If SSH command filters
+why it did not happen, print with `debug: false` from 0.15.2 (x104); in 0.15.1 they needed `debug: true`. From 0.15.3 (x106) the worker supervisor's `Worker recorder … failed` line is DEBUG. For
+recorder alerts with `debug: false`, match WARN lines on `marathon_ios::busy_video`: a recorder that fails with output
+on stderr reads `Simulator <serial>: the video recorder for <file> (worker recorder <first 8 characters of its
+token>) failed (status <n>). stderr: "…"` (no token for a simulator on this machine; one that fails without stderr
+gets no warning), and D98's busy warning and the warning for a recorder whose launch or exit marathon could not
+confirm are separate messages on the same target. If SSH command filters
 on a worker list allowed commands, allow `xcrun simctl shutdown <udid>`. Workers without usable Perl keep the legacy
 recorder, which this does not change.
 

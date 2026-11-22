@@ -12,7 +12,7 @@ PLAN §3.11 records no per-row approval dates for D55–D65. Its heading date,
 2026-10-12, is the section's original approval date. D68–D81 ship in 0.14.0 (D68–D72 and D74–D77
 first in 0.14.0-rc.1, D78–D81 in 0.14.0-rc.2); they fix run-stability and device-handling bugs, add a native-only
 flakiness strategy (D72), and change JUnit retry elements, the iOS boot wait and video transfers, and Android coverage
-without `run-as`. D82–D88 and D90–D97 ship in 0.15.0, first in 0.15.0-rc.1, and D98 in 0.15.1 (its log lines print with `debug: false` from 0.15.2, and from 0.15.3 a recorder never starts beside marathon's own previous one on a simulator). D82 sends Android retries to another device
+without `run-as`. D82–D88 and D90–D97 ship in 0.15.0, first in 0.15.0-rc.1, and D98 in 0.15.1 (its log lines print with `debug: false` from 0.15.2, and from 0.15.3 a supervised or local recorder waits for marathon's previous one on that simulator to exit). D82 sends Android retries to another device
 and D83 gives copies of different tests turns in the queue. D84–D88 and D90 improve run stability, D91–D95 bound teardown,
 D96 establishes process ownership, and D97 publishes complete artifacts and reserves time for signal cleanup.
 See the [changelog](../CHANGELOG.md).
