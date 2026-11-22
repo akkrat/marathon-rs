@@ -30,13 +30,23 @@ pub struct ReporterFiles {
 }
 impl ReporterFiles {
     pub(super) async fn write(&self, path: PathBuf, text: String) -> OperationResult<()> {
+        blocking(self.io.as_ref(), move || write_now(&path, &text))
+            .await
+            .map_err(operation_error)
+    }
+    /// `files.create_file(&target)`, then `text()`, then `write` of the text to that path, in one blocking job
+    /// instead of two (x106): the same steps in the same order, with the same errors.
+    pub(super) async fn create_and_write(
+        &self,
+        target: FileTarget,
+        text: impl FnOnce() -> OperationResult<String> + Send + 'static,
+    ) -> OperationResult<()> {
+        let files = self.files.clone();
         blocking(self.io.as_ref(), move || {
-            validate_path(&path)?;
-            let mut file = std::fs::File::create(&path).map_err(|e| file_open_error(e, &path))?;
-            file.write_all(text.as_bytes()).map_err(io_error)
+            Ok(create_and_write_now(files.as_ref(), &target, text))
         })
         .await
-        .map_err(operation_error)
+        .map_err(operation_error)?
     }
     fn target(&self, kind: FileType, pool: &DevicePoolId, device: &DeviceInfo, test: Option<&Test>) -> FileTarget {
         FileTarget {
@@ -49,6 +59,20 @@ impl ReporterFiles {
             chunk: None,
         }
     }
+}
+fn create_and_write_now(
+    files: &dyn OutputFiles,
+    target: &FileTarget,
+    text: impl FnOnce() -> OperationResult<String>,
+) -> OperationResult<()> {
+    let path = files.create_file_blocking(target)?;
+    let text = text()?;
+    write_now(&path, &text).map_err(operation_error)
+}
+fn write_now(path: &std::path::Path, text: &str) -> VendorResult<()> {
+    validate_path(path)?;
+    let mut file = std::fs::File::create(path).map_err(|e| file_open_error(e, path))?;
+    file.write_all(text.as_bytes()).map_err(io_error)
 }
 fn json(value: impl serde::Serialize) -> OperationResult<String> {
     serde_json::to_string(&value)
@@ -94,9 +118,10 @@ impl Reporter for TestJsonReporter {
                 let target = self
                     .output
                     .target(FileType::TestResult, &e.pool_id, &e.device, Some(&e.test_result.test));
-                let path = self.output.files.create_file(&target).await?;
-                let text = json(schema::TestResultJson::new(&e.test_result, &self.output.cwd))?;
-                self.output.write(path, text).await?;
+                let (result, cwd) = (e.test_result.clone(), self.output.cwd.clone());
+                self.output
+                    .create_and_write(target, move || json(schema::TestResultJson::new(&result, &cwd)))
+                    .await?;
             }
             Ok(())
         })

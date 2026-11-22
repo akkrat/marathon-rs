@@ -99,6 +99,13 @@ impl OutputFiles for FailFiles {
             self.inner.create_file(target).await
         })
     }
+    fn create_file_blocking(&self, target: &FileTarget) -> OperationResult<PathBuf> {
+        assert_ne!(std::thread::current().name(), Some("marathon-core"));
+        if self.calls.fetch_add(1, Ordering::SeqCst) == 1 {
+            return Err(self.error.clone());
+        }
+        self.inner.create_file_blocking(target)
+    }
     fn create_folder<'a>(
         &'a self,
         kind: FolderType,

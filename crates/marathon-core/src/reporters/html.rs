@@ -254,6 +254,98 @@ fn assignment(name: &str, value: &(impl serde::Serialize + ?Sized)) -> VendorRes
     out.push_str(&html_json(value)?);
     Ok(out)
 }
+/// Tests per blocking job of the per-test page work: bounds a job to a few milliseconds of file work.
+const TESTS_PER_JOB: usize = 64;
+fn chunks<T>(items: Vec<T>) -> impl Iterator<Item = Vec<T>> {
+    let mut items = items.into_iter().peekable();
+    std::iter::from_fn(move || {
+        items.peek()?;
+        Some(items.by_ref().take(TESTS_PER_JOB).collect())
+    })
+}
+type TestPage = (Arc<TestResult>, PathBuf, HtmlFullTest, String);
+/// Screenshot, videos and log of one test, looked up on a blocking thread.
+fn test_page_data(
+    files: &dyn OutputFiles,
+    root: &std::path::Path,
+    pool: &DevicePoolId,
+    r: Arc<TestResult>,
+    dir: PathBuf,
+) -> VendorResult<TestPage> {
+    let target = |kind| FileTarget {
+        kind,
+        pool: pool.clone(),
+        device: r.device.clone(),
+        test: Some(r.test.clone()),
+        test_batch_id: Some(r.test_batch_id.clone()),
+        id: None,
+        chunk: None,
+    };
+    let shot = files
+        .create_file_blocking(&target(FileType::Screenshot))
+        .map_err(vendor_error)?;
+    let screenshot = if r.device.device_features.contains(&DeviceFeature::Screenshot) && exists(&shot) {
+        url(&shot, root)
+    } else {
+        String::default()
+    };
+    let videos = if r.device.device_features.contains(&DeviceFeature::Video) {
+        r.attachments
+            .iter()
+            .filter(|a| a.kind == AttachmentType::Video && exists(&a.file))
+            .map(|a| url(&a.file, root))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let log = files
+        .create_file_blocking(&target(FileType::Log))
+        .map_err(vendor_error)?;
+    let log = if exists(&log) {
+        url(&log, root)
+    } else {
+        String::default()
+    };
+    let data = full_test(&r, pool, screenshot, videos, log.clone());
+    Ok((r, dir, data, log))
+}
+/// A test's page and its log page.
+fn test_pages(
+    html: &std::path::Path,
+    date: &str,
+    pool: &DevicePoolId,
+    r: &TestResult,
+    dir: &std::path::Path,
+    data: HtmlFullTest,
+    log: &str,
+) -> VendorResult<()> {
+    let filename = filename(r);
+    page(
+        &child_file(dir, &filename),
+        html,
+        assignment("window.test", &data)?,
+        logcat_html(&r.stacktrace.clone().unwrap_or_default()),
+        date,
+    )?;
+    let logs = child(dir, "logs");
+    mkdir(&logs)?;
+    let mut path = String::from("../");
+    path.push_str(log);
+    let data = HtmlTestLogDetails {
+        pool_id: pool.name.clone(),
+        test_id: id(r),
+        display_name: r.test.method.clone(),
+        device_id: safe_serial(&r.device),
+        log_path: path,
+    };
+    page(
+        &child_file(&logs, &filename),
+        html,
+        assignment("window.logs", &data)?,
+        String::default(),
+        date,
+    )
+}
 #[derive(Clone)]
 pub struct HtmlSummaryReporter {
     io: Arc<dyn VendorRuntime>,
@@ -349,90 +441,28 @@ impl HtmlSummaryReporter {
                     .collect::<VendorResult<Vec<_>>>()
             })
             .await?;
-            let mut full = Vec::new();
-            for (r, dir) in pool.tests.iter().zip(dirs) {
-                let target = |kind| FileTarget {
-                    kind,
-                    pool: pool.pool_id.clone(),
-                    device: r.device.clone(),
-                    test: Some(r.test.clone()),
-                    test_batch_id: Some(r.test_batch_id.clone()),
-                    id: None,
-                    chunk: None,
-                };
-                let shot = self
-                    .files
-                    .create_file(&target(FileType::Screenshot))
-                    .await
-                    .map_err(vendor_error)?;
-                let (root, r1) = (self.root.clone(), r.clone());
-                let (screenshot, videos) = blocking(self.io.as_ref(), move || {
-                    let screenshot = if r1.device.device_features.contains(&DeviceFeature::Screenshot) && exists(&shot)
-                    {
-                        url(&shot, &root)
-                    } else {
-                        String::default()
-                    };
-                    let videos = if r1.device.device_features.contains(&DeviceFeature::Video) {
-                        r1.attachments
-                            .iter()
-                            .filter(|a| a.kind == AttachmentType::Video && exists(&a.file))
-                            .map(|a| url(&a.file, &root))
-                            .collect()
-                    } else {
-                        Vec::new()
-                    };
-                    Ok((screenshot, videos))
-                })
-                .await?;
-                let log = self
-                    .files
-                    .create_file(&target(FileType::Log))
-                    .await
-                    .map_err(vendor_error)?;
-                let (root, r, p) = (self.root.clone(), r.clone(), pool.pool_id.clone());
-                full.push(
+            // Every test's lookups, then every test's pages, in the same order as before; one blocking job per
+            // chunk of tests instead of five per test (x106).
+            let tests: Vec<_> = pool.tests.iter().cloned().zip(dirs).collect();
+            let mut full = Vec::with_capacity(tests.len());
+            for chunk in chunks(tests) {
+                let (files, root, p) = (self.files.clone(), self.root.clone(), pool.pool_id.clone());
+                full.extend(
                     blocking(self.io.as_ref(), move || {
-                        let log = if exists(&log) {
-                            url(&log, &root)
-                        } else {
-                            String::default()
-                        };
-                        let data = full_test(&r, &p, screenshot, videos, log.clone());
-                        Ok((r, dir, data, log))
+                        chunk
+                            .into_iter()
+                            .map(|(r, dir)| test_page_data(files.as_ref(), &root, &p, r, dir))
+                            .collect::<VendorResult<Vec<_>>>()
                     })
                     .await?,
                 );
             }
-            for (r, dir, data, log) in full {
+            for chunk in chunks(full) {
                 let (h, d, p) = (html.clone(), date.clone(), pool.pool_id.clone());
                 blocking(self.io.as_ref(), move || {
-                    let filename = filename(&r);
-                    page(
-                        &child_file(&dir, &filename),
-                        &h,
-                        assignment("window.test", &data)?,
-                        logcat_html(&r.stacktrace.clone().unwrap_or_default()),
-                        &d,
-                    )?;
-                    let logs = child(&dir, "logs");
-                    mkdir(&logs)?;
-                    let mut path = String::from("../");
-                    path.push_str(&log);
-                    let data = HtmlTestLogDetails {
-                        pool_id: p.name.clone(),
-                        test_id: id(&r),
-                        display_name: r.test.method.clone(),
-                        device_id: safe_serial(&r.device),
-                        log_path: path,
-                    };
-                    page(
-                        &child_file(&logs, &filename),
-                        &h,
-                        assignment("window.logs", &data)?,
-                        String::default(),
-                        &d,
-                    )
+                    chunk
+                        .into_iter()
+                        .try_for_each(|(r, dir, data, log)| test_pages(&h, &d, &p, &r, &dir, data, &log))
                 })
                 .await?;
             }

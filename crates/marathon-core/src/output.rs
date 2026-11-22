@@ -43,6 +43,9 @@ impl FileTarget {
 pub trait OutputFiles: Send + Sync {
     fn output_dir(&self) -> &std::path::Path;
     fn create_file<'a>(&'a self, target: &'a FileTarget) -> ServiceFuture<'a, PathBuf>;
+    /// `create_file` for a caller that already runs as a blocking job on the I/O runtime: the same path,
+    /// directories and errors, made on the calling thread, so that one job can create and write a file.
+    fn create_file_blocking(&self, target: &FileTarget) -> crate::error::OperationResult<PathBuf>;
     fn create_folder<'a>(
         &'a self,
         kind: FolderType,

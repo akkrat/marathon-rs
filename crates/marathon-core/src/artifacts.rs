@@ -41,13 +41,14 @@ impl FileManagerOutput {
     }
     async fn materialize(&self, plan: PathPlan) -> OperationResult<PathBuf> {
         let (logger, log) = (self.logger.clone(), self.log.clone());
-        blocking(self.io.as_ref(), move || {
-            plan.materialize(|text| log(&logger, Level::ERROR, text, None))
-                .map_err(|error| nio_error(error, &plan.directory))
-        })
-        .await
-        .map_err(operation_error)
+        blocking(self.io.as_ref(), move || materialize_now(&plan, &logger, &log))
+            .await
+            .map_err(operation_error)
     }
+}
+fn materialize_now(plan: &PathPlan, logger: &Component, log: &ServiceLog) -> VendorResult<PathBuf> {
+    plan.materialize(|text| log(logger, Level::ERROR, text, None))
+        .map_err(|error| nio_error(error, &plan.directory))
 }
 impl OutputFiles for FileManagerOutput {
     fn output_dir(&self) -> &std::path::Path {
@@ -59,6 +60,11 @@ impl OutputFiles for FileManagerOutput {
             self.materialize(self.manager.plan_file(target.request(test.as_deref())))
                 .await
         })
+    }
+    fn create_file_blocking(&self, target: &FileTarget) -> OperationResult<PathBuf> {
+        let test = target.test.as_ref().map(|t| t.to_test_name('.', '#'));
+        let plan = self.manager.plan_file(target.request(test.as_deref()));
+        materialize_now(&plan, &self.logger, &self.log).map_err(operation_error)
     }
     fn create_folder<'a>(
         &'a self,
