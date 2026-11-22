@@ -10,7 +10,7 @@ The section for a version becomes the text of its GitHub release, which carries 
   and the slowest one), and reports (how long writing them took, and the slowest reporter). Each is one INFO line on
   `marathon_core::timing`, for example `Device release at run end took 3.4 s (iOS, 4 devices; slowest <udid>, 2.9 s;
   stopping monitoring, recovery and events 500 ms)`.
-  The reports line comes after the run summary. Nothing else changes: the summary, the report files, test results
+  The reports line comes after the run summary (when the summary is printed). Nothing else changes: the summary, the report files, test results
   and the exit status are the same.
 
 ## 0.15.3

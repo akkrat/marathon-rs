@@ -107,7 +107,8 @@ items it found unfinished), `Device release at run end took …` (each
 provider's disposal of its devices, with their count and the slowest; on iOS
 also the part spent stopping its monitoring, recovery and events) and
 `Reports at run end took …` (the reporters' generation, after the stdout
-summary). They carry no `(+N ms since start)` suffix: that suffix reads
+summary; if a reporter is cancelled before the stdout reporter, it is logged
+for the reporters that ran, without a summary). They carry no `(+N ms since start)` suffix: that suffix reads
 the labelled wall clock, which replay tapes would have to script. Comparisons
 with JVM recordings leave out exactly these lines
 (`marathon_test_support::run_end`). Android and macOS have no artifact

@@ -39,8 +39,10 @@ tapes would then have to script; the line's own timestamp says when it was writt
   folds results with `and`, which keeps the first error as the old `?` loop did).
 - Nothing runs on the core executor: provider termination and the reports' close run off core through
   `call_vendor`; logging pushes to the non-blocking queue.
-- The reports line is logged after every reporter, so it follows the stdout summary block and never enters the
-  pinned summary text; the native differential comparison (`contract_console`) selects only progress lines and the
+- The reports line is logged after the reporters that ran, so it follows the stdout summary block and never enters
+  the pinned summary text (a reporter cancelled before the stdout reporter leaves no summary; the line then covers
+  the reporters before it). Known P3 left: the test-only comparison filter still accepts a few shapes production
+  cannot print (e.g. a single reporter without its name, an iOS device line without the stopping part); the native differential comparison (`contract_console`) selects only progress lines and the
   summary, and is unchanged.
 
 ## Witnesses
