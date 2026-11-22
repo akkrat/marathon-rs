@@ -247,7 +247,7 @@ pub enum TestStatus {
 }
 /// Gson includes the eight constructor fields then isTimeInfoAvailable, computed
 /// from both times != 0. Derived getters isIgnored/isSuccess/duration are absent.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TestResult {
     pub test: Test,
     pub device: DeviceInfo,
@@ -265,7 +265,7 @@ pub struct TestBatchResults {
     pub failed: Vec<TestResult>,
     pub uncompleted: Vec<TestResult>,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Attachment {
     pub file: PathBuf,
     pub kind: AttachmentType,

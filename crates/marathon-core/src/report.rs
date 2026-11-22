@@ -149,8 +149,8 @@ fn compile_pool(pool: PoolEvents<'_>) -> PoolSummary {
         by_test.entry(&event.test_result.test).or_default().push(event);
     }
     let mut retries: Vec<(Arc<TestResult>, Vec<TestEvent>)> = Vec::new();
-    // Equal results have equal tests, so a key is looked up among its own test's keys only.
-    let mut keys: HashMap<&Test, Vec<usize>> = HashMap::new();
+    // Each distinct key's slot: structural equality, as the Kotlin map's keys.
+    let mut keys: HashMap<&TestResult, usize> = HashMap::new();
     for result in &tests {
         let attempts = by_test.get(&result.test).map_or_else(Vec::new, |same_test| {
             same_test
@@ -160,12 +160,12 @@ fn compile_pool(pool: PoolEvents<'_>) -> PoolSummary {
                 .collect()
         });
         // LinkedHashMap replaces equal values without moving the first key.
-        let slots = keys.entry(&result.test).or_default();
-        if let Some(&slot) = slots.iter().find(|&&slot| retries[slot].0 == *result) {
-            retries[slot].1 = attempts;
-        } else {
-            slots.push(retries.len());
-            retries.push((result.clone(), attempts));
+        match keys.entry(result.as_ref()) {
+            std::collections::hash_map::Entry::Occupied(slot) => retries[*slot.get()].1 = attempts,
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                slot.insert(retries.len());
+                retries.push((result.clone(), attempts));
+            }
         }
     }
     let names = |statuses: &[TestStatus], unique: bool, finals: bool| {
