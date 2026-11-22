@@ -5,8 +5,9 @@ for running Android, iOS and macOS tests with the existing Marathonfile,
 Marathondevices, CLI and report formats, apart from the approved differences in
 [the deviations guide](docs/deviations.md). A Marathonfile must set a finite `uncompletedTestRetryQuota`.
 
-**0.15.2 is the current release; 0.11.0 was the first public release.** 0.15.2 makes 0.15.1's iOS video handling
-visible in ordinary logs; 0.15.1 fixed iOS video recording on slow simulators (D98); 0.15.0 added run supervision,
+**0.15.3 is the current release; 0.11.0 was the first public release.** 0.15.3 fixes iOS video recording after very
+short tests and writes the reports of large runs sooner; 0.15.2 made 0.15.1's iOS video handling visible in ordinary
+logs; 0.15.1 fixed iOS video recording on slow simulators (D98); 0.15.0 added run supervision,
 bounded waits and process ownership and fixed device-handling bugs (D82–D88, D90–D97); 0.14.0 fixed run-stability and
 device-handling bugs (D68–D72, D74–D81) and added Android coverage for non-debuggable apps. The Kotlin tests are
 ported or marked not applicable with a reason, differential suites compare whole runs with the JVM program, and the
