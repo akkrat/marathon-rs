@@ -1146,6 +1146,64 @@ async fn a_healthy_mac_is_released_once_at_termination_d93() -> R {
     Ok(())
 }
 
+/// x110: with debug off, the run's end says how long the Macs' release took. Here the termination waits the Mac's 0.3 s
+/// bound for a preparation the run left running, on the paused clock.
+#[tokio::test(start_paused = true)]
+async fn run_end_logs_the_device_release_timing_without_debug() -> R {
+    let mut h = Harness::new("")?;
+    Arc::make_mut(&mut h.options.vendor).devices_file = None;
+    h.options.cancelled_batch_timeout = jcompat::jtime::duration_of(0, 300_000_000).unwrap();
+    std::fs::write(
+        h.root.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: host}]\n",
+    )?;
+    let (p, _) = h.provider();
+    v(p.initialize(h.context.clone()).await)?;
+    v(p.join_pending().await)?;
+    let device = p.snapshot().remove(0);
+    let release = Arc::new(tokio::sync::Notify::new());
+    let entered = hold_preparation(&h, release.clone()).await;
+    let signal = marathon_core::executor::shared::Signal::new();
+    let mut context = h.context.clone();
+    context.cancellation = signal.clone();
+    let (preparing, configuration) = (device.clone(), h.options.dependencies.configuration.clone());
+    let prepare =
+        tokio::spawn(async move { marathon_core::vendor::Device::prepare(&*preparing, configuration, context).await });
+    tokio::time::timeout(std::time::Duration::from_secs(60), entered.notified()).await?;
+    signal.cancel(marathon_apple::cmd::cancelled("the run is stopping"));
+    assert!(matches!(prepare.await?, Err(VendorError::Cancelled(_))));
+    h.options
+        .logging
+        .registry
+        .lock()
+        .unwrap()
+        .configure(false, marathon_logging::Vendor::Apple { compact_output: false });
+    v(tokio::time::timeout(std::time::Duration::from_secs(60), p.terminate()).await?)?;
+    // A repeated termination releases nothing and logs no second line.
+    v(p.terminate().await)?;
+    let lines: Vec<_> = h
+        .logs
+        .take()
+        .into_iter()
+        .filter(|record| record.logger == "marathon_core::timing")
+        .map(|record| (record.level, record.message.to_owned()))
+        .collect();
+    assert_eq!(
+        lines,
+        [(
+            marathon_logging::Level::INFO,
+            "Device release at run end took 300 ms (macOS, 1 device)".to_owned()
+        )]
+    );
+    assert!(
+        marathon_logging::filter(marathon_logging::Vendor::Apple { compact_output: false }, false)
+            .would_enable("marathon_core::timing", &marathon_logging::Level::INFO)
+    );
+    release.notify_one();
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(60), device.join_pending()).await?;
+    Ok(())
+}
+
 /// A vendor clock whose expired waits, once armed, hand their result back 2 s late, as a decider scheduled late does.
 struct LateTimeouts {
     inner: Arc<dyn marathon_core::runtime::VendorClock>,

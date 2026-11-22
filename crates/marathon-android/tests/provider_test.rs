@@ -120,6 +120,101 @@ fn termination_limits_remote_cleanup_on_each_server_within_the_device_deadline_d
     });
 }
 
+/// x110: with debug off, the run's end says how long the devices' release took, on the driven clock.
+#[test]
+fn run_end_logs_the_device_release_timing_without_debug() {
+    use serde_json::json;
+    use std::{sync::Arc, time::Duration};
+    let _ports = shared_ports();
+    run_with_driven_clock(configuration(), |runtime, context, clock| {
+        Box::pin(async move {
+            let mut script = base_script(27, vec![]);
+            let mut slow = script["devices"][0].clone();
+            slow["serial"] = json!("emulator-5556");
+            // Only the second device's remote cleanup waits, for a gate the test opens 1.5 s into the release.
+            slow["shell"] = json!([{"regex":"token=.*; marker=.*; rm -f ", "output":[{"gate":"slow"}]}]);
+            script["devices"].as_array_mut().unwrap().push(slow);
+            script["shell"].as_array_mut().unwrap().extend([
+                json!({"exact":"logcat -c","stdout":""}),
+                json!({"regex":"token=.*; marker=.*; rm -f ", "stdout":""}),
+            ]);
+            let server = server(script).await;
+            let logs = Arc::new(std::sync::Mutex::new(vec![]));
+            let captured = logs.clone();
+            let mut runtime = change_runtime(&runtime, &[server.port()]);
+            Arc::get_mut(&mut runtime).unwrap().log = Arc::new(move |logger, level, message, _| {
+                captured
+                    .lock()
+                    .unwrap()
+                    .push((logger.target().to_owned(), level, message.to_owned()))
+            });
+            let provider = Arc::new(AdamDeviceProvider::new(runtime.clone())?);
+            provider.initialize(context.clone()).await?;
+            let subscription = provider.subscribe();
+            let mut devices = Vec::new();
+            for _ in 0..2 {
+                let Some(DeviceEvent::Connected(device)) =
+                    checked(tokio::time::timeout(Duration::from_secs(60), subscription.receive()).await)?
+                else {
+                    panic!("expected a connected device");
+                };
+                devices.push(device);
+            }
+            for device in &devices {
+                device
+                    .0
+                    .prepare(runtime.dependencies.configuration.clone(), context.clone())
+                    .await?;
+            }
+            logcat_streams(&[(&server, 2)]).await;
+            let termination = runtime
+                .dependencies
+                .io
+                .spawn(Box::pin(async move { provider.terminate().await }));
+            let removals = || {
+                commands(&server)
+                    .into_iter()
+                    .filter(|command| command.contains("rm -f \"$marker\""))
+                    .count()
+            };
+            checked(
+                tokio::time::timeout(Duration::from_secs(60), async {
+                    while removals() < 2 {
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                })
+                .await,
+            );
+            clock.advance_to(1500).await;
+            server.open_gate("slow");
+            checked(tokio::time::timeout(Duration::from_secs(60), termination.join()).await)?;
+            let lines: Vec<_> = logs
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(target, _, message)| target == "marathon_core::timing" && message.contains(" at run end "))
+                .cloned()
+                .collect();
+            assert_eq!(
+                lines,
+                [(
+                    "marathon_core::timing".to_owned(),
+                    marathon_logging::Level::INFO,
+                    format!(
+                        "Device release at run end took 1.5 s (Android, 2 devices; slowest 127.0.0.1:{}:emulator-5556, 1.5 s)",
+                        server.port()
+                    )
+                )]
+            );
+            assert!(
+                marathon_logging::filter(marathon_logging::Vendor::Android, false)
+                    .would_enable("marathon_core::timing", &marathon_logging::Level::INFO)
+            );
+            Ok(())
+        })
+    });
+}
+
 #[test]
 fn a_signal_during_routine_android_cleanup_keeps_remote_cleanup_until_23s_d97() {
     use marathon_android::device::{AndroidBatchExecutor, AndroidDevice};

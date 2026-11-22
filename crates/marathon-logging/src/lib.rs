@@ -19,6 +19,9 @@ pub enum Vendor {
     Apple { compact_output: bool },
 }
 
+/// Timing lines (`Timings` in Kotlin), shown at INFO whatever `debug` says.
+pub const TIMINGS: &str = "marathon_core::timing";
+
 /// Stable Rust targets replace logger registration order and inherited JVM package levels.
 pub fn filter(configurator: Vendor, debug: bool) -> Targets {
     let ordinary = if debug || matches!(configurator, Vendor::Startup) {
@@ -89,7 +92,7 @@ pub fn filter(configurator: Vendor, debug: bool) -> Targets {
         )
         .with_target("marathon_core::diagnostics", LevelFilter::WARN)
         .with_target("marathon_process", LevelFilter::WARN)
-        .with_target("marathon_core::timing", LevelFilter::INFO)
+        .with_target(TIMINGS, LevelFilter::INFO)
         .with_target("marathon_ios::device::timing", LevelFilter::INFO)
         .with_target("marathon_apple::xcodebuild_stderr", LevelFilter::WARN);
     if matches!(configurator, Vendor::Apple { .. }) {
@@ -111,6 +114,14 @@ impl Component {
     }
     pub fn target(&self) -> &str {
         &self.target
+    }
+    /// The timing target, visible at INFO in every configurator (see `filter`).
+    pub fn timings() -> Self {
+        Self {
+            name: TIMINGS.into(),
+            target: TIMINGS.into(),
+            wire_debug: None,
+        }
     }
     pub fn wire(debug: bool) -> Self {
         Self {
@@ -222,7 +233,7 @@ impl LogSettings {
         }
     }
     pub fn timings(&self) -> Component {
-        self.component("marathon_core::timing")
+        Component::timings()
     }
     pub fn xcodebuild(&self) -> Component {
         self.component("marathon_apple::xcodebuild_stderr")

@@ -1105,8 +1105,15 @@ impl AdamDeviceProvider {
         for task in &*lock(&self.inner.setups) {
             task.cancel(requested("provider terminated"));
         }
+        let release_started = clock.now_millis();
+        let timed = Mutex::new(marathon_core::run_end::Slowest::default());
         let devices_done = async {
-            futures_util::future::join_all(devices.iter().map(|(_, device)| device.dispose_inner(failed))).await;
+            futures_util::future::join_all(devices.iter().map(|(_, device)| async {
+                let started = clock.now_millis();
+                let _ = device.dispose_inner(failed).await;
+                lock(&timed).add(device.serial_number(), clock.now_millis().saturating_sub(started));
+            }))
+            .await;
         };
         let provider_done = async {
             if let Some(task) = provider {
@@ -1124,6 +1131,21 @@ impl AdamDeviceProvider {
             _ = async { tokio::join!(devices_done, provider_done); } => true,
             _ = ended() => false,
         };
+        // x110: a device still disposing at the deadline is counted, and then no device is named the slowest.
+        let mut released = std::mem::take(&mut *lock(&timed));
+        for _ in released.count()..devices.len() {
+            released.add_unfinished();
+        }
+        self.inner.runtime.emit(
+            &Component::timings(),
+            Level::INFO,
+            &marathon_core::run_end::device_release(
+                "Android",
+                clock.now_millis().saturating_sub(release_started),
+                &released,
+            ),
+            None,
+        );
         self.inner.factory.close();
         let staging_stop = Signal::new();
         runtime.pull_staging.seal();

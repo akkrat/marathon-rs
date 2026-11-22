@@ -401,6 +401,8 @@ fn rust_events(lines: &[Line], logger: &str) -> Vec<(String, String, Option<Stri
     let mut after_heading = false;
     lines
         .iter()
+        // x110: the run-end timing lines are this port's only; the JVM rows have none.
+        .filter(|line| !marathon_test_support::run_end::is_x110_run_end_timing(line))
         .filter_map(|line| match line {
             Line::Log {
                 logger: name,

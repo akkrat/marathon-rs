@@ -113,15 +113,28 @@ fn replay_run_keeps_its_flush_points() {
     };
     assert!(outcome.lines.iter().filter(|line| dropped(line)).count() <= 1);
     let mut start = 0;
+    let x110 = marathon_test_support::run_end::is_x110_run_end_timing;
+    let mut x110_alone = 0;
     let batches: Vec<usize> = outcome
         .batches
         .iter()
         .map(|&size| {
             let batch = &outcome.lines[start..start + size];
             start += size;
-            size - batch.iter().filter(|line| dropped(line)).count()
+            (batch, size - batch.iter().filter(|line| dropped(line)).count())
+        })
+        // x110's run-end timing line came after these points were recorded. The finish's last flush, which had
+        // nothing to write before, writes it alone; it is not counted, and neither is that flush.
+        .filter_map(|(batch, size)| {
+            if batch.iter().all(x110) {
+                x110_alone += 1;
+                None
+            } else {
+                Some(size - batch.iter().filter(|line| x110(line)).count())
+            }
         })
         .collect();
+    assert_eq!(x110_alone, 1, "{:?}", outcome.lines);
     assert_eq!(batches, [3, 2, 3, 9, 3, 1, 1], "{:?}", outcome.lines);
 }
 

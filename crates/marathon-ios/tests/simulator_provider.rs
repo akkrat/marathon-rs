@@ -365,6 +365,98 @@ async fn provider_drains_artifacts_before_device_disposal_and_transport_release(
     assert!(p.provider.subscribe().state().closed_for_send);
     p.finish().await
 }
+/// x110: with debug off, the run's end says how long the artifact wait and the simulators' release took.
+#[tokio::test(start_paused = true)]
+async fn run_end_logs_artifact_finalization_and_device_release_timings_without_debug() -> TestResult {
+    use std::time::Duration;
+    let p = ProviderHarness::with_device_window(
+        |v| {
+            v.lifecycle_configuration.on_dispose = vec![marathon_config::vendor::LifecycleAction::Shutdown];
+        },
+        70_000,
+    )?;
+    // Once the run ends, a's disposal takes 2 s (its shutdown does). The fake's boot state is shared, so b is shut down
+    // by then and its disposal is immediate.
+    let ending = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let boot = p.h.boot.clone();
+    *p.h.worker.before.lock().unwrap() = Arc::new({
+        let ending = ending.clone();
+        move |command| {
+            let answer = boot.answer(&command);
+            let slow = ending.load(Ordering::SeqCst)
+                && command
+                    .iter()
+                    .map(String::as_str)
+                    .eq(["xcrun", "simctl", "shutdown", "a"]);
+            Box::pin(async move {
+                if slow {
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+                Ok(answer)
+            })
+        }
+    });
+    p.update(&["a", "b"]).await.map_err(test_error)?;
+    p.connected(2).await;
+    let release = SharedDeferred::new();
+    let gate = release.clone();
+    let started = SharedDeferred::new();
+    let entered = started.clone();
+    p.h.services
+        .artifacts
+        .submit(
+            "a@local".into(),
+            "bundle".into(),
+            "local".into(),
+            None,
+            Arc::new(move |_| {
+                let gate = gate.clone();
+                let entered = entered.clone();
+                Box::pin(async move {
+                    entered.complete(Ok(()));
+                    gate.wait().await?;
+                    tokio::time::sleep(Duration::from_millis(1500)).await;
+                    Ok(())
+                })
+            }),
+            p.h.services.context.clone(),
+        )
+        .await
+        .map_err(test_error)?;
+    started.wait().await.map_err(test_error)?;
+    ending.store(true, Ordering::SeqCst);
+    p.h.boot.state.store(3, Ordering::SeqCst);
+    let close = p.start_termination().await;
+    release.complete(Ok(()));
+    close.await.map_err(test_error)?.map_err(test_error)?;
+    let lines: Vec<_> =
+        p.h.logs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(logger, _, line, _)| logger == "marathon_core::timing" && line.contains(" at run end "))
+            .map(|(_, level, line, _)| (*level, line.clone()))
+            .collect();
+    // The harness's registry is Apple's with debug off, and its sink only takes enabled records.
+    assert_eq!(
+        lines,
+        [
+            (
+                marathon_logging::Level::INFO,
+                "Artifact finalization at run end took 1.5 s (1 item queued or running)".to_owned()
+            ),
+            (
+                marathon_logging::Level::INFO,
+                "Device release at run end took 2.0 s (iOS, 2 devices; slowest a, 2.0 s)".to_owned()
+            ),
+        ]
+    );
+    assert!(
+        marathon_logging::filter(marathon_logging::Vendor::Apple { compact_output: false }, false)
+            .would_enable("marathon_core::timing", &marathon_logging::Level::INFO)
+    );
+    p.finish().await
+}
 /// A pull that owns a task independently of its caller, like the bridge's
 /// rsync transfers. It records when it ended, including after a stop.
 #[derive(Default)]

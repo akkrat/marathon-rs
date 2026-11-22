@@ -442,9 +442,20 @@ impl ArtifactProcessor {
         cancel_timeout: i64,
         context: &VendorContext,
     ) -> VendorResult<Vec<String>> {
-        let (finished, rejected) = {
+        Ok(self.finalize(timeout, cancel_timeout, context).await?.undelivered)
+    }
+    /// `close_and_join`, also telling how much work the close found unfinished.
+    pub async fn finalize(
+        self: &Arc<Self>,
+        timeout: i64,
+        cancel_timeout: i64,
+        context: &VendorContext,
+    ) -> VendorResult<Finalized> {
+        let (finished, rejected, unfinished) = {
             let mut state = self.state();
-            (state.queue.done.clone(), state.queue.close())
+            // Read under the lock that closes admission, so no item can be admitted between the count and the close.
+            let unfinished = usize::try_from(state.queue.outstanding).unwrap_or(0);
+            (state.queue.done.clone(), state.queue.close(), unfinished)
         };
         for waiter in &rejected {
             waiter.decided.complete(Ok(None));
@@ -569,8 +580,19 @@ impl ArtifactProcessor {
         if !retained.is_empty() {
             self.log(Level::ERROR, format!("{} artifact bundle(s) were not delivered; their remote sources are kept on the workers until a later run prepares the same device:\n{}", retained.len(), retained.iter().map(String::clone).collect::<Vec<_>>().join("\n")).as_str().into(), None);
         }
-        Ok(retained)
+        Ok(Finalized {
+            undelivered: retained,
+            unfinished,
+        })
     }
+}
+/// What `ArtifactProcessor::finalize` ended with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Finalized {
+    /// The bundles reported undelivered, as `close_and_join` returns them.
+    pub undelivered: Vec<String>,
+    /// Items admitted and not yet finished (queued or running) when the close began: what it waited for.
+    pub unfinished: usize,
 }
 fn text(parts: &[&str]) -> String {
     parts.concat().as_str().into()

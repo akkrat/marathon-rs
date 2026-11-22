@@ -164,11 +164,17 @@ fn a_run_logs_the_start_of_scheduling_without_debug() {
 
     assert!(outcome.completed);
     let lines = timings(&outcome.lines);
-    assert_eq!(lines.len(), 4, "{lines:?}");
+    assert_eq!(lines.len(), 5, "{lines:?}");
     assert!(lines[0].contains("Device provider initialized in "));
     assert!(lines[1].contains("Parsed 1 tests in "));
     assert!(lines[2].contains("Prepared the shard of 1 tests and the analytics history it uses in "));
     assert!(lines[3].contains("Scheduling 1 tests (+"));
+    // x110: and, at its end, how long the reports took (the stub provider has no devices to time).
+    assert!(
+        lines[4].starts_with("Reports at run end took ")
+            && marathon_test_support::run_end::is_x110_run_end_record(TIMINGS, Level::INFO, &lines[4]),
+        "{lines:?}"
+    );
 }
 
 struct History;
@@ -234,7 +240,11 @@ fn the_execution_time_history_is_queried_while_the_run_starts_before_scheduling(
     assert!(outcome.completed);
     let prefixes: Vec<String> = timings(&outcome.lines)
         .iter()
-        .map(|line| line.split(" in ").next().unwrap_or_default().to_owned())
+        .map(|line| match line.split_once(" took ") {
+            // x110's run-end line.
+            Some((step, _)) if step.ends_with(" at run end") => step.to_owned(),
+            _ => line.split(" in ").next().unwrap_or_default().to_owned(),
+        })
         .collect();
     assert_eq!(
         prefixes,
@@ -244,6 +254,7 @@ fn the_execution_time_history_is_queried_while_the_run_starts_before_scheduling(
             "Execution time history query (percentile 90.0 since 1970-01-01T00:00:00Z) returned 1 tests",
             "Prepared the shard of 1 tests and the analytics history it uses",
             "Scheduling 1 tests (+0 ms since start)",
+            "Reports at run end",
         ]
     );
 }

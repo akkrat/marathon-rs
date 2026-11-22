@@ -943,7 +943,11 @@ fn a_later_failed_reporter_is_logged_and_the_first_failure_is_returned() {
             let calls = Arc::new(Mutex::new(vec![]));
             let logged = Arc::new(Mutex::new(vec![]));
             let captured = logged.clone();
-            let log: marathon_core::ServiceLog = Arc::new(move |_, level, message, cause| {
+            let log: marathon_core::ServiceLog = Arc::new(move |logger, level, message, cause| {
+                // x110's timing line for the close is not what this test is about.
+                if logger.target() == marathon_logging::TIMINGS {
+                    return;
+                }
                 captured.lock().unwrap().push((
                     level,
                     message.to_owned(),
@@ -1352,7 +1356,11 @@ fn sustained_remote_queue_overload_waits_and_preserves_every_result_d86() {
                     factory: Arc::new(HeldFactory(backend.clone())),
                 }),
                 logger: LogSettings::default().component("TrackerFactory"),
-                log: Arc::new(move |_, level, text, _| recorded.lock().unwrap().push((level, text.to_owned()))),
+                log: Arc::new(move |_, level, text, _| {
+                    if level <= marathon_logging::Level::WARN {
+                        recorded.lock().unwrap().push((level, text.to_owned()))
+                    }
+                }),
             }
             .create()
             .await?;

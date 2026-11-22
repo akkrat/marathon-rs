@@ -92,6 +92,8 @@ pub struct AppleMacosProvider {
     /// U200: set by termination while it holds `devices`, and read by `connect` under the same lock, so a Mac either
     /// joins the map and registry before termination takes them or never joins them.
     terminated: AtomicBool,
+    /// x110: the run-end device release line is logged by the first termination only.
+    release_logged: AtomicBool,
     /// Every device constructed, for `join_pending`, including one whose setup failed or that was replaced.
     retained: Mutex<Vec<Arc<MacosDevice>>>,
     leases: Mutex<Vec<Executor>>,
@@ -116,6 +118,7 @@ impl AppleMacosProvider {
             connections,
             devices: Mutex::default(),
             terminated: AtomicBool::new(false),
+            release_logged: AtomicBool::new(false),
             retained: Mutex::default(),
             leases: Mutex::default(),
             channel: SharedChannel::new(),
@@ -504,7 +507,11 @@ impl DeviceProvider for AppleMacosProvider {
                 self.terminated.store(true, Ordering::SeqCst);
                 std::mem::take(&mut *devices)
             };
+            let clock = &self.options.dependencies.clock;
+            let release_started = clock.now_millis();
             let results = futures_util::future::join_all(devices.into_values().map(|device| async move {
+                let started = clock.now_millis();
+                let finished = || (device.udid().to_owned(), clock.now_millis().saturating_sub(started));
                 // A82 for macOS (D74): the release follows the disposal whatever its outcome; the disposal's error wins.
                 // D93 (round 8): the run's end, not a removal: a refusal after it is an orderly cancellation.
                 device.seal_for_termination();
@@ -519,16 +526,29 @@ impl DeviceProvider for AppleMacosProvider {
                 if let Err(error) = outcome
                     && error.failure().kind.is_fatal()
                 {
-                    return Err(error);
+                    return (finished(), Err(error));
                 }
                 self.log(Level::DEBUG, format!("Disposed device {}", device.udid()));
-                Ok(())
+                (finished(), Ok(()))
             }))
             .await;
-            for result in results {
-                result?;
+            let mut timed = marathon_core::run_end::Slowest::default();
+            let mut outcome = Ok(());
+            for ((udid, millis), result) in results {
+                timed.add(udid, millis);
+                outcome = outcome.and(result);
             }
-            Ok(())
+            if !self.release_logged.swap(true, Ordering::SeqCst) {
+                let line = marathon_core::run_end::device_release(
+                    "macOS",
+                    clock.now_millis().saturating_sub(release_started),
+                    &timed,
+                );
+                self.options
+                    .logging
+                    .log(&Component::timings(), Level::INFO, || line, None);
+            }
+            outcome
         })
     }
     fn terminate_after_stop(&self) -> VendorFuture<'_, ()> {

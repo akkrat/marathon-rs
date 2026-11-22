@@ -318,6 +318,13 @@ impl AppleSimulatorProvider {
             (self.services.logging.sink)(&self.logger, level, message(), error);
         }
     }
+    /// x110: a run-end timing line, on the timing target that shows at INFO with debug off.
+    fn log_timing(&self, line: String) {
+        let timings = marathon_logging::Component::timings();
+        if self.services.logging.enabled(&timings, Level::INFO) {
+            (self.services.logging.sink)(&timings, Level::INFO, line, None);
+        }
+    }
     pub fn devices(&self) -> Vec<ConstructedSimulator<Simulator>> {
         self.state().devices.values().cloned().collect()
     }
@@ -1277,11 +1284,18 @@ impl AppleSimulatorProvider {
             cancellation: Signal::new(),
             ..self.services.context.clone()
         };
+        let artifacts_started = clock.now_millis();
         let artifacts = self
             .services
             .artifacts
-            .close_and_join(drain_millis, cancel_millis, &context)
+            .finalize(drain_millis, cancel_millis, &context)
             .await;
+        if let Ok(finalized) = &artifacts {
+            self.log_timing(marathon_core::run_end::artifact_finalization(
+                clock.now_millis().saturating_sub(artifacts_started),
+                finalized.unfinished,
+            ));
+        }
         let deadline = clock
             .now_millis()
             .saturating_add(SimulatorTimeouts::default().cancelled_batch_millis);
@@ -1339,7 +1353,9 @@ impl AppleSimulatorProvider {
         self.channel.close(None);
         let handed_back = std::mem::take(&mut self.state().handed_back);
         let ours = |handle: &Simulator| !handed_back.iter().any(|h| Arc::ptr_eq(h, handle));
+        let release_started = clock.now_millis();
         let active = join_all(self.devices().into_iter().map(|device| async move {
+            let started = clock.now_millis();
             let lease = ours(&device.handle).then(|| device.handle.executor());
             // D98 (x102): a simulator still in the devices file whose object here was disposed of during the run, and
             // whose lease is still ours, gets the run's end its disposal skipped. One that left the file is not ours to
@@ -1373,16 +1389,31 @@ impl AppleSimulatorProvider {
                     None,
                 );
             }
+            (
+                device.handle.udid().to_owned(),
+                clock.now_millis().saturating_sub(started),
+            )
         }));
-        if self.signal_finish.current().is_none() {
-            active.await;
+        let released = if self.signal_finish.current().is_none() {
+            let released = active.await;
             self.release_replaced(&handed_back, deadline, abandoned.is_some()).await;
+            released
         } else {
             tokio::join!(
                 active,
                 self.release_replaced(&handed_back, deadline, abandoned.is_some())
-            );
+            )
+            .0
+        };
+        let mut devices = marathon_core::run_end::Slowest::default();
+        for (udid, millis) in released {
+            devices.add(udid, millis);
         }
+        self.log_timing(marathon_core::run_end::device_release(
+            "iOS",
+            clock.now_millis().saturating_sub(release_started),
+            &devices,
+        ));
 
         tokio::select! { biased;
             _ = JoiningTasks(self.events.take()).join() => {},

@@ -169,11 +169,14 @@ impl TrackerInternal for ExecutionReportGenerator {
     }
     fn close(&self) -> ServiceFuture<'_, ()> {
         Box::pin(async move {
+            let started = Deadline::now();
             let report = self.snapshot();
             let mut first = None;
             let interval = Duration::from_secs(60);
             let mut next_notice = Deadline::now() + interval;
+            let mut timed = crate::run_end::Slowest::default();
             for reporter in &self.reporters {
+                let reporter_started = Deadline::now();
                 let mut generate = reporter.generate(&report);
                 let result = loop {
                     tokio::select! {
@@ -187,13 +190,29 @@ impl TrackerInternal for ExecutionReportGenerator {
                         }
                     }
                 };
+                timed.add(short_type_name(reporter.name()), millis_since(reporter_started));
                 if let Err(error) = result {
                     close_failed(&mut first, error, &self.log)?;
                 }
             }
+            // A run always has reporters; a generator without any (a tracker-only test) has nothing to time.
+            if let Some((log, _)) = &self.log
+                && timed.count() > 0
+            {
+                let line = crate::run_end::reports(millis_since(started), &timed);
+                log(&Component::timings(), Level::INFO, &line, None);
+            }
             first.map_or(Ok(()), Err)
         })
     }
+}
+fn millis_since(started: Deadline) -> i64 {
+    i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX)
+}
+/// `marathon_core::reporters::allure::AllureReporter` → `AllureReporter`.
+fn short_type_name(name: &str) -> &str {
+    let path = name.split('<').next().unwrap_or(name);
+    path.rsplit("::").next().unwrap_or(path)
 }
 /// D51: when to leave a backend alone so it can recover from slow failures.
 #[derive(Clone, Copy)]
@@ -1083,15 +1102,75 @@ mod kind_tests {
             .unwrap();
         assert_eq!(started.elapsed().as_secs(), 125);
         let notices = notices.lock().unwrap();
+        // x110: the close's own timing line follows at its end.
         assert_eq!(
             notices.iter().map(|(level, at, _)| (*level, *at)).collect::<Vec<_>>(),
-            [(Level::WARN, 60), (Level::WARN, 120)]
+            [(Level::WARN, 60), (Level::WARN, 120), (Level::INFO, 125)]
         );
         assert!(
-            notices.iter().all(
+            notices[..2].iter().all(
                 |(_, _, line)| line.starts_with("reports are still being written") && line.contains("SlowReporter")
             )
         );
+    }
+
+    struct QuickReporter;
+    impl Reporter for QuickReporter {
+        fn generate<'a>(&'a self, _: &'a ExecutionReport) -> ServiceFuture<'a, ()> {
+            Box::pin(async {
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+                Ok(())
+            })
+        }
+    }
+    /// x110: with debug off, the run's end says how long the reports took, on the paused clock.
+    #[tokio::test(start_paused = true)]
+    async fn the_reports_close_logs_its_timing_on_the_timing_target_without_debug() {
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let log: ServiceLog = {
+            let lines = lines.clone();
+            Arc::new(move |logger, level, line, _| {
+                lines
+                    .lock()
+                    .unwrap()
+                    .push((logger.target().to_owned(), level, line.to_owned()))
+            })
+        };
+        ExecutionReportGenerator::new(vec![Arc::new(QuickReporter), Arc::new(SlowReporter)])
+            .with_close_log(log, LogSettings::default().component("reports"))
+            .close()
+            .await
+            .unwrap();
+        let lines = lines.lock().unwrap();
+        let timings: Vec<_> = lines
+            .iter()
+            .filter(|(target, _, _)| target == marathon_logging::TIMINGS)
+            .collect();
+        assert_eq!(
+            timings,
+            [&(
+                marathon_logging::TIMINGS.to_owned(),
+                Level::INFO,
+                "Reports at run end took 126.5 s (2 reporters; slowest SlowReporter, 125.0 s)".to_owned()
+            )]
+        );
+        for vendor in [
+            marathon_logging::Vendor::Android,
+            marathon_logging::Vendor::Apple { compact_output: false },
+            marathon_logging::Vendor::Apple { compact_output: true },
+        ] {
+            assert!(marathon_logging::filter(vendor, false).would_enable(marathon_logging::TIMINGS, &Level::INFO));
+        }
+    }
+
+    #[test]
+    fn a_reporter_is_named_by_its_type_without_the_path_or_generics() {
+        assert_eq!(
+            short_type_name("marathon_core::reporters::allure::AllureReporter"),
+            "AllureReporter"
+        );
+        assert_eq!(short_type_name("a::Wrapper<b::Inner>"), "Wrapper");
+        assert_eq!(short_type_name("Plain"), "Plain");
     }
 
     #[test]
