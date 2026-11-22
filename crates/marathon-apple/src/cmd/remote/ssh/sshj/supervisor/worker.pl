@@ -1,14 +1,19 @@
 use strict;
 use warnings;
-use Time::HiRes qw(clock_gettime CLOCK_MONOTONIC);
+use Time::HiRes qw(clock_gettime CLOCK_MONOTONIC setitimer ITIMER_REAL);
 use Fcntl qw(:DEFAULT :flock);
 use Errno qw(ENOENT ESRCH EAGAIN EWOULDBLOCK EINTR);
 
-sub clock_ms { int(clock_gettime(CLOCK_MONOTONIC) * 1000) }
+# Only test hooks move this, as if the owner had been descheduled.
+my $skew = 0;
+sub now_ms { clock_gettime(CLOCK_MONOTONIC) * 1000 + $skew }
+sub clock_ms { int(now_ms()) }
 
 # Test hooks. The shipped script never sets one, so every branch that reads
-# them is dead; the tests run a copy in which this line fills the table.
+# them is dead; the tests run a copy in which this line fills the table. The
+# table is read only through `hook`, which returns a copy.
 my %hook;
+sub hook { return $hook{$_[0]} }
 
 sub readable {
     my ($file, $delay) = @_;
@@ -60,7 +65,7 @@ sub locked {
         my $suffix = $done ? 'receipt' : 'state';
         rename "$token.pending", "$token.$suffix" or die "commit state: $!";
         # Test hook: a control request killed between its commit and its exit.
-        kill 'KILL', $$ if $notify && $hook{kill_after_commit};
+        kill 'KILL', $$ if $notify && hook('kill_after_commit');
         unlink "$token.state", "$token.lock" if $done;
     }
     close $lock or die "close lock: $!";
@@ -170,6 +175,51 @@ sub next_wake {
     }
     my $floor = $retry && $retry < 10 ? $retry : 10;
     return ($delay < $floor ? $floor : $delay, $cause);
+}
+
+# Set by SIGALRM, which only the timer of `arm` sends.
+my $alarmed = 0;
+
+# Arms the kernel's interval timer to end the owner's sleep at $at ms on the
+# monotonic clock and returns the ms left until then (0 when due). select's
+# own timeout is relative: an owner descheduled between choosing it and
+# entering select would sleep all of it after resuming. The timer runs on while
+# the owner is descheduled, so an owner resuming past $at finds its SIGALRM
+# pending or $alarmed set and does not sleep. The timer is set from a clock
+# reading taken just before; a reading just after bounds how late that makes
+# it, and it is set again if more than 1 ms passed between them. Once fired it
+# fires every 10 ms until `disarm`, because Perl runs a handler only between
+# operations: a SIGALRM after the owner checked $alarmed but before it entered
+# select delays the wake by at most those 10 ms.
+sub arm {
+    my ($at) = @_;
+    $alarmed = 0;
+    my $left;
+    for (1 .. 5) {
+        my $before = now_ms();
+        return 0 if $at - $before < 0.01;
+        # In list context setitimer returns nothing on failure; the relative
+        # timeout is then all there is, as before the timer.
+        my @armed = setitimer(ITIMER_REAL, ($at - $before) / 1000, 0.01);
+        return $at - $before unless @armed;
+        $left = $at - now_ms();
+        last if $at - $before - $left <= 1;
+    }
+    return $left > 0 ? $left : 0;
+}
+
+sub disarm { setitimer(ITIMER_REAL, 0) }
+
+# Test hook: the owner stops itself here, as if descheduled, until the test
+# continues it. The test learns its pid and how far its lease expiry is.
+sub descheduled {
+    my ($expiry) = @_;
+    my $path = hook('stop_file');
+    open my $file, '>', "$path.new" or die "write stop file: $!";
+    print {$file} "$$ ", $expiry - clock_ms(), "\n";
+    close $file or die "close stop file: $!";
+    rename "$path.new", $path or die "commit stop file: $!";
+    kill 'STOP', $$;
 }
 
 sub drain_errors {
@@ -318,10 +368,15 @@ sub run_owned {
     my $starting = 1;
     my $woken = 0;
     # Test hook: one letter per pass of the loop, by what woke it.
-    my $trace = defined $hook{wakes} ? '' : undef;
+    my $trace = defined hook('wakes') ? '' : undef;
     # Test hook: a longer fallback poll, so a witness can tell a wake from a poll.
-    my $fallback = $hook{fallback_ms} // 1000;
-    my $paused;
+    my $fallback = hook('fallback_ms') // 1000;
+    my ($passes_open, $late) = (0, 0);
+    # Only the timer of `arm` sends SIGALRM, and only between `arm` and
+    # `disarm`, which enclose nothing but the sleep (and test hooks), so no
+    # other call of the owner can be interrupted. Set after the fork: neither
+    # the anchor nor the payload has this handler or the timer.
+    local $SIG{ALRM} = sub { $alarmed = 1 };
     eval {
         while ($permitted) {
             # Opened after the fork, so neither the anchor nor the payload
@@ -331,11 +386,33 @@ sub run_owned {
                 ($wake, $wake_w) = open_wake($dir);
                 undef $wake_due;
             }
+            # The first pass with the FIFO open; only test hooks ask.
+            my $first_open = $wake && !$passes_open++;
             # Without the FIFO the state is polled as often as before it existed.
             my $poll = $wake ? $fallback : 25;
+            # An exit the anchor has reported wins over anything this pass
+            # would decide: a payload that ended before a lease expiry or a
+            # KILL deadline that the owner only notices now (it was
+            # descheduled) keeps its own status. This is the only status read,
+            # so every pass that finds the payload ended takes its status
+            # before it reads the clock.
+            if (readable($status, 0)) {
+                my $n = sysread($status, my $packet, 4);
+                if ($n && $n == 4) {
+                    my $wait_status = unpack('N', $packet);
+                    $rc = ($wait_status & 127) ? 128 + ($wait_status & 127) : $wait_status >> 8;
+                }
+                last;
+            }
             my $observed = locked($dir, sub { (undef, [$_[1], $_[2]]) });
             ($expiry, $wanted) = @$observed if defined $observed;
             my $now = clock_ms();
+            # Test hook: the lease expiry comes this many ms after this pass's
+            # clock sample, as if the lease had been that short.
+            if ($first_open && defined hook('expiry_in')) {
+                $skew += $expiry - hook('expiry_in') - $now;
+                $now = $expiry - hook('expiry_in');
+            }
             my $force = $now >= $expiry || $wanted == 3;
             if ($force && (!$recorder || $starting)) {
                 $rc = 137;
@@ -392,14 +469,6 @@ sub run_owned {
                     $seen = $wanted;
                 }
             }
-            if (readable($status, 0)) {
-                my $n = sysread($status, my $packet, 4);
-                if ($n && $n == 4) {
-                    my $wait_status = unpack('N', $packet);
-                    $rc = ($wait_status & 127) ? 128 + ($wait_status & 127) : $wait_status >> 8;
-                }
-                last;
-            }
             # Sleep until a pipe or the wake FIFO has something, the next
             # deadline, or the fallback poll, whichever comes first.
             # A busy token lock is retried soon, as is a start not yet published.
@@ -409,28 +478,38 @@ sub run_owned {
             my $retry = !defined $observed || ($confirmed && !$published) ? ($woken ? 1 : 10) : 0;
             # Test hook: the owner is descheduled across the lease expiry
             # between this pass's checks and its sleep.
-            if ($hook{pause_across_expiry} && $wake && !$paused && $now < $expiry) {
-                $paused = 1;
+            if ($first_open && hook('pause_across_expiry') && $now < $expiry) {
+                my $ahead = $expiry + 5 - clock_ms();
+                $skew += $ahead if $ahead > 0;
                 $trace .= '!' if defined $trace;
-                while ((my $left = $expiry - clock_ms()) >= 0) {
-                    select undef, undef, undef, ($left + 5) / 1000;
-                }
             }
             # The pass's own clock sample, the one its checks used, chooses
             # what to wait for, so a deadline those checks found ahead is
-            # never dropped. Only the time this pass has taken since that
-            # sample is taken off the sleep: it wakes at the chosen time, or
-            # at once if that has passed.
+            # never dropped, and the sleep ends at that sample plus the delay.
             my ($delay, $cause) = next_wake($now, $expiry, $interrupt_at, $term_at, $stopping, $force,
                 $retry, $poll);
-            $delay -= clock_ms() - $now;
-            $delay = 0 if $delay < 0;
+            my $stop_at = $first_open ? hook('stop_at') // '' : '';
+            if ($stop_at eq 'arm') {
+                descheduled($expiry);
+                $trace .= '!' if defined $trace;
+            }
+            my $left = arm($now + $delay);
+            if ($stop_at eq 'select') {
+                descheduled($expiry);
+                $trace .= '!' if defined $trace;
+            }
             my $bits = '';
             vec($bits, fileno($status), 1) = 1;
             vec($bits, fileno($ready), 1) = 1 if $starting;
             vec($bits, fileno($errors), 1) = 1 if $recorder && !$starting && !$errors_closed;
             vec($bits, fileno($wake), 1) = 1 if $wake;
-            my $found = select(my $out = $bits, undef, undef, $delay / 1000);
+            # Test hook: tells the test this pass has read the state and sleeps next.
+            if ($first_open && hook('parked') && open my $file, '>', hook('parked')) {
+                close $file;
+            }
+            # A SIGALRM interrupts the sleep (EINTR); a deadline cause stays.
+            my $found = select(my $out = $bits, undef, undef, ($alarmed ? 0 : $left) / 1000);
+            disarm();
             $woken = 0;
             if ($found > 0) {
                 $cause = 'e';
@@ -438,10 +517,18 @@ sub run_owned {
                     ($cause, $woken) = ('w', 1);
                     1 while sysread($wake, my $bytes, 64);
                 }
+                # Test hook: the owner is descheduled for this many ms right
+                # after finding that the payload has ended.
+                if (hook('late_after_exit') && vec($out, fileno($status), 1) && !$late++) {
+                    $skew += hook('late_after_exit');
+                    $trace .= '!' if defined $trace;
+                }
             }
             $trace .= $cause if defined $trace;
         }
     };
+    # Whatever ended the loop, no timer outlives it.
+    disarm();
 
     close $_ for ($ready, $status);
     if ($wake) {
@@ -469,7 +556,7 @@ sub run_owned {
             }
         }
     }
-    if (defined $trace && open my $file, '>>', $hook{wakes}) {
+    if (defined $trace && open my $file, '>>', hook('wakes')) {
         print {$file} "$trace\n";
         close $file;
     }

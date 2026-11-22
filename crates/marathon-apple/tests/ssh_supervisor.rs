@@ -2250,6 +2250,8 @@ async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::err
 
 /// The shipped worker script's hook table: empty, and never written anywhere else in the script.
 const X111_HOOKS: &str = "\nmy %hook;\n";
+/// The table's only reader, which returns a copy, so no caller can write through it.
+const X111_HOOK_READER: &str = "\nsub hook { return $hook{$_[0]} }\n";
 
 /// A worker root like [`d98_root`] whose `supervisor.pl` is a copy of the worker script with its test hooks filled
 /// from the environment: `MARATHON_D96_TEST_<NAME>` sets hook `<name>`. The shipped script reads no such variable.
@@ -2266,27 +2268,109 @@ fn x111_root() -> std::io::Result<(tempfile::TempDir, std::path::PathBuf)> {
     Ok((root, supervisor))
 }
 
+/// Why `script` could fill or change its hook table, or `None` if it cannot: the table is declared empty once and
+/// named nowhere but in its one reader, which returns a copy; nothing else but calls of the reader is named `hook`
+/// with a sigil (`$hook{..}`, `@hook{..}`, `%hook`, `\%hook`, `*hook`, `${hook}`), so no assignment, increment, `delete`, slice, alias or
+/// reference can reach it, and no `sub hook` other than the reader exists to replace it; there is no string `eval`
+/// to build such code at run time; and no test variable is named.
+fn x111_hook_violation(script: &str) -> Option<String> {
+    if script.matches(X111_HOOKS).count() != 1 {
+        return Some("the table is not declared exactly once".into());
+    }
+    if script.matches(X111_HOOK_READER).count() != 1 {
+        return Some("the reader is not defined exactly once".into());
+    }
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    // Every whole-word occurrence of `name` with the text before it.
+    let occurrences = |name: &'static str| {
+        script.match_indices(name).filter_map(move |(at, _)| {
+            let before = &script[..at];
+            let after = &script[at + name.len()..];
+            let whole = !before.ends_with(word) && !after.starts_with(word);
+            whole.then_some((before, after))
+        })
+    };
+    let sigiled = |before: &str| {
+        // `$main::hook`, `$ hook`, `${hook}`, `${^hook}`: drop qualifiers, blanks, `^` and `{` back to the sigil.
+        let mut before = before;
+        while let Some(qualifier) = before.strip_suffix("::") {
+            before = qualifier.trim_end_matches(word);
+        }
+        let before = before
+            .trim_end()
+            .trim_end_matches('^')
+            .trim_end()
+            .trim_end_matches('{')
+            .trim_end();
+        before.ends_with(['$', '@', '%', '&', '*', '\\'])
+    };
+    // A call `hook(...)` (also after `&&`) reads through the reader.
+    let named = occurrences("hook")
+        .filter(|(before, after)| sigiled(before) && !after.trim_start().starts_with('('))
+        .count();
+    if named != 2 {
+        return Some(format!(
+            "the table is named {named} times, not only in its declaration and reader"
+        ));
+    }
+    let subs = occurrences("hook").filter(|(before, _)| {
+        let before = before.trim_end();
+        before.ends_with("sub") && !before[..before.len() - 3].ends_with(word)
+    });
+    if subs.count() != 1 {
+        return Some("another `sub hook`".into());
+    }
+    if occurrences("eval").any(|(_, after)| !after.trim_start().starts_with('{')) {
+        return Some("a string eval".into());
+    }
+    if script.contains("MARATHON_D96_TEST") {
+        return Some("a test variable is named".into());
+    }
+    None
+}
+
 /// The test hooks are inert in the shipped script: its hook table is declared empty once and never written, and it
 /// reads no test variable from its environment, so no worker environment or controller can turn one on.
 #[test]
 fn the_shipped_worker_script_has_no_reachable_test_hooks_x111() {
     let script = include_str!("../src/cmd/remote/ssh/sshj/supervisor/worker.pl");
-    assert_eq!(script.matches(X111_HOOKS).count(), 1);
-    assert_eq!(script.matches("%hook").count(), 1, "the table is only declared");
-    assert!(!script.contains("MARATHON_D96_TEST"));
-    let mut reads = 0;
-    for (at, _) in script.match_indices("$hook{") {
-        reads += 1;
-        let rest = &script[at..];
-        let after = rest[rest.find('}').unwrap() + 1..].trim_start();
-        assert!(
-            !after.starts_with('=') || after.starts_with("=="),
-            "a hook is written: {}",
-            &rest[..rest.find('\n').unwrap_or(rest.len())]
-        );
-        assert!(!script[..at].ends_with("delete "), "a hook is deleted");
+    assert_eq!(x111_hook_violation(script), None);
+    assert!(
+        script.matches("hook('").count() >= 8,
+        "the hooks are read through the reader"
+    );
+    // Each of these, added to the script, could turn a hook on; the check must see every one.
+    let writes = [
+        "$hook{kill_after_commit}++;",
+        "++$hook{kill_after_commit};",
+        "$hook{wakes} = '/tmp/x';",
+        "$hook{wakes} .= 'x';",
+        "$hook{fallback_ms} ||= 1;",
+        "$hook{fallback_ms} //= 1;",
+        "$hook{wakes} =~ s/^/x/;",
+        "delete $hook{wakes};",
+        "@hook{qw(wakes parked)} = (1, 1);",
+        "%hook = (wakes => 1);",
+        "undef %hook;",
+        "local $hook{wakes} = 1;",
+        "for ($hook{wakes}) { $_ = 1 }",
+        "my $table = \\%hook; $table->{wakes} = 1;",
+        "$ hook{wakes} = 1;",
+        "${hook}{wakes} = 1;",
+        "%{hook} = ();",
+        "*hook = sub { 1 };",
+        "sub hook { 1 }",
+        "eval '$hook{wakes} = 1';",
+        "eval qq{\\$hook{wakes} = 1};",
+        "$ENV{MARATHON_D96_TEST_WAKES} = 1;",
+    ];
+    for write in writes {
+        let changed = script.replacen("\nsub readable {", &format!("\n{write}\nsub readable {{"), 1);
+        assert_ne!(changed, script);
+        assert!(x111_hook_violation(&changed).is_some(), "not seen: {write}");
     }
-    assert!(reads >= 4, "{reads}");
+    let doubled = script.replacen(X111_HOOKS, &format!("{X111_HOOKS}{X111_HOOKS}"), 1);
+    assert!(x111_hook_violation(&doubled).is_some());
 }
 
 /// Starts `mode` (`run` or `detach`) of the hooked script of [`x111_root`] with its wake trace hook on: the owner
@@ -2321,50 +2405,33 @@ fn x111_traces(trace: &Path) -> std::io::Result<Vec<String>> {
 }
 
 /// A `run` payload that writes `int` and exits 3 on INT gets INT as the only control request, sent once its owner has
-/// the wake FIFO open for reading. With `kill_after_commit`, the control process is killed right after its commit,
-/// while it still holds the token lock. The owner's fallback poll is 120 s, so INT reaches the payload within the
-/// 60 s hang guard only if the request woke the owner, or was committed before the owner's first state read after
-/// opening the FIFO, which then sees it at once and may see the payload exit in the same pass, before any `select`.
+/// read the state on its first pass with the wake FIFO open and is about to sleep (the `parked` hook). With
+/// `kill_after_commit`, the control process is killed right after its commit, while it still holds the token lock.
+/// The owner's fallback poll is 120 s and its lease 600 s, so nothing but the request's wake can make it read the
+/// state again within the 60 s hang guard: INT arriving at all shows the wake.
 async fn x111_stop_witness(kill_after_commit: bool) -> Result<(), Box<dyn std::error::Error>> {
-    use std::os::unix::{fs::OpenOptionsExt, process::ExitStatusExt};
+    use std::os::unix::process::ExitStatusExt;
     use std::time::{Duration, Instant};
     let (root, supervisor) = x111_root()?;
     let files = tempfile::tempdir()?;
     let trace = files.path().join("trace");
-    let (ready, int) = (files.path().join("ready"), files.path().join("int"));
+    let (parked, int) = (files.path().join("parked"), files.path().join("int"));
     let token = "0123456789abcdef0123456789abcdef";
-    let payload = r#"my ($ready, $int) = @ARGV; $SIG{INT} = sub { open my $f, '>', $int; close $f; exit 3 };
-open my $f, '>', $ready or die $!; close $f; while (1) { select undef, undef, undef, .01 }"#;
-    let (ready_arg, int_arg) = (ready.to_str().unwrap(), int.to_str().unwrap());
+    let payload = r#"$SIG{INT} = sub { open my $f, '>', $ARGV[0]; close $f; exit 3 };
+while (1) { select undef, undef, undef, .01 }"#;
     let owner = x111_spawn(
         &supervisor,
         root.path(),
         "600000",
         "run",
-        &[token, "/usr/bin/perl", "-e", payload, ready_arg, int_arg],
+        &[token, "/usr/bin/perl", "-e", payload, int.to_str().unwrap()],
         &trace,
-        &[("MARATHON_D96_TEST_FALLBACK_MS", "120000")],
+        &[
+            ("MARATHON_D96_TEST_FALLBACK_MS", "120000"),
+            ("MARATHON_D96_TEST_PARKED", parked.to_str().unwrap()),
+        ],
     )?;
-    d98_file(&ready).await?;
-    // A non-blocking writer fails with ENOENT before the FIFO exists and with ENXIO until the owner opens it for
-    // reading. The test keeps its writer, so the owner's reader never sees end of file; it writes nothing.
-    let fifo = root.path().join(format!("{token}.wake"));
-    let _writer = tokio::time::timeout(Duration::from_secs(60), async {
-        loop {
-            let opened = std::fs::OpenOptions::new()
-                .write(true)
-                .custom_flags(nix::libc::O_NONBLOCK)
-                .open(&fifo);
-            match opened {
-                Ok(writer) => return Ok(writer),
-                Err(error) if matches!(error.raw_os_error(), Some(nix::libc::ENOENT | nix::libc::ENXIO)) => {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                }
-                Err(error) => return Err(error),
-            }
-        }
-    })
-    .await??;
+    d98_file(&parked).await?;
     let requested = Instant::now();
     tokio::time::timeout(Duration::from_secs(60), async {
         loop {
@@ -2405,10 +2472,9 @@ open my $f, '>', $ready or die $!; close $f; while (1) { select undef, undef, un
     let traces = x111_traces(&trace)?;
     let [trace] = &traces[..] else { panic!("{traces:?}") };
     println!("trace {trace}");
-    // The request's one byte, read from the FIFO, or none: a request committed after the owner opened the FIFO but
-    // before its first state read is seen by that read, and the payload's exit can follow in the same pass.
-    assert!(trace.matches('w').count() <= 1, "{trace}");
-    assert!(std::fs::symlink_metadata(&fifo).is_err());
+    // The owner was parked before the request, so the request's one byte is what woke it.
+    assert_eq!(trace.matches('w').count(), 1, "{trace}");
+    assert!(std::fs::symlink_metadata(root.path().join(format!("{token}.wake"))).is_err());
     assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
     Ok(())
 }
@@ -2626,11 +2692,13 @@ for (@ARGV) { print join(' ', next_wake(map { $_ eq '-' ? undef : $_ } split / /
     Ok(())
 }
 
-/// The reviewer's interleaving, made deterministic by a test hook: on its first pass with the wake FIFO open, the
-/// owner's checks find the lease expiry ahead, and the owner is then descheduled until just past it before it chooses
-/// its sleep. With the fallback poll at 120 s, the expiry must still be acted on at once: a `run` command ends 137 and
-/// a confirmed recorder gets INT (and finalizes `done:0`) well within the 30 s bound. A timeout choice from a second
-/// clock sample taken after the pause dropped the expiry and slept the full fallback poll.
+/// The round-3 reviewer's interleaving, made deterministic by a test hook: on its first pass with the wake FIFO open,
+/// the owner's checks find the 60 s lease expiry ahead (nearer than the 120 s fallback poll), and its clock then moves
+/// to just past the expiry before it chooses its sleep, as if it had been descheduled there. The expiry must still
+/// be acted on at once: a `run` command ends 137 and a confirmed recorder gets INT (and finalizes `done:0`) well
+/// within the 30 s bound. A timeout choice from a second clock sample taken after the pause dropped the expiry and
+/// slept the full fallback poll. The lease is long and the hook moves the clock, so no real time decides whether the
+/// owner reaches the hook before its expiry.
 #[tokio::test]
 async fn a_pass_descheduled_across_the_lease_expiry_still_acts_on_it_x111() -> Result<(), Box<dyn std::error::Error>> {
     use std::time::{Duration, Instant};
@@ -2645,14 +2713,14 @@ async fn a_pass_descheduled_across_the_lease_expiry_still_acts_on_it_x111() -> R
         ("MARATHON_D96_TEST_FALLBACK_MS", "120000"),
         ("MARATHON_D96_TEST_PAUSE_ACROSS_EXPIRY", "1"),
     ];
-    // Far below the 120 s fallback poll, far above the 1.5 s lease; a hang guard otherwise.
+    // Far below the 120 s fallback poll; a hang guard otherwise.
     let bound = Duration::from_secs(30);
     let command = "00000000000000000000000000000001";
     let started = Instant::now();
     let owner = x111_spawn(
         &supervisor,
         root.path(),
-        "1500",
+        "60000",
         "run",
         &[command, "/bin/sleep", "600"],
         &trace,
@@ -2672,7 +2740,7 @@ while (1) { select undef, undef, undef, .01 }"#;
     let detached = x111_spawn(
         &supervisor,
         root.path(),
-        "1500",
+        "60000",
         "detach",
         &[
             recorder,
@@ -2695,7 +2763,7 @@ while (1) { select undef, undef, undef, .01 }"#;
     assert_eq!(traces.len(), 2, "{traces:?}");
     for trace in &traces {
         println!("trace {trace}");
-        // The hook paused exactly one pass, and no pass after it slept the fallback poll (the `p` passes before it
+        // The hook moved exactly one pass, and no pass after it chose the fallback poll (the `p` passes before it
         // are the 25 ms polls of the owner's first 250 ms, before its FIFO opens).
         let [_, after] = trace.split('!').collect::<Vec<_>>()[..] else {
             panic!("{trace}")
@@ -2704,6 +2772,164 @@ while (1) { select undef, undef, undef, .01 }"#;
     }
     assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
     Ok(())
+}
+
+/// A payload's exit seen by the owner's sleep, followed by the owner being descheduled past a deadline before its
+/// next pass (the `late_after_exit` hook moves its clock 700 s on, past the 600 s lease), keeps its own status: the
+/// next pass takes the reported exit before it reads the clock. A `run` command whose payload exits 0 must end
+/// `done:0`, not be killed for the expiry it missed (`done:137`); a forced recorder that exits 0 on TERM must end
+/// `done:0`, not `done:137` for its KILL deadline 1 s after TERM. Each payload ends only once its owner sleeps: the
+/// command when the test opens its gate after the owner parked, the recorder on TERM, which the owner sends in the
+/// pass before its sleep (its stderr is closed at once, so only its exit can wake that sleep).
+#[tokio::test]
+async fn an_exit_seen_before_a_missed_deadline_keeps_its_own_status_x111() -> Result<(), Box<dyn std::error::Error>> {
+    if !Path::new("/usr/bin/perl").is_file() {
+        eprintln!("worker witness requires stock Perl");
+        return Ok(());
+    }
+    let (root, supervisor) = x111_root()?;
+    let files = tempfile::tempdir()?;
+    let trace = files.path().join("trace");
+    let (parked, gate) = (files.path().join("parked"), files.path().join("gate"));
+    let hooks = [
+        ("MARATHON_D96_TEST_FALLBACK_MS", "120000"),
+        ("MARATHON_D96_TEST_LATE_AFTER_EXIT", "700000"),
+        ("MARATHON_D96_TEST_PARKED", parked.to_str().unwrap()),
+    ];
+    let command = "00000000000000000000000000000001";
+    let owner = x111_spawn(
+        &supervisor,
+        root.path(),
+        "600000",
+        "run",
+        &[
+            command,
+            "/usr/bin/perl",
+            "-e",
+            "select undef, undef, undef, .01 until -e $ARGV[0]; exit 0",
+            gate.to_str().unwrap(),
+        ],
+        &trace,
+        &hooks,
+    )?;
+    d98_file(&parked).await?;
+    std::fs::write(&gate, b"")?;
+    let output = tokio::time::timeout(std::time::Duration::from_secs(60), owner.wait_with_output()).await??;
+    assert_eq!(output.status.code(), Some(0));
+    let (receipt, _) = d98_receipt(&supervisor, root.path(), command).await?;
+    assert_eq!(receipt, "done:0");
+    let recorder = "00000000000000000000000000000002";
+    let ready = files.path().join("ready");
+    let payload = r#"close STDERR; $SIG{TERM} = sub { exit 0 }; open my $f, '>', $ARGV[0] or die $!; close $f;
+while (1) { select undef, undef, undef, .01 }"#;
+    let detached = x111_spawn(
+        &supervisor,
+        root.path(),
+        "600000",
+        "detach",
+        &[recorder, "/usr/bin/perl", "-e", payload, ready.to_str().unwrap()],
+        &trace,
+        &hooks[..2],
+    )?;
+    let output = tokio::time::timeout(std::time::Duration::from_secs(60), detached.wait_with_output()).await??;
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    d98_file(&ready).await?;
+    // KILL: an unconfirmed recorder gets TERM 2 s later and, if still running, KILL 1 s after that.
+    let reply = d98_control(&supervisor, root.path(), &format!("{recorder}:3")).await?;
+    assert!(reply.starts_with(&format!("{recorder} running:")), "{reply}");
+    let (receipt, _) = d98_receipt(&supervisor, root.path(), recorder).await?;
+    assert_eq!(receipt, "done:0");
+    let traces = x111_traces(&trace)?;
+    assert_eq!(traces.len(), 2, "{traces:?}");
+    for trace in &traces {
+        println!("trace {trace}");
+        assert_eq!(trace.matches('!').count(), 1, "the hook moved the clock once: {trace}");
+    }
+    assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
+    Ok(())
+}
+
+/// The round-4 reviewer's interleaving: the owner chooses its sleep (the lease expiry, moved by the `expiry_in` hook
+/// to 5 s after its first pass with the wake FIFO open), then is descheduled before it sleeps (`stop_at`: it stops
+/// itself with SIGSTOP right before arming its timer, or right before `select`) until the test continues it past the
+/// expiry. It must act on the expiry at once, not sleep the stale 5 s it chose: a `run` command ends `done:137` well
+/// within 2.5 s of SIGCONT, which separates that from a sleep of the full 5 s.
+async fn x111_descheduled_before_sleep_witness(point: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use std::time::{Duration, Instant};
+    let (root, supervisor) = x111_root()?;
+    let files = tempfile::tempdir()?;
+    let (trace, stop) = (files.path().join("trace"), files.path().join("stop"));
+    let command = "00000000000000000000000000000001";
+    let owner = x111_spawn(
+        &supervisor,
+        root.path(),
+        "600000",
+        "run",
+        &[command, "/bin/sleep", "600"],
+        &trace,
+        &[
+            ("MARATHON_D96_TEST_FALLBACK_MS", "120000"),
+            ("MARATHON_D96_TEST_EXPIRY_IN", "5000"),
+            ("MARATHON_D96_TEST_STOP_AT", point),
+            ("MARATHON_D96_TEST_STOP_FILE", stop.to_str().unwrap()),
+        ],
+    )?;
+    d98_file(&stop).await?;
+    let told = std::fs::read_to_string(&stop)?;
+    let [pid, left] = told.split_whitespace().collect::<Vec<_>>()[..] else {
+        panic!("{told}")
+    };
+    let (pid, left): (i32, u64) = (pid.parse()?, left.parse()?);
+    // Continue it only once it is stopped, and only after its expiry.
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            let state = tokio::process::Command::new("ps")
+                .args(["-o", "stat=", "-p", &pid.to_string()])
+                .output()
+                .await?;
+            if String::from_utf8_lossy(&state.stdout).trim_start().starts_with('T') {
+                return Ok::<_, std::io::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    tokio::time::sleep(Duration::from_millis(left + 300)).await;
+    let continued = Instant::now();
+    nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), nix::sys::signal::Signal::SIGCONT)?;
+    let output = tokio::time::timeout(Duration::from_secs(60), owner.wait_with_output()).await??;
+    let late = continued.elapsed();
+    println!("{point}: ended {late:?} after SIGCONT");
+    assert_eq!(output.status.code(), Some(137));
+    assert!(late < Duration::from_millis(2500), "{point}: {late:?}");
+    let (receipt, _) = d98_receipt(&supervisor, root.path(), command).await?;
+    assert_eq!(receipt, "done:137");
+    let traces = x111_traces(&trace)?;
+    let [trace] = &traces[..] else { panic!("{traces:?}") };
+    println!("trace {trace}");
+    assert_eq!(trace.matches('!').count(), 1, "{trace}");
+    assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_owner_descheduled_before_arming_its_timer_still_wakes_at_its_deadline_x111()
+-> Result<(), Box<dyn std::error::Error>> {
+    if !Path::new("/usr/bin/perl").is_file() {
+        eprintln!("worker witness requires stock Perl");
+        return Ok(());
+    }
+    x111_descheduled_before_sleep_witness("arm").await
+}
+
+#[tokio::test]
+async fn an_owner_descheduled_before_its_select_still_wakes_at_its_deadline_x111()
+-> Result<(), Box<dyn std::error::Error>> {
+    if !Path::new("/usr/bin/perl").is_file() {
+        eprintln!("worker witness requires stock Perl");
+        return Ok(());
+    }
+    x111_descheduled_before_sleep_witness("select").await
 }
 
 #[tokio::test]
