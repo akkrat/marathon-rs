@@ -71,8 +71,9 @@ How the two rules compare:
 - **Owner not descheduled (the post-expiry window; accepted, round 6):** an exit before the expiry wakes the owner
   and is taken. At the expiry the owner wakes from its deadline timeout, checks the status pipe, samples the clock
   and kills unless the exit was reported before that sample. So **an exit reported after the lease expiry is now
-  always treated as expired** (only the scheduling latency between the expiry and the sample, a few ms, can still
-  admit one). Base decided force at the start of a pass and then waited up to 25 ms on the status pipe, so an exit
+  treated as expired unless it is reported before the owner's first pass after the expiry samples the clock**: the
+  scheduling latency between the expiry and that sample, including the 10 ms sleep floor when the expiry fell inside
+  it, a few ms at most, can still admit one. Base decided force at the start of a pass and then waited up to 25 ms on the status pipe, so an exit
   reported up to one such wait after the expiry (up to about 25 ms) could still be taken. The fifth review's probe:
   base accepted an exit 21.5 ms after the expiry (`done:0`); round 5 killed at the expiry + 3.1 ms (`done:137`).
   Outcomes in that window are not unchanged; everywhere else they are. The recorder's KILL deadline is decided the
