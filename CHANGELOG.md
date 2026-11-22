@@ -9,13 +9,19 @@ The section for a version becomes the text of its GitHub release, which carries 
   (about 0.5 s at 10 000 results and 19 s at 50 000); it is now linear (about 5 ms and 22 ms). The HTML report and
   the per-test JSON results also do their file work in fewer hand-offs to the I/O threads. On a 10 000-result run the
   time from the last test to the exit drops from about 3.8 s to 2.7 s. The report files are unchanged.
-- **Fewer misleading iOS recorder warnings (x106, U264):** when a simulator's video recorder is refused because
-  marathon's own previous recording on that simulator was still running (very short or skipped tests back to back),
-  the log now has one INFO line saying that test's video is not recorded, instead of a warning advising to restart
-  the simulator. A simulator whose video service is really busy still gets D98's single warning. Any other recorder
-  failure is one warning per recorder with simctl's output, also for simulators on this machine, which reported
-  nothing before. The worker supervisor's own line for a failed recorder is now debug-only. Recording, test results
-  and the exit status are unchanged.
+- **Short iOS tests no longer cost a later test its video (x106, U265, U266):** with video on, very short or skipped
+  tests back to back could make marathon start a simulator recorder while its own previous recording there was still
+  starting. simctl refused it, a normal-length test after them could lose its video, and when the refusal was seen
+  after the other recording had ended, the simulator was wrongly taken for busy and video was off on it for the rest
+  of the run. A recorder now starts only after marathon's previous recording on that simulator has ended; a test that
+  ends before then has no video, as such short tests mostly had none before. The tests themselves are not delayed.
+- **Fewer misleading iOS recorder warnings (x106, U264):** the refusals above made about three warnings per video run
+  on a farm, each advising to restart a simulator that was fine; they no longer happen. A simulator video recorder
+  that fails is now reported once, in one warning naming the simulator, the worker recorder and simctl's output, with
+  the restart advice only for simctl's busy text when marathon could not decide on its own; a recorder marathon
+  stopped waiting for is one warning too. A simulator whose video service is really busy still gets D98's single
+  warning. Simulators on this machine are reported the same way (before, only D98's busy case was). The worker
+  supervisor's own line for a failed recorder is now debug-only. Test results and the exit status are unchanged.
 
 ## 0.15.2
 

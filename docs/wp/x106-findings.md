@@ -1,8 +1,11 @@
 # x106 findings: report-tail speed and recorder-refusal noise
 
-Three items, approved by the project owner on 2026-11-22. Items 1 and 3 change only how fast the reports are written;
-every report file is the same as before. Item 2 changes only logging. No contract change, so no D-row (D99 is unused);
-the D98 section of `docs/deviations.md` gets an x106 note because its x104 note described the supervisor's warning.
+Three items, approved by the project owner on 2026-11-22 (item 2b included). Items 1 and 3 change only how fast the
+reports are written; every report file is the same as before. Item 2 changes the recorder logging and (round 2, 2b)
+when a simulator recorder launches: never beside marathon's own previous recording on that simulator, which D80
+already states ("one recording runs at a time") and D98's busy decision assumes. No contract change, so no D-row (D99
+is unused): the change restores documented behaviour, and the videos it affects were lost to the bug (U265, U266).
+The D98 section of `docs/deviations.md` gets an x106 note. Round 2 fixes the round-1 review's findings (below).
 
 ## Item 1 — U263: a linear `ExecutionReport::summary()`
 
@@ -16,7 +19,9 @@ first seen kept, through a `HashSet` per pool) and the test events once, groupin
 no connected device are dropped, as before). `compile_pool` indexes the pool's events by `Test` once. A final result's
 attempts are its test's events minus its own allocation, in event order. The retries keep the `LinkedHashMap`
 semantics of the Kotlin marathon's `toMap()`: an equal key replaces the value and keeps the first key's position.
-Equal `TestResult`s have equal tests, so a key is compared structurally only with the earlier keys of its own test.
+A hash map keyed by the `TestResult` finds an equal earlier key in O(1) (round 2, review P3: round 1 compared it
+structurally with the earlier keys of its own test; `TestResult` and `Attachment` now derive `Hash`, consistent with
+their derived `Eq`, and `Test`'s manual `Hash` already matches its `Eq`).
 The name lists keep insertion order with a `HashSet` beside them.
 
 **Invariants and the Kotlin semantics** (`ExecutionReport.kt`): pools are `deviceConnectedEvents.map { poolId }.distinct()`;
@@ -100,7 +105,7 @@ in which two base runs differ from each other, Allure's `environment.xml` (it ca
 touched by this WP. Every other file (test JSON, JUnit, raw JSON, Allure results, all HTML pages) is equal under that
 normalisation, file names included.
 
-## Item 2 — U264: one line per failed recorder, decided by the recording
+## Item 2 — U264, U265, U266: no overlap of marathon's own recorders; one line per failed recorder
 
 **Facts checked in code.**
 
@@ -110,72 +115,112 @@ normalisation, file names included.
   stderr and appended the restart advice for the busy text. Every receipt goes through `Lease::watch`, and the watcher
   ends at its first terminal receipt (a `Proof`, or `Unconfirmed`), so in the current code one lease logs at most one
   such line. x104's note that one recorder could warn more than once (a probe and a control request) is not
-  reproducible from the code; the farm's two lines on one simulator had different tokens, i.e. two recorders. The new
-  logging is tied to the set-once stderr, so a repeat cannot happen either way.
-- D98's decision (`recording.rs` `recorder_busy`): status 16, the busy text, no start marker, and no other launched,
-  unfinished video recording of marathon's own on the simulator's device object.
-- **Not confirmed: how marathon's own recorders overlap.** Within one `ScreenRecordingListener` the next recorder
-  cannot launch before the previous one has finished: its `ready` future awaits `previous.finalization()`, which
-  completes only after the previous recorder's process ended; by then the previous recording counts as ended for D98.
-  So two live recordings on one device object need two listeners (or captures) at once, which the batch flow does not
-  obviously produce. The farm run (refusals inside the last 0.3 s of a first batch of five skipped tests, D98 not
-  firing, the simulator recording fine later) shows that D98's other three conditions held and so its own-recorder
-  check must have; the code path that made two recordings live together is not established here. The
-  classification below uses D98's own check, so whatever made it hold on the farm now gives the INFO line.
+  reproducible from the code; the farm's lines on one simulator had different tokens, i.e. several recorders.
+- D98's decision (`recording.rs` `recorder_busy` on the base): status 16, the busy text, no start marker, and no other
+  launched, unfinished video recording of marathon's own on the device object.
+- **How marathon's own recorders overlapped (U265; round 1 got this wrong).** Round 1 said that within one listener
+  the next recorder cannot launch before the previous one has finished, because its `ready` awaits the previous
+  recording's finalization. That holds only for the immediately previous recording. A recording whose stop is
+  requested before its turn (its test ended while its `ready` was still waiting) returns `NotStarted` at once
+  (`Recording::run`, the `deadline` arm before `ready`), and the listener's `stopping` slot then holds that one. The
+  next test's `ready` waits only for it, so the next recorder launches while the first one is still live (for
+  instance still starting). With five short tests and the first recorder still starting: test 2 does not start, and
+  tests 3, 4 and 5 each launch and are refused: three refusals, as on the farm. The round-1 reviewer showed this with
+  a scratch test; the round-2 witnesses below reproduce it on the round-1 head.
+- **Consequences.** (a) A normal-length test after two or more short ones launched beside the live recorder and lost
+  its video. (b) U266, pre-existing since D98: D98's own-recorder check looked at the device when the refused
+  recorder's exit was handled. If that exit was seen after marathon's live recording had ended, it found none, logged
+  the busy warning and turned video off on the simulator for the rest of the run, although the service was free.
 
-**Design: one decision point.** `Recording::report_end` (in `recording.rs`), called once at the end of every video
-recorder's run with its outcome, whether it confirmed its start, D98's busy flag, its stderr and its termination:
+**Design: one owner of the device's live recorder (U265, U266).** The device state holds `video_holder`: the one video
+recording of marathon's own that may hold the simulator's video service. In `Recording::run`, after `ready`, a video
+recording takes that turn under the device lock: if the holder's run has not ended (`done` not completed), it waits
+for that, selected against its own stop request (`deadline`) and its batch's cancellation, either of which ends it
+with `NotStarted`; then it looks again. Once the holder has ended it becomes the holder itself, and stays it until its
+own run has ended, which is after its exit was seen and `report_end` ran (or after it gave up as `Unconfirmed`; the
+existing check that refuses every launch on a device with an unconfirmed recording keeps applying, now inside the same
+locked step). So a recorder never reaches simctl while another of marathon's own on the device is launched and not yet
+ended: the invariant holds by construction, not by a check at reporting time. The listener's own chain (`ready`) is
+unchanged; it still serves D80's path reuse and the unconfirmed-previous check.
+
+**What waits on what.** `test_started` (the test's event path) only registers the recording and spawns its task; it
+never awaits the turn, so no test is delayed. The turn wait runs in the recording's task. It ends at the latest when
+its own test ends (its stop request) or its batch is cancelled; at that point it returns `NotStarted`, as a recording
+stopped while waiting for `ready` already did. The things that wait for that recording (its test's video collection in
+the D80 queue, the next recording's `ready`, `stop()` in `after_test_run`) therefore never wait longer than before for
+it. The holder it waits for is bounded by the holder's own stop window, which started when the holder's test ended
+(before this test started, on the same listener): INT as soon as the holder confirms its start (D98), then its INT,
+TERM and KILL cutoffs. A normal-length test's recorder launches once the holder has ended, so its video can miss the
+first moments of the test by the previous recorder's remaining start and finalization time, the cost D80 already
+describes for the next test's recording; it is never truncated at the end (its own stop window is unchanged), and the
+holder's video is not cut either. A short test that ends while waiting has no video ("Video recording did not start",
+debug only; with `ON_FAILURE` or `ON_ANY` and a requested video, the existing "was not delivered: the recording did not
+start" ERROR), which is what such tests mostly got before, minus the refused launch.
+
+**Design: one decision point for reporting (U264).** `Recording::report_end`, called once at the end of every launched
+video recorder's run with its outcome, whether it confirmed its start, D98's busy flag, its stderr, its termination
+and its worker token (on a supervised worker):
 
 | case | line (target `marathon_ios::busy_video`, visible with `debug: false`) |
 |---|---|
 | status 0 | none |
-| busy text, no start, another recorder of marathon's own live (D98's own check, unchanged, under the device lock) | **(b)** one INFO: `Simulator <serial>: the video recorder for <path> overlapped marathon's previous recording on this simulator; this test's video is not recorded.` No advice; video stays on |
-| busy text, no start, status 16, none of marathon's own live | **(a)** D98: marks the simulator busy and logs its existing WARN (text unchanged) the first time; nothing on a simulator already marked, as before |
-| any other end with non-empty stderr | **(c)** one WARN: `Simulator <serial>: the video recorder for <path> failed (status N / signal S / an unconfirmed exit). stderr: "…"`, with `. Stop the active recording or restart the simulator before recording again.` only if the stderr has the busy text |
+| busy text, no start, status 16 (D98) | marks the simulator busy and logs D98's existing WARN (text unchanged) the first time; nothing on a simulator already marked, as before. D98's own-recorder condition holds by construction (above), so the check is gone |
+| an exit marathon stopped waiting for (`Unconfirmed`) | one WARN: `Simulator <serial>: the video recorder for <path> (worker recorder <first 8 of token>) did not report how it ended; marathon stopped waiting for it.`, with ` stderr: "…"` if any |
+| any other end with non-empty stderr | one WARN: `Simulator <serial>: the video recorder for <path> (worker recorder <token8>) failed (status N / signal S / it did not start / no exit status). stderr: "…"` |
+| any of the two above whose stderr has the busy text | the same line ending `. Stop the active recording or restart the simulator before recording again.` |
 
-The serial is `<udid>@<worker host id>` (`user@host:port` on SSH, `local` on this machine), so every line names the
-simulator and the worker. **(c) with the busy text** remains reachable: the busy text with a status other than 16 and
-no own recorder (a future simctl that changes its exit status, or an unconfirmed exit), or after a start. That is the
-case in which the service may really be stuck while D98 cannot decide, so the advice stays there.
+A recorder whose launch could not be confirmed (the open timed out, or failed without knowing that nothing started)
+has no session and no `report_end`; `run` logs one WARN for it there (`… did not confirm its launch in time; marathon
+stopped waiting for it.`, or `… failed to launch, and marathon could not confirm that nothing was started: <error>`).
+A launch known to have started nothing stays `NotStarted` with its existing debug-only line.
 
-INFO, not DEBUG, for (b): the line explains why a test has no video, which matters with `ON_FAILURE` when such a
-short test fails; it replaces a WARN the farm showed about three times per video run, and states that no action is
-needed. An owner preferring silence can ask for DEBUG; it is a one-word change.
+**Round 1's INFO branch is gone.** The refusal it classified (busy text, no start, another recorder of marathon's own
+live) can no longer happen: no recorder of marathon's own launches beside another. Keeping it as a defence would need
+the own-recorder check it was built on, which U266 showed depends on exit order; without it, such a refusal (from a
+recorder outside marathon's knowledge) is correctly D98's busy case. So (b) of the brief is unreachable, and the
+witness for it (two listeners on one device, not the production path, review P2-2) is dropped rather than rewritten.
+
+**(c) with the busy text** remains reachable: the busy text with a status other than 16, after a start, or on an
+unconfirmed exit. That is when the service may really be stuck while D98 cannot decide, so the advice stays there.
+
+**The token.** The supervisor's DEBUG line names the whole 32-hex token; the WARN names its first 8 characters
+(`WorkerReport` now carries the token), enough to find the DEBUG line with `debug: true`.
+
+**Exactly one line visible with `debug: false` per failed recorder.** Launched and ended: `report_end`, one of the rows
+above. Launched but given up (open timeout, unknown open failure, stop window exhausted): one WARN from the recording;
+a supervised receipt that arrives after that is the supervisor's DEBUG line only (review P3: before, nothing at default
+level remained in that case). Never launched (stopped before its turn, or a launch known to have started nothing):
+not a failed recorder; its existing debug-only line, unchanged.
 
 **Sources of the stderr.** On a supervised worker the exit receipt's stderr (the supervisor bounds it at 8 KiB) in
-`WorkerReport::stderr`, now also kept from an `Unconfirmed` receipt (the supervisor warned for those too before).
-On a local simulator (the controller reads simctl's output; the brief's "legacy, non-supervised" path) the recording
-now keeps the first 8 KiB of the stderr it already reads line by line (`keep_stderr`), and reports the same way. This
-adds lines a local run did not have: before, a failed local recorder was reported only in D98's busy case. The
-Perl-less "legacy recorder" on an SSH worker (`run_legacy`, pidfile) sends simctl's output to `/dev/null`, has no
-stderr and no exit status, and is unchanged.
+`WorkerReport::stderr`, also kept from an `Unconfirmed` receipt. On a local simulator (the controller reads simctl's
+output; the brief's "legacy, non-supervised" path) the recording keeps the first 8 KiB of the stderr it already reads
+line by line (`keep_stderr`), and reports the same way. This adds lines a local run did not have: before, a failed
+local recorder was reported only in D98's busy case. The Perl-less "legacy recorder" on an SSH worker (`run_legacy`,
+pidfile) sends simctl's output to `/dev/null`, has no stderr and no exit status, and is unchanged; it takes the turn
+like any other video recording.
 
 **The supervisor** no longer logs recorder failures at WARN and no longer gives advice. When the watcher first keeps
 a recorder's stderr it logs one DEBUG line with the token, `simulator <udid>` and `host:port` (U261's naming). The
 target and its WARN floor are unchanged (other supervisor warnings use it), so x104's filter test is unchanged.
 
-**2b (avoiding the overlap) — not implemented.** Within a listener the next recorder already waits for the previous
-one's finalization, so there is no identified wait to add; a wait keyed on "marathon's previous recorder on this
-simulator" across device objects or listeners would need the mechanism above to be established first, and could
-delay a normal-length test's recorder behind another listener's stop window. The cost of not doing it is the video of
-very short tests that overlap, which `ON_FAILURE` discards unless such a test fails; the INFO line now says so.
+**Witnesses** (virtual time, `debug: false`, local and supervised-receipt paths; each run on the round-1 head
+`e81e1209` in a scratch worktree with the new test file copied in, where every one fails as listed):
 
-**Witnesses** (each run on the base `c0425676` in a scratch worktree with the new tests copied in; all fail there):
-
-| test | scenario | on the base |
+| test | scenario | on `e81e1209` |
 |---|---|---|
-| `a_refusal_that_overlaps_marathon_s_own_recording_is_one_info_line_and_video_stays_on_u264` (`marathon-ios/tests/ios_listeners.rs`, virtual time, debug off) | two listeners on one simulator: the first one's recorder keeps running; the second's is refused with Xcode 26.6's busy text and status 16; local and supervised-receipt paths | fails: no line (0 ≠ 1) |
-| `any_other_recorder_failure_is_one_warning_with_its_stderr_u264` (same file) | every recorder exits 1 with another refusal, and with the busy text; both paths | fails: no warning on either path |
-| `a_busy_video_service_turns_video_off_for_the_simulator_once_d98` (same file, extended) | D98's busy case: exactly one line, the busy WARN; a status 16 without the busy text: one WARN per recorder without advice; now also on the supervised-receipt path | fails at the new count (0 ≠ 2) |
-| `a_refused_recorder_is_one_debug_line_and_its_stderr_reaches_the_controller_u261_u264` (`marathon-apple/tests/ssh_supervisor.rs`; renamed from x104's `…_with_the_busy_hint_u261_u262`) | a recorder refused on a fake supervised worker: debug off → no supervisor line; debug on → exactly one DEBUG line naming simulator and worker, no advice; the receipt's stderr reaches `WorkerReport` | fails: the WARN with advice shows with debug off |
-| `a_busy_simulator_on_an_ssh_worker_turns_video_off_once_d98` (`marathon-cli/tests/ios_production.rs`, extended) | the real CLI and supervisor protocol on the fake SSH worker: busy → no recorder-failure line besides D98's; status 16 without the busy text → exactly three `failed (status 16)` WARNs for three recorders; no restart advice anywhere | fails at "no restart advice" |
+| `short_tests_never_launch_a_recorder_beside_marathon_s_starting_one_u265` (`marathon-ios/tests/ios_listeners.rs`) | ONE listener; a fake video service that refuses a launch while another recorder is live (status 16, Xcode 26.6 busy text, at once). Test 1's recorder is still starting while tests 2–4 start and end within 50 ms each; test 5 is normal-length; test 1's recorder then starts and finalizes | fails: test 5's recording `Unfinalized` (its video lost); 3 refused launches |
+| `a_refusal_seen_after_marathon_s_own_recorder_ended_cannot_turn_video_off_u266` (same file) | the same, but a refused recorder's exit is seen only after test 1's recorder has ended | fails: D98's busy WARN, video off |
+| `a_recorder_marathon_stops_waiting_for_is_one_warning_u264` (same file) | a launch that never confirms (local), and a started recorder that never exits (local, and supervised with no receipt) | fails: no line (the supervised and open cases), or the wrong wording |
+| `any_other_recorder_failure_is_one_warning_with_its_stderr_u264` (same file) | every recorder exits 1 with another refusal, and with the busy text; both paths | (round 1) fails on `c0425676`: no warning on either path |
+| `a_busy_video_service_turns_video_off_for_the_simulator_once_d98` (same file, extended in round 1) | D98's busy case: exactly one line, the busy WARN; a status 16 without the busy text: one WARN per recorder without advice; local and supervised receipt | (round 1) fails on `c0425676` at the new count |
+| `a_refused_recorder_is_one_debug_line_and_its_stderr_reaches_the_controller_u261_u264` (`marathon-apple/tests/ssh_supervisor.rs`) | a recorder refused on a fake supervised worker: debug off → no supervisor line; debug on → exactly one DEBUG line naming simulator and worker, no advice | (round 1) fails on `c0425676` |
+| `a_busy_simulator_on_an_ssh_worker_turns_video_off_once_d98` (`marathon-cli/tests/ios_production.rs`, extended in round 1) | the real CLI and supervisor protocol on the fake SSH worker | (round 1) fails on `c0425676` at "no restart advice" |
 
-The (a)/(b)/(c) witnesses run on both stderr sources: the local stream and the supervised exit receipt
-(`exiting_recorder` builds the session with a `WorkerReport`, setting the stderr before the exit status as the
-supervisor does). The overlap needs two live recordings on one device; the test makes them with two listeners.
-
-Stress (the head's debug test binaries): the three iOS witnesses and the supervisor witness 50/50
-each, then 20/20 each with twelve busy-loop processes running.
+The U265 and U266 witnesses assert in the order of what a user loses (D98's busy warning, then test 5's video), then
+the cause (no line on D98's target, no launch beside the first recorder, exactly two launches, both finalized), then
+that video stays on (a sixth recording launches and finalizes). On the round-1 head the local and the supervised
+variants each fail at the first of those (checked separately).
 
 ## What was run
 
@@ -186,11 +231,19 @@ each, then 20/20 each with twelve busy-loop processes running.
 - `tools/differential/make_registry.py --check`, `tools/differential/test_evidence.py`, `scripts/check_plan_dag.py`:
   pass. `scripts/parity_matrix.py --check` fails, identically on main `7362d27c` (incidental, below); this WP does
   not touch the matrix.
+- Round 2: `cargo fmt --check`; `cargo clippy -p marathon-core -p marathon-apple -p marathon-ios -p marathon-cli
+  --all-targets -- -D warnings`: clean. `cargo test -p marathon-core -p marathon-ios -p marathon-apple
+  -p marathon-logging`: 2 088 passed, 0 failed; `cargo test -p marathon-cli` (end-to-end, differential and
+  `ios_production` suites): 104 passed, 0 failed. The three new witnesses (U265, U266, the stopped-waiting warning):
+  50/50 runs each from the debug test binary, then 20/20 each with twelve busy-loop processes running. Revert checks:
+  a scratch worktree at the round-1 head `e81e1209` with the new test file; every new witness and variant fails there.
+  The local pre-commit check: clean.
 - Not run (the orchestrator's gates): `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test --workspace`.
 
 ## Not verified
 
-- A real farm run, and Linux. The overlap mechanism on the farm (above).
+- A real farm run, and Linux. That the farm's refusals were this overlap: the mechanism and the count match (above),
+  but no farm log was rerun.
 - Allure and HTML with attachments (screenshots, videos, logs) in the timing runs: the scenario has none. The golden
   tests cover their output.
 

@@ -3333,15 +3333,23 @@ progress" wording on its own, without `Resource busy`, which no known `simctl` o
 shutdown are unchanged. See
 [x104 findings](wp/x104-findings.md).
 
-**x106 (2026-11-22).** A failed recorder is reported once, by the iOS recording that makes the busy decision above,
-on `marathon_ios::busy_video`; the supervisor no longer warns about it (it keeps one DEBUG line with the token, the
-simulator and the worker). simctl's busy refusal before a start while another recorder of marathon's own is live on
-that simulator is one INFO line saying the test's video is not recorded, without restart advice: that recording held
-the service and frees it when it ends, and video stays on. The busy warning above is unchanged. Any other failure that
-printed on stderr is one warning per recorder naming the simulator and quoting the stderr (bounded to 8 KiB, as the
-supervisor's receipt is), with the restart advice only for the busy text. A local recorder reports the same way from
-the stderr marathon reads. Recording, the busy decision and the shutdown are unchanged. See
-[x106 findings](wp/x106-findings.md).
+**x106 (2026-11-22).** A recorder launches only once marathon's previous video recording on that simulator's device
+object has ended: its exit seen, or given up as unconfirmed (which, as before, stops recording there). It waits in its
+own task, never delays its test, and gives up when its test ends or its batch is cancelled; that test then has no
+video. Before, very short tests back to back could launch a recorder beside marathon's own still-starting one (one
+that ended before its turn let the next one stop waiting), although D80 says one recording runs at a time. simctl
+refused it; a normal-length test after them could lose its video; and when the refusal was seen after the other
+recording had ended, the busy decision above found no recorder of marathon's own live and turned video off wrongly
+for the rest of the run ([U265, U266](found-bugs.md)). The "no other launched recorder" condition now holds by
+construction, whatever order exits are seen in.
+
+A failed recorder is reported once, by the iOS recording that makes the busy decision, on `marathon_ios::busy_video`;
+the supervisor no longer warns about it (it keeps one DEBUG line with the token, the simulator and the worker). The busy
+warning above is unchanged. Any other failure that printed on stderr is one warning per recorder naming the simulator,
+the first 8 characters of the worker recorder's token and the stderr (bounded to 8 KiB, as the supervisor's receipt
+is), with the restart advice only for the busy text. A recorder whose launch or exit marathon stopped waiting for is
+one warning as well (its receipt, if it comes later, is only at DEBUG). A local recorder reports the same way from the
+stderr marathon reads. The busy decision and the shutdown are unchanged. See [x106 findings](wp/x106-findings.md).
 
 **Migration action:** none, unless SSH command filters on the worker list allowed commands: allow
 `xcrun simctl shutdown <udid>` there. A simulator whose video service is busy and that marathon could not shut down
