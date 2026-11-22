@@ -12,13 +12,13 @@ The section for a version becomes the text of its GitHub release, which carries 
   stopping monitoring, recovery and events 500 ms)`.
   The reports line comes after the run summary (when the summary is printed). Nothing else changes: the summary, the report files, test results
   and the exit status are the same.
-- **The SSH worker supervisor uses much less CPU while commands run (x111):** on an SSH worker with stock Perl, the
-  small supervisor that watches each command and video recorder used to wake 40 times a second for as long as the
-  command ran. It now wakes when something happens (the command ends, a recorder starts, marathon asks it to stop) or
-  when a time limit is due, and otherwise about once a second: in a local measurement an idle minute cost it about
-  0.02 CPU-seconds instead of about 0.3. The cutoffs are unchanged (a recorder's TERM 2 s after the first stop
-  request and KILL 1 s after TERM, the lease expiry), and so are the worker commands, their results and the exit
-  status.
+- **The SSH worker supervisor uses less CPU while commands run (x111):** on an SSH worker with stock Perl, the small
+  supervisor that watches each command and video recorder used to wake 40 times a second for as long as the command
+  ran. It now wakes when something happens (the command ends, a recorder starts, marathon asks it to stop) or when a
+  time limit is due, and otherwise 10 times a second: in a local measurement an idle minute cost it about 0.15
+  CPU-seconds instead of about 0.4, and a stop request is acted on within a few milliseconds instead of up to 50. The
+  cutoffs are unchanged (a recorder's TERM 2 s after the first stop request and KILL 1 s after TERM, the lease
+  expiry), and so are the worker commands, their results and the exit status.
 
 ## 0.15.3
 
