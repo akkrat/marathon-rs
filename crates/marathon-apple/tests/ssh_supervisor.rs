@@ -699,7 +699,7 @@ while (1) { select undef, undef, undef, .01 }"#;
     let [marked, interrupted] = times[..] else {
         panic!("marker and INT times: {times:?}");
     };
-    // Hang guard only: the worker loop reads stderr every 25-50 ms.
+    // Hang guard only: the worker reads stderr as soon as it arrives.
     assert!(interrupted >= marked && interrupted - marked < 5.0, "{times:?}");
     println!("INT {:.0} ms after the start marker", (interrupted - marked) * 1000.0);
     assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
@@ -754,7 +754,7 @@ while (1) { select undef, undef, undef, .01 }"#;
     d98_file(&files.path().join("first")).await?;
     let interrupt = d98_control(&supervisor, root.path(), &format!("{token}:1")).await?;
     assert!(interrupt.starts_with(&format!("{token} running:")), "{interrupt}");
-    // Each part sits in the worker's pipe for a second, twenty of its read loops.
+    // Each part sits in the worker's pipe for a second; the worker reads it as soon as it arrives.
     tokio::time::sleep(Duration::from_secs(1)).await;
     std::fs::write(files.path().join("release1"), b"")?;
     d98_file(&files.path().join("second")).await?;
@@ -2245,5 +2245,212 @@ async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::err
     })
     .await?;
     daemon.kill().await?;
+    Ok(())
+}
+
+/// Starts `mode` (`run` or `detach`) with the worker's wake trace hook on: the owner appends one letter per pass of
+/// its monitor loop to `trace`, by what woke it (`e` a pipe, `w` the wake FIFO, `d` a deadline, `b` a busy retry, `p`
+/// the fallback poll), once it has ended and before its receipt.
+fn x111_spawn(
+    supervisor: &Path,
+    root: &Path,
+    lease: &str,
+    mode: &str,
+    args: &[&str],
+    trace: &Path,
+) -> std::io::Result<tokio::process::Child> {
+    let mut command = tokio::process::Command::new("/usr/bin/perl");
+    command
+        .arg(supervisor)
+        .arg(mode)
+        .arg(root)
+        .arg(lease)
+        .args(args)
+        .env("MARATHON_D96_TEST_WAKES", trace)
+        .kill_on_drop(true);
+    command.spawn()
+}
+
+/// The traces the owners wrote, one line per supervised command.
+fn x111_traces(trace: &Path) -> std::io::Result<Vec<String>> {
+    Ok(std::fs::read_to_string(trace)?.lines().map(str::to_owned).collect())
+}
+
+#[tokio::test]
+async fn a_stop_request_wakes_the_worker_supervisor_through_its_fifo_x111() -> Result<(), Box<dyn std::error::Error>> {
+    use std::time::{Duration, Instant};
+    if !Path::new("/usr/bin/perl").is_file() {
+        eprintln!("worker witness requires stock Perl");
+        return Ok(());
+    }
+    let (root, supervisor) = d98_root()?;
+    let files = tempfile::tempdir()?;
+    let trace = files.path().join("trace");
+    let (ready, int) = (files.path().join("ready"), files.path().join("int"));
+    let token = "0123456789abcdef0123456789abcdef";
+    // INT is recorded and survived, so the owner keeps running until the force.
+    let payload = r#"my ($ready, $int) = @ARGV; $SIG{INT} = sub { open my $f, '>', $int; close $f };
+open my $f, '>', $ready or die $!; close $f; while (1) { select undef, undef, undef, .01 }"#;
+    let (ready_arg, int_arg) = (ready.to_str().unwrap(), int.to_str().unwrap());
+    let owner = x111_spawn(
+        &supervisor,
+        root.path(),
+        "60000",
+        "run",
+        &[token, "/usr/bin/perl", "-e", payload, ready_arg, int_arg],
+        &trace,
+    )?;
+    d98_file(&ready).await?;
+    let requested = Instant::now();
+    let reply = d98_control(&supervisor, root.path(), &format!("{token}:1")).await?;
+    assert!(reply.starts_with(&format!("{token} running:")), "{reply}");
+    d98_file(&int).await?;
+    println!("INT {:?} after the request", requested.elapsed());
+    let reply = d98_control(&supervisor, root.path(), &format!("{token}:3")).await?;
+    assert!(reply.starts_with(&format!("{token} running:")), "{reply}");
+    let output = tokio::time::timeout(Duration::from_secs(60), owner.wait_with_output()).await??;
+    assert_eq!(output.status.code(), Some(137));
+    let (receipt, _) = d98_receipt(&supervisor, root.path(), token).await?;
+    assert_eq!(receipt, "done:137");
+    let traces = x111_traces(&trace)?;
+    let [trace] = &traces[..] else { panic!("{traces:?}") };
+    // The INT request wrote to the owner's wake FIFO and the owner read it there, not on a later poll. The force
+    // request may end the loop before its own wake is read.
+    assert!(trace.contains('w'), "{trace}");
+    assert!(!root.path().join(format!("{token}.wake")).exists());
+    assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_idle_supervised_command_and_recorder_wake_rarely_x111() -> Result<(), Box<dyn std::error::Error>> {
+    use std::time::{Duration, Instant};
+    if !Path::new("/usr/bin/perl").is_file() {
+        eprintln!("worker witness requires stock Perl");
+        return Ok(());
+    }
+    let (root, supervisor) = d98_root()?;
+    let files = tempfile::tempdir()?;
+    let trace = files.path().join("trace");
+    let (command, recorder) = ("00000000000000000000000000000001", "00000000000000000000000000000002");
+    let (ready, release) = (files.path().join("ready"), files.path().join("release"));
+    // Both stay idle until the test releases them: the command polls for a file, the recorder (started, so its
+    // stderr pipe is watched) waits for INT.
+    let started = Instant::now();
+    let owner = x111_spawn(
+        &supervisor,
+        root.path(),
+        "60000",
+        "run",
+        &[
+            command,
+            "/usr/bin/perl",
+            "-e",
+            "select undef, undef, undef, .01 until -f $ARGV[0]",
+            release.to_str().unwrap(),
+        ],
+        &trace,
+    )?;
+    let payload = r#"$SIG{INT} = sub { exit 0 }; print STDERR "Recording started\n";
+open my $f, '>', $ARGV[0] or die $!; close $f; while (1) { select undef, undef, undef, .01 }"#;
+    let detached = x111_spawn(
+        &supervisor,
+        root.path(),
+        "60000",
+        "detach",
+        &[recorder, "/usr/bin/perl", "-e", payload, ready.to_str().unwrap()],
+        &trace,
+    )?;
+    let output = tokio::time::timeout(Duration::from_secs(60), detached.wait_with_output()).await??;
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    d98_file(&ready).await?;
+    // Wait until the recorder's start is published, so its loop is idle from here on.
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            let status = d98_control(&supervisor, root.path(), &format!("{recorder}:status")).await?;
+            if status.starts_with(&format!("{recorder} recording:")) {
+                return Ok::<_, std::io::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    // An idle window long enough for the old 25 ms loop to pass a hundred times.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    std::fs::write(&release, b"")?;
+    let output = tokio::time::timeout(Duration::from_secs(60), owner.wait_with_output()).await??;
+    assert!(output.status.success());
+    let reply = d98_control(&supervisor, root.path(), &format!("{recorder}:1")).await?;
+    assert!(reply.starts_with(&format!("{recorder} recording:")), "{reply}");
+    let (receipt, _) = d98_receipt(&supervisor, root.path(), recorder).await?;
+    assert_eq!(receipt, "done:0");
+    let elapsed = started.elapsed();
+    let traces = x111_traces(&trace)?;
+    assert_eq!(traces.len(), 2, "{traces:?}");
+    // About one fallback poll a second, plus the few events of a start and a stop. The old loop passed at least 20
+    // times a second (40 when idle), so it exceeds this for any window of a second or more.
+    let ceiling = elapsed.as_secs() as usize + 8;
+    for trace in &traces {
+        println!("{} passes in {elapsed:?}: {trace}", trace.len());
+        assert!(trace.len() <= ceiling, "{} passes in {elapsed:?}: {trace}", trace.len());
+    }
+    assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
+    Ok(())
+}
+
+#[tokio::test]
+async fn escalation_and_lease_expiry_wake_the_worker_supervisor_on_their_deadlines_x111()
+-> Result<(), Box<dyn std::error::Error>> {
+    use std::time::Duration;
+    if !Path::new("/usr/bin/perl").is_file() {
+        eprintln!("worker witness requires stock Perl");
+        return Ok(());
+    }
+    let (root, supervisor) = d98_root()?;
+    let files = tempfile::tempdir()?;
+    // An unconfirmed recorder that ignores TERM: the KILL request sends TERM 2 s after it and ends the group 1 s later.
+    let recorder = "00000000000000000000000000000001";
+    let recorder_trace = files.path().join("recorder");
+    let ready = files.path().join("ready");
+    let payload = r#"$SIG{TERM} = 'IGNORE'; print STDERR "Note: No display specified.\n";
+open my $f, '>', $ARGV[0] or die $!; close $f; while (1) { select undef, undef, undef, .01 }"#;
+    let detached = x111_spawn(
+        &supervisor,
+        root.path(),
+        "60000",
+        "detach",
+        &[recorder, "/usr/bin/perl", "-e", payload, ready.to_str().unwrap()],
+        &recorder_trace,
+    )?;
+    let output = tokio::time::timeout(Duration::from_secs(60), detached.wait_with_output()).await??;
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    d98_file(&ready).await?;
+    let reply = d98_control(&supervisor, root.path(), &format!("{recorder}:3")).await?;
+    assert!(reply.starts_with(&format!("{recorder} running:")), "{reply}");
+    let (receipt, _) = d98_receipt(&supervisor, root.path(), recorder).await?;
+    assert_eq!(receipt.split(' ').next(), Some("done:137"));
+    // A 1.5 s lease that nobody renews ends a command at its expiry.
+    let command = "00000000000000000000000000000002";
+    let command_trace = files.path().join("command");
+    let owner = x111_spawn(
+        &supervisor,
+        root.path(),
+        "1500",
+        "run",
+        &[command, "/bin/sleep", "60"],
+        &command_trace,
+    )?;
+    let output = tokio::time::timeout(Duration::from_secs(60), owner.wait_with_output()).await??;
+    assert_eq!(output.status.code(), Some(137));
+    let (recorder_trace, command_trace) = (x111_traces(&recorder_trace)?, x111_traces(&command_trace)?);
+    let ([recorder_trace], [command_trace]) = (&recorder_trace[..], &command_trace[..]) else {
+        panic!("{recorder_trace:?} {command_trace:?}");
+    };
+    println!("recorder {recorder_trace}, command {command_trace}");
+    // TERM and KILL were each sent on a pass woken by its own deadline, not by a later poll.
+    assert!(recorder_trace.ends_with('d'), "{recorder_trace}");
+    assert!(recorder_trace.matches('d').count() >= 2, "{recorder_trace}");
+    assert!(command_trace.ends_with('d'), "{command_trace}");
+    assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
     Ok(())
 }

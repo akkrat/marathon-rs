@@ -83,6 +83,8 @@ sub control {
         }
         return ([$started, $expiry, $signal, '-'], $started ? $running : 'unknown');
     }) // 'busy';
+    # Every change an owner must act on wakes it; status requests change nothing.
+    wake($dir) if $op ne 'status' && $reply =~ /\A(?:running|recording):/;
     if ($reply =~ /\A(?:done:[1-9][0-9]*|unconfirmed)\z/ && open my $file, '<', "$dir.stderr") {
         my $count = read($file, my $diagnostic, 8192);
         if ($count) {
@@ -93,11 +95,44 @@ sub control {
     return ($reply, $recorder);
 }
 
+# The owner of a running token reads this FIFO; a control request writes a byte
+# after it has committed the state. The owner drains it before it reads the
+# state, so a byte written after that read keeps the FIFO readable and a change
+# is never slept through.
+sub wake {
+    my ($dir) = @_;
+    # No owner reads it any more: no FIFO (ENOENT) or no reader (ENXIO).
+    sysopen my $fifo, "$dir.wake", O_WRONLY|O_NONBLOCK|O_NOFOLLOW or return;
+    # The owner may close its end between this open and the write.
+    local $SIG{PIPE} = 'IGNORE';
+    # A full FIFO (EAGAIN) already holds a pending wake.
+    syswrite($fifo, 'W', 1) if -p $fifo;
+    close $fifo;
+}
+
+sub open_wake {
+    my ($dir) = @_;
+    require POSIX;
+    POSIX::mkfifo("$dir.wake", 0600) or return;
+    # The owner's own writer keeps the reader from seeing end of file.
+    my ($wake, $keep);
+    if (sysopen($wake, "$dir.wake", O_RDONLY|O_NONBLOCK|O_NOFOLLOW) && -p $wake
+        && sysopen($keep, "$dir.wake", O_WRONLY|O_NONBLOCK|O_NOFOLLOW)) {
+        return ($wake, $keep);
+    }
+    unlink "$dir.wake";
+    return;
+}
+
 sub drain_errors {
-    my ($pipe, $tail, $line, $confirmed) = @_;
+    my ($pipe, $tail, $line, $confirmed, $closed) = @_;
     for (1..8) {
         last unless readable($pipe, 0);
-        last unless sysread($pipe, my $bytes, 4096);
+        my $count = sysread($pipe, my $bytes, 4096);
+        if (!$count) {
+            $$closed = 1 if defined $count && $closed;
+            last;
+        }
         my $remaining = 8192 - length($$tail);
         $$tail .= substr($bytes, 0, $remaining) if $remaining > 0;
         next if $$confirmed;
@@ -223,12 +258,19 @@ sub run_owned {
     close $errors_w if $recorder;
     my $group = setpgrp($anchor, $anchor);
     my $permitted = $group && syswrite($go_w, 'P', 1) == 1;
+    # Created after the fork, so neither the anchor nor the payload holds it.
+    # The first state read below follows it, so no earlier request is missed.
+    my ($wake, $wake_w) = $permitted ? open_wake($dir) : ();
+    # Without a wake FIFO the state is polled as often as before it existed.
+    my $poll = $wake ? 1000 : 25;
     my $rc = 125;
     my $seen = 0;
-    my ($interrupt_at, $term_at, $interrupted);
-    my ($diagnostic, $line, $confirmed, $published) = ('', '', 0, 0);
+    my ($interrupt_at, $term_at, $interrupted, $stopping);
+    my ($diagnostic, $line, $confirmed, $published, $errors_closed) = ('', '', 0, 0, 0);
     my ($expiry, $wanted) = ($start, 0);
     my $starting = 1;
+    # Test hook: one letter per pass of the loop, by what woke it.
+    my $trace = defined $ENV{MARATHON_D96_TEST_WAKES} ? '' : undef;
     eval {
         while ($permitted) {
             my $observed = locked($dir, sub { (undef, [$_[1], $_[2]]) });
@@ -239,7 +281,7 @@ sub run_owned {
                 $rc = 137;
                 last;
             }
-            if ($starting && readable($ready, 0.025)) {
+            if ($starting && readable($ready, 0)) {
                 $starting = 0;
                 my $n = sysread($ready, my $byte, 1);
                 last if !$n || $byte ne 'R';
@@ -256,7 +298,7 @@ sub run_owned {
             }
             if (!$starting) {
                 if ($recorder) {
-                    drain_errors($errors, \$diagnostic, \$line, \$confirmed);
+                    drain_errors($errors, \$diagnostic, \$line, \$confirmed, \$errors_closed);
                     if ($confirmed && !$published) {
                         $published = locked($dir, sub {
                             my ($started, $expiry, $signal, $receipt) = @_;
@@ -264,7 +306,7 @@ sub run_owned {
                             return ([3, $expiry, $signal, '-'], 1);
                         });
                     }
-                    my $stopping = $wanted >= 2 || $force;
+                    $stopping = $wanted >= 2 || $force;
                     # A disappearing controller can still leave the simulator's
                     # video service busy. Give the recorder the same first
                     # chance to finalize even on a hard stop or lease expiry.
@@ -290,7 +332,7 @@ sub run_owned {
                     $seen = $wanted;
                 }
             }
-            if (readable($status, 0.025)) {
+            if (readable($status, 0)) {
                 my $n = sysread($status, my $packet, 4);
                 if ($n && $n == 4) {
                     my $wait_status = unpack('N', $packet);
@@ -298,10 +340,46 @@ sub run_owned {
                 }
                 last;
             }
+            # Sleep until a pipe or the wake FIFO has something, the next
+            # deadline, or the fallback poll, whichever comes first.
+            my @due;
+            push @due, [$expiry, 'd'] if $now < $expiry;
+            if ($recorder && defined $interrupt_at) {
+                push @due, [$interrupt_at + 2000, 'd'] if $stopping && !defined $term_at;
+                push @due, [$term_at + 1000, 'd'] if $force && defined $term_at;
+            }
+            # A busy token lock is retried soon, as is a start not yet published.
+            push @due, [10, 'b'] if !defined $observed || ($confirmed && !$published);
+            push @due, [$poll, 'p'];
+            $now = clock_ms();
+            my ($delay, $cause) = (undef, '');
+            for (@due) {
+                my $left = $_->[1] eq 'd' ? $_->[0] - $now : $_->[0];
+                ($delay, $cause) = ($left, $_->[1]) if !defined $delay || $left < $delay;
+            }
+            $delay = 10 if $delay < 10;
+            my $bits = '';
+            vec($bits, fileno($status), 1) = 1;
+            vec($bits, fileno($ready), 1) = 1 if $starting;
+            vec($bits, fileno($errors), 1) = 1 if $recorder && !$starting && !$errors_closed;
+            vec($bits, fileno($wake), 1) = 1 if $wake;
+            my $found = select(my $out = $bits, undef, undef, $delay / 1000);
+            if ($found > 0) {
+                $cause = 'e';
+                if ($wake && vec($out, fileno($wake), 1)) {
+                    $cause = 'w';
+                    1 while sysread($wake, my $bytes, 64);
+                }
+            }
+            $trace .= $cause if defined $trace;
         }
     };
 
     close $_ for ($ready, $status);
+    if ($wake) {
+        close $_ for ($wake, $wake_w);
+        unlink "$dir.wake";
+    }
     # The unreaped anchor pins this PGID even if its own launch failed.
     kill 'KILL', ($group ? -$anchor : $anchor);
     my $reaped = waitpid($anchor, 0) == $anchor;
@@ -322,6 +400,10 @@ sub run_owned {
                 close $file;
             }
         }
+    }
+    if (defined $trace && open my $file, '>>', $ENV{MARATHON_D96_TEST_WAKES}) {
+        print {$file} "$trace\n";
+        close $file;
     }
     my $receipt_deadline = clock_ms() + 5000;
     my $recorded;
@@ -369,7 +451,7 @@ if ($mode eq 'retire') {
     opendir my $dir, $root or die "open root: $!";
     my @files = grep { $_ ne '.' && $_ ne '..' && $_ ne 'supervisor.pl' } readdir $dir;
     closedir $dir or die "close root: $!";
-    !grep { !/\A[a-f0-9]{32}\.(?:state|lock|pending|receipt|stderr)\z/ } @files or die "unexpected root entries";
+    !grep { !/\A[a-f0-9]{32}\.(?:state|lock|pending|receipt|stderr|wake)\z/ } @files or die "unexpected root entries";
     unlink(map { "$root/$_" } @files) == @files or die "remove token state: $!";
     unlink "$root/supervisor.pl" or die "remove supervisor: $!";
     rmdir $root or die "remove root: $!";
