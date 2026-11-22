@@ -185,7 +185,15 @@ impl Recording {
             return Ok(RecordingFinalization::Skipped);
         }
         if let Capture::Video(path) = &capture {
-            match device.uses_legacy_recording().await {
+            // The slot is held from here on: a stalled probe must end with this recording's stop or the batch, or every
+            // later video on the device would wait behind it.
+            let legacy = tokio::select! {
+                biased;
+                _ = deadline.wait_for(Option::is_some) => return Ok(RecordingFinalization::NotStarted),
+                _ = batch.cancelled() => return Ok(RecordingFinalization::NotStarted),
+                legacy = device.uses_legacy_recording() => legacy,
+            };
+            match legacy {
                 Ok(true) => {
                     self.legacy.send_replace(true);
                     return Ok(self
@@ -249,7 +257,8 @@ impl Recording {
                             ),
                             _ => format!(
                                 "Simulator {serial}: the video recorder for {path} did not confirm its launch in time; \
-                                 marathon stopped waiting for it."
+                                 marathon stopped waiting for it. Marathon records no further videos on this simulator \
+                                 until it sets it up again, so as not to start a second recorder beside it."
                             ),
                         },
                     );
@@ -425,7 +434,8 @@ impl Recording {
         let mut message = if end.outcome == RecordingFinalization::Unconfirmed {
             format!(
                 "Simulator {serial}: the video recorder for {path}{recorder} did not report how it ended; marathon \
-                 stopped waiting for it."
+                 stopped waiting for it. Marathon records no further videos on this simulator until it sets it up \
+                 again, so as not to start a second recorder beside it."
             )
         } else {
             if stderr.is_none() {
@@ -482,11 +492,14 @@ impl Recording {
         let exit = std::pin::pin!(async {
             let result = if gated {
                 read_output(session, |line| {
-                    keep_stderr(&mut stderr.lock().unwrap_or_else(|e| e.into_inner()), line);
+                    // The start marker is our own protocol, not a diagnostic: it is not kept for the failure line.
                     if line.strip_suffix('\r').unwrap_or(line) == START_MARKER {
                         confirm();
-                    } else if reports_busy(line) {
-                        busy.store(true, std::sync::atomic::Ordering::Relaxed);
+                    } else {
+                        keep_stderr(&mut stderr.lock().unwrap_or_else(|e| e.into_inner()), line);
+                        if reports_busy(line) {
+                            busy.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
                     }
                 })
                 .await

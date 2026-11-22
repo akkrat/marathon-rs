@@ -1460,7 +1460,7 @@ async fn a_recorder_marathon_stops_waiting_for_is_one_warning_u264() -> TestResu
         assert!(message.contains(d.serial()), "{message}");
         if launch_hangs {
             assert!(
-                message.ends_with("did not confirm its launch in time; marathon stopped waiting for it."),
+                message.contains("did not confirm its launch in time; marathon stopped waiting for it."),
                 "{message}"
             );
         } else {

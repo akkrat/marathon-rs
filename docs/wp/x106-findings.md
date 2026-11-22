@@ -165,7 +165,7 @@ and its worker token (on a supervised worker):
 |---|---|
 | status 0 | none |
 | busy text, no start, status 16 (D98) | marks the simulator busy and logs D98's existing WARN (text unchanged) the first time; nothing on a simulator already marked, as before. D98's own-recorder condition holds by construction (above), so the check is gone |
-| an exit marathon stopped waiting for (`Unconfirmed`) | one WARN: `Simulator <serial>: the video recorder for <path> (worker recorder <first 8 of token>) did not report how it ended; marathon stopped waiting for it.`, with ` stderr: "…"` if any |
+| an exit marathon stopped waiting for (`Unconfirmed`) | one WARN: `Simulator <serial>: the video recorder for <path> (worker recorder <first 8 of token>) did not report how it ended; marathon stopped waiting for it. Marathon records no further videos on this simulator until it sets it up again, …`, with ` stderr: "…"` if any |
 | any other end with non-empty stderr | one WARN: `Simulator <serial>: the video recorder for <path> (worker recorder <token8>) failed (status N / signal S / it did not start / no exit status). stderr: "…"` |
 | any of the two above whose stderr has the busy text | the same line ending `. Stop the active recording or restart the simulator before recording again.` |
 
@@ -221,6 +221,23 @@ The U265 and U266 witnesses assert in the order of what a user loses (D98's busy
 the cause (no line on D98's target, no launch beside the first recorder, exactly two launches, both finalized), then
 that video stays on (a sixth recording launches and finalizes). On the round-1 head the local and the supervised
 variants each fail at the first of those (checked separately).
+
+## Review round 2 follow-ups
+
+The second review found nothing blocking. Its smaller points, as handled before merge:
+
+- The legacy-recording probe (`uses_legacy_recording`) runs while the recording holds the device's video slot. It now
+  ends with the recording's own stop or the batch, like the slot wait. A stalled probe can no longer hold up every
+  later video on the device.
+- The two "marathon stopped waiting for it" WARNs now also say the consequence: marathon records no further videos on
+  that simulator until it sets the simulator up again. An unconfirmed recorder stays in the device's recordings, and
+  every later launch there is refused, as before x106.
+- A local recorder's kept stderr no longer includes the start marker (`Recording started`), which is protocol, not a
+  diagnostic.
+- Left as is (predates x106): a launch failure known to have started nothing (`Err` with nothing started) logs only
+  at DEBUG. The requested video still gets the ERROR that it was not delivered.
+- Not added: witnesses for "a waiter behind an unconfirmed holder never launches" and for two listeners taking turns
+  on one device. The reviewer's scratch versions of both passed.
 
 ## What was run
 
