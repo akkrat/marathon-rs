@@ -98,6 +98,7 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 | If you… | What changed | Do |
 |---|---|---|
 | grep or parse marathon diagnostics ([WP 8.8](design/logging.md), [WP 8.11](wp/8.11-test-changes.md#other-group-3-diagnostic-changes)) | `tracing` uses `HH:mm:ss.SSS LEVEL marathon_crate::module: message`, without a thread column; Apple compact output omits time. Targets, wording and debug representations change. WP x56 replaces `kotlin.Unit` with plain run-failure messages, uses plain command/pool values, and logs expected batch cancellation at DEBUG without timeout advice or coroutine class names; stored result text is unchanged. | Update matchers. Only per-test progress lines and the entire summary block, including `Marathon run finished` and `\tRaw:`, keep their text format. |
+| match the worker supervisor's `Worker recorder … failed` warning in log alerts (x106, 0.15.3) | It is DEBUG now; marathon's iOS recording code logs recorder problems as WARN on `marathon_ios::busy_video`. | Update matchers as [iOS recorder warnings](#ios-recorder-warnings) describes. |
 | depend on provider WARN/INFO lines with `debug: false` ([WP 8.8](design/logging.md#debug-off-visibility-c18-superseded)) | Android, iOS and macOS provider and core construction diagnostics now follow the ordinary ERROR threshold instead of retaining a construction-time DEBUG level. Host-key warnings remain visible. | Set `debug: true` when those diagnostics are needed; update log-based alerts. |
 | classify generated failures or snapshot their traces ([D59](deviations.md#d59--generated-failures-use-plain-descriptions)) | Result files and logs use plain descriptions, such as `unexpected end of input`, without generated Java class names; external tool text stays verbatim. Hidden `config-dump` uses `error.kind` instead of `error.class`. | Update classifiers and snapshots; use structured statuses, and `error.kind` for developer dumps. |
 | snapshot CLI help or match usage errors ([D61](deviations.md#d61--cli-help-and-usage-use-clap)) | clap replaces Clikt's help, usage, suggestions and error wording. Commands, flags, defaults, boolean meaning, streams and exit codes stay. | Update text expectations; use exit codes for usage failures. |
@@ -290,14 +291,27 @@ that. At the end of the run marathon makes one bounded attempt to shut it down, 
 unless the on-dispose lifecycle already shuts it down or erases it, its work was not confirmed to have ended, it is
 quarantined or no longer the run's, too little time is left, or a signal arrived. If its video service is still busy
 after that, restart the simulator before it records again. The busy warning and the line reporting the shutdown, or
-why it did not happen, print with `debug: false` from 0.15.2 (x104); in 0.15.1 they needed `debug: true`. From 0.15.3 (x106) the worker supervisor's `Worker recorder … failed` line is DEBUG. For
-recorder alerts with `debug: false`, match WARN lines on `marathon_ios::busy_video`: a recorder that fails with output
-on stderr reads `Simulator <serial>: the video recorder for <file> (worker recorder <first 8 characters of its
-token>) failed (status <n>). stderr: "…"` (no token for a simulator on this machine; one that fails without stderr
-gets no warning), and D98's busy warning and the warning for a recorder whose launch or exit marathon could not
-confirm are separate messages on the same target. If SSH command filters
+why it did not happen, print with `debug: false` from 0.15.2 (x104); in 0.15.1 they needed `debug: true`. If SSH command filters
 on a worker list allowed commands, allow `xcrun simctl shutdown <udid>`. Workers without usable Perl keep the legacy
 recorder, which this does not change.
+
+### iOS recorder warnings
+
+From 0.15.3 (x106) the worker supervisor's `Worker recorder … failed` line is DEBUG, and marathon's iOS recording code
+reports each recorder problem itself, as WARN on `marathon_ios::busy_video` (printed with `debug: false`). To alert on
+recorder problems, match these messages on that target:
+
+- `its video service is busy with a recording already in progress`: D98's busy warning, once per simulator; it tells
+  you to shut the simulator down and boot it again.
+- `did not confirm its launch in time`, `failed to launch, and marathon could not confirm that nothing was started`
+  and `did not report how it ended`: marathon could not confirm a recorder's launch or exit and records no further
+  videos on that simulator until it is set up again. These can appear without any stderr.
+- `failed (<reason>). stderr:`: a recorder that ended with output on stderr. The reason is `status <n>`, `signal <n>`,
+  `it did not start` or `no exit status`. It adds `Stop the active recording or restart the simulator before recording
+  again` only when the stderr has simctl's busy text. An ordinary failure without stderr gets no warning.
+
+The messages name the simulator and the video file, and the first 8 characters of the worker recorder's token when
+there is one (not for a simulator on this machine).
 
 ### A finite `uncompletedTestRetryQuota` (D47)
 

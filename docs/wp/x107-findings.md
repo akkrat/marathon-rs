@@ -41,6 +41,11 @@ One review by another model (REQUEST_CHANGES), all findings taken:
 - The real-run evidence quotes the measured numbers instead of "took no longer".
 - Known limits as above.
 
+Re-check (REQUEST_CHANGES), all taken: the iOS entry no longer states the farm cause as fact; the recorder messages
+moved to a new migration section, "iOS recorder warnings", listing every message, with a row in the action table;
+"reports equal as data" dropped from the real-run evidence (videos and timings differ); the intro and README scope the
+overlap fix to local simulators and supervised workers.
+
 ## Incidental bugs
 
 None.
