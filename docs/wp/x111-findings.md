@@ -27,6 +27,17 @@ next thing that has to happen:
   retry. Deadlines win ties. The retry is 10 ms, except the first one after a FIFO wake, which is 1 ms: the waking
   request holds the lock only until its commit, a moment later (round 2; a 10 ms retry sleeps about 15 ms on macOS).
   The selection is the pure function `next_wake`, so a test can drive it with a controlled clock.
+- **One clock sample per pass** (round 3): the pass's checks (expiry, the TERM and KILL times) and its timeout
+  choice use the same sample, taken right after the state read. Round 2 took a second sample for the choice: a pass
+  whose checks ran 1 ms before the lease expiry and whose second sample fell at or after it dropped the expiry
+  (`next_wake` only counted an expiry still ahead) and slept the 1 s fallback poll, so the kill, or a recorder's
+  escalation that the expiry starts, came about a second late (the review saw `done:137` 1 015 ms late). Now
+  `next_wake` drops the expiry only once the pass has acted on it (`force`), and a deadline that is due or past gets
+  the floor, never the fallback; with one sample, every deadline the checks found due was acted on in that pass, so
+  none reaches the selection. The time the pass has spent since its sample (the stderr drain, publishing a start) is
+  taken off the chosen sleep, floored at zero, so the owner wakes at the chosen time even when it was descheduled
+  after its checks; this reading changes only how long it sleeps, never what it waits for. A zero sleep cannot spin:
+  the next pass acts on the due deadline or recomputes from its own sample.
 - **Fallback poll:** 25 ms (the old cadence) until the wake FIFO is open, 1 s after.
 - **Wake FIFO** (`<root>/<token>.wake`, mode 0600 in the private 0700 root): the owner creates it with
   `POSIX::mkfifo` once the command has run for 250 ms, opens the read end non-blocking and keeps its own write end
@@ -92,16 +103,29 @@ fresh private root (`bootstrap.pl`), and every supervised operation of that run 
 worker script are therefore always the same version and no mixed-version interoperation exists. The Rust side is
 unchanged.
 
-### Test hook
+### Test hooks
 
-With `MARATHON_D96_TEST_WAKES=<file>` in its environment, an owner appends one line to that file when its loop ends
-(before the receipt): one letter per pass, by what woke it (`e` a pipe, `w` the wake FIFO, `d` a deadline, `b` a busy
-retry, `p` the fallback poll). Nothing else reads it. Two more test-only variables: `MARATHON_D96_TEST_FALLBACK_MS`
-sets the owner's fallback poll (default 1000 ms), so a witness can tell a wake from a poll, and
-`MARATHON_D96_TEST_KILL_AFTER_COMMIT` makes a control process kill itself right after its commit, still holding the
-token lock. SSH does not forward these variables, so a controller cannot turn them on for a worker. For the selection
-test, `worker.pl` returns before its command dispatch when it is loaded with `do` (`return 1 if caller`); run as a
-script, as every worker command runs it, it is unchanged.
+The hooks live in one table, `my %hook;`, declared empty near the top of `worker.pl` and never written anywhere in
+it; every hook site only reads it (`$hook{...}`), so in the shipped script every hook branch is dead and no
+environment, argument or controller can reach one. The tests install a copy of the script in which that one line is
+replaced by `my %hook = map { ... } keys %ENV`, filling hook `<name>` from `MARATHON_D96_TEST_<NAME>`
+(`x111_root`). A test pins the shipped script's side: the declaration occurs once, `%hook` nowhere else, no hook is
+assigned or deleted, and the script names no `MARATHON_D96_TEST` variable. Round 2 read the variables from the
+environment directly; SSH does not forward them, but a worker-side environment export could still have turned on
+the self-kill hook for production control requests. A test-only argument was the other option; it would leave the
+hook code reachable by anyone who passes the argument, and the copy keeps the shipped script's behaviour independent
+of anything a caller supplies.
+
+- `wakes=<file>`: an owner appends one line to that file when its loop ends (before the receipt): one letter per
+  pass, by what woke it (`e` a pipe, `w` the wake FIFO, `d` a deadline, `b` a busy retry, `p` the fallback poll).
+- `fallback_ms`: the owner's fallback poll (default 1000 ms), so a witness can tell a wake from a poll.
+- `kill_after_commit`: a control request kills itself right after its commit, still holding the token lock.
+- `pause_across_expiry` (round 3): on the first pass with the wake FIFO open whose checks find the lease expiry
+  ahead, the owner sleeps until 5 ms past the expiry before choosing its timeout (round 2's second clock sample
+  fell there), and the trace gets a `!`.
+
+For the selection test, `worker.pl` returns before its command dispatch when it is loaded with `do` (`return 1 if
+caller`); run as a script, as every worker command runs it, it is unchanged.
 
 ## Invariants kept
 
@@ -109,9 +133,16 @@ script, as every worker command runs it, it is unchanged.
   marker, TERM 2 s after the first request and KILL 1 s after TERM, keeping those times from the first request; a
   failed recorder keeps at most 8192 bytes of stderr; receipts, retirement and the control protocol are unchanged.
 - Every decision is still taken on a pass that has just read the state; the FIFO only decides when that pass runs.
-- A stop wakes the owner at once (the FIFO); its state read then usually waits one 1 ms busy retry for the request to
-  release the lock, so a stop is applied 1 to 2 ms after the wake instead of on the old 25 to 50 ms loop; deadlines are slept towards exactly and fire within the 10 ms floor (the old loop could be up to 50 ms late);
-  stderr and exit are seen as they happen instead of on the next tick.
+- A stop wakes the owner at once (the FIFO). Its state read then finds the lock busy while the request finishes its
+  commit and is retried after 1 ms, then every 10 ms. Measured here (2 000 requests, three runs, system Perl), a
+  request's whole locked section, including opening the lock and checking for a receipt, took 0.13 ms median
+  (p90 0.22 ms) without the FIFO and 0.14 ms (p90 0.23 ms) with it: the FIFO's open and write under the lock add about
+  12 µs. So the first 1 ms retry almost always succeeds, and a stop is applied 1 to 2 ms after the wake (seen in the
+  timestamped runs below) instead of on the old 25 to 50 ms loop; only a request descheduled while it holds the lock
+  makes the owner wait longer, in 10 ms steps. Deadlines are slept towards from the pass's own clock sample and fire
+  as soon as the owner is scheduled after them; a deadline less than 10 ms ahead at a pass is slept on for the 10 ms
+  floor, so it can fire up to 10 ms late (the old loop could be up to 50 ms late). Stderr and exit are seen as they
+  happen instead of on the next tick.
 
 ## Witnesses (`crates/marathon-apple/tests/ssh_supervisor.rs`)
 
@@ -122,8 +153,10 @@ script, as every worker command runs it, it is unchanged.
   keeps that writer, writing nothing, so the owner's reader never sees end of file). In (a') the control process
   kills itself right after its commit, while it still holds the token lock. INT must reach the payload within the
   60 s hang guard, which with a 120 s fallback only a wake can do (or a commit just before the owner's first state
-  read after opening the FIFO, which sees it at once); the run must end `done:3`, the trace must hold exactly one `w`
-  and the FIFO must be gone. Round 1's version waited only for the FIFO path, which exists before its reader opens,
+  read after opening the FIFO, which sees it at once); the run must end `done:3`, the trace must hold at most one `w`
+  and the FIFO must be gone. Round 2 required exactly one `w`; the review reproduced a correct run with none: the
+  request committed after the owner opened the FIFO but before its first state read, and the owner forwarded INT and
+  saw the payload exit in that same pass, before any `select` (round 3 accepts 0 or 1). Round 1's version waited only for the FIFO path, which exists before its reader opens,
   and forced the payload afterwards, so the force's own wake could satisfy it.
 - (b) `an_idle_supervised_command_and_recorder_wake_rarely_x111`: an idle `run` command and an idle started recorder
   over a 3 s window; each trace must have at most `elapsed seconds + 20` passes. Seen: 11 to 13 passes (command) and 15 to 17
@@ -131,9 +164,18 @@ script, as every worker command runs it, it is unchanged.
 - (c) `the_worker_supervisor_sleeps_until_its_next_deadline_x111` (round 2, replacing round 1's trace check, which
   required a `d` pass before expiry and so failed when the owner was descheduled across the expiry after a fallback
   poll): a controlled clock. It loads `worker.pl` with `do` and calls the timeout selection `next_wake` with given
-  times: lease expiry before and after the fallback poll, ties (the deadline wins), an expired lease, the 10 ms floor,
+  times: lease expiry before and after the fallback poll, ties (the deadline wins), an expired lease the pass has
+  acted on, a lease expiring exactly now and one 50 ms past that the pass has not acted on (both the floor, never
+  the 120 s fallback; round 3), TERM exactly due and KILL 50 ms past (the floor), the 10 ms floor,
   a busy retry, a 120 s fallback, TERM 2 s after the first stop request (and none for an INT request alone), KILL 1 s
   after TERM when forced (and none without force), and the nearest of several deadlines.
+- (c'') `a_pass_descheduled_across_the_lease_expiry_still_acts_on_it_x111` (round 3, the P1 witness): the reviewer's
+  interleaving made deterministic with `pause_across_expiry` and a 120 s fallback poll: a `run` command with a 1.5 s
+  lease must exit 137 with `done:137`, and a confirmed recorder with a 1.5 s lease must get INT and finalize
+  `done:0`, each within 30 s (far below the fallback); each trace must show the pause once and no fallback pass
+  after it. Seen: the command ends about 1.56 s after its start, the recorder gets INT about 1.53 s after its start.
+- `the_shipped_worker_script_has_no_reachable_test_hooks_x111` (round 3): the inertness check described under Test
+  hooks.
 - (c') `escalation_and_lease_expiry_end_with_their_receipts_x111`: the receipts only, separately: an unconfirmed
   recorder that ignores TERM, given KILL, ends `done:137`; a `run` command with an unrenewed 1.5 s lease exits 137
   with `done:137`.
@@ -171,6 +213,26 @@ Perl start. Measured inside the owner (a temporary timestamped copy of the scrip
 1 to 2 ms. With the 10 ms retry first tried in round 2, the test saw a median of 31 ms. Idle traces had 12 to 18
 passes in about 3 s (ceiling 23).
 
+Round 3, in a scratch worktree with the round-3 tests (removed afterwards):
+
+- Round 2's head `568b697a`, with the hooks moved into a `%hook` table at the same places and the
+  `pause_across_expiry` hook added just before its second clock sample: the P1 witness (c'') fails (no exit within
+  the 30 s bound: the owner slept the 120 s fallback), and the selection test (c) fails on the new due-deadline cases
+  (`120000 p` for a lease expiring exactly now). The other x111 witnesses pass there.
+- Mutants of the final script, run against (c''): the round-2 loop (a second clock sample and an expiry counted only
+  while ahead) fails; either half of the fix alone passes (a second sample with the new `next_wake`, about 1.54 s; one
+  sample with the old expiry condition, about 1.53 s); one sample without taking the elapsed time off the sleep passes
+  the 30 s bound but ends about 1.2 s late (2.77 s), which (c'') does not catch: only a tight timing bound could, which
+  docs/testing.md rules out.
+
+Stress (final script, round 3): the seven x111 tests 50 times unloaded (load average 0.7 to 1.5), then 20 times under
+18 busy loops on this 18-core Mac (load average rising to 23), all passed. Stop witnesses: one `w` in every trace (0 is
+now allowed, not seen here); endings `wbe` 99 of 100 and `wbbe` once unloaded, `wbe` 26 and `we` 14 of 40 under load;
+INT 17 to 21 ms after the test started the control process unloaded (median 19), 20 to 31 ms under load. The P1
+witness: the command ended 1.52 to 1.56 s after its start (lease 1.5 s) and the recorder got INT 1.52 to 1.55 s after
+its start, loaded or not; after the pause every trace went straight to a deadline pass (`d`, then the exit events).
+Idle traces had 12 to 19 passes in about 3 s.
+
 ## Measurements
 
 This Mac (M-series, 18 cores, shared with other sessions), old (`281c4005`) against new `worker.pl`, both run as
@@ -206,8 +268,9 @@ same factor there, so the saving should be at least proportional, but that was n
 - Linux workers were not exercised here; the code uses only POSIX FIFOs, `select` and `mkfifo`, which behave the same
   on Linux, and the remote gate runs the witnesses there.
 - The measurements above are round 1's script. Round 2 changes only when a request writes its byte and how soon a
-  woken owner retries a busy lock, not how often an idle owner wakes (the idle witness's pass counts are the same), so
-  they were not repeated.
+  woken owner retries a busy lock, and round 3 only which clock sample chooses the sleep, not how often an idle owner
+  wakes (the idle witness's pass counts are the same), so they were not repeated.
+- Taking the pass's elapsed time off its sleep (round 3) is not pinned by a witness; see the mutant above.
 - A control process stopped (SIGSTOP) while it holds the token lock is not covered by a witness; as argued above, it
   blocks every state read until it resumes or dies, as before x111.
 
@@ -220,3 +283,8 @@ None.
 None in the product. Test hygiene, not investigated further: the loopback-sshd witness
 `worker_commands_and_senders_stop_over_independent_real_ssh_d96` leaves its worker root (the script and five compact
 receipts) in `/tmp` after every run, on the base as well; such roots accumulate on a developer machine.
+
+Round 3: when an x111 witness fails on its bound (as the P1 witness does on `568b697a`), dropping the child kills the
+owner, but the owner's anchor runs in its own process group and is only ever killed by its owner, so it lingers
+(sleeping) and keeps the test's inherited stdout open, which can hold a `cargo test | tail` pipeline until it is
+killed by hand. Only failing runs leave one.
