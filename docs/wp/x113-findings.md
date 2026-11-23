@@ -29,8 +29,10 @@ private directory.
   without one: `lost` (the connection, for the rsync bridge) is sampled before the check, as on base, and again
   after it; `stopped` (cancellation) after it and at the rename, as D97's `publish` does. So a stop that comes while
   the check runs ends the receive as it would have just before it: a lost connection is `NotReceived` (D97's "the
-  receive did not complete"), a cancellation is `Cancelled`, whatever the check found. Otherwise a rejected content
-  is discarded with the stage (`Rejected`), and an accepted one goes through D97's `publish`.
+  receive did not complete"), a cancellation is `Cancelled`, whatever the check found, a failure to read the file
+  included. The order is base's at the rename: a lost connection, then a cancellation, then the check's own result.
+  Otherwise a rejected content is discarded with the stage (`Rejected`), a check's I/O error is the receive's error
+  (the stage discarded too), and an accepted one goes through D97's `publish`.
 - Both staging bridges override `receive_checked`. `JvmFileBridge` (local copy, no connection to lose) runs it in its
   blocking receive. `RsyncFileBridge` runs it in the blocking step that already publishes the stage; the connection
   test it passes as `lost` is base's pre-rename `connection_stop()`.
@@ -58,21 +60,26 @@ directory (`remove_remote_directory`), as for every kept artifact.
 
 ### The structural check
 
-`movie::check` walks the file's top-level ISO BMFF / QuickTime boxes and then the children of the first `moov`. It
-reads box headers only, with a seek per box. It rejects:
+`movie::check` walks the file's top-level ISO BMFF / QuickTime boxes. It reads box headers only, with a seek per box,
+and does not look inside any box. It rejects:
 
 - an empty file (`the recording is empty`);
-- a box whose extent (32-bit size, 64-bit `largesize`, or size 0 = to the end of the enclosing extent) runs past the
-  end of the file or of its `moov`, and a file or `moov` that ends inside a box header (`… is not a complete movie (it
-  is cut short)`). This catches a faststart movie cut after its `mdat` header: its `moov` is intact, its `mdat` is not;
-- no top-level `moov` (`… (it has no moov box)`);
-- a `moov` without an `mvhd` or without any `trak` (`… (its moov box has no track)`);
+- a top-level box whose extent (32-bit size, 64-bit `largesize`, or size 0 = to the end of the file) runs past the end
+  of the file, and a file that ends inside a box header (`… is not a complete movie (it is cut short)`). This catches
+  a faststart movie cut after its `mdat` header: its `moov` is intact, its `mdat` is not;
+- no top-level `moov` (`… (it has no moov box)`), or only empty ones (`… (its moov box is empty)`);
 - no `mdat` with at least one byte (`… (it has no media data)`). An `mdat` with zero payload is rejected because there
   is nothing to decode, whatever the sample tables say; it is what a writer stopped right after its first header
-  leaves. A fragmented MP4 keeps its samples in later `mdat`s, so one non-empty `mdat` anywhere is enough;
+  leaves. A fragmented MP4 keeps its samples in later `mdat`s (after `moof`s), so one non-empty `mdat` anywhere is
+  enough;
 - a size smaller than its own header (`the recording is not a movie`). A `uuid` box's header includes its 16-byte
   user type, so a `uuid` box shorter than that is rejected too; a last `uuid` box of size 0 that ends inside its user
   type is cut short.
+
+The inside of the `moov` is not checked (round 4). Rounds 2 and 3 required an `mvhd` and a `trak` directly under it,
+which rejected a legal QuickTime movie whose movie header is compressed (`moov` → `cmov` → `dcom` + `cmvd`, the
+`mvhd` and `trak`s deflated inside; ffmpeg decodes it). Every failure seen (a 0-byte file, a movie cut short, an
+empty `moov` or `mdat`) shows at the top level, so the check stays there and accepts every legal layout.
 
 There is no box-count limit. Round 2 had one (100 000 top-level boxes) and rejected a complete ffmpeg movie with
 50 000 one-frame fragments. The work is bounded by the file instead: a box takes at least 8 bytes, and the reader
@@ -86,10 +93,10 @@ on the core executor, and holds one 8 KiB read buffer.
 
 Witnesses in `movie.rs`: simctl's layout (moov after mdat), ffmpeg's faststart layout, a 64-bit `mdat`, a size-0 last
 box, a fragmented layout with an empty first `mdat`, 200 000 one-sample fragments (400 000 top-level boxes, 3.4 MB),
-a `moov` with 10 000 tracks, and `uuid` boxes with their user type (32- and 64-bit sizes) pass. An empty file, an unfinalized recording (no moov), a moov
-cut short, a faststart movie truncated just after its `mdat` header, a file ending inside a box header, an empty
-`moov`, a `moov` with only `mvhd` or only `trak`, a child overrunning its `moov`, no `mdat`, an empty `mdat`, garbage,
-sizes below the header and `uuid` boxes without their 16-byte user type are rejected.
+a `moov` holding only a compressed `cmov`, a `moov` with any non-empty payload, and `uuid` boxes with their user type
+(32- and 64-bit sizes) pass. An empty file, an unfinalized recording (no moov), a moov cut short, a faststart movie
+truncated just after its `mdat` header, a file ending inside a box header, an empty `moov`, no `mdat`, an empty `mdat`,
+garbage, sizes below the header and `uuid` boxes without their 16-byte user type are rejected.
 
 ### Android and macOS
 
@@ -137,7 +144,9 @@ one replaces it, no `.marathon-artifact-*` directory is left, and each check saw
 (one `.marathon-artifact-*` directory directly beside the destination, under the destination's name). Round 3 adds a
 connection loss injected from inside an accepting check (`TransferStop::or_lost`, fired by the check): the receive is
 `NotReceived`, as base reports a lost connection before the rename, and the earlier file stays; and a cancellation
-fired from inside the check: `Cancelled`, the earlier file stays. No stage is left in either case.
+fired from inside the check: `Cancelled`, the earlier file stays. Round 4 adds the same two stops fired from a check
+that then fails with an I/O error (`Cancelled` and `NotReceived`, not the I/O error), and a failing check with no stop
+(the receive's error). No stage is left in any case.
 
 The fake bridges in `listener_support` and `simulator_video_pull.rs` used to write `media` / `video` as the "movie".
 They now write the committed fixture `fixtures/fake-worker/apple/media/recording.mp4`, read and never edited. The
@@ -198,9 +207,12 @@ Fix, test only (round 3):
   directory to the child (`MRS_D96_ROOT_DIR`). The child's private sshd gives its sessions `PERL5OPT` loading the
   module, and the ledger and lock paths (`SetEnv`), so every command still runs as sshd would run it. The module
   wraps `mkdir`, which `File::Temp` calls when the worker's bootstrap (or its `init` mode) creates
-  `/tmp/marathon-supervisor-XXXXXXXXXX`. Under a shared lock on the lock file it appends `+ <root>` to the ledger and
-  only then calls the real `mkdir`. If the `mkdir` fails (the name was taken), it appends `- <root>`. Other paths are
-  untouched.
+  `/tmp/marathon-supervisor-XXXXXXXXXX`. Under a shared lock on the lock file it appends `+ <attempt> <root>` to the
+  ledger and only then calls the real `mkdir`. If the `mkdir` fails (the name was taken), it appends
+  `- <attempt> <root>`. The attempt id is the Perl process id with that process's own count, so a failed attempt
+  retracts only its own record (round 4: two attempts at one name, the second failing because the first took it,
+  used to retract both and leave the first's root). A name taken by another process is not retired: its record is
+  retracted with its attempt. Other paths are untouched.
 - The parent holds a guard, `SupervisorRoots`. After the child process has exited (or from `Drop`, if the parent
   panics before that), it takes the lock file's lock exclusively and keeps it. A root creation under way has then
   finished and is on record, and a later one fails at the module (nothing creates a root after the child is gone,
@@ -231,7 +243,8 @@ Coverage, exactly:
   `supervisor.pl` leaves a script that cannot run `retire`; the test then fails with that error and the root stays.
   Checked by hand: the child run alone with `MRS_D96_ROOT_DIR`, killed with SIGKILL as soon as the ledger had a
   record; the root was recorded and installed, and the lock-then-`retire` sequence removed it.
-- Not covered: the parent itself killed with SIGKILL (as for any temporary directory). A child killed with SIGKILL
+- Not covered: the parent itself killed with SIGKILL (as for any temporary directory), and the partly written
+  `supervisor.pl` above (the test fails and names the root). A child killed with SIGKILL
   also leaves its private sshd listener running (the child's `kill_on_drop` does not run); that is base behaviour
   and outside U269.
 
@@ -272,6 +285,15 @@ had cleaned them up), and there were none after the round-2 runs.
 | P3: a `uuid` box without its 16-byte user type passed | Yes | Its header includes the user type; witness `a_uuid_box_needs_its_user_type`. |
 | P3 docs: the changelog and U267 said the report has no file; the U269 coverage was overstated | Yes: an earlier file at the report path stays | "No new file"; the U269 section lists exactly what is covered. |
 
+## Review round 3 (third re-check) and what changed
+
+| Finding | Verified | Change |
+| --- | --- | --- |
+| P1: the check required `mvhd` and `trak` directly under `moov`, so a legal QuickTime movie with a compressed `cmov` was rejected | Yes, by reading round 3's `check` | Orchestrator decision: the check stays at the top level (well-formed boxes within the file, a non-empty `moov`, a non-empty `mdat`). Witness `the_inside_of_a_moov_is_not_checked` (a `cmov` movie passes), which fails on round 3's code (`Err(EmptyMovieBox)`). The witnesses that pinned the inner rule (`mvhd` or `trak` alone, a child overrunning its `moov`, 10 000 tracks) are removed; the reason for an empty `moov` is now `its moov box is empty`. |
+| P2: a check's I/O error returned at once, so a cancellation or connection loss during the check was reported as that error | Yes: `check(..).map_err(io_error)?` before the post-check samples | After the check, whatever its result: a lost connection (`NotReceived`), then a cancellation (`Cancelled`), then the check's own result. The brief put cancellation first; base's pre-rename order is the connection first (`connection_stop()`, then `publish`'s cancellation sample), and the code keeps base's. Witness in `a_checked_receive_publishes_only_what_its_check_accepts_u267`, which fails on round 3's code (the I/O error where `Cancelled` is expected). |
+| P2 (test): a failed `mkdir` retracted every record of its name, so `+,+,-` for one name left the first attempt's root untracked | Yes, by reading the ledger parse | Records carry an attempt id; a retraction removes only its own attempt, and a malformed or unmatched line fails the test. Not "never drop": a name taken by another process would then be retired by this test. Witness `a_failed_root_attempt_keeps_another_attempts_root_u269`, which fails with round 3's parse. |
+| P3 docs: the U269 row said only a parent SIGKILL leaves roots | Yes: a partly written `supervisor.pl` also does | The row and the coverage list say both. |
+
 ## Revert checks
 
 Round 1: a scratch worktree at `77a2e051` with this branch's test files copied in (`ios_listeners.rs`,
@@ -294,7 +316,23 @@ truncated after its `mdat` header, an empty `moov`) are cases round 1's check ac
 
 ## What was run
 
-On this Mac (macOS, 18 cores), round 3, on the final code:
+Round 4, on this Mac:
+
+- Revert check in a scratch worktree at round 3's head (`30cf7343`) with round 4's tests copied in (the `movie.rs`
+  tests, `rsync_file_bridge.rs`, and `ssh_supervisor.rs` with round 3's ledger rule), product code unchanged:
+  `the_inside_of_a_moov_is_not_checked` failed (`Err(EmptyMovieBox)`), `a_checked_receive_publishes_only_what_its_check_accepts_u267`
+  failed (the I/O error where `Cancelled` is expected) and `a_failed_root_attempt_keeps_another_attempts_root_u269`
+  failed (no root recorded). The scratch worktree was removed.
+- `cargo fmt --check`; `cargo clippy -p marathon-ios -p marathon-apple -p marathon-test-support --all-targets -- -D
+  warnings`: clean. `cargo test --no-fail-fast -p marathon-ios -p marathon-apple -p marathon-test-support`: 1192
+  passed, 0 failed, 26 ignored. `cargo test --no-fail-fast -p marathon-adb -p marathon-android -p marathon-macos -p
+  marathon-cli -p fake-adb -p fake-worker`: 817 passed, 0 failed, 8 ignored (the CLI differential and iOS suites
+  included). `python3 -I tools/differential/test_evidence.py` and `make_registry.py --check`: OK.
+- Stress of the changed witnesses (the `movie.rs` tests, the rsync checked-receive witness, the ledger witness and the
+  U269 loopback test): 50 rounds, 0 failures; 20 rounds under CPU load (18 `yes` processes), 0 failures.
+  `/tmp/marathon-supervisor-*` had 0 entries before and after.
+
+Round 3, on the final code:
 
 - `cargo fmt --check`, and `cargo clippy -p marathon-apple -p marathon-ios -p marathon-test-support --all-targets --
   -D warnings`: clean.
