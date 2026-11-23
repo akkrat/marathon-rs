@@ -13,11 +13,6 @@ use std::{
     path::Path,
 };
 
-/// More top-level boxes than this is not a recording simctl or ffmpeg writes (a fragmented MP4 has two per fragment).
-const MAX_TOP_LEVEL_BOXES: usize = 100_000;
-/// More boxes than this directly inside `moov` (one `trak` per track, a few headers) is not a movie either.
-const MAX_MOVIE_BOXES: usize = 4_096;
-
 /// Why a received movie was not published.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Incomplete {
@@ -30,7 +25,7 @@ pub enum Incomplete {
     EmptyMovieBox,
     /// No `mdat` with any bytes in it: there is no media to play.
     NoMediaData,
-    /// Not a box structure at all (a size smaller than its own header, or more boxes than any movie has).
+    /// Not a box structure at all: a size smaller than its own header.
     NotAMovie,
 }
 impl Incomplete {
@@ -53,45 +48,75 @@ struct BoxHeader {
     end: u64,
 }
 
-/// Reads the header of the box at `offset`, which must lie within `[offset, end)`.
-fn header(file: &mut BufReader<fs::File>, offset: u64, end: u64) -> io::Result<Result<BoxHeader, Incomplete>> {
-    if end - offset < 8 {
-        return Ok(Err(Incomplete::Truncated));
-    }
-    file.seek(SeekFrom::Start(offset))?;
-    let mut head = [0u8; 8];
-    file.read_exact(&mut head)?;
-    let kind = [head[4], head[5], head[6], head[7]];
-    let (size, body) = match u32::from_be_bytes([head[0], head[1], head[2], head[3]]) {
-        // A size of 0 runs to the end of the enclosing extent (for a top-level box, the end of the file).
-        0 => (end - offset, offset + 8),
-        1 => {
-            if end - offset < 16 {
-                return Ok(Err(Incomplete::Truncated));
+/// Reads box headers in file order. A seek within the buffered window keeps the buffer, so a run of small boxes costs
+/// one read per 8 KiB and a large box one seek: the walk reads at most the file once, whatever its box count.
+struct Boxes {
+    file: BufReader<fs::File>,
+    /// Where the next byte read from `file` comes from.
+    at: u64,
+}
+impl Boxes {
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
+        match i64::try_from(offset.wrapping_sub(self.at)) {
+            Ok(delta) if offset >= self.at => self.file.seek_relative(delta)?,
+            _ => {
+                self.file.seek(SeekFrom::Start(offset))?;
             }
-            let mut large = [0u8; 8];
-            file.read_exact(&mut large)?;
-            (u64::from_be_bytes(large), offset + 16)
         }
-        size => (u64::from(size), offset + 8),
-    };
-    if size < body - offset {
-        return Ok(Err(Incomplete::NotAMovie));
+        self.file.read_exact(buf)?;
+        self.at = offset + buf.len() as u64;
+        Ok(())
     }
-    if size > end - offset {
-        return Ok(Err(Incomplete::Truncated));
+
+    /// Reads the header of the box at `offset`, which must lie within `[offset, end)`.
+    fn header(&mut self, offset: u64, end: u64) -> io::Result<Result<BoxHeader, Incomplete>> {
+        if end - offset < 8 {
+            return Ok(Err(Incomplete::Truncated));
+        }
+        let mut head = [0u8; 8];
+        self.read_at(offset, &mut head)?;
+        let kind = [head[4], head[5], head[6], head[7]];
+        let short = u32::from_be_bytes([head[0], head[1], head[2], head[3]]);
+        let (size, mut body) = match short {
+            // A size of 0 runs to the end of the enclosing extent (for a top-level box, the end of the file).
+            0 => (end - offset, offset + 8),
+            1 => {
+                if end - offset < 16 {
+                    return Ok(Err(Incomplete::Truncated));
+                }
+                let mut large = [0u8; 8];
+                self.read_at(offset + 8, &mut large)?;
+                (u64::from_be_bytes(large), offset + 16)
+            }
+            size => (u64::from(size), offset + 8),
+        };
+        // A `uuid` box's header goes on with its 16-byte user type.
+        if &kind == b"uuid" {
+            body += 16;
+        }
+        if size < body - offset {
+            // A size of 0 is the rest of the extent, which here ends inside the header.
+            return Ok(Err(if short == 0 {
+                Incomplete::Truncated
+            } else {
+                Incomplete::NotAMovie
+            }));
+        }
+        if size > end - offset {
+            return Ok(Err(Incomplete::Truncated));
+        }
+        Ok(Ok(BoxHeader {
+            kind,
+            body,
+            end: offset + size,
+        }))
     }
-    Ok(Ok(BoxHeader {
-        kind,
-        body,
-        end: offset + size,
-    }))
 }
 
 /// Checks an MP4 or QuickTime file by its box structure: every top-level box lies within the file, a `moov` holds an
-/// `mvhd` and at least one `trak`, and an `mdat` holds at least one byte. It reads box headers only, at most
-/// [`MAX_TOP_LEVEL_BOXES`] + [`MAX_MOVIE_BOXES`] of them, so it costs no worker command, needs no ffmpeg and reads
-/// none of the media. Blocking.
+/// `mvhd` and at least one `trak`, and an `mdat` holds at least one byte. It reads box headers only, so it costs no
+/// worker command, needs no ffmpeg and reads none of the media; its work is bounded by the file's size (a box takes at
+/// least 8 bytes), not by a box count, so that no complete movie is rejected for having many fragments. Blocking.
 ///
 /// An `mdat` with no bytes is rejected: whatever the sample tables say, there is nothing to decode, which is what a
 /// writer stopped right after its first header leaves. A fragmented MP4 keeps its samples in later `mdat`s, so one
@@ -102,15 +127,14 @@ pub fn check(path: &Path) -> io::Result<Result<(), Incomplete>> {
     if len == 0 {
         return Ok(Err(Incomplete::Empty));
     }
-    let mut file = BufReader::new(file);
-    let (mut offset, mut boxes) = (0u64, 0usize);
+    let mut file = Boxes {
+        file: BufReader::new(file),
+        at: 0,
+    };
+    let mut offset = 0u64;
     let (mut movie, mut media) = (None, false);
     while offset < len {
-        boxes += 1;
-        if boxes > MAX_TOP_LEVEL_BOXES {
-            return Ok(Err(Incomplete::NotAMovie));
-        }
-        let b = match header(&mut file, offset, len)? {
+        let b = match file.header(offset, len)? {
             Ok(b) => b,
             Err(why) => return Ok(Err(why)),
         };
@@ -127,14 +151,10 @@ pub fn check(path: &Path) -> io::Result<Result<(), Incomplete>> {
     if !media {
         return Ok(Err(Incomplete::NoMediaData));
     }
-    let (mut offset, mut boxes) = (body, 0usize);
+    let mut offset = body;
     let (mut header_box, mut track) = (false, false);
     while offset < end {
-        boxes += 1;
-        if boxes > MAX_MOVIE_BOXES {
-            return Ok(Err(Incomplete::NotAMovie));
-        }
-        let b = match header(&mut file, offset, end)? {
+        let b = match file.header(offset, end)? {
             Ok(b) => b,
             Err(why) => return Ok(Err(why)),
         };
@@ -261,22 +281,60 @@ mod tests {
     }
 
     #[test]
-    fn the_walk_is_bounded() {
-        let mut many = ftyp();
-        many.extend(moov());
-        many.extend(boxed(b"mdat", b"data"));
-        for _ in 0..MAX_TOP_LEVEL_BOXES {
-            many.extend(boxed(b"free", b""));
+    fn many_fragments_or_tracks_are_no_reason_to_reject_a_movie() {
+        // 200 000 one-sample fragments, as a fragmented recording of nearly two hours at 30 fps has: 400 000 top-level
+        // boxes after the moov, four times round 2's cap, which rejected a complete 50 000-fragment movie.
+        let mut fragments = ftyp();
+        fragments.extend(moov());
+        let fragment = [boxed(b"moof", b""), boxed(b"mdat", b"f")].concat();
+        for _ in 0..200_000 {
+            fragments.extend_from_slice(&fragment);
         }
-        assert_eq!(checked(&many), Err(Incomplete::NotAMovie));
-        let mut children = boxed(b"mvhd", &[0; 100]);
-        children.extend(boxed(b"trak", b""));
-        for _ in 0..MAX_MOVIE_BOXES {
-            children.extend(boxed(b"free", b""));
+        assert_eq!(checked(&fragments), Ok(()));
+        // 10 000 tracks inside the moov.
+        let mut tracks = boxed(b"mvhd", &[0; 100]);
+        for _ in 0..10_000 {
+            tracks.extend(boxed(b"trak", b""));
         }
         let mut wide = ftyp();
-        wide.extend(boxed(b"moov", &children));
+        wide.extend(boxed(b"moov", &tracks));
         wide.extend(boxed(b"mdat", b"data"));
-        assert_eq!(checked(&wide), Err(Incomplete::NotAMovie));
+        assert_eq!(checked(&wide), Ok(()));
+    }
+
+    #[test]
+    fn a_uuid_box_needs_its_user_type() {
+        let with = |uuid: &[u8]| {
+            let mut out = ftyp();
+            out.extend_from_slice(uuid);
+            out.extend(moov());
+            out.extend(boxed(b"mdat", b"data"));
+            checked(&out)
+        };
+        assert_eq!(with(&boxed(b"uuid", &[7; 16])), Ok(()));
+        assert_eq!(with(&boxed(b"uuid", &[7; 20])), Ok(()));
+        assert_eq!(with(&boxed(b"uuid", b"")), Err(Incomplete::NotAMovie));
+        assert_eq!(with(&boxed(b"uuid", &[7; 15])), Err(Incomplete::NotAMovie));
+        // With a 64-bit size the user type follows the 16-byte header.
+        let mut large = 1u32.to_be_bytes().to_vec();
+        large.extend_from_slice(b"uuid");
+        large.extend_from_slice(&(16u64 + 16).to_be_bytes());
+        large.extend_from_slice(&[7; 16]);
+        assert_eq!(with(&large), Ok(()));
+        let mut large = 1u32.to_be_bytes().to_vec();
+        large.extend_from_slice(b"uuid");
+        large.extend_from_slice(&(16u64 + 8).to_be_bytes());
+        large.extend_from_slice(&[7; 8]);
+        assert_eq!(with(&large), Err(Incomplete::NotAMovie));
+        // A last uuid box of size 0 that ends inside its user type is cut short.
+        let mut open = ftyp();
+        open.extend(moov());
+        open.extend(boxed(b"mdat", b"data"));
+        open.extend_from_slice(&0u32.to_be_bytes());
+        open.extend_from_slice(b"uuid");
+        open.extend_from_slice(&[7; 15]);
+        assert_eq!(checked(&open), Err(Incomplete::Truncated));
+        open.push(7);
+        assert_eq!(checked(&open), Ok(()));
     }
 }
