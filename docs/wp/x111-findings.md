@@ -1,10 +1,11 @@
 # x111 findings: a quieter worker supervisor
 
 Base `281c4005`. Worker-side implementation detail of D96. The worker commands, their protocol, outputs and
-receipts, the controller and the run outcomes are unchanged except in two documented windows: an exit reported after
-the lease expiry is now always treated as expired (base could accept one up to its 25 ms poll after the expiry; see
-[Exit or deadline](#exit-or-deadline-which-receipt)), and an owner that was descheduled acts on a deadline that
-passed meanwhile within 100 ms of resuming instead of 25 ms. No D-row (orchestrator decision, round 6): the lease
+receipts, the controller and the run outcomes are unchanged except in two documented windows: at an expiry or KILL cutoff
+an exit status already visible at the owner's exit check wins, and one reported later is treated as expired (base
+could accept one up to its 25 ms poll after the expiry; see [Exit or deadline](#exit-or-deadline-which-receipt)); and
+an owner that resumes after a cutoff and waits using an earlier clock reading has that wait capped at 100 ms instead
+of 25 ms (a cap on the wait, not a reaction guarantee). No D-row (orchestrator decision, round 6): the lease
 expiry is the controller's deadline, so an exit after it is late by definition, and base's 25 ms was its poll
 granularity, not a contract. No U row: no product bug was found.
 
@@ -73,7 +74,7 @@ How the two rules compare:
   and kills unless the exit was reported before that sample. So **an exit reported after the lease expiry is now
   treated as expired unless it is reported before the owner's first pass after the expiry samples the clock**: the
   scheduling latency between the expiry and that sample, including the 10 ms sleep floor when the expiry fell inside
-  it, a few ms at most, can still admit one. Base decided force at the start of a pass and then waited up to 25 ms on the status pipe, so an exit
+  it, can still admit one. Base decided force at the start of a pass and then waited up to 25 ms on the status pipe, so an exit
   reported up to one such wait after the expiry (up to about 25 ms) could still be taken. The fifth review's probe:
   base accepted an exit 21.5 ms after the expiry (`done:0`); round 5 killed at the expiry + 3.1 ms (`done:137`).
   Outcomes in that window are not unchanged; everywhere else they are. The recorder's KILL deadline is decided the

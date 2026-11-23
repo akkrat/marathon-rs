@@ -5,9 +5,9 @@ The section for a version becomes the text of its GitHub release, which carries 
 ## 0.15.4-rc.1
 
 The first release candidate of 0.15.4, a pre-release for trial runs. It makes the SSH worker supervisor wake on events
-instead of checking every 25 ms, and logs how long the end of a run took. The inputs, the CLI, the configuration, test
-results, the summary text, report formats and the exit status are unchanged. No new worker commands or SSH allowlist
-changes are needed. The supervisor's cutoffs are the same apart from two timing edges, described below. Everything
+instead of checking every 25 ms, and logs how long the end of a run took. The inputs, the CLI, the configuration, the
+summary text and report formats are unchanged, and outside the supervisor's two timing edges described below, test
+results and the exit status are unchanged. No new worker commands or SSH allowlist changes are needed. Everything
 else is as in [0.15.3](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG.md#0153).
 
 ### iOS and macOS workers
@@ -18,12 +18,13 @@ else is as in [0.15.3](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG
   limit, at most 100 ms at a time: in a local measurement an idle minute cost it about 0.15 CPU-seconds instead of
   about 0.4. Once its wake-up pipe opens, normally after about 250 ms, a stop request wakes the supervisor without
   waiting for its next check; before that, or if the pipe cannot be set up, it waits at most 25 ms at a time, as
-  before. The lease duration and the recorder's escalation are unchanged: when escalation is needed, TERM is due 2 s
-  after the first stop request or the expiry is seen, and KILL 1 s after TERM when the stop is forced. Two timing
-  edges change: after the worker's system paused the supervisor across a cutoff, a wait already under way can delay
-  its next check by up to 100 ms (25 ms before for a running command); and at an expiry or KILL cutoff, an exit status
-  already visible at the supervisor's exit check wins, where the old loop could still accept an exit during its
-  remaining 25 ms after the expiry.
+  before. The lease duration and the recorder's escalation are unchanged: for a launched recorder still running, the
+  supervisor starts a 2 s timer when it first sees a stop request or an expired lease; once that has elapsed it sends
+  TERM if escalation was requested or the lease has expired, and KILL needs a hard stop or an expired lease and at
+  least 1 s since TERM. Two timing edges change: if the supervisor resumes after a cutoff and waits using an earlier
+  clock reading, that wait is capped at 100 ms, where the old loop capped its status wait at 25 ms once the command
+  was running; and at an expiry or KILL cutoff, an exit status already visible at the supervisor's exit check wins,
+  where the old loop could still accept an exit during its remaining 25 ms after the expiry.
 
 ### Logging
 
@@ -79,7 +80,8 @@ else is as in [0.15.3](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG
   commands) can leave xcodebuild running there; a close that needed KILL logs a warning naming the command, also with
   `debug: false` (D30, U183). With Perl, the worker's supervisor ends the command's group when its lease runs out
   without a renewal: 79 s by default from admission or the last successful renewal, extended once by a renewal already
-  in flight, plus up to 3 s for a recorder to finalize and stop; a frozen worker does so only once it runs again (D96).
+  in flight; for a recorder still running, a 2 s timer starts when the supervisor first sees the expiry, then TERM, and
+  KILL at least 1 s after TERM; a frozen worker does so only once it runs again (D96).
 - Xcode's shared service hosts, such as `DTServiceHub`, that xcodebuild starts in groups of their own can outlive a run,
   locally and on a worker. That is on purpose: other Xcode sessions use them (D96).
 - A failed readiness probe costs a simulator about 9 to 12 minutes with the defaults while another simulator keeps the
@@ -128,9 +130,9 @@ else is as in [0.15.3](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG
   exit, it warns once and records no further video on that simulator until it is set up again (D98, x106).
 - On a worker without usable Perl, the legacy recorder has no start confirmation, stderr or exit status, so its
   failures are not reported in the recorder warning above (x106).
-- After the worker's system paused the SSH worker supervisor across a cutoff, a wait already under way can delay its
-  next check by up to 100 ms, and at an expiry or KILL cutoff an exit status already visible at its exit check wins
-  (x111).
+- If the SSH worker supervisor resumes after a cutoff and waits using an earlier clock reading, that wait is capped at
+  100 ms (the old loop's status wait was capped at 25 ms once the command was running), and at an expiry or KILL
+  cutoff an exit status already visible at its exit check wins (x111).
 - On iOS, a recording only a few hundred milliseconds long can be published as a zero-byte video after a failed
   transcode, without a warning that the file is empty. A real-worker check saw it in three of five short-test runs
   on this candidate and two of five on 0.15.3.

@@ -30,6 +30,11 @@ on its wait, the wake-up pipe as opening after about 250 ms, and the exit-check 
 wording says when TERM and KILL are due; the evidence is scoped to what was measured; the zero-byte short video is a
 known limit; the findings link no longer claims review counts.
 
+Re-check (REQUEST_CHANGES), all taken: the paused-supervisor edge is a 100 ms cap on a wait started from an earlier
+clock reading (it also covers a pause before the wait starts); the escalation rule says when the 2 s timer starts and
+what makes TERM and KILL due, also in the carried D96 limit, which said "up to 3 s"; the intro qualifies unchanged
+results by the timing edges; the x111 findings' summary uses the same exit-check rule and calls 100 ms a cap.
+
 ## Incidental bugs
 
 The zero-byte short video above.
