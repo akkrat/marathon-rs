@@ -6,7 +6,7 @@ Marathondevices, CLI and report formats, apart from the approved differences in
 [the deviations guide](docs/deviations.md). A Marathonfile must set a finite `uncompletedTestRetryQuota`.
 
 **0.15.4 is the current release; 0.11.0 was the first public release.** 0.15.4 makes the SSH worker supervisor
-wake on events instead of polling and logs how long the end of a run took; 0.15.3 stops marathon's own recorders from
+normally wait for events or the next time limit instead of checking every 25 ms, and logs how long the end of a run took; 0.15.3 stops marathon's own recorders from
 overlapping on local iOS simulators and supervised SSH workers, and speeds up end-of-run reports in large runs; 0.15.2 made 0.15.1's iOS video handling visible in ordinary
 logs; 0.15.1 fixed iOS video recording on slow simulators (D98); 0.15.0 added run supervision,
 bounded waits and process ownership and fixed device-handling bugs (D82–D88, D90–D97); 0.14.0 fixed run-stability and

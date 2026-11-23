@@ -47,6 +47,10 @@ recorder was refused. 0.15.4 is the candidate's code. The `## 0.15.4-rc.1` secti
 gains the farm run, a stub `## 0.15.4-rc.1` section follows it as for earlier candidates, and `README.md` names 0.15.4
 as the current release.
 
+A small review by another model of the final notes asked for four wording fixes, all taken: the run-end timings
+are given per step, the disturbed runs are described as the farm report records them, the README says the
+supervisor normally waits for events or the next time limit, and "this candidate" became "0.15.4-rc.1".
+
 ## Incidental bugs
 
 The zero-byte short video above.

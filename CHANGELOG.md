@@ -39,7 +39,7 @@ else is as in [0.15.3](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG
 
 - The [x111 findings](docs/wp/x111-findings.md) and the [x110 findings](docs/wp/x110-findings.md) document the tests
   and the changes made in review; the x111 findings also record the local CPU measurements.
-- On a real SSH worker with Perl (Xcode 27.2 simulators), the code of this release candidate and 0.15.3 ran the same
+- On a real SSH worker with Perl (Xcode 27.2 simulators), the code of 0.15.4-rc.1 and 0.15.3 ran the same
   checks. Each of the three healthy video runs per build delivered 6/6 videos and 6/6 result bundles, its report data
   matched an earlier reference run, and it logged no warning and left no supervisor files behind. Per-test XCTest
   medians were within 0.1 s of each other, and the median wall time was 33.4 s against 34.2 s. Sampled every 0.3 s,
@@ -57,9 +57,10 @@ else is as in [0.15.3](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG
   three clean runs of the candidate and four of 0.15.3 had a median total time of 368 s against 367.5 s and a median
   job time of 566 s against 572 s; matched over 824 tests, the candidate's tests ran 1.4 % shorter inside XCTest. With
   video on, one run of the candidate gave every failed attempt's video (25 of 25), no recorder refusal and no busy
-  warning. The three timing lines printed in every run of the candidate, and the end of a run after the last result
-  took about 0.7 s. Five of the fifteen runs were disturbed by workers dropping off the network or a backend outage,
-  in all three builds, and are not counted.
+  warning. The three timing lines printed in every run of the candidate: artifact finalization took 0.26–0.45 s, device
+  release 0.08–0.10 s and reports 0.29–0.31 s, and the exit followed immediately. Four runs across all three builds
+  were disturbed by a worker dropping off the network mid-run, and one JVM run by a backend failure; all five were
+  excluded.
 - Not exercised: the supervisor on a Linux worker (the gate runs its witnesses there).
 
 ### Known limits
@@ -143,7 +144,7 @@ else is as in [0.15.3](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG
   cutoff an exit status already visible at its exit check wins (x111).
 - On iOS, a recording only a few hundred milliseconds long can be published as a zero-byte video after a failed
   transcode, without a warning that the file is empty. A real-worker check saw it in three of five short-test runs
-  on this candidate and two of five on 0.15.3.
+  on 0.15.4-rc.1 and two of five on 0.15.3.
 - Zero-byte Android videos were seen in a real run, also seen in earlier runs and judged a pre-existing recording
   issue; D97 delivers a complete zero-byte file.
 - A D88 monitor failure that ends Android device tracking has not been provoked on a real device; it is covered only by
