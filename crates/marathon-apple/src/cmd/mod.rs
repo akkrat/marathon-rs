@@ -254,6 +254,45 @@ pub trait FileBridge: Send + Sync {
         let _ = stop;
         self.receive(src, dst)
     }
+    /// U267: `receive_with` of a file that is published only if `check` accepts it. The staging bridges run `check` on
+    /// the received file in its D97 stage, before the stage's cancellation-aware rename, so a rejected file never
+    /// reaches `dst` and any earlier file there stays.
+    ///
+    /// This default is for bridges that write in place, which only test doubles do: it checks the file where it
+    /// landed and removes it if rejected, inline.
+    fn receive_checked<'a>(
+        &'a self,
+        src: &'a str,
+        dst: &'a Path,
+        stop: TransferStop,
+        check: ReceiveCheck,
+    ) -> VendorFuture<'a, Received> {
+        Box::pin(async move {
+            if !self.receive_with(src, dst, stop).await? {
+                return Ok(Received::NotReceived);
+            }
+            match check(dst).map_err(io_error)? {
+                Ok(()) => Ok(Received::Published),
+                Err(why) => {
+                    std::fs::remove_file(dst).map_err(io_error)?;
+                    Ok(Received::Rejected(why))
+                }
+            }
+        })
+    }
+}
+
+/// U267: what a received file must pass before it is published, run on a blocking thread; `Ok(Err(why))` rejects it.
+pub type ReceiveCheck = Box<dyn FnOnce(&Path) -> std::io::Result<Result<(), String>> + Send>;
+
+/// U267: how a checked receive ended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Received {
+    Published,
+    /// The transfer did not complete; any earlier file at the destination stays.
+    NotReceived,
+    /// The transfer completed and the check rejected the file, with its reason; nothing was published.
+    Rejected(String),
 }
 
 /// D54: what ends a transfer before it ends by itself. Kotlin's transfer blocks in a suspend function, so neither its caller's

@@ -1372,31 +1372,6 @@ class VendorEvidenceTests(unittest.TestCase):
             self.assertNotEqual(visible, normalized(worker + artifact, staged + '.part'))
             self.assertNotEqual(visible, normalized(worker + 'other.bin', staged))
 
-    def test_u267_a_movie_receive_may_sit_in_exactly_one_more_private_directory(self):
-        import vendor_transport as t
-        values = dict(sandbox='/sandbox', safe_serial='serial', port='1')
-        worker = '127.0.0.1:/tmp/marathon/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE/'
-        def normalized(src, dst, *, native=True):
-            row = dict(event='host_argv', program='rsync', argv=['--links', src, dst])
-            return t.host_argv(json.dumps(row).encode() + b'\n', values, d97_native_staging=native)
-        stage, movie_stage = '.marathon-artifact-A0b1C2/', '.marathon-artifact-D3e4F5/'
-        for movie in ['test.mp4', 'test.mp4.tmp']:
-            base = '/sandbox/in/report/video/pool/serial/'
-            visible = normalized(worker + movie, base + 'test.mp4')
-            self.assertEqual(visible, normalized(worker + movie, base + movie_stage + stage + 'test.mp4'))
-            # Not without the receive's own directory, not two more, not a malformed one, not for a JVM record.
-            self.assertNotEqual(visible, normalized(worker + movie, base + movie_stage + 'test.mp4.x'))
-            self.assertNotEqual(visible, normalized(worker + movie, base + stage + stage + stage + 'test.mp4'))
-            self.assertNotEqual(visible, normalized(worker + movie, base + 'other/' + stage + 'test.mp4'))
-            self.assertNotEqual(visible, normalized(worker + movie, base + movie_stage + stage + 'test.mp4', native=False))
-        # Other artifacts keep exactly one private directory.
-        xcresult = worker + 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE.00000000-0000-0000-0000-000000000001.xcresult'
-        public = '/sandbox/in/report/device-files/pool/serial/xcresult/'
-        self.assertNotEqual(normalized(xcresult, public), normalized(xcresult, public + movie_stage + stage))
-        log = '/sandbox/in/report/device-logs/pool/serial/'
-        self.assertNotEqual(normalized(worker + 'device.log', log + 'batch.log'),
-                            normalized(worker + 'device.log', log + movie_stage + stage + 'batch.log'))
-
     def test_d31_d43_a_transfer_of_an_older_record_gets_exactly_the_flag(self):
         send = lambda *flag: ['--recursive','--times',*flag,'--rsh','ssh -p 1 ','--delete','/src','127.0.0.1:/tmp/marathon/x']
         receive = lambda *flag: ['--recursive','--times',*flag,'--rsh','ssh -p 1 ','--delete','127.0.0.1:/tmp/marathon/x','/dst']

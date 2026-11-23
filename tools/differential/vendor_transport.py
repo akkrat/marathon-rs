@@ -511,14 +511,11 @@ def with_d43_flag(program, args):
 D97_WORKER_PATH = r'127\.0\.0\.1:/tmp/marathon/(?P<device>[A-Fa-f0-9-]{36})/'
 D97_REPORT_PATH = r'\{sandbox\}/in/report/'
 D97_STAGE = r'\.marathon-artifact-[A-Za-z0-9]{6}/'
-# U267 (x113): an iOS movie is received into a private directory of its own, checked there and only then renamed to its
-# report path, so the receive's D97 directory sits one private directory deeper. Videos only, exactly one more level.
-U267_MOVIE_STAGE = '(?:' + D97_STAGE + ')?'
 D97_ARTIFACT_DESTINATIONS = (
     (D97_WORKER_PATH + r'(?P=device)\.[A-Fa-f0-9-]{36}\.xcresult',
      '(' + D97_REPORT_PATH + r'device-files/[^/]+/\{safe_serial\}/xcresult/)' + D97_STAGE + '()'),
     (D97_WORKER_PATH + r'[^/]+\.mp4(?:\.tmp)?',
-     '(' + D97_REPORT_PATH + r'video/[^/]+/\{safe_serial\}/)' + U267_MOVIE_STAGE + D97_STAGE + r'([^/]+\.mp4)'),
+     '(' + D97_REPORT_PATH + r'video/[^/]+/\{safe_serial\}/)' + D97_STAGE + r'([^/]+\.mp4)'),
     (D97_WORKER_PATH + r'device\.log',
      '(' + D97_REPORT_PATH + r'device-logs/[^/]+/\{safe_serial\}/)' + D97_STAGE + r'([^/]+)'),
 )

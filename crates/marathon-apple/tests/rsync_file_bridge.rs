@@ -1140,6 +1140,78 @@ fn a_failed_rsync_cannot_expose_a_partial_tree_d97() {
 fn failed_receive_runs_d97() {
     failed_receive_child();
 }
+fn checked_receive_child() {
+    use marathon_apple::cmd::{FileBridge, Received, TransferStop};
+    let Some((root, _)) = d91_child() else { return };
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let (logging, _) = ssh::logging(false);
+        let bridge = d91_bridge(logging, Arc::new(Runtime), Arc::new(ssh::ScaledClock::new(1))).await;
+        let movie = root.join("movie.mp4");
+        std::fs::write(&movie, b"earlier").unwrap();
+        let checked = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let check = |checked: Arc<std::sync::Mutex<Vec<std::path::PathBuf>>>| -> marathon_apple::cmd::ReceiveCheck {
+            Box::new(move |path: &Path| {
+                checked.lock().unwrap().push(path.to_owned());
+                Ok(if std::fs::read(path)?.is_empty() {
+                    Err("empty".to_owned())
+                } else {
+                    Ok(())
+                })
+            })
+        };
+        for (src, received, now) in [
+            (
+                "/tmp/marathon/empty.mp4",
+                Received::Rejected("empty".into()),
+                &b"earlier"[..],
+            ),
+            ("/tmp/marathon/full.mp4", Received::Published, b"movie"),
+        ] {
+            assert_eq!(
+                bridge
+                    .receive_checked(src, &movie, TransferStop::never(), check(checked.clone()))
+                    .await,
+                Ok(received)
+            );
+            assert_eq!(std::fs::read(&movie).unwrap(), now);
+            assert!(
+                !std::fs::read_dir(&root)
+                    .unwrap()
+                    .flatten()
+                    .any(|entry| entry.file_name().to_string_lossy().starts_with(".marathon-artifact-"))
+            );
+        }
+        // Each check saw the received file in D97's own stage, one directory below the destination's, under its name.
+        let checked = checked.lock().unwrap();
+        assert_eq!(checked.len(), 2);
+        for path in checked.iter() {
+            assert_eq!(path.file_name(), movie.file_name());
+            let stage = path.parent().unwrap();
+            assert!(
+                stage
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with(".marathon-artifact-")
+            );
+            assert_eq!(stage.parent(), movie.parent());
+        }
+    });
+}
+/// U267: a checked receive is checked in D97's stage, before its rename; a rejected file leaves the earlier one.
+#[test]
+fn a_checked_receive_publishes_only_what_its_check_accepts_u267() {
+    d91_round_1(
+        "checked_receive_runs_u267",
+        "#!/bin/bash\ntarget=\"${!#}\"\ncase \"${@: -2:1}\" in *empty*) : > \"$target\" ;; *) printf movie > \"$target\" ;; esac\nexit 0\n",
+        None,
+    );
+}
+#[test]
+fn checked_receive_runs_u267() {
+    checked_receive_child();
+}
 
 /// A tool on this host's `PATH` or in `/usr/bin`, which is where the real-tool tests take it from.
 fn real_tool(name: &str) -> Option<std::path::PathBuf> {

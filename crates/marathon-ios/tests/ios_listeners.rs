@@ -929,16 +929,14 @@ async fn deliver_one_movie(path: MoviePath, received: &[u8]) -> TestResult<Movie
     }
     l.settle().await.map_err(|e| format!("{e:?}"))?;
     assert_eq!(*bridge.pulls.lock().unwrap(), std::slice::from_ref(&pulled));
-    // The worker's copy is removed whether or not it was published.
-    assert!(
-        h.worker
-            .commands
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|cmd| cmd == &["rm", "-rf", &pulled])
-    );
-    let undelivered = h
+    let removed = h
+        .worker
+        .commands
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|cmd| cmd == &["rm", "-rf", &pulled]);
+    let undelivered: Vec<String> = h
         .logs
         .lock()
         .unwrap()
@@ -946,6 +944,8 @@ async fn deliver_one_movie(path: MoviePath, received: &[u8]) -> TestResult<Movie
         .filter(|r| r.2.contains("was not delivered"))
         .map(|r| format!("{} {}", r.1, r.2))
         .collect();
+    // D97: the worker's copy is removed once published, and kept for inspection when it is not.
+    assert_eq!(removed, undelivered.is_empty(), "{undelivered:?}");
     let attachment = match collector.get(&test).unwrap_or_default().as_slice() {
         [] => None,
         [video] => {
@@ -975,13 +975,13 @@ async fn deliver_one_movie(path: MoviePath, received: &[u8]) -> TestResult<Movie
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_failed_transcode_publishes_the_original_only_when_it_is_playable_u267() -> TestResult {
+async fn a_failed_transcode_publishes_the_original_only_when_it_is_complete_u267() -> TestResult {
     let unfinished = &listener_support::MOVIE[..listener_support::MOVIE.len() - 1];
     for (received, reason) in [
         (&b""[..], Some("the recording is empty")),
         (
             unfinished,
-            Some("the recording is not a playable movie (it has no moov box)"),
+            Some("the recording is not a complete movie (it is cut short)"),
         ),
         (listener_support::MOVIE, None),
     ] {
@@ -1003,7 +1003,7 @@ async fn a_failed_transcode_publishes_the_original_only_when_it_is_playable_u267
 }
 
 #[tokio::test(start_paused = true)]
-async fn every_pull_of_a_movie_publishes_only_a_playable_one_u267() -> TestResult {
+async fn every_pull_of_a_movie_publishes_only_a_complete_one_u267() -> TestResult {
     for path in [MoviePath::Original, MoviePath::Transcoded, MoviePath::BatchFailure] {
         let (src, undelivered, attachment, files) = deliver_one_movie(path, b"").await?;
         assert_eq!(
@@ -2190,5 +2190,86 @@ async fn a_busy_simulator_disposed_during_a_signal_stopped_run_is_not_shut_down_
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(lines[0].contains("no time left to shut it down"), "{lines:?}");
     let _ = a.join_retained().await;
+    Ok(())
+}
+
+/// The longest path the platform's file calls accept, counting the terminating NUL.
+#[cfg(target_os = "macos")]
+const PATH_MAX: usize = 1024;
+#[cfg(not(target_os = "macos"))]
+const PATH_MAX: usize = 4096;
+
+/// U267, review round 1 P1: the movie is checked in the receive's own D97 stage, so a report path that just leaves
+/// room for that stage still gets its movie. A second private directory, as round 1 had, ran past the platform's
+/// path limit there and turned a complete movie into an undelivered one.
+#[tokio::test]
+async fn a_movie_at_a_report_path_near_the_platform_limit_is_still_delivered_u267() -> TestResult {
+    use marathon_apple::cmd::{
+        FileBridge, ReceiveCheck, Received, TransferStop, local::jvm_file_bridge::JvmFileBridge,
+    };
+    // D97's stage directory: `.marathon-artifact-` and six random characters.
+    const STAGE: usize = ".marathon-artifact-XXXXXX/".len();
+    let dir = tempfile::tempdir()?;
+    let source = dir.path().join("recording.mp4");
+    std::fs::write(&source, listener_support::MOVIE)?;
+    let name = "Tests.Suite#test1-batch.mp4";
+    // The staged movie's path is 10 bytes short of the limit; one more directory level would not fit.
+    let staged = PATH_MAX - 10;
+    let mut parent = dir.path().join("report");
+    let room = |parent: &std::path::Path| staged - (parent.as_os_str().len() + 1 + STAGE + name.len());
+    assert!(room(&parent) >= 2);
+    while room(&parent) > 0 {
+        // Each level costs its name and a separator; never leave a room of 1, which no level fits.
+        let left = room(&parent);
+        parent.push("d".repeat(match left {
+            ..=201 => left - 1,
+            202 => 199,
+            _ => 200,
+        }));
+    }
+    std::fs::create_dir_all(&parent)?;
+    let report = parent.join(name);
+    assert_eq!(report.as_os_str().len() + STAGE, staged);
+    // The witness is meaningful: a second private level below the stage cannot be created on this platform.
+    let deeper = parent
+        .join(".marathon-artifact-aaaaaa")
+        .join(".marathon-artifact-bbbbbb");
+    assert!(deeper.as_os_str().len() + 1 + name.len() >= PATH_MAX);
+    if std::fs::create_dir_all(&deeper).is_ok() {
+        let refused = std::fs::write(deeper.join(name), b"");
+        assert!(refused.is_err(), "{refused:?}");
+    }
+    let _ = std::fs::remove_dir_all(parent.join(".marathon-artifact-aaaaaa"));
+
+    let bridge = JvmFileBridge::new(Arc::new(listener_support::Runtime), true);
+    let src = source.to_string_lossy().into_owned();
+    // As before the check: an unchecked receive into this path delivers.
+    assert_eq!(
+        bridge.receive_with(&src, &report, TransferStop::never()).await,
+        Ok(true)
+    );
+    assert_eq!(std::fs::read(&report)?, listener_support::MOVIE);
+    std::fs::remove_file(&report)?;
+    let check = || -> ReceiveCheck {
+        Box::new(|movie| Ok(marathon_ios::listener::movie::check(movie)?.map_err(|why| why.reason().to_owned())))
+    };
+    assert_eq!(
+        bridge
+            .receive_checked(&src, &report, TransferStop::never(), check())
+            .await,
+        Ok(Received::Published)
+    );
+    assert_eq!(std::fs::read(&report)?, listener_support::MOVIE);
+    // An empty movie at the same path is rejected and leaves the published one, the stage gone, the source kept.
+    std::fs::write(&source, b"")?;
+    assert_eq!(
+        bridge
+            .receive_checked(&src, &report, TransferStop::never(), check())
+            .await,
+        Ok(Received::Rejected("the recording is empty".into()))
+    );
+    assert_eq!(std::fs::read(&report)?, listener_support::MOVIE);
+    assert_eq!(std::fs::read_dir(&parent)?.count(), 1);
+    assert!(source.exists());
     Ok(())
 }

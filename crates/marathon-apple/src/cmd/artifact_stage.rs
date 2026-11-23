@@ -1,6 +1,6 @@
 //! D97: a receive owns its private tree until it can publish the whole artifact.
 
-use super::{failure, io_error};
+use super::{ReceiveCheck, Received, failure, io_error};
 use marathon_core::error::{Cancellation, VendorError, VendorResult};
 use marathon_error::FailureKind;
 use rustix::{
@@ -67,6 +67,22 @@ impl ArtifactStage {
 
     pub(crate) fn publish(self, stopped: impl FnOnce() -> Option<Cancellation>) -> VendorResult<()> {
         self.publish_with(stopped, |from, to, flags| renameat_with(CWD, from, CWD, to, flags))
+    }
+
+    /// U267: publishes the received content only if `check` accepts it where it lies, in this stage; a rejected
+    /// content is discarded with the stage, leaving the destination as it was.
+    pub(crate) fn publish_checked(
+        self,
+        stopped: impl FnOnce() -> Option<Cancellation>,
+        check: Option<ReceiveCheck>,
+    ) -> VendorResult<Received> {
+        if let Some(check) = check
+            && let Err(why) = check(&self.content).map_err(io_error)?
+        {
+            self.discard();
+            return Ok(Received::Rejected(why));
+        }
+        self.publish(stopped).map(|()| Received::Published)
     }
 
     fn publish_with(

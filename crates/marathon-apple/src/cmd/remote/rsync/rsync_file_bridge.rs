@@ -4,7 +4,8 @@ use marathon_logging::{Component, Level};
 
 use super::{RsyncTarget, password};
 use crate::cmd::{
-    CommandExecutor, FileBridge, SessionScope, TransferStop, TransferStopped, blocking, failure, io_error,
+    CommandExecutor, FileBridge, ReceiveCheck, Received, SessionScope, TransferStop, TransferStopped, blocking,
+    failure, io_error,
     remote::ssh::sshj::{WorkerRsync, config::SshLogging},
     retained_tasks::RetainedTasks,
     stall_record::StallRecord,
@@ -202,7 +203,10 @@ impl RsyncFileBridge {
         }
         Ok(bridge)
     }
-    async fn owned(&self, body: impl Future<Output = VendorResult<bool>> + Send + 'static) -> VendorResult<bool> {
+    async fn owned<T: Send + 'static>(
+        &self,
+        body: impl Future<Output = VendorResult<T>> + Send + 'static,
+    ) -> VendorResult<T> {
         let (tx, rx) = oneshot::channel();
         let task = self.0.tasks.spawn(self.0.runtime.as_ref(), async move {
             // D91: the body, and with it a transfer's stop, is dropped before its result is sent, so whoever hears the
@@ -221,7 +225,8 @@ impl RsyncFileBridge {
         dst: &'a Path,
         stop: TransferStop,
         name: ReceiveName,
-    ) -> VendorFuture<'a, bool> {
+        check: Option<ReceiveCheck>,
+    ) -> VendorFuture<'a, Received> {
         let src = if name == ReceiveName::Bundle {
             src.trim_end_matches('/')
         } else {
@@ -229,7 +234,7 @@ impl RsyncFileBridge {
         };
         let (inner, src, dst) = (self.0.clone(), src.to_owned(), dst.to_owned());
         Box::pin(async move {
-            self.owned(async move { inner.transfer(dst, src, Some(name), stop).await })
+            self.owned(async move { inner.transfer(dst, src, Some((name, check)), stop).await })
                 .await
         })
     }
@@ -903,10 +908,11 @@ impl Inner {
         &self,
         local: PathBuf,
         remote: String,
-        publication: Option<ReceiveName>,
+        publication: Option<(ReceiveName, Option<ReceiveCheck>)>,
         mut stop: TransferStop,
-    ) -> VendorResult<bool> {
+    ) -> VendorResult<Received> {
         let receive = publication.is_some();
+        let (publication, check) = publication.map_or((None, None), |(name, check)| (Some(name), check));
         let mut stage = None;
         let stopping = Stopping::new(stop.receipt());
         // D93 (round 8): as rsync starts, its admission too (a device's closed pulls).
@@ -953,22 +959,31 @@ impl Inner {
         if let Some(why) = unconfirmed {
             stop.unconfirmed(why);
         }
-        let Some(stage) = stage else { return result };
+        let received = |delivered| {
+            if delivered {
+                Received::Published
+            } else {
+                Received::NotReceived
+            }
+        };
+        let Some(stage) = stage else {
+            return result.map(received);
+        };
         if !matches!(result, Ok(true)) {
             return blocking(self.runtime.as_ref(), move || {
                 stage.discard();
-                result
+                result.map(received)
             })
             .await;
         }
-        let check = stop.cancellation_check();
+        let stopped = stop.cancellation_check();
         blocking(self.runtime.as_ref(), move || {
             if stop.connection_stop().is_some() {
                 stage.discard();
-                return Ok(false);
+                return Ok(Received::NotReceived);
             }
-            stage.publish(check)?;
-            Ok(true)
+            // U267: the check runs here, in the stage, before the rename that samples the stop.
+            stage.publish_checked(stopped, check)
         })
         .await
     }
@@ -1888,16 +1903,29 @@ impl FileBridge for RsyncFileBridge {
                     );
                     return Err(error);
                 }
-                inner.transfer(src, dst, None, stop).await
+                Ok(inner.transfer(src, dst, None, stop).await? == Received::Published)
             })
             .await
         })
     }
     fn receive_with<'a>(&'a self, src: &'a str, dst: &'a Path, stop: TransferStop) -> VendorFuture<'a, bool> {
-        self.receive_staged(src, dst, stop, ReceiveName::Source)
+        Box::pin(async move {
+            Ok(self.receive_staged(src, dst, stop, ReceiveName::Source, None).await? == Received::Published)
+        })
     }
     fn receive_bundle<'a>(&'a self, src: &'a str, dst: &'a Path, stop: TransferStop) -> VendorFuture<'a, bool> {
-        self.receive_staged(src, dst, stop, ReceiveName::Bundle)
+        Box::pin(async move {
+            Ok(self.receive_staged(src, dst, stop, ReceiveName::Bundle, None).await? == Received::Published)
+        })
+    }
+    fn receive_checked<'a>(
+        &'a self,
+        src: &'a str,
+        dst: &'a Path,
+        stop: TransferStop,
+        check: ReceiveCheck,
+    ) -> VendorFuture<'a, Received> {
+        self.receive_staged(src, dst, stop, ReceiveName::Source, Some(check))
     }
 }
 

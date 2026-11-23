@@ -1,6 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/local/JvmFileBridge.kt
 
-use super::super::{FileBridge, TransferStop, blocking, failure, io_error};
+use super::super::{FileBridge, ReceiveCheck, Received, TransferStop, blocking, failure, io_error};
 use marathon_core::{
     error::{Cancellation, VendorError, VendorResult},
     runtime::{VendorFuture, VendorRuntime},
@@ -77,13 +77,20 @@ fn copy_recursively(src: &Path, dst: &Path, overwrite: bool, stopped: Stopped<'_
     }
     Ok(true)
 }
-fn receive(src: &Path, dst: PathBuf, overwrite: bool, bundle: bool, stop: TransferStop) -> VendorResult<bool> {
+fn receive(
+    src: &Path,
+    dst: PathBuf,
+    overwrite: bool,
+    bundle: bool,
+    stop: TransferStop,
+    check: Option<ReceiveCheck>,
+) -> VendorResult<Received> {
     let admit = stop.start_check();
     if let Some(reason) = admit() {
         return Err(VendorError::Cancelled(reason));
     }
     if !src.try_exists().map_err(io_error)? {
-        return Ok(false);
+        return Ok(Received::NotReceived);
     }
     if !bundle && !overwrite && dst.exists() && !(src.is_dir() && dst.is_dir()) {
         return Err(VendorError::Other(failure(
@@ -96,13 +103,12 @@ fn receive(src: &Path, dst: PathBuf, overwrite: bool, bundle: bool, stop: Transf
     }
     let merge = !bundle && src.is_dir() && dst.is_dir();
     let stage = super::super::artifact_stage::ArtifactStage::new(dst, bundle || (!overwrite && !merge))?;
-    let check = stop.cancellation_check();
+    let stopped = stop.cancellation_check();
     if merge {
-        stage.seed_directory(&check)?;
+        stage.seed_directory(&stopped)?;
     }
-    copy_recursively(src, stage.content(), overwrite, &check)?;
-    stage.publish(check)?;
-    Ok(true)
+    copy_recursively(src, stage.content(), overwrite, &stopped)?;
+    stage.publish_checked(stopped, check)
 }
 
 impl JvmFileBridge {
@@ -112,7 +118,8 @@ impl JvmFileBridge {
         dst: &'a Path,
         stop: TransferStop,
         bundle: bool,
-    ) -> VendorFuture<'a, bool> {
+        check: Option<ReceiveCheck>,
+    ) -> VendorFuture<'a, Received> {
         let filename = src.split('/').next_back().unwrap_or_default().to_owned();
         let src = PathBuf::from(src);
         let dst = dst.to_owned();
@@ -124,7 +131,7 @@ impl JvmFileBridge {
                 } else {
                     dst
                 };
-                receive(&src, destination, overwrite, bundle, stop)
+                receive(&src, destination, overwrite, bundle, stop, check)
             })
             .await
         })
@@ -163,10 +170,19 @@ impl FileBridge for JvmFileBridge {
         })
     }
     fn receive_with<'a>(&'a self, src: &'a str, dst: &'a Path, stop: TransferStop) -> VendorFuture<'a, bool> {
-        self.receive_staged(src, dst, stop, false)
+        Box::pin(async move { Ok(self.receive_staged(src, dst, stop, false, None).await? == Received::Published) })
     }
     fn receive_bundle<'a>(&'a self, src: &'a str, dst: &'a Path, stop: TransferStop) -> VendorFuture<'a, bool> {
-        self.receive_staged(src, dst, stop, true)
+        Box::pin(async move { Ok(self.receive_staged(src, dst, stop, true, None).await? == Received::Published) })
+    }
+    fn receive_checked<'a>(
+        &'a self,
+        src: &'a str,
+        dst: &'a Path,
+        stop: TransferStop,
+        check: ReceiveCheck,
+    ) -> VendorFuture<'a, Received> {
+        self.receive_staged(src, dst, stop, false, Some(check))
     }
     fn receive<'a>(&'a self, src: &'a str, dst: &'a Path) -> VendorFuture<'a, bool> {
         self.receive_with(src, dst, TransferStop::never())

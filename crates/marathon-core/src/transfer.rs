@@ -38,6 +38,15 @@ impl TransferMeasurement {
     ) -> VendorResult<bool> {
         self.measure(file, body, folder, |delivered| *delivered).await
     }
+    /// `measure_delivery` of a transfer whose result says by `delivered` whether it delivered `file`.
+    pub async fn measure_delivery_by<'a, T: Send + 'a>(
+        &self,
+        file: PathBuf,
+        body: VendorFuture<'a, T>,
+        delivered: impl FnOnce(&T) -> bool + Send,
+    ) -> VendorResult<T> {
+        self.measure(file, body, false, delivered).await
+    }
 
     async fn measure<'a, T: Send + 'a>(
         &self,

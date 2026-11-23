@@ -204,8 +204,29 @@ impl AppleSimulatorDevice {
             .on_worker(self.executor.clone())
             .owned_by(receipt)
     }
+    /// U267: `pull_file` of a file published only if `check` accepts it, in the receive's D97 stage.
+    pub async fn pull_checked(
+        &self,
+        src: &str,
+        dst: &Path,
+        check: marathon_apple::cmd::ReceiveCheck,
+    ) -> VendorResult<marathon_apple::cmd::Received> {
+        use marathon_apple::cmd::Received;
+        let received = self
+            .measurement()
+            .measure_delivery_by(
+                jcompat::file_manager::file_path(dst.to_string_lossy().as_ref()),
+                self.bridge.receive_checked(src, dst, self.receive_stop(), check),
+                |received| *received == Received::Published,
+            )
+            .await;
+        self.gated(received, src, Received::NotReceived)
+    }
     /// D93 (round 8): a pull the simulator's pull gate refused or stopped is an undelivered artifact, with a WARN.
     fn gated_pull(&self, received: VendorResult<bool>, src: &str) -> VendorResult<bool> {
+        self.gated(received, src, false)
+    }
+    fn gated<T>(&self, received: VendorResult<T>, src: &str, not_received: T) -> VendorResult<T> {
         match received {
             Err(VendorError::Cancelled(reason)) if self.commands.is_gate_cancellation(&reason) => {
                 self.log(
@@ -217,7 +238,7 @@ impl AppleSimulatorDevice {
                     ),
                     None,
                 );
-                Ok(false)
+                Ok(not_received)
             }
             other => other,
         }
