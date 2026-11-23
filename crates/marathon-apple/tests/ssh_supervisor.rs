@@ -1951,18 +1951,47 @@ fn worker_commands_and_senders_stop_over_independent_real_ssh_d96() -> Result<()
     let mut path = std::ffi::OsString::from(fixture.path());
     path.push(":");
     path.push(std::env::var_os("PATH").unwrap_or_default());
+    let root_file = fixture.path().join("supervisor-root");
     let output = std::process::Command::new(std::env::current_exe()?)
         .args(["--exact", "real_worker_commands_and_senders_child"])
         .env("PATH", path)
         .env("MRS_D96_REAL_WORKER", "1")
+        .env("MRS_D96_ROOT_FILE", &root_file)
         .output()?;
+    // U269: the child abandons its worker connection, as a hard-killed run does, so nothing retires the worker's
+    // supervisor root. It is removed here, once the child has exited, whatever the child's outcome.
+    let removed = remove_supervisor_root(&root_file);
     assert!(
         output.status.success(),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    if let Some(root) = removed? {
+        assert!(!root.exists(), "{}", root.display());
+    }
     Ok(())
+}
+
+/// U269: removes the supervisor root the loopback child recorded in `file`, if it got as far as recording one.
+fn remove_supervisor_root(file: &Path) -> std::io::Result<Option<std::path::PathBuf>> {
+    let root = match std::fs::read_to_string(file) {
+        Ok(root) => root,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let valid = root.strip_prefix("/tmp/marathon-supervisor-").is_some_and(|suffix| {
+        suffix.len() == 10
+            && suffix
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    });
+    if !valid {
+        return Err(std::io::Error::other(format!("not a supervisor root: {root:?}")));
+    }
+    let root = std::path::PathBuf::from(root);
+    std::fs::remove_dir_all(&root)?;
+    Ok(Some(root))
 }
 
 #[cfg(target_os = "macos")]
@@ -2054,6 +2083,24 @@ async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::err
             .await
             .map_err(|e| e.failure().to_string())?
     );
+    // U269: a supervised payload's parent is the worker script, started from the root it installed. The parent test
+    // removes that root once this child has exited.
+    let parent = executor
+        .critical_execute(
+            CommandRequest::new(["/bin/sh", "-c", "ps -o args= -p $PPID"], duration(15000)),
+            context(),
+        )
+        .await
+        .map_err(|e| e.failure().to_string())?;
+    let root = parent
+        .stdout
+        .iter()
+        .flat_map(|line| line.split_whitespace())
+        .find_map(|word| word.strip_suffix("/supervisor.pl"))
+        .ok_or_else(|| format!("no supervisor root in {:?}", parent.stdout))?;
+    if let Some(file) = std::env::var_os("MRS_D96_ROOT_FILE") {
+        std::fs::write(file, root)?;
+    }
     if std::env::var_os("MRS_D96_SSH_BENCH").is_some() {
         let authentication = SshAuthentication::PublicKey { username: user, key };
         let plain = factory
