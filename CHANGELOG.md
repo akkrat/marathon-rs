@@ -7,9 +7,10 @@ The section for a version becomes the text of its GitHub release, which carries 
 - **An iOS video too short to be playable is reported as not delivered (x113):** a recording stopped a fraction of a
   second after it started can be left empty or unfinished by the simulator. Such a movie used to be published in the
   report's video folder as an empty file, and the log did not say that the video was missing. Now a video is published
-  only if it is a playable movie; otherwise the log has the usual one line for it, `Video <path> was not delivered:
-  the recording is empty` (or `… is not a playable movie`), and the report has no file and no attachment for it.
-  Playable videos are published as before.
+  only if its file is a complete movie by its structure; otherwise the log has the usual one line for it, `Video <path>
+  was not delivered: the recording is empty` (or `… is not a complete movie (<why>)`), the report has no file and no
+  attachment for it, and the worker keeps its copy, as for any other video that was not delivered. Complete videos are
+  published as before.
 
 ## 0.15.4
 
