@@ -10,7 +10,8 @@ The section for a version becomes the text of its GitHub release, which carries 
   only if its file is a complete movie by its structure; otherwise the log has the usual one line for it, `Video <path>
   was not delivered: the recording is empty` (or `… is not a complete movie (<why>)`), marathon publishes no new file
   and adds no attachment for it, and the worker keeps its copy, as for any other video that was not delivered.
-  Complete videos are published as before.
+  Complete videos are published as before. This lifts the iOS zero-byte video limit listed under 0.15.4's Known
+  limits (U267); Android videos are not checked this way.
 
 ## 0.15.4
 
