@@ -2,6 +2,15 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
+## Unreleased
+
+- **An iOS video too short to be playable is reported as not delivered (x113):** a recording stopped a fraction of a
+  second after it started can be left empty or unfinished by the simulator. Such a movie used to be published in the
+  report's video folder as an empty file, and the log did not say that the video was missing. Now a video is published
+  only if it is a playable movie; otherwise the log has the usual one line for it, `Video <path> was not delivered:
+  the recording is empty` (or `… is not a playable movie`), and the report has no file and no attachment for it.
+  Playable videos are published as before.
+
 ## 0.15.4
 
 This release makes the SSH worker supervisor wake on events instead of checking every 25 ms, and logs how long the end of a run took. The inputs, the CLI, the configuration, the
