@@ -39,6 +39,14 @@ A last small check (another model) asked for three wording fixes, taken: the car
 escalation rule; the x111 findings say an exit visible at the exit check wins and otherwise the expiry and escalation
 rules apply, and call 100 ms a cap on a wait chosen from a stale clock reading.
 
+## 0.15.4
+
+The private farm check of 0.15.4-rc.1 found nothing blocking: with video off, the candidate matched 0.15.3 in total
+and job time and ran its tests 1.4 % shorter inside XCTest; with video on, every failed attempt had its video and no
+recorder was refused. 0.15.4 is the candidate's code. The `## 0.15.4-rc.1` section becomes `## 0.15.4`, its Evidence
+gains the farm run, a stub `## 0.15.4-rc.1` section follows it as for earlier candidates, and `README.md` names 0.15.4
+as the current release.
+
 ## Incidental bugs
 
 The zero-byte short video above.

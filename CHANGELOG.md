@@ -2,10 +2,9 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
-## 0.15.4-rc.1
+## 0.15.4
 
-The first release candidate of 0.15.4, a pre-release for trial runs. It makes the SSH worker supervisor wake on events
-instead of checking every 25 ms, and logs how long the end of a run took. The inputs, the CLI, the configuration, the
+This release makes the SSH worker supervisor wake on events instead of checking every 25 ms, and logs how long the end of a run took. The inputs, the CLI, the configuration, the
 summary text and report formats are unchanged, and outside the supervisor's two timing edges described below, test
 results and the exit status are unchanged. No new worker commands or SSH allowlist changes are needed. Everything
 else is as in [0.15.3](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG.md#0153).
@@ -53,7 +52,15 @@ else is as in [0.15.3](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG
   supervisor warning, shut the simulator down at the end of the run, and delivered 6/6 on the next run. Neither build
   had a refusal in five runs of 0.15.3's overlap scenario. The new timing lines printed with `debug: false`.
 - CI runs the repository gate on macOS and Linux; it passes on the code of this release.
-- Not exercised: a farm run of this release, and the supervisor on a Linux worker (the gate runs its witnesses there).
+- The release candidate 0.15.4-rc.1, the same code as this release, ran the full iOS UI-test job of a private CI farm
+  (Xcode 26.6 workers, `debug: false`), alternating with 0.15.3 and the JVM build on one code base. With video off,
+  three clean runs of the candidate and four of 0.15.3 had a median total time of 368 s against 367.5 s and a median
+  job time of 566 s against 572 s; matched over 824 tests, the candidate's tests ran 1.4 % shorter inside XCTest. With
+  video on, one run of the candidate gave every failed attempt's video (25 of 25), no recorder refusal and no busy
+  warning. The three timing lines printed in every run of the candidate, and the end of a run after the last result
+  took about 0.7 s. Five of the fifteen runs were disturbed by workers dropping off the network or a backend outage,
+  in all three builds, and are not counted.
+- Not exercised: the supervisor on a Linux worker (the gate runs its witnesses there).
 
 ### Known limits
 
@@ -161,6 +168,11 @@ else is as in [0.15.3](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG
   without them (D25).
 - Apple event/line scheduling can move a boundary line between per-test and batch logs (A20). The Phase 8 differential
   harness gates that interleaving; production retains it ([WP 8.12](docs/wp/8.12-test-changes.md#differential-only-eventline-gates)).
+
+## 0.15.4-rc.1
+
+The first release candidate of 0.15.4, published on 2026-11-23 as a pre-release for trial runs. Its changes are all in
+0.15.4 above.
 
 ## 0.15.3
 
