@@ -11,30 +11,33 @@ are unchanged. No new worker commands or SSH allowlist changes are needed. Every
 
 ### iOS
 
-- **An iOS video too short to be playable is reported as not delivered (x113):** a recording stopped a fraction of a
-  second after it started can be left empty or unfinished by the simulator. Such a movie used to be published in the
-  report's video folder as an empty file, and the log did not say that the video was missing. Now a video is published
-  only if its file is a complete movie by its top-level structure; otherwise the log has the usual one line for it,
-  `Video <path> was not delivered: the recording is empty` (or `… is not a complete movie (<why>)`), marathon
-  publishes no new file and adds no attachment for it, and the worker keeps its copy until the simulator is next
-  prepared, as for any other video that was not delivered. Complete videos are published as before. This lifts the
-  zero-byte iOS video limit of 0.15.4 (U267).
+- **Empty or incomplete iOS videos are no longer published (x113):** a recording stopped a fraction of a second after
+  it started can be left empty or unfinished by the simulator. 0.15.4 published whatever it pulled, so such a movie
+  appeared in the report's video folder as an empty file, linked from the report, and the log did not say that the
+  video was missing. Now every iOS video (the transcoded movie, the original when transcoding is off or fails, and the
+  batch-failure video) is published only if its file is a complete movie by its top-level structure. Otherwise the
+  log has one ERROR line for it, `Video <path> was not delivered: the recording is empty` (or `… is not a complete
+  movie (<why>)`), after the transcode's own ERROR if the transcode failed; marathon publishes no new file and adds no
+  attachment for it (a file already at that path stays), and the worker keeps its copy until the simulator is next
+  prepared, as for any other video that was not delivered. The check reads the movie's structure, not its length or
+  its contents, so a short movie that is complete is published as before. This lifts the zero-byte iOS video limit of
+  0.15.4 (U267).
 
 ### Evidence
 
 - The [x113 findings](docs/wp/x113-findings.md) document the tests and the changes made in review, including two
   test-only fixes: a fake ADB server that warned when a client reset an idle connection, which failed one installer
-  test on a loaded CI runner (U268), and a loopback SSH test that left a supervisor directory in `/tmp` on every run
-  (U269).
+  test on a loaded CI runner and was reproduced locally under load (U268), and a loopback SSH test that left a
+  supervisor directory in `/tmp` on every run (U269).
 - On a real SSH worker with Perl (Xcode 27.2 simulators), the code of this release candidate and 0.15.4 ran the same
   checks. Each of the three healthy video runs per build published 6/6 videos, all of which decoded cleanly, and 6/6
-  result bundles; the report data matched an earlier reference run, and no run logged a `was not delivered` line or
-  a warning. The median wall time was 37.4 s against 34.9 s, within the run-to-run spread of this check (30.9–39.8 s
-  in earlier runs of it); the runs of short tests took 13.0 s on both builds. In a scenario where one test's
-  recording lasts about 0.1–0.3 s, the simulator left that movie empty in 3 of 10 runs of 0.15.4, which published
-  each as a 0-byte file linked from the report, and in 2 of 11 runs of the candidate, which logged one `Video …
-  was not delivered: the recording is empty` line for each and published nothing; every complete short movie was
-  still published and decoded cleanly. None of these runs had a recorder refusal or a busy warning. A movie cut
+  result bundles; the report data matched an earlier reference run, and no run logged a `was not delivered` line or a
+  warning. The median wall time was 37.4 s against 34.9 s; of the candidate's runs, one had a slower preparation and
+  one a slower run end. The runs of short tests had a median of about 13.0 s on both builds. In a scenario where one
+  test's recording lasts about 0.1–0.3 s, the simulator left that movie empty in 3 of 10 runs of 0.15.4, which
+  published each as a 0-byte file linked from the report, and in 2 of 11 runs of the candidate, which logged one
+  `Video … was not delivered: the recording is empty` line for each and published nothing; every complete short movie
+  was still published and decoded cleanly. None of these runs had a recorder refusal or a busy warning. A movie cut
   short but not empty, and an empty movie with transcoding off or as the batch-failure video, were not seen on the
   real worker; tests cover them.
 - CI runs the repository gate on macOS and Linux; it passes on the code of this release.
