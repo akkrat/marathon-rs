@@ -5,53 +5,52 @@ The section for a version becomes the text of its GitHub release, which carries 
 ## 0.15.4-rc.1
 
 The first release candidate of 0.15.4, a pre-release for trial runs. It makes the SSH worker supervisor wake on events
-instead of every 25 ms, and makes the end of a run visible in the log. The inputs, the CLI, the configuration, worker commands, test results, report files and the exit
-status are unchanged, apart from the two timing edges of the supervisor described below. A run's log has three more
-INFO lines at the end, also with `debug: false`. Everything else is as in
-[0.15.3](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG.md#0153).
+instead of checking every 25 ms, and logs how long the end of a run took. The inputs, the CLI, the configuration, test
+results, the summary text, report formats and the exit status are unchanged. No new worker commands or SSH allowlist
+changes are needed. The supervisor's cutoffs are the same apart from two timing edges, described below. Everything
+else is as in [0.15.3](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG.md#0153).
 
 ### iOS and macOS workers
 
 - **The SSH worker supervisor uses less CPU while commands run (x111):** on an SSH worker with stock Perl, the small
-  supervisor that watches each command and video recorder used to wake 40 times a second for as long as the command
-  ran. It now wakes when something happens (the command ends, a recorder starts, marathon asks it to stop) or when a
-  time limit is due, and otherwise 10 times a second: in a local measurement an idle minute cost it about 0.15
-  CPU-seconds instead of about 0.4. Once the command has run for a quarter of a second and its wake-up pipe is open,
-  a stop request is acted on within a few milliseconds instead of up to 50 ms; before that, or if the pipe could not
-  be created, the supervisor keeps checking every 25 ms as before. The cutoffs are unchanged (a
-  recorder's TERM 2 s after the first stop request and KILL 1 s after TERM, the lease expiry), and so are the worker
-  commands, their results and the exit status, except at two edges: a command whose end is reported after its lease
-  has expired is now treated as expired unless the supervisor sees that end before it acts on the expiry (a few
-  milliseconds at most; before, an end reported up to about 25 ms after the expiry could still count),
-  and a supervisor that the worker's system paused acts on a cutoff that passed meanwhile within 100 ms of resuming
-  instead of 25 ms.
+  supervisor that watches each command and video recorder used to check every 25 ms for as long as the command ran.
+  It now waits for its events (the command ends, a recorder starts, marathon asks it to stop) or for the next time
+  limit, at most 100 ms at a time: in a local measurement an idle minute cost it about 0.15 CPU-seconds instead of
+  about 0.4. Once its wake-up pipe opens, normally after about 250 ms, a stop request wakes the supervisor without
+  waiting for its next check; before that, or if the pipe cannot be set up, it waits at most 25 ms at a time, as
+  before. The lease duration and the recorder's escalation are unchanged: when escalation is needed, TERM is due 2 s
+  after the first stop request or the expiry is seen, and KILL 1 s after TERM when the stop is forced. Two timing
+  edges change: after the worker's system paused the supervisor across a cutoff, a wait already under way can delay
+  its next check by up to 100 ms (25 ms before for a running command); and at an expiry or KILL cutoff, an exit status
+  already visible at the supervisor's exit check wins, where the old loop could still accept an exit during its
+  remaining 25 ms after the expiry.
 
 ### Logging
 
-- **The log now shows how long the end of a run took (x110):** with `debug: false` too, a run's log now says how long
-  each step after the last test took: artifact delivery (iOS: the wait for xcresult pulls and remote cleanups still
-  queued, and how many there were), device release (every vendor: how long disposing of all devices took, how many,
-  and the slowest one), and reports (how long writing them took, and the slowest reporter). Each is one INFO line on
-  `marathon_core::timing`, for example `Device release at run end took 3.4 s (iOS, 4 devices; slowest <udid>, 2.9 s;
-  stopping monitoring, recovery and events 500 ms)`.
-  The reports line comes after the run summary (when the summary is printed). Nothing else changes: the summary, the report files, test results
-  and the exit status are the same.
+- **The log now shows how long the end of a run took (x110):** device release and report writing are each timed in
+  one INFO line on `marathon_core::timing`, also with `debug: false`: how long disposing of all devices took, how many,
+  and the slowest one when every disposal has finished (for example `Device release at run end took 3.4 s (iOS, 4
+  devices; slowest <udid>, 2.9 s; stopping monitoring, recovery and events 500 ms)`), and how long writing the reports
+  took, with the slowest reporter. On iOS a third line gives the artifact finalization time and how many xcresult
+  pulls and remote cleanups were still queued or running. The reports line comes after the run summary, when one is
+  printed. Waits, their order and their outcomes are unchanged.
 
 ### Evidence
 
-- The [x111 findings](docs/wp/x111-findings.md) record the supervisor's witnesses and measurements, and six review
-  rounds by other models, the last of which found nothing in the product. The
-  [x110 findings](docs/wp/x110-findings.md) record the timing lines' witnesses and two review rounds.
+- The [x111 findings](docs/wp/x111-findings.md) and the [x110 findings](docs/wp/x110-findings.md) document the tests
+  and the changes made in review; the x111 findings also record the local CPU measurements.
 - On a real SSH worker with Perl (Xcode 27.2 simulators), the code of this release candidate and 0.15.3 ran the same
-  checks. Three healthy video runs of each delivered every video and result bundle, with equal reports as data, no
-  warnings and no supervisor files left behind, and the per-test XCTest times matched (medians within 0.1 s); the
-  median wall time was 33.4 s against 34.2 s. The supervisor processes used 0.84 CPU-seconds per run against 1.26, and
-  an idle recorder's supervisor 0.40 CPU-seconds per minute against 1.26 (this worker costs about three times the local
-  measurement). A recorder's stop request reached its exit on the worker in about 33 ms against about 80 ms. A stop at
-  the first recorder launch and one in mid-run each ended in under a second with every recorder ending normally; after
-  marathon was killed, the recorders ended about 35 ms after their 79 s lease ran out, and the next run delivered every
-  video; D98's busy recovery and 0.15.3's overlap check (no refusals in five runs) behaved as before. The three new
-  timing lines printed with `debug: false`.
+  checks. Each of the three healthy video runs per build delivered 6/6 videos and 6/6 result bundles, its report data
+  matched an earlier reference run, and it logged no warning and left no supervisor files behind. Per-test XCTest
+  medians were within 0.1 s of each other, and the median wall time was 33.4 s against 34.2 s. Sampled every 0.3 s,
+  the supervisor processes used 0.84 CPU-seconds per healthy run on average against 1.26, and one idle recorder's
+  supervisor 0.40 CPU-seconds per minute against 1.26 (this worker costs about three times the local measurement).
+  A recorder's stop request reached its exit on the worker in about 33 ms against about 80 ms. A stop at the first
+  recorder launch and one in mid-run each ended in under a second, with every recorder ending normally. After
+  marathon was killed, the recorders exited about 35 ms after their 79 s lease expired, and the next run delivered
+  6/6 videos; the candidate's crash-run videos were not checked. The D98 check logged one busy warning and no
+  supervisor warning, shut the simulator down at the end of the run, and delivered 6/6 on the next run. Neither build
+  had a refusal in five runs of 0.15.3's overlap scenario. The new timing lines printed with `debug: false`.
 - CI runs the repository gate on macOS and Linux; it passes on the code of this release.
 - Not exercised: a farm run of this release, and the supervisor on a Linux worker (the gate runs its witnesses there).
 
@@ -129,9 +128,12 @@ INFO lines at the end, also with `debug: false`. Everything else is as in
   exit, it warns once and records no further video on that simulator until it is set up again (D98, x106).
 - On a worker without usable Perl, the legacy recorder has no start confirmation, stderr or exit status, so its
   failures are not reported in the recorder warning above (x106).
-- The SSH worker supervisor acts on a cutoff that passed while the worker's system had paused it within 100 ms of
-  resuming, and a command whose end is reported after its lease has expired counts as expired unless the supervisor
-  sees that end before it acts on the expiry (x111).
+- After the worker's system paused the SSH worker supervisor across a cutoff, a wait already under way can delay its
+  next check by up to 100 ms, and at an expiry or KILL cutoff an exit status already visible at its exit check wins
+  (x111).
+- On iOS, a recording only a few hundred milliseconds long can be published as a zero-byte video after a failed
+  transcode, without a warning that the file is empty. A real-worker check saw it in three of five short-test runs
+  on this candidate and two of five on 0.15.3.
 - Zero-byte Android videos were seen in a real run, also seen in earlier runs and judged a pre-existing recording
   issue; D97 delivers a complete zero-byte file.
 - A D88 monitor failure that ends Android device tracking has not been provoked on a real device; it is covered only by

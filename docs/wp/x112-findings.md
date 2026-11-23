@@ -9,7 +9,7 @@ farm runs it before it becomes the latest release. No code changes.
 - `CHANGELOG.md`: the `## Unreleased` bullets become `## 0.15.4-rc.1`, under an intro and an "iOS and macOS workers"
   and a "Logging" heading. Evidence and Known limits are carried forward from 0.15.3 and changed to what is true for
   this release candidate. Evidence: the x110 and x111 findings, a real SSH-worker check against 0.15.3, CI, and what
-  was not exercised. Known limits: x111's two timing edges are added.
+  was not exercised. Known limits: x111's two timing edges and the zero-byte short iOS video are added.
 - `README.md` is unchanged until 0.15.4 itself, as for earlier release candidates.
 
 ## Real-host evidence
@@ -20,6 +20,15 @@ supervisor used about a third less CPU per run, and the per-test times matched. 
 low-severity issue: a recording only a few hundred milliseconds long is sometimes published as a zero-byte video with
 no warning when its transcode fails (2 of 5 overlap runs on 0.15.3, 3 of 5 on the candidate). Not changed here; noted
 for the stability work.
+
+## Review
+
+One review by another model (REQUEST_CHANGES), all findings taken: the logging entry says that only iOS has the
+artifact finalization line and that the slowest device is named only when every disposal finished; "report files
+unchanged" became "report formats unchanged"; the supervisor entry and limit describe the 25 and 100 ms values as caps
+on its wait, the wake-up pipe as opening after about 250 ms, and the exit-check rule at expiry and KILL; the cutoff
+wording says when TERM and KILL are due; the evidence is scoped to what was measured; the zero-byte short video is a
+known limit; the findings link no longer claims review counts.
 
 ## Incidental bugs
 
