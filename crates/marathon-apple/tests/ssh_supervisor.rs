@@ -1952,14 +1952,14 @@ fn worker_commands_and_senders_stop_over_independent_real_ssh_d96() -> Result<()
     path.push(":");
     path.push(std::env::var_os("PATH").unwrap_or_default());
     // U269: the child abandons its worker connection, as a hard-killed run does, so nothing retires the supervisor
-    // roots its sshd's bootstraps create. Its sshd records each one as the bootstrap answers; this guard retires them
-    // once the child has exited, whatever the child's outcome, and on a panic here too.
-    let roots = SupervisorRoots(fixture.path().join("supervisor-roots"));
+    // roots its real worker creates. Each is recorded before it is created; this guard retires them once the child has
+    // exited, whatever the child's outcome, and on a panic here too.
+    let mut roots = SupervisorRoots::new(fixture.path())?;
     let output = std::process::Command::new(std::env::current_exe()?)
         .args(["--exact", "real_worker_commands_and_senders_child"])
         .env("PATH", path)
         .env("MRS_D96_REAL_WORKER", "1")
-        .env("MRS_D96_ROOT_FILE", &roots.0)
+        .env("MRS_D96_ROOT_DIR", fixture.path())
         .output()?;
     let retired = roots.retire();
     assert!(
@@ -1978,31 +1978,119 @@ fn worker_commands_and_senders_stop_over_independent_real_ssh_d96() -> Result<()
     Ok(())
 }
 
-/// U269: the supervisor roots a loopback child's sshd recorded, one per line, retired as production retires one.
+/// U269: a Perl module the loopback child's sshd loads into every Perl its sessions run (through `PERL5OPT`). It wraps
+/// `mkdir`, which `File::Temp` calls when the worker's bootstrap (or `init`) creates a supervisor root: under a shared
+/// lock on the ledger's lock file, it records the root in the ledger before it creates it, and retracts it if the
+/// `mkdir` fails (the name was taken). A root is therefore on record before it exists, whenever the child or the
+/// session dies. Once the parent holds the lock exclusively, a creation under way has finished and a later one fails.
 #[cfg(target_os = "macos")]
-struct SupervisorRoots(std::path::PathBuf);
+const ROOT_LEDGER_MODULE: &str = r#"package U269Ledger;
+use strict;
+use warnings;
+use Fcntl qw(:flock);
+sub note {
+    open my $ledger, '>>', $ENV{MRS_U269_LEDGER} or die "open root ledger: $!";
+    print {$ledger} "@_\n" or die "write root ledger: $!";
+    close $ledger or die "close root ledger: $!";
+}
+BEGIN {
+    *CORE::GLOBAL::mkdir = sub (_;$) {
+        my ($path, @mode) = @_;
+        my $mode = @mode ? $mode[0] : 0777;
+        return CORE::mkdir($path, $mode) unless $path =~ m{\A/tmp/marathon-supervisor-};
+        open my $lock, '<', $ENV{MRS_U269_LOCK} or die "open root ledger lock: $!";
+        flock($lock, LOCK_SH | LOCK_NB) or die "the test is retiring its supervisor roots";
+        note("+ $path");
+        my $made = CORE::mkdir($path, $mode);
+        my $error = $!;
+        note("- $path") unless $made;
+        $! = $error;
+        return $made;
+    };
+}
+1;
+"#;
+
+/// U269: the supervisor roots a loopback child's real worker created, retired as production retires one.
+#[cfg(target_os = "macos")]
+struct SupervisorRoots {
+    dir: std::path::PathBuf,
+    /// The ledger's lock, held exclusively from the start of the retirement on: no root can be created after it.
+    closed: Option<std::fs::File>,
+    retiring: bool,
+}
 #[cfg(target_os = "macos")]
 impl SupervisorRoots {
-    /// The sshd's `ForceCommand`: records the root a supervisor bootstrap answers with, and runs every other command
-    /// as `sh -c` would, replacing itself.
-    fn force_command(file: &Path) -> String {
+    /// One hang guard for the whole retirement.
+    const HANG_GUARD: std::time::Duration = std::time::Duration::from_secs(60);
+
+    fn new(dir: &Path) -> std::io::Result<Self> {
+        std::fs::write(dir.join("U269Ledger.pm"), ROOT_LEDGER_MODULE)?;
+        std::fs::write(Self::lock(dir), "")?;
+        Ok(Self {
+            dir: dir.to_owned(),
+            closed: None,
+            retiring: false,
+        })
+    }
+    fn ledger(dir: &Path) -> std::path::PathBuf {
+        dir.join("supervisor-roots")
+    }
+    fn lock(dir: &Path) -> std::path::PathBuf {
+        dir.join("supervisor-roots.lock")
+    }
+    /// The child's sshd configuration lines that load the module into its sessions' Perl.
+    fn sshd_environment(dir: &Path) -> String {
         format!(
-            "#!/bin/sh\ncase \"$SSH_ORIGINAL_COMMAND\" in\n\"/usr/bin/perl -MMIME::Base64 -e \"*)\n  reply=$(/bin/sh -c \"$SSH_ORIGINAL_COMMAND\")\n  status=$?\n  printf '%s\\n' \"$reply\" | /usr/bin/sed -n 's/^MARATHON_D96_1 //p' >> '{}'\n  printf '%s\\n' \"$reply\"\n  exit $status ;;\nesac\nexec /bin/sh -c \"$SSH_ORIGINAL_COMMAND\"\n",
-            file.display()
+            "SetEnv PERL5OPT=\"-I{} -MU269Ledger\" MRS_U269_LEDGER=\"{}\" MRS_U269_LOCK=\"{}\"\n",
+            dir.display(),
+            Self::ledger(dir).display(),
+            Self::lock(dir).display()
         )
     }
-    /// Retires every recorded root: waits, under a hang guard, for the exclusive lock on its `supervisor.pl` that the
-    /// worker's operations hold shared while they run (the abandoned commands' owners outlive the child by a moment),
-    /// then runs the worker's own `retire`, which takes that lock again and removes the root.
-    fn retire(&self) -> std::io::Result<Vec<std::path::PathBuf>> {
-        let roots = match std::fs::read_to_string(&self.0) {
-            Ok(roots) => roots,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+    /// Runs `body` on its own thread and gives up at `deadline`.
+    fn bounded<T: Send + 'static>(
+        deadline: std::time::Instant,
+        what: &str,
+        body: impl FnOnce() -> std::io::Result<T> + Send + 'static,
+    ) -> std::io::Result<T> {
+        let (done, result) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = done.send(body());
+        });
+        result
+            .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+            .map_err(|_| std::io::Error::other(format!("{what}: still waiting after the hang guard")))?
+    }
+    fn flock(deadline: std::time::Instant, what: &str, file: std::fs::File) -> std::io::Result<std::fs::File> {
+        Self::bounded(deadline, what, move || {
+            rustix::fs::flock(&file, rustix::fs::FlockOperation::LockExclusive)?;
+            Ok(file)
+        })
+    }
+    /// Closes the ledger, then retires every recorded root that exists: waits for the exclusive lock on its
+    /// `supervisor.pl` that the worker's operations hold shared while they run (the abandoned commands' owners outlive
+    /// the child by a moment), then runs the worker's own `retire`, which takes that lock again and removes the root.
+    /// Every wait is under one hang guard, and it runs once: after a failure `Drop` does not retry.
+    fn retire(&mut self) -> std::io::Result<Vec<std::path::PathBuf>> {
+        self.retiring = true;
+        let deadline = std::time::Instant::now() + Self::HANG_GUARD;
+        let lock = std::fs::File::open(Self::lock(&self.dir))?;
+        self.closed = Some(Self::flock(deadline, "the root ledger", lock)?);
+        let ledger = match std::fs::read_to_string(Self::ledger(&self.dir)) {
+            Ok(ledger) => ledger,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
             Err(error) => return Err(error),
         };
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
-        let mut retired = Vec::new();
-        for root in roots.lines() {
+        let mut roots = Vec::new();
+        for line in ledger.lines() {
+            match line.split_once(' ') {
+                Some(("+", root)) => roots.push(root.to_owned()),
+                Some(("-", root)) => roots.retain(|recorded| recorded != root),
+                _ => return Err(std::io::Error::other(format!("not a ledger line: {line:?}"))),
+            }
+        }
+        for root in &roots {
             let valid = root.strip_prefix("/tmp/marathon-supervisor-").is_some_and(|suffix| {
                 suffix.len() == 10
                     && suffix
@@ -2016,20 +2104,25 @@ impl SupervisorRoots {
             loop {
                 let pinned = match std::fs::File::open(&script) {
                     Ok(pinned) => pinned,
-                    // Retired already (the child got as far as closing its connection).
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                    // Retired already (the child got as far as closing its connection), or never installed: the
+                    // bootstrap removes its root when it cannot install, and a bootstrap killed before that leaves the
+                    // empty directory.
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => match std::fs::remove_dir(root) {
+                        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
+                        _ => break,
+                    },
                     Err(error) => return Err(error),
                 };
-                let (locked, lock) = std::sync::mpsc::channel();
-                std::thread::spawn(move || {
-                    let _ = locked.send(rustix::fs::flock(&pinned, rustix::fs::FlockOperation::LockExclusive));
-                });
-                let wait = deadline.saturating_duration_since(std::time::Instant::now());
-                lock.recv_timeout(wait)
-                    .map_err(|_| std::io::Error::other(format!("{root} stayed in use")))??;
-                let output = std::process::Command::new("/usr/bin/perl")
+                drop(Self::flock(deadline, root, pinned)?);
+                let child = std::process::Command::new("/usr/bin/perl")
                     .args([&script, "retire", root, "60000"])
-                    .output()?;
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()?;
+                let pid = nix::unistd::Pid::from_raw(i32::try_from(child.id()).map_err(std::io::Error::other)?);
+                let output = Self::bounded(deadline, root, move || child.wait_with_output()).inspect_err(|_| {
+                    let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL);
+                })?;
                 match (output.status.success(), output.stdout.as_slice()) {
                     (true, b"MARATHON_D96_1 retired\n") => break,
                     // An operation started between the lock and the retirement; wait for it as well.
@@ -2037,16 +2130,14 @@ impl SupervisorRoots {
                     _ => return Err(std::io::Error::other(format!("{root}: {output:?}"))),
                 }
             }
-            retired.push(std::path::PathBuf::from(root));
         }
-        std::fs::remove_file(&self.0)?;
-        Ok(retired)
+        Ok(roots.into_iter().map(std::path::PathBuf::from).collect())
     }
 }
 #[cfg(target_os = "macos")]
 impl Drop for SupervisorRoots {
     fn drop(&mut self) {
-        if self.0.exists() {
+        if !self.retiring {
             let _ = self.retire();
         }
     }
@@ -2086,22 +2177,15 @@ async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::err
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
     let port = listener.local_addr()?.port();
     drop(listener);
-    // U269: the parent test retires the supervisor roots this sshd records.
-    let force = match std::env::var_os("MRS_D96_ROOT_FILE") {
-        Some(roots) => {
-            use std::os::unix::fs::PermissionsExt;
-            let command = server.path().join("force-command");
-            std::fs::write(&command, SupervisorRoots::force_command(Path::new(&roots)))?;
-            std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o700))?;
-            format!("ForceCommand {}\n", command.display())
-        }
-        None => String::new(),
-    };
+    // U269: the parent test retires the supervisor roots this sshd's sessions record.
+    let roots = std::env::var_os("MRS_D96_ROOT_DIR")
+        .map(|dir| SupervisorRoots::sshd_environment(Path::new(&dir)))
+        .unwrap_or_default();
     let config = server.path().join("sshd_config");
     std::fs::write(
         &config,
         format!(
-            "Port {port}\nListenAddress 127.0.0.1\nHostKey {}\nAuthorizedKeysFile {}\nPidFile {}\nUsePAM no\nStrictModes no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nMaxSessions 1\n{force}",
+            "Port {port}\nListenAddress 127.0.0.1\nHostKey {}\nAuthorizedKeysFile {}\nPidFile {}\nUsePAM no\nStrictModes no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nMaxSessions 1\n{roots}",
             host.display(),
             key.with_extension("pub").display(),
             server.path().join("pid").display(),
