@@ -94,6 +94,17 @@ impl FileBridge for Bridge {
             Ok(true)
         })
     }
+    fn receive_checked<'a>(
+        &'a self,
+        src: &'a str,
+        dst: &'a Path,
+        stop: marathon_apple::cmd::TransferStop,
+        check: marathon_apple::cmd::ReceiveCheck,
+    ) -> VendorFuture<'a, marathon_apple::cmd::Received> {
+        Box::pin(marathon_test_support::apple::staged_receive::receive_checked_in_stage(
+            self, src, dst, stop, check,
+        ))
+    }
 }
 pub async fn device(
     h: &simulator_support::Harness,

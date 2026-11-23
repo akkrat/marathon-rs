@@ -254,12 +254,12 @@ pub trait FileBridge: Send + Sync {
         let _ = stop;
         self.receive(src, dst)
     }
-    /// U267: `receive_with` of a file that is published only if `check` accepts it. The staging bridges run `check` on
-    /// the received file in its D97 stage, before the stage's cancellation-aware rename, so a rejected file never
-    /// reaches `dst` and any earlier file there stays.
+    /// U267: `receive_with` of a file that is published only if `check` accepts it. A bridge checks the received file
+    /// before it publishes it, so a rejected file never reaches `dst` and any earlier file there stays: the staging
+    /// bridges run `check` in the receive's D97 stage, on their blocking threads, before the stage's rename.
     ///
-    /// This default is for bridges that write in place, which only test doubles do: it checks the file where it
-    /// landed and removes it if rejected, inline.
+    /// A bridge that does not implement it cannot check before it publishes, so this default receives nothing and fails:
+    /// no bridge can inherit a receive that publishes first and checks afterwards.
     fn receive_checked<'a>(
         &'a self,
         src: &'a str,
@@ -267,17 +267,12 @@ pub trait FileBridge: Send + Sync {
         stop: TransferStop,
         check: ReceiveCheck,
     ) -> VendorFuture<'a, Received> {
+        let _ = (dst, stop, check);
         Box::pin(async move {
-            if !self.receive_with(src, dst, stop).await? {
-                return Ok(Received::NotReceived);
-            }
-            match check(dst).map_err(io_error)? {
-                Ok(()) => Ok(Received::Published),
-                Err(why) => {
-                    std::fs::remove_file(dst).map_err(io_error)?;
-                    Ok(Received::Rejected(why))
-                }
-            }
+            Err(VendorError::Other(failure(
+                FailureKind::IllegalState,
+                format!("This file bridge cannot check {src} before publishing it"),
+            )))
         })
     }
 }

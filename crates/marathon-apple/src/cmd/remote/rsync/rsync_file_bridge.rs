@@ -978,12 +978,8 @@ impl Inner {
         }
         let stopped = stop.cancellation_check();
         blocking(self.runtime.as_ref(), move || {
-            if stop.connection_stop().is_some() {
-                stage.discard();
-                return Ok(Received::NotReceived);
-            }
-            // U267: the check runs here, in the stage, before the rename that samples the stop.
-            stage.publish_checked(stopped, check)
+            // A lost connection is sampled before the rename as without a check, and (U267) again after the check.
+            stage.publish_checked(check, || stop.connection_stop().is_some(), stopped)
         })
         .await
     }

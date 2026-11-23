@@ -71,18 +71,37 @@ impl ArtifactStage {
 
     /// U267: publishes the received content only if `check` accepts it where it lies, in this stage; a rejected
     /// content is discarded with the stage, leaving the destination as it was.
+    ///
+    /// The delivery must still be valid once the check is done, by the same test as without one: `lost` (the
+    /// receive's connection, for the rsync bridge) is sampled before the check and again after it, and `stopped` after
+    /// it and at the rename, as `publish` does. A stop that comes while the check runs therefore ends the receive as it
+    /// would have just before it, whatever the check found.
     pub(crate) fn publish_checked(
         self,
-        stopped: impl FnOnce() -> Option<Cancellation>,
         check: Option<ReceiveCheck>,
+        mut lost: impl FnMut() -> bool,
+        stopped: impl Fn() -> Option<Cancellation>,
     ) -> VendorResult<Received> {
-        if let Some(check) = check
-            && let Err(why) = check(&self.content).map_err(io_error)?
-        {
+        if lost() {
             self.discard();
-            return Ok(Received::Rejected(why));
+            return Ok(Received::NotReceived);
         }
-        self.publish(stopped).map(|()| Received::Published)
+        let verdict = match check {
+            Some(check) => check(&self.content).map_err(io_error)?,
+            None => Ok(()),
+        };
+        if lost() {
+            self.discard();
+            return Ok(Received::NotReceived);
+        }
+        if let Err(why) = verdict {
+            self.discard();
+            return match stopped() {
+                Some(reason) => Err(VendorError::Cancelled(reason)),
+                None => Ok(Received::Rejected(why)),
+            };
+        }
+        self.publish(&stopped).map(|()| Received::Published)
     }
 
     fn publish_with(

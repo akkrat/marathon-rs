@@ -327,4 +327,15 @@ impl FileBridge for WorldFileBridge {
                 .map_err(harness_error)
         })
     }
+    fn receive_checked<'a>(
+        &'a self,
+        src: &'a str,
+        dst: &'a Path,
+        stop: marathon_apple::cmd::TransferStop,
+        check: marathon_apple::cmd::ReceiveCheck,
+    ) -> VendorFuture<'a, marathon_apple::cmd::Received> {
+        Box::pin(super::staged_receive::receive_checked_in_stage(
+            self, src, dst, stop, check,
+        ))
+    }
 }

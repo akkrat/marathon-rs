@@ -51,6 +51,17 @@ impl FileBridge for SlowFirstPull {
             Ok(true)
         })
     }
+    fn receive_checked<'a>(
+        &'a self,
+        src: &'a str,
+        dst: &'a Path,
+        stop: marathon_apple::cmd::TransferStop,
+        check: marathon_apple::cmd::ReceiveCheck,
+    ) -> VendorFuture<'a, marathon_apple::cmd::Received> {
+        Box::pin(marathon_test_support::apple::staged_receive::receive_checked_in_stage(
+            self, src, dst, stop, check,
+        ))
+    }
 }
 
 /// Records each foreground recorder start and its INT completion.

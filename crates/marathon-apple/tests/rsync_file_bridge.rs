@@ -1182,6 +1182,49 @@ fn checked_receive_child() {
                     .any(|entry| entry.file_name().to_string_lossy().starts_with(".marathon-artifact-"))
             );
         }
+        // A stop that comes while an accepting check runs ends the receive as it would have just before the check: a lost
+        // connection as a receive that did not complete, a cancellation as cancelled. Nothing is published.
+        let stage_left = || {
+            std::fs::read_dir(&root)
+                .unwrap()
+                .flatten()
+                .any(|entry| entry.file_name().to_string_lossy().starts_with(".marathon-artifact-"))
+        };
+        let (lose, loss) = tokio::sync::oneshot::channel::<marathon_core::error::Failure>();
+        let lost = TransferStop::never().or_lost(async move { loss.await.unwrap() });
+        let mut lose = Some(lose);
+        let losing: marathon_apple::cmd::ReceiveCheck = Box::new(move |path: &Path| {
+            assert_eq!(std::fs::read(path)?, b"movie");
+            let loss = marathon_apple::cmd::failure(FailureKind::Injected(InjectedKind::Lost), "gone");
+            lose.take().unwrap().send(loss).unwrap();
+            Ok(Ok(()))
+        });
+        std::fs::write(&movie, b"earlier").unwrap();
+        assert_eq!(
+            bridge
+                .receive_checked("/tmp/marathon/full.mp4", &movie, lost, losing)
+                .await,
+            Ok(Received::NotReceived)
+        );
+        assert_eq!(std::fs::read(&movie).unwrap(), b"earlier");
+        assert!(!stage_left());
+        let signal = marathon_core::executor::shared::Signal::new();
+        let reason = marathon_apple::cmd::cancelled("during the check");
+        let cancelling: marathon_apple::cmd::ReceiveCheck = {
+            let (signal, reason) = (signal.clone(), reason.clone());
+            Box::new(move |_: &Path| {
+                signal.cancel(reason);
+                Ok(Ok(()))
+            })
+        };
+        assert_eq!(
+            bridge
+                .receive_checked("/tmp/marathon/full.mp4", &movie, TransferStop::new(signal), cancelling)
+                .await,
+            Err(VendorError::Cancelled(reason))
+        );
+        assert_eq!(std::fs::read(&movie).unwrap(), b"earlier");
+        assert!(!stage_left());
         // Each check saw the received file in D97's own stage, one directory below the destination's, under its name.
         let checked = checked.lock().unwrap();
         assert_eq!(checked.len(), 2);
@@ -1199,7 +1242,8 @@ fn checked_receive_child() {
         }
     });
 }
-/// U267: a checked receive is checked in D97's stage, before its rename; a rejected file leaves the earlier one.
+/// U267: a checked receive is checked in D97's stage, before its rename; a rejected file leaves the earlier one, and a
+/// connection lost or a cancellation while the check runs publishes nothing.
 #[test]
 fn a_checked_receive_publishes_only_what_its_check_accepts_u267() {
     d91_round_1(

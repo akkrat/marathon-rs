@@ -108,7 +108,8 @@ fn receive(
         stage.seed_directory(&stopped)?;
     }
     copy_recursively(src, stage.content(), overwrite, &stopped)?;
-    stage.publish_checked(stopped, check)
+    // A local copy has no connection to lose.
+    stage.publish_checked(check, || false, stopped)
 }
 
 impl JvmFileBridge {
