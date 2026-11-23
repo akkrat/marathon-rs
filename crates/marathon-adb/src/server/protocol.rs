@@ -20,11 +20,19 @@ const MAX_REQUEST_LENGTH: usize = 1024 * 1024;
 /// Reads one `<4 hex digits><payload>` request. Returns `None` on a clean EOF before the first byte.
 ///
 /// adam sends the length with `%04X` and the real client with `%04x`, so both cases are accepted.
+///
+/// U268: a client that abandons the connection before the first byte, with the server's last answer still unread,
+/// resets it instead of closing it. Like the clean EOF, that is a hang-up between requests, not an unfinished
+/// exchange, so the error is marked as the client hanging up.
 pub(crate) async fn read_request<R: AsyncRead + Unpin>(r: &mut R) -> io::Result<Option<String>> {
     let mut len = [0u8; 4];
     let mut got = 0;
     while got < 4 {
-        let n = r.read(&mut len[got..]).await?;
+        let n = match r.read(&mut len[got..]).await {
+            Ok(n) => n,
+            Err(e) if got == 0 => return Err(super::device::output_cancelled(e)),
+            Err(e) => return Err(e),
+        };
         if n == 0 {
             return if got == 0 {
                 Ok(None)

@@ -242,7 +242,8 @@ async fn supervise(
                                 match r {
                                     Ok(()) => {}
                                     // The client stopped listening to a command's output, as marathon does
-                                    // when it stops a logcat stream or abandons a batch: not a server problem.
+                                    // when it stops a logcat stream or abandons a batch, or hung up between
+                                    // requests, as a cancelled command can (U268): not a server problem.
                                     // Every other unfinished exchange (an upload, a sync transfer) warns.
                                     Err(e) if device::is_output_cancelled(&e) => world.transcript.record(json!({
                                         "type": "event",
@@ -367,7 +368,12 @@ async fn connection(world: Arc<World>, stream: TcpStream, conn: u64) -> io::Resu
             .transcript
             .record(json!({"type": "request", "conn": conn, "serial": serial, "service": req}));
         if transport.is_none() && host::is_host_service(&req) {
-            match host::handle(&world, &req, &mut wr).await? {
+            // U268: a client that gives up while its host request is answered, such as a cancelled command in its
+            // transport switch, hangs up; nothing it sent is left unfinished.
+            match host::handle(&world, &req, &mut wr)
+                .await
+                .map_err(device::output_cancelled)?
+            {
                 host::HostOutcome::Done => return device::close(rd, wr).await,
                 host::HostOutcome::Transport(t) => transport = Some(t),
                 host::HostOutcome::Track { long } => return host::track(&world, long, &mut rd, &mut wr).await,

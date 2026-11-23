@@ -1215,6 +1215,49 @@ devices: [{ serial: d1, shell: [ { prefix: "am instrument", stdout_file: big.txt
     assert_eq!(server.warnings(), 0, "{:?}", records(&server, "warning"));
 }
 
+/// U268: a command cancelled in its transport switch drops the connection with the server's OKAY possibly unread, so
+/// the server sees a reset where a clean close would have been. Either way the client hung up between requests. A
+/// reset in the middle of a request is still an unfinished exchange.
+#[tokio::test]
+async fn a_client_resetting_between_requests_is_not_a_warning_u268() {
+    for (read_okay, partial, warnings) in [(true, false, 0), (false, false, 0), (true, true, 1)] {
+        let server = start("server: { strict: true }\ndevices: [{ serial: d1 }]\n").await;
+        let mut c = Client::connect(server.port()).await;
+        c.send("host:transport:d1").await;
+        if read_okay {
+            c.status().await.unwrap();
+        } else {
+            let deadline = std::time::Instant::now() + TIMEOUT;
+            while !records(&server, "request")
+                .iter()
+                .any(|r| r["service"] == "host:transport:d1")
+            {
+                assert!(std::time::Instant::now() < deadline, "{:?}", server.transcript());
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }
+        if partial {
+            c.write(b"00").await;
+        }
+        #[allow(deprecated)]
+        c.s.set_linger(Some(Duration::ZERO)).unwrap();
+        drop(c);
+        let deadline = std::time::Instant::now() + TIMEOUT;
+        while records(&server, "event").iter().all(|e| e["event"] != "client_closed")
+            && records(&server, "warning").is_empty()
+        {
+            assert!(std::time::Instant::now() < deadline, "{:?}", server.transcript());
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(
+            server.warnings(),
+            warnings,
+            "{read_okay} {partial} {:?}",
+            server.transcript()
+        );
+    }
+}
+
 #[tokio::test]
 async fn a_reset_during_an_upload_warns_in_strict_mode() {
     let server = start(
