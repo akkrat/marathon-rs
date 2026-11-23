@@ -1980,14 +1980,16 @@ fn worker_commands_and_senders_stop_over_independent_real_ssh_d96() -> Result<()
 
 /// U269: a Perl module the loopback child's sshd loads into every Perl its sessions run (through `PERL5OPT`). It wraps
 /// `mkdir`, which `File::Temp` calls when the worker's bootstrap (or `init`) creates a supervisor root: under a shared
-/// lock on the ledger's lock file, it records the root in the ledger before it creates it, and retracts it if the
-/// `mkdir` fails (the name was taken). A root is therefore on record before it exists, whenever the child or the
-/// session dies. Once the parent holds the lock exclusively, a creation under way has finished and a later one fails.
+/// lock on the ledger's lock file, it records the attempt in the ledger before it creates the root, and retracts that
+/// attempt alone if the `mkdir` fails (the name was taken, by another attempt or by another process, whose root is not
+/// this test's to retire). A root is therefore on record before it exists, whenever the child or the session dies.
+/// Once the parent holds the lock exclusively, a creation under way has finished and a later one fails.
 #[cfg(target_os = "macos")]
 const ROOT_LEDGER_MODULE: &str = r#"package U269Ledger;
 use strict;
 use warnings;
 use Fcntl qw(:flock);
+my $attempts = 0;
 sub note {
     open my $ledger, '>>', $ENV{MRS_U269_LEDGER} or die "open root ledger: $!";
     print {$ledger} "@_\n" or die "write root ledger: $!";
@@ -2000,10 +2002,12 @@ BEGIN {
         return CORE::mkdir($path, $mode) unless $path =~ m{\A/tmp/marathon-supervisor-};
         open my $lock, '<', $ENV{MRS_U269_LOCK} or die "open root ledger lock: $!";
         flock($lock, LOCK_SH | LOCK_NB) or die "the test is retiring its supervisor roots";
-        note("+ $path");
+        # Unique among the sshd's sessions: a process id with this process's own count.
+        my $attempt = "$$." . ++$attempts;
+        note("+ $attempt $path");
         my $made = CORE::mkdir($path, $mode);
         my $error = $!;
-        note("- $path") unless $made;
+        note("- $attempt $path") unless $made;
         $! = $error;
         return $made;
     };
@@ -2048,6 +2052,19 @@ impl SupervisorRoots {
             Self::lock(dir).display()
         )
     }
+    /// The roots the ledger holds. Each attempt is keyed by its id; a failed one drops only its own record, so a root
+    /// another attempt created under the same name stays recorded.
+    fn recorded(ledger: &str) -> std::io::Result<std::collections::BTreeSet<String>> {
+        let mut attempts = std::collections::BTreeMap::new();
+        for line in ledger.lines() {
+            match line.splitn(3, ' ').collect::<Vec<_>>()[..] {
+                ["+", attempt, root] if attempts.insert(attempt.to_owned(), root.to_owned()).is_none() => {}
+                ["-", attempt, root] if attempts.remove(attempt).as_deref() == Some(root) => {}
+                _ => return Err(std::io::Error::other(format!("not a ledger line: {line:?}"))),
+            }
+        }
+        Ok(attempts.into_values().collect())
+    }
     /// Runs `body` on its own thread and gives up at `deadline`.
     fn bounded<T: Send + 'static>(
         deadline: std::time::Instant,
@@ -2082,14 +2099,7 @@ impl SupervisorRoots {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
             Err(error) => return Err(error),
         };
-        let mut roots = Vec::new();
-        for line in ledger.lines() {
-            match line.split_once(' ') {
-                Some(("+", root)) => roots.push(root.to_owned()),
-                Some(("-", root)) => roots.retain(|recorded| recorded != root),
-                _ => return Err(std::io::Error::other(format!("not a ledger line: {line:?}"))),
-            }
-        }
+        let roots = Self::recorded(&ledger)?;
         for root in &roots {
             let valid = root.strip_prefix("/tmp/marathon-supervisor-").is_some_and(|suffix| {
                 suffix.len() == 10
@@ -2134,6 +2144,35 @@ impl SupervisorRoots {
         Ok(roots.into_iter().map(std::path::PathBuf::from).collect())
     }
 }
+/// U269: a failed attempt retracts only its own record. Two attempts at one name, the second failing because the first
+/// took it, used to retract both and leave the first's root unretired.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_failed_root_attempt_keeps_another_attempts_root_u269() {
+    let x = "/tmp/marathon-supervisor-AAAAAAAAAA";
+    let y = "/tmp/marathon-supervisor-BBBBBBBBBB";
+    let recorded = |ledger: &str| {
+        SupervisorRoots::recorded(ledger)
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(recorded(&format!("+ 10.1 {x}\n+ 11.1 {x}\n- 11.1 {x}\n")), [x]);
+    assert_eq!(recorded(&format!("+ 10.1 {x}\n- 10.1 {x}\n+ 10.2 {y}\n")), [y]);
+    assert_eq!(recorded(&format!("+ 10.1 {x}\n+ 10.2 {y}\n")), [x, y]);
+    assert_eq!(recorded(""), Vec::<String>::new());
+    // A retraction must match its own attempt, and an attempt is recorded once.
+    for ledger in [
+        format!("- 10.1 {x}\n"),
+        format!("+ 10.1 {x}\n- 10.2 {x}\n"),
+        format!("+ 10.1 {x}\n- 10.1 {y}\n"),
+        format!("+ 10.1 {x}\n+ 10.1 {y}\n"),
+        format!("+ {x}\n"),
+    ] {
+        assert!(SupervisorRoots::recorded(&ledger).is_err(), "{ledger:?}");
+    }
+}
+
 #[cfg(target_os = "macos")]
 impl Drop for SupervisorRoots {
     fn drop(&mut self) {
