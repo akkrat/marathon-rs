@@ -208,9 +208,13 @@ Fix, test only (round 3):
   module, and the ledger and lock paths (`SetEnv`), so every command still runs as sshd would run it. The module
   wraps `mkdir`, which `File::Temp` calls when the worker's bootstrap (or its `init` mode) creates
   `/tmp/marathon-supervisor-XXXXXXXXXX`. Under a shared lock on the lock file it calls the real `mkdir` and, only if
-  that succeeded, appends `+ <attempt> <root>` to the ledger (the attempt id is the Perl process id with that
-  process's own count). `mkdir` fails on a name that exists, so only roots this test's sessions created are ever
-  recorded: a root another process owns can never be retired by this test. Earlier rounds recorded the attempt
+  that succeeded, appends `+ <attempt> <root> <inode>` to the ledger (the attempt id is the Perl process id with that
+  process's own count; the inode from `lstat` right after the `mkdir`). `mkdir` fails on a name that exists, so only
+  roots this test's sessions created are recorded. The parent acts on a record only while the name still holds that
+  inode, checked before the lock wait and again right before each removal; a record without an inode is never acted
+  on. What remains is the moment between that last check and `retire` (or `rmdir`) running: a root removed and its
+  10-character random name reused by another process within it would be retired. That is a test-only residual we
+  accept. Earlier rounds recorded the attempt
   before the `mkdir` and retracted it on failure; the fourth review showed a session killed between a failed `mkdir`
   and its retraction would leave another process's root on record, so the orchestrator chose record-after-create:
   the only cost is that a session killed between its successful `mkdir` and the record leaks that one root. The record

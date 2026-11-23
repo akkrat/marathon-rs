@@ -2126,18 +2126,25 @@ impl SupervisorRoots {
             if !valid {
                 return Err(std::io::Error::other(format!("not a supervisor root: {root:?}")));
             }
-            // A root that is gone needs nothing; a name that now holds another directory (removed, then reused by
-            // another process) is not this test's to retire.
-            if let Some(inode) = inode {
+            // Only a directory that still holds the inode it was created with is this test's: a record without one
+            // (its `lstat` failed) is never acted on, and a name that now holds another directory (removed, then
+            // reused by another process) is skipped. The identity is checked again right before each removal, after
+            // any lock wait.
+            let Some(inode) = *inode else { continue };
+            let ours = || -> std::io::Result<Option<bool>> {
                 use std::os::unix::fs::MetadataExt;
                 match std::fs::symlink_metadata(root) {
-                    Ok(meta) if meta.ino() == *inode => {}
-                    Ok(_) => continue,
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                        roots.push(root.clone());
-                        continue;
-                    }
-                    Err(error) => return Err(error),
+                    Ok(meta) => Ok(Some(meta.ino() == inode)),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                    Err(error) => Err(error),
+                }
+            };
+            match ours()? {
+                Some(true) => {}
+                Some(false) => continue,
+                None => {
+                    roots.push(root.clone());
+                    continue;
                 }
             }
             roots.push(root.clone());
@@ -2148,13 +2155,19 @@ impl SupervisorRoots {
                     // Retired already (the child got as far as closing its connection), or never installed: the
                     // bootstrap removes its root when it cannot install, and a bootstrap killed before that leaves the
                     // empty directory.
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => match std::fs::remove_dir(root) {
-                        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => match ours()? {
+                        Some(true) => match std::fs::remove_dir(root) {
+                            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
+                            _ => break,
+                        },
                         _ => break,
                     },
                     Err(error) => return Err(error),
                 };
                 drop(Self::flock(deadline, root, pinned)?);
+                if ours()? != Some(true) {
+                    break;
+                }
                 let child = std::process::Command::new("/usr/bin/perl")
                     .args([&script, "retire", root, "60000"])
                     .stdout(std::process::Stdio::piped())
