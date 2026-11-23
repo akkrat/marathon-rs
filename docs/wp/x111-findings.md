@@ -2,8 +2,8 @@
 
 Base `281c4005`. Worker-side implementation detail of D96. The worker commands, their protocol, outputs and
 receipts, the controller and the run outcomes are unchanged except in two documented windows: at an expiry or KILL cutoff
-an exit status already visible at the owner's exit check wins, and one reported later is treated as expired (base
-could accept one up to its 25 ms poll after the expiry; see [Exit or deadline](#exit-or-deadline-which-receipt)); and
+an exit status already visible at the owner's exit check wins; otherwise the owner applies its expiry and escalation
+rules (base could accept an exit up to its 25 ms poll after the expiry; see [Exit or deadline](#exit-or-deadline-which-receipt)); and
 an owner that resumes after a cutoff and waits using an earlier clock reading has that wait capped at 100 ms instead
 of 25 ms (a cap on the wait, not a reaction guarantee). No D-row (orchestrator decision, round 6): the lease
 expiry is the controller's deadline, so an exit after it is late by definition, and base's 25 ms was its poll
@@ -37,7 +37,8 @@ rules exactly as before. What changed is how it sleeps between passes and how it
   `next_wake`, so a test can drive it with a controlled clock.
 - **Why a cap and no timer** (round 5): `select`'s timeout is relative, so an owner descheduled after choosing its
   sleep sleeps the rest of it after resuming. Capping every sleep at C bounds that: after any descheduling, the owner
-  runs a pass with a fresh clock sample within C of resuming (the old loop: within 25 ms). Round 4 instead ended the
+  starts no wait longer than C from a stale clock reading (the old loop: 25 ms). A wait chosen from a stale reading is
+  capped at C; this is a cap on the wait, not a reaction guarantee. Round 4 instead ended the
   sleep with a kernel interval timer (`setitimer`, `SIGALRM`); the fourth review still found stale sleeps (a stall
   between the timer's clock readings left up to 1.5 s of stale sleep) and the timer's interactions with signal
   delivery kept producing edge cases. The cap needs no signal, no timer state and no re-arming, and nothing it adds
@@ -61,8 +62,8 @@ Base rule (`281c4005`): each pass samples the clock and checks force (lease expi
 25 ms on the status pipe; an exit seen in that wait is taken at once. So an exit is reported if it reaches the owner
 before the end of the status wait of a pass whose sample was before the expiry.
 
-New rule (round 5): each pass checks the status pipe (non-blocking) right before its one clock sample. An exit the
-anchor reported before that sample wins: the pass takes its status and ends the loop before any expiry or KILL
+New rule (round 5): each pass checks the status pipe (non-blocking) right before its one clock sample. An exit status
+already visible at that check wins: the pass takes its status and ends the loop before any expiry or KILL
 decision. An exit reported after the sample is the next pass's; this pass decides from its sample exactly as base did
 (force first). The pass's `select` also watches the status pipe, so an exit wakes the owner at once and the next
 pass, which starts with the check, takes it.
@@ -71,9 +72,9 @@ How the two rules compare:
 
 - **Owner not descheduled (the post-expiry window; accepted, round 6):** an exit before the expiry wakes the owner
   and is taken. At the expiry the owner wakes from its deadline timeout, checks the status pipe, samples the clock
-  and kills unless the exit was reported before that sample. So **an exit reported after the lease expiry is now
-  treated as expired unless it is reported before the owner's first pass after the expiry samples the clock**: the
-  scheduling latency between the expiry and that sample, including the 10 ms sleep floor when the expiry fell inside
+  and applies the expiry unless an exit status was already visible at that check. So **an exit reported after the lease
+  expiry wins only if it is visible at the exit check of the owner's first pass after the expiry**; otherwise the
+  owner applies its expiry and escalation rules: the scheduling latency between the expiry and that check, including the 10 ms sleep floor when the expiry fell inside
   it, can still admit one. Base decided force at the start of a pass and then waited up to 25 ms on the status pipe, so an exit
   reported up to one such wait after the expiry (up to about 25 ms) could still be taken. The fifth review's probe:
   base accepted an exit 21.5 ms after the expiry (`done:0`); round 5 killed at the expiry + 3.1 ms (`done:137`).
@@ -313,8 +314,8 @@ The cap at 100 ms cuts the idle cost to about 40 % of the base (about 0.23 to 0.
 process per minute; for a batch of about 110 s, about 0.45 CPU-s less for the xcodebuild command's supervisor and the
 same again for each recorder supervisor beside it). It is less than the 4× fall in passes because a pass now also
 checks the exit and builds a larger descriptor set. C = 250 ms would halve the remaining cost at the price of
-2.5 times the lateness bound after a descheduling; C = 100 ms is kept because its saving is not negligible and it
-keeps that bound near base's 25 ms.
+2.5 times the cap on a wait chosen from a stale clock reading after a descheduling; C = 100 ms is kept because its
+saving is not negligible and it keeps that cap near base's 25 ms.
 
 The trade-off against round 4: its kernel timer allowed a 1 s fallback, which cost about 0.02 to 0.03 CPU-s per idle
 minute (round 1 measured 0.01 to 0.02 directly and 0.02 over a loopback sshd with the 1 s fallback, against 0.21 to

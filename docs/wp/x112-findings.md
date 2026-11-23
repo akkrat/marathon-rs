@@ -35,6 +35,10 @@ clock reading (it also covers a pause before the wait starts); the escalation ru
 what makes TERM and KILL due, also in the carried D96 limit, which said "up to 3 s"; the intro qualifies unchanged
 results by the timing edges; the x111 findings' summary uses the same exit-check rule and calls 100 ms a cap.
 
+A last small check (another model) asked for three wording fixes, taken: the carried D96 limit states the full
+escalation rule; the x111 findings say an exit visible at the exit check wins and otherwise the expiry and escalation
+rules apply, and call 100 ms a cap on a wait chosen from a stale clock reading.
+
 ## Incidental bugs
 
 The zero-byte short video above.

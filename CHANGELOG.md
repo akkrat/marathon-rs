@@ -80,8 +80,9 @@ else is as in [0.15.3](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG
   commands) can leave xcodebuild running there; a close that needed KILL logs a warning naming the command, also with
   `debug: false` (D30, U183). With Perl, the worker's supervisor ends the command's group when its lease runs out
   without a renewal: 79 s by default from admission or the last successful renewal, extended once by a renewal already
-  in flight; for a recorder still running, a 2 s timer starts when the supervisor first sees the expiry, then TERM, and
-  KILL at least 1 s after TERM; a frozen worker does so only once it runs again (D96).
+  in flight. For a launched recorder still running, a 2 s timer starts when the supervisor first sees a stop request or
+  an expired lease; after it, TERM is sent if escalation was requested or the lease expired, and KILL needs a hard
+  stop or an expired lease and at least 1 s since TERM. A frozen worker does so only once it runs again (D96).
 - Xcode's shared service hosts, such as `DTServiceHub`, that xcodebuild starts in groups of their own can outlive a run,
   locally and on a worker. That is on purpose: other Xcode sessions use them (D96).
 - A failed readiness probe costs a simulator about 9 to 12 minutes with the defaults while another simulator keeps the
