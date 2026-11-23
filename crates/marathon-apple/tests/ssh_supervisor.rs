@@ -1974,6 +1974,7 @@ fn worker_commands_and_senders_stop_over_independent_real_ssh_d96() -> Result<()
 }
 
 /// U269: removes the supervisor root the loopback child recorded in `file`, if it got as far as recording one.
+#[cfg(target_os = "macos")]
 fn remove_supervisor_root(file: &Path) -> std::io::Result<Option<std::path::PathBuf>> {
     let root = match std::fs::read_to_string(file) {
         Ok(root) => root,
@@ -1988,6 +1989,20 @@ fn remove_supervisor_root(file: &Path) -> std::io::Result<Option<std::path::Path
     });
     if !valid {
         return Err(std::io::Error::other(format!("not a supervisor root: {root:?}")));
+    }
+    // The abandoned commands' owners outlive the child by a moment and still write their receipts into the root, so
+    // it is removed only once no process runs the root's script. The bound is a hang guard.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let running = std::process::Command::new("/usr/bin/pgrep")
+            .args(["-f", &format!("{root}/supervisor.pl")])
+            .stdout(std::process::Stdio::null())
+            .status()?;
+        match running.code() {
+            Some(1) => break,
+            Some(0) if std::time::Instant::now() < deadline => std::thread::sleep(std::time::Duration::from_millis(25)),
+            _ => return Err(std::io::Error::other(format!("{root}: pgrep {running}"))),
+        }
     }
     let root = std::path::PathBuf::from(root);
     std::fs::remove_dir_all(&root)?;
@@ -2087,7 +2102,7 @@ async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::err
     // removes that root once this child has exited.
     let parent = executor
         .critical_execute(
-            CommandRequest::new(["/bin/sh", "-c", "ps -o args= -p $PPID"], duration(15000)),
+            CommandRequest::new(["/bin/sh", "-c", "ps -ww -o args= -p $PPID"], duration(15000)),
             context(),
         )
         .await
