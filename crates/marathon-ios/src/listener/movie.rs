@@ -21,7 +21,7 @@ pub enum Incomplete {
     Truncated,
     /// No top-level `moov`: the sample tables a player needs were never written, as when the writer did not finalize.
     NoMovieBox,
-    /// A `moov` without `mvhd` or without any `trak`: a header with nothing to play.
+    /// Only empty `moov` boxes: a header with nothing in it.
     EmptyMovieBox,
     /// No `mdat` with any bytes in it: there is no media to play.
     NoMediaData,
@@ -34,7 +34,7 @@ impl Incomplete {
             Self::Empty => "the recording is empty",
             Self::Truncated => "the recording is not a complete movie (it is cut short)",
             Self::NoMovieBox => "the recording is not a complete movie (it has no moov box)",
-            Self::EmptyMovieBox => "the recording is not a complete movie (its moov box has no track)",
+            Self::EmptyMovieBox => "the recording is not a complete movie (its moov box is empty)",
             Self::NoMediaData => "the recording is not a complete movie (it has no media data)",
             Self::NotAMovie => "the recording is not a movie",
         }
@@ -113,14 +113,17 @@ impl Boxes {
     }
 }
 
-/// Checks an MP4 or QuickTime file by its box structure: every top-level box lies within the file, a `moov` holds an
-/// `mvhd` and at least one `trak`, and an `mdat` holds at least one byte. It reads box headers only, so it costs no
-/// worker command, needs no ffmpeg and reads none of the media; its work is bounded by the file's size (a box takes at
-/// least 8 bytes), not by a box count, so that no complete movie is rejected for having many fragments. Blocking.
+/// Checks an MP4 or QuickTime file by its top-level box structure: every top-level box is well formed and lies within
+/// the file, a `moov` holds at least one byte and an `mdat` holds at least one byte. It reads box headers only, so it
+/// costs no worker command, needs no ffmpeg and reads none of the media; its work is bounded by the file's size (a box
+/// takes at least 8 bytes), not by a box count, so that no complete movie is rejected for having many fragments.
+/// Blocking.
 ///
-/// An `mdat` with no bytes is rejected: whatever the sample tables say, there is nothing to decode, which is what a
-/// writer stopped right after its first header leaves. A fragmented MP4 keeps its samples in later `mdat`s, so one
-/// non-empty `mdat` anywhere is enough.
+/// It does not look inside the `moov`: a legal one need not hold an `mvhd` or a `trak` directly (QuickTime's compressed
+/// `cmov` holds them deflated), and the failures seen (a 0-byte file, a movie cut short, an empty `moov` or `mdat`) are
+/// all visible at the top level. An `mdat` with no bytes is rejected: there is nothing to decode, which is what a writer
+/// stopped right after its first header leaves. A fragmented MP4 keeps its samples in later `mdat`s, so one non-empty
+/// `mdat` anywhere is enough.
 pub fn check(path: &Path) -> io::Result<Result<(), Incomplete>> {
     let file = fs::File::open(path)?;
     let len = file.metadata()?.len();
@@ -132,6 +135,7 @@ pub fn check(path: &Path) -> io::Result<Result<(), Incomplete>> {
         at: 0,
     };
     let mut offset = 0u64;
+    // `None` until a `moov` is seen, then whether any `moov` holds a byte.
     let (mut movie, mut media) = (None, false);
     while offset < len {
         let b = match file.header(offset, len)? {
@@ -139,33 +143,17 @@ pub fn check(path: &Path) -> io::Result<Result<(), Incomplete>> {
             Err(why) => return Ok(Err(why)),
         };
         match &b.kind {
-            b"moov" if movie.is_none() => movie = Some((b.body, b.end)),
+            b"moov" => movie = Some(movie.unwrap_or(false) | (b.end > b.body)),
             b"mdat" => media |= b.end > b.body,
             _ => {}
         }
         offset = b.end;
     }
-    let Some((body, end)) = movie else {
-        return Ok(Err(Incomplete::NoMovieBox));
-    };
-    if !media {
-        return Ok(Err(Incomplete::NoMediaData));
-    }
-    let mut offset = body;
-    let (mut header_box, mut track) = (false, false);
-    while offset < end {
-        let b = match file.header(offset, end)? {
-            Ok(b) => b,
-            Err(why) => return Ok(Err(why)),
-        };
-        header_box |= &b.kind == b"mvhd";
-        track |= &b.kind == b"trak";
-        offset = b.end;
-    }
-    Ok(if header_box && track {
-        Ok(())
-    } else {
-        Err(Incomplete::EmptyMovieBox)
+    Ok(match (movie, media) {
+        (None, _) => Err(Incomplete::NoMovieBox),
+        (Some(false), _) => Err(Incomplete::EmptyMovieBox),
+        (Some(true), false) => Err(Incomplete::NoMediaData),
+        (Some(true), true) => Ok(()),
     })
 }
 
@@ -248,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    fn a_movie_needs_a_track_and_media_data() {
+    fn a_movie_needs_a_non_empty_moov_and_media_data() {
         let mdat = boxed(b"mdat", b"data");
         let with = |moov: Vec<u8>, mdat: &[u8]| {
             let mut out = ftyp();
@@ -258,19 +246,6 @@ mod tests {
         };
         assert_eq!(with(moov(), &mdat), Ok(()));
         assert_eq!(with(boxed(b"moov", b""), &mdat), Err(Incomplete::EmptyMovieBox));
-        assert_eq!(
-            with(boxed(b"moov", &boxed(b"mvhd", &[0; 100])), &mdat),
-            Err(Incomplete::EmptyMovieBox)
-        );
-        assert_eq!(
-            with(boxed(b"moov", &boxed(b"trak", b"")), &mdat),
-            Err(Incomplete::EmptyMovieBox)
-        );
-        // A child running past its moov is cut short, even though the file goes on.
-        let mut overrun = boxed(b"mvhd", &[0; 100]);
-        overrun.extend_from_slice(&64u32.to_be_bytes());
-        overrun.extend_from_slice(b"trak");
-        assert_eq!(with(boxed(b"moov", &overrun), &mdat), Err(Incomplete::Truncated));
         assert_eq!(with(moov(), b""), Err(Incomplete::NoMediaData));
         assert_eq!(with(moov(), &boxed(b"mdat", b"")), Err(Incomplete::NoMediaData));
         // A fragmented movie: an empty first mdat is fine when a later one holds the samples.
@@ -281,7 +256,24 @@ mod tests {
     }
 
     #[test]
-    fn many_fragments_or_tracks_are_no_reason_to_reject_a_movie() {
+    fn the_inside_of_a_moov_is_not_checked() {
+        let with = |moov: Vec<u8>| {
+            let mut out = ftyp();
+            out.extend(moov);
+            out.extend(boxed(b"mdat", b"data"));
+            checked(&out)
+        };
+        // A QuickTime movie with a compressed movie header: its `mvhd` and `trak`s are deflated inside `cmov`, which
+        // ffmpeg decodes. Round 3 required them directly under `moov` and rejected this legal file.
+        let mut cmov = boxed(b"dcom", b"zlib");
+        cmov.extend(boxed(b"cmvd", &[0, 0, 0, 200, 0x78, 0x9c, 3, 0]));
+        assert_eq!(with(boxed(b"moov", &boxed(b"cmov", &cmov))), Ok(()));
+        // Nor is the structure of its children: a top-level check accepts any non-empty payload.
+        assert_eq!(with(boxed(b"moov", b"anything")), Ok(()));
+    }
+
+    #[test]
+    fn many_fragments_are_no_reason_to_reject_a_movie() {
         // 200 000 one-sample fragments, as a fragmented recording of nearly two hours at 30 fps has: 400 000 top-level
         // boxes after the moov, four times round 2's cap, which rejected a complete 50 000-fragment movie.
         let mut fragments = ftyp();
@@ -291,15 +283,6 @@ mod tests {
             fragments.extend_from_slice(&fragment);
         }
         assert_eq!(checked(&fragments), Ok(()));
-        // 10 000 tracks inside the moov.
-        let mut tracks = boxed(b"mvhd", &[0; 100]);
-        for _ in 0..10_000 {
-            tracks.extend(boxed(b"trak", b""));
-        }
-        let mut wide = ftyp();
-        wide.extend(boxed(b"moov", &tracks));
-        wide.extend(boxed(b"mdat", b"data"));
-        assert_eq!(checked(&wide), Ok(()));
     }
 
     #[test]
