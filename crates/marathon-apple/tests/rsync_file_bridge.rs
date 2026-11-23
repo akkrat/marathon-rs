@@ -1221,8 +1221,51 @@ fn checked_receive_child() {
             bridge
                 .receive_checked("/tmp/marathon/full.mp4", &movie, TransferStop::new(signal), cancelling)
                 .await,
+            Err(VendorError::Cancelled(reason.clone()))
+        );
+        assert_eq!(std::fs::read(&movie).unwrap(), b"earlier");
+        assert!(!stage_left());
+        // The same holds for a check that fails to read the file: the stop that came while it ran decides, not its error.
+        let signal = marathon_core::executor::shared::Signal::new();
+        let failing: marathon_apple::cmd::ReceiveCheck = {
+            let (signal, reason) = (signal.clone(), reason.clone());
+            Box::new(move |_: &Path| {
+                signal.cancel(reason);
+                Err(std::io::Error::other("unreadable"))
+            })
+        };
+        assert_eq!(
+            bridge
+                .receive_checked("/tmp/marathon/full.mp4", &movie, TransferStop::new(signal), failing)
+                .await,
             Err(VendorError::Cancelled(reason))
         );
+        assert_eq!(std::fs::read(&movie).unwrap(), b"earlier");
+        assert!(!stage_left());
+        let (lose, loss) = tokio::sync::oneshot::channel::<marathon_core::error::Failure>();
+        let lost = TransferStop::never().or_lost(async move { loss.await.unwrap() });
+        let mut lose = Some(lose);
+        let failing: marathon_apple::cmd::ReceiveCheck = Box::new(move |_: &Path| {
+            let loss = marathon_apple::cmd::failure(FailureKind::Injected(InjectedKind::Lost), "gone");
+            lose.take().unwrap().send(loss).unwrap();
+            Err(std::io::Error::other("unreadable"))
+        });
+        assert_eq!(
+            bridge
+                .receive_checked("/tmp/marathon/full.mp4", &movie, lost, failing)
+                .await,
+            Ok(Received::NotReceived)
+        );
+        assert_eq!(std::fs::read(&movie).unwrap(), b"earlier");
+        assert!(!stage_left());
+        // With no stop, the check's own failure is the receive's.
+        let failing: marathon_apple::cmd::ReceiveCheck = Box::new(|_: &Path| Err(std::io::Error::other("unreadable")));
+        assert!(matches!(
+            bridge
+                .receive_checked("/tmp/marathon/full.mp4", &movie, TransferStop::never(), failing)
+                .await,
+            Err(VendorError::Other(_))
+        ));
         assert_eq!(std::fs::read(&movie).unwrap(), b"earlier");
         assert!(!stage_left());
         // Each check saw the received file in D97's own stage, one directory below the destination's, under its name.
@@ -1243,7 +1286,8 @@ fn checked_receive_child() {
     });
 }
 /// U267: a checked receive is checked in D97's stage, before its rename; a rejected file leaves the earlier one, and a
-/// connection lost or a cancellation while the check runs publishes nothing.
+/// connection lost or a cancellation while the check runs publishes nothing and decides the outcome, even over the
+/// check's own I/O error.
 #[test]
 fn a_checked_receive_publishes_only_what_its_check_accepts_u267() {
     d91_round_1(

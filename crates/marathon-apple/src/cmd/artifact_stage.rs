@@ -75,7 +75,8 @@ impl ArtifactStage {
     /// The delivery must still be valid once the check is done, by the same test as without one: `lost` (the
     /// receive's connection, for the rsync bridge) is sampled before the check and again after it, and `stopped` after
     /// it and at the rename, as `publish` does. A stop that comes while the check runs therefore ends the receive as it
-    /// would have just before it, whatever the check found.
+    /// would have just before it, whatever the check found, a failure to read the file included: a lost connection
+    /// first (as before the rename without a check), then a cancellation, and only then the check's own result.
     pub(crate) fn publish_checked(
         self,
         check: Option<ReceiveCheck>,
@@ -87,21 +88,23 @@ impl ArtifactStage {
             return Ok(Received::NotReceived);
         }
         let verdict = match check {
-            Some(check) => check(&self.content).map_err(io_error)?,
-            None => Ok(()),
+            Some(check) => check(&self.content),
+            None => Ok(Ok(())),
         };
         if lost() {
             self.discard();
             return Ok(Received::NotReceived);
         }
-        if let Err(why) = verdict {
-            self.discard();
-            return match stopped() {
-                Some(reason) => Err(VendorError::Cancelled(reason)),
-                None => Ok(Received::Rejected(why)),
-            };
+        let verdict = match verdict {
+            Ok(Ok(())) => return self.publish(&stopped).map(|()| Received::Published),
+            Ok(Err(why)) => Ok(Received::Rejected(why)),
+            Err(error) => Err(io_error(error)),
+        };
+        self.discard();
+        match stopped() {
+            Some(reason) => Err(VendorError::Cancelled(reason)),
+            None => verdict,
         }
-        self.publish(&stopped).map(|()| Received::Published)
     }
 
     fn publish_with(
