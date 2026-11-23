@@ -1980,10 +1980,11 @@ fn worker_commands_and_senders_stop_over_independent_real_ssh_d96() -> Result<()
 
 /// U269: a Perl module the loopback child's sshd loads into every Perl its sessions run (through `PERL5OPT`). It wraps
 /// `mkdir`, which `File::Temp` calls when the worker's bootstrap (or `init`) creates a supervisor root: under a shared
-/// lock on the ledger's lock file, it records the attempt in the ledger before it creates the root, and retracts that
-/// attempt alone if the `mkdir` fails (the name was taken, by another attempt or by another process, whose root is not
-/// this test's to retire). A root is therefore on record before it exists, whenever the child or the session dies.
-/// Once the parent holds the lock exclusively, a creation under way has finished and a later one fails.
+/// lock on the ledger's lock file, it records a root in the ledger right after the `mkdir` that created it succeeds.
+/// `mkdir` fails on an existing name, so only roots this test created are ever recorded, never one another process
+/// owns. A session killed between that `mkdir` and its record leaks the root (accepted: a leak is better than retiring
+/// a root that is not this test's). Once the parent holds the lock exclusively, a creation under way has finished and
+/// a later one fails.
 #[cfg(target_os = "macos")]
 const ROOT_LEDGER_MODULE: &str = r#"package U269Ledger;
 use strict;
@@ -2004,10 +2005,9 @@ BEGIN {
         flock($lock, LOCK_SH | LOCK_NB) or die "the test is retiring its supervisor roots";
         # Unique among the sshd's sessions: a process id with this process's own count.
         my $attempt = "$$." . ++$attempts;
-        note("+ $attempt $path");
         my $made = CORE::mkdir($path, $mode);
         my $error = $!;
-        note("- $attempt $path") unless $made;
+        note("+ $attempt $path") if $made;
         $! = $error;
         return $made;
     };
@@ -2052,8 +2052,8 @@ impl SupervisorRoots {
             Self::lock(dir).display()
         )
     }
-    /// The roots the ledger holds. Each attempt is keyed by its id; a failed one drops only its own record, so a root
-    /// another attempt created under the same name stays recorded.
+    /// The roots the ledger holds: one record per successful creation, keyed by its attempt id (a `-` line, which
+    /// earlier rounds wrote for a failed attempt, still retracts only its own record).
     fn recorded(ledger: &str) -> std::io::Result<std::collections::BTreeSet<String>> {
         let mut attempts = std::collections::BTreeMap::new();
         for line in ledger.lines() {

@@ -89,7 +89,7 @@ large box one seek. The walk reads at most the file once, as the transfer just w
 It is a structural check, not a playability guarantee: it does not decode, and it does not cross-check the sample
 tables against the media. That would need ffprobe, which costs a worker command per video (or a local ffmpeg that
 marathon does not require) and would change the worker-command stream. It runs on the bridge's blocking thread, never
-on the core executor, and holds one 8 KiB read buffer.
+on the core executor, and holds one 8 KiB read buffer. It can accept a file that is boxed but not decodable (for example garbage wrapped in well-formed boxes, or a size-0 `mdat` that runs to a clipped end of file); it targets the empty and cut-off recordings actually seen, and must never reject a legal movie. Movies whose media lives in an external reference (no local `mdat`) are out of scope: simctl and the transcode never produce them.
 
 Witnesses in `movie.rs`: simctl's layout (moov after mdat), ffmpeg's faststart layout, a 64-bit `mdat`, a size-0 last
 box, a fragmented layout with an empty first `mdat`, 200 000 one-sample fragments (400 000 top-level boxes, 3.4 MB),
@@ -207,12 +207,14 @@ Fix, test only (round 3):
   directory to the child (`MRS_D96_ROOT_DIR`). The child's private sshd gives its sessions `PERL5OPT` loading the
   module, and the ledger and lock paths (`SetEnv`), so every command still runs as sshd would run it. The module
   wraps `mkdir`, which `File::Temp` calls when the worker's bootstrap (or its `init` mode) creates
-  `/tmp/marathon-supervisor-XXXXXXXXXX`. Under a shared lock on the lock file it appends `+ <attempt> <root>` to the
-  ledger and only then calls the real `mkdir`. If the `mkdir` fails (the name was taken), it appends
-  `- <attempt> <root>`. The attempt id is the Perl process id with that process's own count, so a failed attempt
-  retracts only its own record (round 4: two attempts at one name, the second failing because the first took it,
-  used to retract both and leave the first's root). A name taken by another process is not retired: its record is
-  retracted with its attempt. Other paths are untouched.
+  `/tmp/marathon-supervisor-XXXXXXXXXX`. Under a shared lock on the lock file it calls the real `mkdir` and, only if
+  that succeeded, appends `+ <attempt> <root>` to the ledger (the attempt id is the Perl process id with that
+  process's own count). `mkdir` fails on a name that exists, so only roots this test's sessions created are ever
+  recorded: a root another process owns can never be retired by this test. Earlier rounds recorded the attempt
+  before the `mkdir` and retracted it on failure; the fourth review showed a session killed between a failed `mkdir`
+  and its retraction would leave another process's root on record, so the orchestrator chose record-after-create:
+  the only cost is that a session killed between its successful `mkdir` and the record leaks that one root. Other
+  paths are untouched.
 - The parent holds a guard, `SupervisorRoots`. After the child process has exited (or from `Drop`, if the parent
   panics before that), it takes the lock file's lock exclusively and keeps it. A root creation under way has then
   finished and is on record, and a later one fails at the module (nothing creates a root after the child is gone,
@@ -236,10 +238,11 @@ Coverage, exactly:
 
 - Normal exit and a failing child: retired after the child exits (the test runs this path every time).
 - A panic in the parent before the retirement: `Drop` retires.
-- The child, or an sshd session, killed at any point, SIGKILL included: the root is on record before it exists, and
-  the parent's exclusive lock waits for a creation under way. A session killed between the record and the `mkdir`
-  leaves a record of a root that does not exist, which is skipped. A bootstrap killed after the `mkdir` and before it
-  installs `supervisor.pl` leaves an empty directory, which is removed. A bootstrap killed in the middle of writing
+- The child, or an sshd session, killed with SIGKILL: a root is recorded right after its `mkdir` succeeds, and the
+  parent's exclusive lock waits for a creation under way. A session killed between its successful `mkdir` and the
+  record (one file append) leaks that root; this is accepted so that a root another process owns is never on record.
+  A bootstrap killed after the record and before it installs `supervisor.pl` leaves an empty directory, which is
+  removed. A bootstrap killed in the middle of writing
   `supervisor.pl` leaves a script that cannot run `retire`; the test then fails with that error and the root stays.
   Checked by hand: the child run alone with `MRS_D96_ROOT_DIR`, killed with SIGKILL as soon as the ledger had a
   record; the root was recorded and installed, and the lock-then-`retire` sequence removed it.

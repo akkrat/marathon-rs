@@ -87,10 +87,11 @@ impl ArtifactStage {
             self.discard();
             return Ok(Received::NotReceived);
         }
-        let verdict = match check {
-            Some(check) => check(&self.content),
-            None => Ok(Ok(())),
+        let Some(check) = check else {
+            // Without a check the receive commits exactly as base did: one loss sample, then `publish`.
+            return self.publish(&stopped).map(|()| Received::Published);
         };
+        let verdict = check(&self.content);
         if lost() {
             self.discard();
             return Ok(Received::NotReceived);
