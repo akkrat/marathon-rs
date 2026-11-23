@@ -1,4 +1,5 @@
-//! U267: a received movie reaches the report only when a player can open it.
+//! U267: a received movie reaches the report only when a player can open it; Rust-only support for the port of
+//! vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/video/ScreenRecordingListener.kt.
 //!
 //! simctl can exit cleanly after INT on a recording a few hundred milliseconds long and still leave an empty or
 //! unfinished movie. A transcode of it fails, and the fallback pulled that original and published it as is. The movie
@@ -105,7 +106,9 @@ impl MovieStage {
         if checked.is_ok() {
             fs::rename(&self.content, &self.destination)?;
         }
-        self.root.close()?;
+        // Once the movie is in place its outcome is decided; an empty directory left behind is the leftover a hard
+        // kill leaves, not a failed delivery.
+        let _ = self.root.close();
         Ok(checked.map(|()| self.destination))
     }
     /// Blocking: removes the directory and anything received into it.
