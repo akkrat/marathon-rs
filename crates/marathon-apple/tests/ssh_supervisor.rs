@@ -1951,62 +1951,105 @@ fn worker_commands_and_senders_stop_over_independent_real_ssh_d96() -> Result<()
     let mut path = std::ffi::OsString::from(fixture.path());
     path.push(":");
     path.push(std::env::var_os("PATH").unwrap_or_default());
-    let root_file = fixture.path().join("supervisor-root");
+    // U269: the child abandons its worker connection, as a hard-killed run does, so nothing retires the supervisor
+    // roots its sshd's bootstraps create. Its sshd records each one as the bootstrap answers; this guard retires them
+    // once the child has exited, whatever the child's outcome, and on a panic here too.
+    let roots = SupervisorRoots(fixture.path().join("supervisor-roots"));
     let output = std::process::Command::new(std::env::current_exe()?)
         .args(["--exact", "real_worker_commands_and_senders_child"])
         .env("PATH", path)
         .env("MRS_D96_REAL_WORKER", "1")
-        .env("MRS_D96_ROOT_FILE", &root_file)
+        .env("MRS_D96_ROOT_FILE", &roots.0)
         .output()?;
-    // U269: the child abandons its worker connection, as a hard-killed run does, so nothing retires the worker's
-    // supervisor root. It is removed here, once the child has exited, whatever the child's outcome.
-    let removed = remove_supervisor_root(&root_file);
+    let retired = roots.retire();
     assert!(
         output.status.success(),
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    if let Some(root) = removed? {
+    let retired = retired?;
+    if !String::from_utf8_lossy(&output.stderr).contains("loopback witness requires") {
+        assert!(!retired.is_empty(), "the child's sshd recorded no supervisor root");
+    }
+    for root in retired {
         assert!(!root.exists(), "{}", root.display());
     }
     Ok(())
 }
 
-/// U269: removes the supervisor root the loopback child recorded in `file`, if it got as far as recording one.
+/// U269: the supervisor roots a loopback child's sshd recorded, one per line, retired as production retires one.
 #[cfg(target_os = "macos")]
-fn remove_supervisor_root(file: &Path) -> std::io::Result<Option<std::path::PathBuf>> {
-    let root = match std::fs::read_to_string(file) {
-        Ok(root) => root,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error),
-    };
-    let valid = root.strip_prefix("/tmp/marathon-supervisor-").is_some_and(|suffix| {
-        suffix.len() == 10
-            && suffix
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-    });
-    if !valid {
-        return Err(std::io::Error::other(format!("not a supervisor root: {root:?}")));
+struct SupervisorRoots(std::path::PathBuf);
+#[cfg(target_os = "macos")]
+impl SupervisorRoots {
+    /// The sshd's `ForceCommand`: records the root a supervisor bootstrap answers with, and runs every other command
+    /// as `sh -c` would, replacing itself.
+    fn force_command(file: &Path) -> String {
+        format!(
+            "#!/bin/sh\ncase \"$SSH_ORIGINAL_COMMAND\" in\n\"/usr/bin/perl -MMIME::Base64 -e \"*)\n  reply=$(/bin/sh -c \"$SSH_ORIGINAL_COMMAND\")\n  status=$?\n  printf '%s\\n' \"$reply\" | /usr/bin/sed -n 's/^MARATHON_D96_1 //p' >> '{}'\n  printf '%s\\n' \"$reply\"\n  exit $status ;;\nesac\nexec /bin/sh -c \"$SSH_ORIGINAL_COMMAND\"\n",
+            file.display()
+        )
     }
-    // The abandoned commands' owners outlive the child by a moment and still write their receipts into the root, so
-    // it is removed only once no process runs the root's script. The bound is a hang guard.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    loop {
-        let running = std::process::Command::new("/usr/bin/pgrep")
-            .args(["-f", &format!("{root}/supervisor.pl")])
-            .stdout(std::process::Stdio::null())
-            .status()?;
-        match running.code() {
-            Some(1) => break,
-            Some(0) if std::time::Instant::now() < deadline => std::thread::sleep(std::time::Duration::from_millis(25)),
-            _ => return Err(std::io::Error::other(format!("{root}: pgrep {running}"))),
+    /// Retires every recorded root: waits, under a hang guard, for the exclusive lock on its `supervisor.pl` that the
+    /// worker's operations hold shared while they run (the abandoned commands' owners outlive the child by a moment),
+    /// then runs the worker's own `retire`, which takes that lock again and removes the root.
+    fn retire(&self) -> std::io::Result<Vec<std::path::PathBuf>> {
+        let roots = match std::fs::read_to_string(&self.0) {
+            Ok(roots) => roots,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error),
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        let mut retired = Vec::new();
+        for root in roots.lines() {
+            let valid = root.strip_prefix("/tmp/marathon-supervisor-").is_some_and(|suffix| {
+                suffix.len() == 10
+                    && suffix
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+            });
+            if !valid {
+                return Err(std::io::Error::other(format!("not a supervisor root: {root:?}")));
+            }
+            let script = format!("{root}/supervisor.pl");
+            loop {
+                let pinned = match std::fs::File::open(&script) {
+                    Ok(pinned) => pinned,
+                    // Retired already (the child got as far as closing its connection).
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                    Err(error) => return Err(error),
+                };
+                let (locked, lock) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    let _ = locked.send(rustix::fs::flock(&pinned, rustix::fs::FlockOperation::LockExclusive));
+                });
+                let wait = deadline.saturating_duration_since(std::time::Instant::now());
+                lock.recv_timeout(wait)
+                    .map_err(|_| std::io::Error::other(format!("{root} stayed in use")))??;
+                let output = std::process::Command::new("/usr/bin/perl")
+                    .args([&script, "retire", root, "60000"])
+                    .output()?;
+                match (output.status.success(), output.stdout.as_slice()) {
+                    (true, b"MARATHON_D96_1 retired\n") => break,
+                    // An operation started between the lock and the retirement; wait for it as well.
+                    (true, b"MARATHON_D96_1 busy\n") if std::time::Instant::now() < deadline => {}
+                    _ => return Err(std::io::Error::other(format!("{root}: {output:?}"))),
+                }
+            }
+            retired.push(std::path::PathBuf::from(root));
+        }
+        std::fs::remove_file(&self.0)?;
+        Ok(retired)
+    }
+}
+#[cfg(target_os = "macos")]
+impl Drop for SupervisorRoots {
+    fn drop(&mut self) {
+        if self.0.exists() {
+            let _ = self.retire();
         }
     }
-    let root = std::path::PathBuf::from(root);
-    std::fs::remove_dir_all(&root)?;
-    Ok(Some(root))
 }
 
 #[cfg(target_os = "macos")]
@@ -2043,11 +2086,22 @@ async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::err
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
     let port = listener.local_addr()?.port();
     drop(listener);
+    // U269: the parent test retires the supervisor roots this sshd records.
+    let force = match std::env::var_os("MRS_D96_ROOT_FILE") {
+        Some(roots) => {
+            use std::os::unix::fs::PermissionsExt;
+            let command = server.path().join("force-command");
+            std::fs::write(&command, SupervisorRoots::force_command(Path::new(&roots)))?;
+            std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o700))?;
+            format!("ForceCommand {}\n", command.display())
+        }
+        None => String::new(),
+    };
     let config = server.path().join("sshd_config");
     std::fs::write(
         &config,
         format!(
-            "Port {port}\nListenAddress 127.0.0.1\nHostKey {}\nAuthorizedKeysFile {}\nPidFile {}\nUsePAM no\nStrictModes no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nMaxSessions 1\n",
+            "Port {port}\nListenAddress 127.0.0.1\nHostKey {}\nAuthorizedKeysFile {}\nPidFile {}\nUsePAM no\nStrictModes no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nMaxSessions 1\n{force}",
             host.display(),
             key.with_extension("pub").display(),
             server.path().join("pid").display(),
@@ -2098,24 +2152,6 @@ async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::err
             .await
             .map_err(|e| e.failure().to_string())?
     );
-    // U269: a supervised payload's parent is the worker script, started from the root it installed. The parent test
-    // removes that root once this child has exited.
-    let parent = executor
-        .critical_execute(
-            CommandRequest::new(["/bin/sh", "-c", "ps -ww -o args= -p $PPID"], duration(15000)),
-            context(),
-        )
-        .await
-        .map_err(|e| e.failure().to_string())?;
-    let root = parent
-        .stdout
-        .iter()
-        .flat_map(|line| line.split_whitespace())
-        .find_map(|word| word.strip_suffix("/supervisor.pl"))
-        .ok_or_else(|| format!("no supervisor root in {:?}", parent.stdout))?;
-    if let Some(file) = std::env::var_os("MRS_D96_ROOT_FILE") {
-        std::fs::write(file, root)?;
-    }
     if std::env::var_os("MRS_D96_SSH_BENCH").is_some() {
         let authentication = SshAuthentication::PublicKey { username: user, key };
         let plain = factory
