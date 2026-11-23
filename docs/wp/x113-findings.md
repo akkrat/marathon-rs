@@ -202,7 +202,7 @@ for a hard-killed run (documented under D96/x95e). Each run left one root.
 
 Fix, test only (round 3):
 
-- The root is recorded before it is created, by the process that creates it. The parent writes a Perl module
+- The root is recorded by the process that creates it, right after its `mkdir` succeeds, with its inode. The parent writes a Perl module
   (`ROOT_LEDGER_MODULE`, `U269Ledger.pm`) and an empty lock file into its temporary directory and passes the
   directory to the child (`MRS_D96_ROOT_DIR`). The child's private sshd gives its sessions `PERL5OPT` loading the
   module, and the ledger and lock paths (`SetEnv`), so every command still runs as sshd would run it. The module
@@ -213,8 +213,9 @@ Fix, test only (round 3):
   recorded: a root another process owns can never be retired by this test. Earlier rounds recorded the attempt
   before the `mkdir` and retracted it on failure; the fourth review showed a session killed between a failed `mkdir`
   and its retraction would leave another process's root on record, so the orchestrator chose record-after-create:
-  the only cost is that a session killed between its successful `mkdir` and the record leaks that one root. Other
-  paths are untouched.
+  the only cost is that a session killed between its successful `mkdir` and the record leaks that one root. The record
+  carries the root's inode, and the parent retires a recorded name only while it still holds that inode: a root
+  removed and its name reused by another process is skipped (the final review's probe). Other paths are untouched.
 - The parent holds a guard, `SupervisorRoots`. After the child process has exited (or from `Drop`, if the parent
   panics before that), it takes the lock file's lock exclusively and keeps it. A root creation under way has then
   finished and is on record, and a later one fails at the module (nothing creates a root after the child is gone,
@@ -284,7 +285,7 @@ had cleaned them up), and there were none after the round-2 runs.
 | P1: the 100 000-box cap rejected a complete ffmpeg movie with 50 000 one-frame fragments | Yes: two top-level boxes per fragment plus the headers is over 100 000 | No box-count limit (either cap). The walk's cost is bounded by the file: buffered seeks, at most one pass. Witness: `many_fragments_or_tracks_are_no_reason_to_reject_a_movie` (200 000 fragments, 10 000 tracks), which fails on round 2's code. |
 | P2: the rsync bridge sampled the connection before the check, so a disconnect during an accepting check could still publish | Yes: `connection_stop()` ran once, before `publish_checked` | `ArtifactStage::publish_checked(check, lost, stopped)` samples the connection before and after the check and the cancellation after it and at the rename; the rsync bridge passes base's `connection_stop()`. Witness: the loss and the cancellation fired from inside the check in `a_checked_receive_publishes_only_what_its_check_accepts_u267`; the loss case fails on round 2's code. |
 | P2: the default `receive_checked` published, then checked and deleted | Yes; only test doubles used it | The default refuses (an error, nothing received). The doubles use the staged helper in `marathon-test-support`. |
-| P2 (test): the U269 root could be created and not recorded (the wrapper killed between the bootstrap's answer and its record); retirement used an unbounded `output()`, and `Drop` could retry for another 60 s | Yes | The root is recorded before its `mkdir`, by the process that creates it, under a lock the parent closes before reading the ledger. One 60 s guard for every wait; `retire` runs once. See [U269](#u269-the-loopback-sshd-test-removes-its-worker-root). |
+| P2 (test): the U269 root could be created and not recorded (the wrapper killed between the bootstrap's answer and its record); retirement used an unbounded `output()`, and `Drop` could retry for another 60 s | Yes | The root is recorded by the process that creates it (since round 4's follow-up: right after its `mkdir` succeeds, with its inode), under a lock the parent closes before reading the ledger. One 60 s guard for every wait; `retire` runs once. See [U269](#u269-the-loopback-sshd-test-removes-its-worker-root). |
 | P3: a `uuid` box without its 16-byte user type passed | Yes | Its header includes the user type; witness `a_uuid_box_needs_its_user_type`. |
 | P3 docs: the changelog and U267 said the report has no file; the U269 coverage was overstated | Yes: an earlier file at the report path stays | "No new file"; the U269 section lists exactly what is covered. |
 

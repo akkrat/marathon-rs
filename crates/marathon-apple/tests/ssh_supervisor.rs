@@ -1952,7 +1952,7 @@ fn worker_commands_and_senders_stop_over_independent_real_ssh_d96() -> Result<()
     path.push(":");
     path.push(std::env::var_os("PATH").unwrap_or_default());
     // U269: the child abandons its worker connection, as a hard-killed run does, so nothing retires the supervisor
-    // roots its real worker creates. Each is recorded before it is created; this guard retires them once the child has
+    // roots its real worker creates. Each is recorded right after it is created; this guard retires them once the child has
     // exited, whatever the child's outcome, and on a panic here too.
     let mut roots = SupervisorRoots::new(fixture.path())?;
     let output = std::process::Command::new(std::env::current_exe()?)
@@ -2007,7 +2007,11 @@ BEGIN {
         my $attempt = "$$." . ++$attempts;
         my $made = CORE::mkdir($path, $mode);
         my $error = $!;
-        note("+ $attempt $path") if $made;
+        if ($made) {
+            # The root's inode, so the parent retires this directory and not a later one that reused the name.
+            my $inode = (lstat $path)[1];
+            note(defined $inode ? "+ $attempt $path $inode" : "+ $attempt $path");
+        }
         $! = $error;
         return $made;
     };
@@ -2052,15 +2056,26 @@ impl SupervisorRoots {
             Self::lock(dir).display()
         )
     }
-    /// The roots the ledger holds: one record per successful creation, keyed by its attempt id (a `-` line, which
-    /// earlier rounds wrote for a failed attempt, still retracts only its own record).
-    fn recorded(ledger: &str) -> std::io::Result<std::collections::BTreeSet<String>> {
+    /// The roots the ledger holds, each with the inode it was created with when the record has one: one record per
+    /// successful creation, keyed by its attempt id (a `-` line, which earlier rounds wrote for a failed attempt,
+    /// still retracts only its own record).
+    fn recorded(ledger: &str) -> std::io::Result<std::collections::BTreeMap<String, Option<u64>>> {
         let mut attempts = std::collections::BTreeMap::new();
+        let invalid = |line: &str| std::io::Error::other(format!("not a ledger line: {line:?}"));
         for line in ledger.lines() {
-            match line.splitn(3, ' ').collect::<Vec<_>>()[..] {
-                ["+", attempt, root] if attempts.insert(attempt.to_owned(), root.to_owned()).is_none() => {}
-                ["-", attempt, root] if attempts.remove(attempt).as_deref() == Some(root) => {}
-                _ => return Err(std::io::Error::other(format!("not a ledger line: {line:?}"))),
+            match line.split(' ').collect::<Vec<_>>()[..] {
+                ["+", attempt, root] if attempts.insert(attempt.to_owned(), (root.to_owned(), None)).is_none() => {}
+                ["+", attempt, root, inode] => {
+                    let inode = inode.parse::<u64>().map_err(|_| invalid(line))?;
+                    if attempts
+                        .insert(attempt.to_owned(), (root.to_owned(), Some(inode)))
+                        .is_some()
+                    {
+                        return Err(invalid(line));
+                    }
+                }
+                ["-", attempt, root] if attempts.remove(attempt).is_some_and(|(recorded, _)| recorded == root) => {}
+                _ => return Err(invalid(line)),
             }
         }
         Ok(attempts.into_values().collect())
@@ -2099,8 +2114,9 @@ impl SupervisorRoots {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
             Err(error) => return Err(error),
         };
-        let roots = Self::recorded(&ledger)?;
-        for root in &roots {
+        let recorded = Self::recorded(&ledger)?;
+        let mut roots = Vec::new();
+        for (root, inode) in &recorded {
             let valid = root.strip_prefix("/tmp/marathon-supervisor-").is_some_and(|suffix| {
                 suffix.len() == 10
                     && suffix
@@ -2110,6 +2126,21 @@ impl SupervisorRoots {
             if !valid {
                 return Err(std::io::Error::other(format!("not a supervisor root: {root:?}")));
             }
+            // A root that is gone needs nothing; a name that now holds another directory (removed, then reused by
+            // another process) is not this test's to retire.
+            if let Some(inode) = inode {
+                use std::os::unix::fs::MetadataExt;
+                match std::fs::symlink_metadata(root) {
+                    Ok(meta) if meta.ino() == *inode => {}
+                    Ok(_) => continue,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        roots.push(root.clone());
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            roots.push(root.clone());
             let script = format!("{root}/supervisor.pl");
             loop {
                 let pinned = match std::fs::File::open(&script) {
@@ -2154,13 +2185,20 @@ fn a_failed_root_attempt_keeps_another_attempts_root_u269() {
     let recorded = |ledger: &str| {
         SupervisorRoots::recorded(ledger)
             .unwrap()
-            .into_iter()
+            .into_keys()
             .collect::<Vec<_>>()
     };
     assert_eq!(recorded(&format!("+ 10.1 {x}\n+ 11.1 {x}\n- 11.1 {x}\n")), [x]);
     assert_eq!(recorded(&format!("+ 10.1 {x}\n- 10.1 {x}\n+ 10.2 {y}\n")), [y]);
     assert_eq!(recorded(&format!("+ 10.1 {x}\n+ 10.2 {y}\n")), [x, y]);
     assert_eq!(recorded(""), Vec::<String>::new());
+    // A record carries the root's inode; a malformed one is refused.
+    assert_eq!(
+        SupervisorRoots::recorded(&format!("+ 10.1 {x} 42\n")).unwrap(),
+        std::collections::BTreeMap::from([(x.to_owned(), Some(42))])
+    );
+    assert!(SupervisorRoots::recorded(&format!("+ 10.1 {x} inode\n")).is_err());
+    assert!(SupervisorRoots::recorded(&format!("+ 10.1 {x} 42\n+ 10.1 {y} 43\n")).is_err());
     // A retraction must match its own attempt, and an attempt is recorded once.
     for ledger in [
         format!("- 10.1 {x}\n"),
