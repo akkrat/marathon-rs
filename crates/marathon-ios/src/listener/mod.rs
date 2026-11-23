@@ -2,6 +2,7 @@
 use marathon_error::FailureKind;
 pub mod data_container_clear;
 pub mod device_log;
+pub mod movie;
 pub mod pending;
 pub mod screenshot;
 pub mod video;

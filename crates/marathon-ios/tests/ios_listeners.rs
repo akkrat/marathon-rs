@@ -863,6 +863,171 @@ async fn failed_or_null_transcode_requests_the_original_movie_d97() -> TestResul
     }
     Ok(())
 }
+/// U267: where a movie can reach the report.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum MoviePath {
+    /// Pulled as recorded, transcoding off.
+    Original,
+    /// The transcode failed, so the original is pulled from its staged name.
+    TranscodeFailed,
+    /// The transcoded movie is pulled.
+    Transcoded,
+    /// The batch failed with the recording open: its movie is pulled without a test.
+    BatchFailure,
+}
+/// The pulled movie, the "was not delivered" lines, the test's video attachment, and every file under the report root
+/// apart from the harness's own bundles.
+type MovieOutcome = (String, Vec<String>, Option<Vec<u8>>, Vec<String>);
+
+async fn deliver_one_movie(path: MoviePath, received: &[u8]) -> TestResult<MovieOutcome> {
+    let transcoding = matches!(path, MoviePath::TranscodeFailed | MoviePath::Transcoded);
+    let mut h = harness(|v| v.screen_record_configuration.video_configuration.transcoding.enabled = transcoding)?;
+    Arc::make_mut(&mut h.services.configuration).screen_recording_policy = ScreenRecordingPolicy::OnAny;
+    let bridge = Arc::new(Bridge::default());
+    let d = device(&h, bridge.clone()).await?;
+    assert_eq!(d.supports_transcoding(), transcoding);
+    let c = context(&h, d.clone());
+    let test = c.batch.tests[0].clone();
+    let src = d.remote_file_manager().remote_video_for_test(&test, "batch").to_owned();
+    let pulled = match path {
+        MoviePath::TranscodeFailed => d.remote_file_manager().remote_temp_video_for_test(&test, "batch"),
+        _ => src.clone(),
+    };
+    bridge
+        .contents
+        .lock()
+        .unwrap()
+        .insert(pulled.clone(), received.to_vec());
+    let l = ScreenRecordingListener::new(c);
+    let collector =
+        AttachmentCollector::new(&[l.attachments.clone() as Arc<dyn marathon_core::listener::AttachmentProvider>])
+            .map_err(|e| format!("{e:?}"))?;
+    *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
+        Box::pin(async move {
+            Ok(Some(if cmd.last().is_some_and(|s| s.contains(" -vf ")) {
+                CommandResult {
+                    stdout: vec![],
+                    stderr: vec!["moov atom not found".into()],
+                    exit_code: Some(if path == MoviePath::TranscodeFailed { 1 } else { 0 }),
+                }
+            } else if cmd[0] == "cat" {
+                absent()
+            } else if cmd[0] == "echo" {
+                ok(["quickhealthcheck"])
+            } else {
+                ok(Vec::<String>::new())
+            }))
+        })
+    });
+    open_video(&h, &l, &test, Some(0)).await?;
+    if path == MoviePath::BatchFailure {
+        l.test_run_failed("failure", DeviceFailureReason::Unknown)
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+    } else {
+        l.test_failed(&test, 0, 0, None).await.map_err(|e| format!("{e:?}"))?;
+    }
+    l.settle().await.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(*bridge.pulls.lock().unwrap(), std::slice::from_ref(&pulled));
+    // The worker's copy is removed whether or not it was published.
+    assert!(
+        h.worker
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|cmd| cmd == &["rm", "-rf", &pulled])
+    );
+    let undelivered = h
+        .logs
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r.2.contains("was not delivered"))
+        .map(|r| format!("{} {}", r.1, r.2))
+        .collect();
+    let attachment = match collector.get(&test).unwrap_or_default().as_slice() {
+        [] => None,
+        [video] => {
+            assert_eq!(video.kind, marathon_core::model::AttachmentType::Video);
+            Some(std::fs::read(&video.file)?)
+        }
+        more => return Err(format!("{more:?}").into()),
+    };
+    let mut files = Vec::new();
+    let mut dirs = vec![h.dir.path().to_owned()];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if ["app.app", "tests.xctest"].contains(&name.as_str()) {
+                continue;
+            }
+            if entry.file_type()?.is_dir() && !name.starts_with('.') {
+                dirs.push(entry.path());
+            } else {
+                files.push(name);
+            }
+        }
+    }
+    h.finish(&[d]).await;
+    Ok((src, undelivered, attachment, files))
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_failed_transcode_publishes_the_original_only_when_it_is_playable_u267() -> TestResult {
+    let unfinished = &listener_support::MOVIE[..listener_support::MOVIE.len() - 1];
+    for (received, reason) in [
+        (&b""[..], Some("the recording is empty")),
+        (
+            unfinished,
+            Some("the recording is not a playable movie (it has no moov box)"),
+        ),
+        (listener_support::MOVIE, None),
+    ] {
+        let (src, undelivered, attachment, files) = deliver_one_movie(MoviePath::TranscodeFailed, received).await?;
+        match reason {
+            Some(reason) => {
+                assert_eq!(undelivered, [format!("ERROR Video {src} was not delivered: {reason}")]);
+                assert_eq!(attachment, None);
+                assert!(files.is_empty(), "{files:?}");
+            }
+            None => {
+                assert!(undelivered.is_empty(), "{undelivered:?}");
+                assert_eq!(attachment.as_deref(), Some(listener_support::MOVIE));
+                assert_eq!(files, ["Tests.Suite#test1-batch.mp4"]);
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn every_pull_of_a_movie_publishes_only_a_playable_one_u267() -> TestResult {
+    for path in [MoviePath::Original, MoviePath::Transcoded, MoviePath::BatchFailure] {
+        let (src, undelivered, attachment, files) = deliver_one_movie(path, b"").await?;
+        assert_eq!(
+            undelivered,
+            [format!("ERROR Video {src} was not delivered: the recording is empty")],
+            "{path:?}"
+        );
+        assert_eq!(attachment, None, "{path:?}");
+        assert!(files.is_empty(), "{path:?} {files:?}");
+
+        let (_, undelivered, attachment, files) = deliver_one_movie(path, listener_support::MOVIE).await?;
+        assert!(undelivered.is_empty(), "{path:?} {undelivered:?}");
+        // The batch's own video has no test to attach to.
+        let attached = (path != MoviePath::BatchFailure).then_some(listener_support::MOVIE);
+        assert_eq!(attachment.as_deref(), attached, "{path:?}");
+        let published = if path == MoviePath::BatchFailure {
+            "batch.batch"
+        } else {
+            "Tests.Suite#test1-batch.mp4"
+        };
+        assert_eq!(files, [published], "{path:?}");
+    }
+    Ok(())
+}
 /// D80: every join of the recording start drops its failure, as Kotlin's cancelAndJoin does, so a start that panicked
 /// on the production executor used to leave `after_test_run` successful. The panic now fails the batch.
 #[test]

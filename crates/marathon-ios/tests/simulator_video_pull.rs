@@ -44,7 +44,7 @@ impl FileBridge for SlowFirstPull {
                 self.entered.complete(Ok(()));
                 self.release.wait().await?;
             }
-            tokio::fs::write(dst, b"video")
+            tokio::fs::write(dst, listener_support::MOVIE)
                 .await
                 .map_err(|e| VendorError::Other(failure(FailureKind::Io, e.to_string())))?;
             self.pulled.lock().unwrap().push(src.into());

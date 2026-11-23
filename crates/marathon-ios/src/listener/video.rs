@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/video/ScreenRecordingListener.kt
+use super::movie::{MovieStage, Unplayable};
 use super::pending::PendingArtifacts;
 use super::*;
 use crate::apple_simulator_device::recording::{Recording, RecordingFinalization};
@@ -36,6 +37,17 @@ struct RecordingSlots {
     /// The last ended test's stop (D80), which the next recording and every later stop wait for.
     stopping: Option<Arc<Recording>>,
     last_path: Option<String>,
+}
+
+/// How a movie's pull ended.
+enum Pulled {
+    Published,
+    NotReceived,
+    /// U267: received, and not published.
+    Unplayable(Unplayable),
+}
+fn io_failure(error: std::io::Error) -> VendorError {
+    VendorError::Other(marathon_apple::cmd::failure(FailureKind::Io, error.to_string()))
 }
 
 /// The transfer side of the listener, owned so that a test's video can be collected off the event path (D80).
@@ -212,16 +224,19 @@ impl Media {
             } else {
                 src
             };
-            self.pull(source, test)
-                .await
-                .map(|delivered| delivered.then_some(source))
+            self.pull(source, test).await.map(|pulled| (pulled, source))
         }
         .await;
         match received {
-            Ok(Some(source)) => self.remove(source).await,
-            Ok(None) => {
+            Ok((Pulled::Published, source)) => self.remove(source).await,
+            Ok((Pulled::NotReceived, _)) => {
                 self.undelivered(src, "the receive did not complete");
                 Ok(())
+            }
+            // U267: the worker's copy is as unplayable as the received one.
+            Ok((Pulled::Unplayable(why), source)) => {
+                self.undelivered(src, why.reason());
+                self.remove(source).await
             }
             Err(error) => {
                 self.undelivered(src, &error.failure().to_string());
@@ -295,7 +310,7 @@ impl Media {
         }
         Ok(succeeded)
     }
-    async fn pull(&self, src: &str, test: Option<&Test>) -> VendorResult<bool> {
+    async fn pull(&self, src: &str, test: Option<&Test>) -> VendorResult<Pulled> {
         let local = self.c.file(FileType::Video, test).await?;
         let label = if test.is_some() {
             "ios.ScreenRecordingListener.pullTestVideo"
@@ -303,9 +318,23 @@ impl Media {
             "ios.ScreenRecordingListener.pullLastBatchVideo"
         };
         let start = self.c.millis(label)?;
-        if !self.c.device.pull_file(src, &local, &self.c.context).await? {
-            return Ok(false);
-        }
+        let runtime = self.c.device.services().runtime.clone();
+        let stage = blocking(runtime.as_ref(), move || MovieStage::new(local).map_err(io_failure)).await?;
+        let received = self.c.device.pull_file(src, stage.content(), &self.c.context).await;
+        // The stage is published or discarded off the executor on every path that returns.
+        let published = blocking(runtime.as_ref(), move || match received {
+            Ok(true) => stage.publish().map(Some).map_err(io_failure),
+            other => {
+                stage.discard();
+                other.map(|_| None)
+            }
+        })
+        .await?;
+        let local = match published {
+            None => return Ok(Pulled::NotReceived),
+            Some(Err(why)) => return Ok(Pulled::Unplayable(why)),
+            Some(Ok(local)) => local,
+        };
         self.c.log(
             &self.logger,
             Level::DEBUG,
@@ -324,7 +353,7 @@ impl Media {
                 },
             )?;
         }
-        Ok(true)
+        Ok(Pulled::Published)
     }
     async fn remove(&self, src: &str) -> VendorResult<()> {
         let start = self.c.millis("ios.ScreenRecordingListener.removeRemoteVideo")?;

@@ -61,10 +61,14 @@ pub fn context(h: &simulator_support::Harness, d: Arc<AppleSimulatorDevice>) -> 
         context: h.services.context.clone(),
     }
 }
+/// A playable movie, as simctl writes it (moov last).
+pub const MOVIE: &[u8] = include_bytes!("../../../../fixtures/fake-worker/apple/media/recording.mp4");
 #[derive(Default)]
 pub struct Bridge {
     pub pulls: std::sync::Mutex<Vec<String>>,
     pub mode: std::sync::atomic::AtomicUsize,
+    /// What a completed receive writes, by remote path; [`MOVIE`] otherwise.
+    pub contents: std::sync::Mutex<std::collections::HashMap<String, Vec<u8>>>,
 }
 impl FileBridge for Bridge {
     fn send<'a>(&'a self, _: &'a Path, _: &'a str) -> VendorFuture<'a, bool> {
@@ -84,7 +88,9 @@ impl FileBridge for Bridge {
                 3 => return Err(VendorError::Other(failure(FailureKind::IllegalState, "other"))),
                 _ => (),
             }
-            std::fs::write(dst, b"media").map_err(|e| VendorError::Other(failure(FailureKind::Io, e.to_string())))?;
+            let content = self.contents.lock().unwrap().get(src).cloned();
+            std::fs::write(dst, content.as_deref().unwrap_or(MOVIE))
+                .map_err(|e| VendorError::Other(failure(FailureKind::Io, e.to_string())))?;
             Ok(true)
         })
     }
