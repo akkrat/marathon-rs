@@ -25,17 +25,28 @@ private directory.
 
 - `marathon_apple::cmd` gains `ReceiveCheck` (a blocking `FnOnce(&Path) -> io::Result<Result<(), String>>`),
   `Received::{Published, NotReceived, Rejected(reason)}` and `FileBridge::receive_checked`. `ArtifactStage` gains
-  `publish_checked`: it runs the check on the staged content and, if the check rejects it, discards the stage and
-  returns `Rejected`. Otherwise it is D97's `publish`: the stop is sampled at commit, then the rename.
-- Both staging bridges override `receive_checked`. `JvmFileBridge` (local copy) runs it in its blocking receive.
-  `RsyncFileBridge` runs it in the blocking step that already publishes the stage, after the connection-stop check.
-  The default implementation is for bridges that write in place, which only test doubles do. It checks the file where
-  it landed, inline, and removes it if rejected.
+  `publish_checked(check, lost, stopped)`. The delivery must still be valid after the check, by the same test as
+  without one: `lost` (the connection, for the rsync bridge) is sampled before the check, as on base, and again
+  after it; `stopped` (cancellation) after it and at the rename, as D97's `publish` does. So a stop that comes while
+  the check runs ends the receive as it would have just before it: a lost connection is `NotReceived` (D97's "the
+  receive did not complete"), a cancellation is `Cancelled`, whatever the check found. Otherwise a rejected content
+  is discarded with the stage (`Rejected`), and an accepted one goes through D97's `publish`.
+- Both staging bridges override `receive_checked`. `JvmFileBridge` (local copy, no connection to lose) runs it in its
+  blocking receive. `RsyncFileBridge` runs it in the blocking step that already publishes the stage; the connection
+  test it passes as `lost` is base's pre-rename `connection_stop()`.
+- The trait's default `receive_checked` receives nothing and fails (`This file bridge cannot check <src> before
+  publishing it`). No bridge can inherit a receive that publishes first and checks afterwards; a bridge that does not
+  stage cannot offer a checked receive. The test doubles that pull movies (`WorldFileBridge`, the listener tests'
+  `Bridge`, `simulator_video_pull`'s `SlowFirstPull`) use `marathon_test_support::apple::staged_receive::
+  receive_checked_in_stage`: it receives into a private directory beside the destination, checks there and renames
+  only an accepted file. It lives in the test-support crate, which production crates use only as a dev-dependency,
+  and blocks its thread, which only a double may do.
 - `AppleSimulatorDevice::pull_checked` is `pull_file` with the check. It uses the same transfer measurement, keyed on
   `Published`, so a rejected movie gets no `Transferred …` line, and the same pull-gate handling.
 - `crates/marathon-ios/src/listener/movie.rs` `check(path)` is the structural check (below). `video.rs` `pull` passes
   it to `pull_checked`. `deliver` reports `Rejected(reason)` once through `undelivered`, as `Video <src> was not
-  delivered: <reason>`. It registers no attachment, publishes no file, and does not remove the worker's copy.
+  delivered: <reason>`. It registers no attachment, publishes no new file (an earlier file at that report path, if any, stays, as for any
+  receive that does not publish), and does not remove the worker's copy, which D97 keeps.
 
 Retention. D97 keeps a failed delivery's remote artifact for inspection ("A failed pull leaves its remote artifact
 available for inspection"). `deliver` already does this for a receive that did not complete and for a transfer
@@ -59,9 +70,14 @@ reads box headers only, with a seek per box. It rejects:
 - no `mdat` with at least one byte (`… (it has no media data)`). An `mdat` with zero payload is rejected because there
   is nothing to decode, whatever the sample tables say; it is what a writer stopped right after its first header
   leaves. A fragmented MP4 keeps its samples in later `mdat`s, so one non-empty `mdat` anywhere is enough;
-- a size smaller than its own header, or more than 100 000 top-level boxes or 4 096 boxes inside `moov`
-  (`the recording is not a movie`). The caps bound the work; a fragmented MP4 has two top-level boxes per fragment,
-  and simctl and ffmpeg write a handful.
+- a size smaller than its own header (`the recording is not a movie`). A `uuid` box's header includes its 16-byte
+  user type, so a `uuid` box shorter than that is rejected too; a last `uuid` box of size 0 that ends inside its user
+  type is cut short.
+
+There is no box-count limit. Round 2 had one (100 000 top-level boxes) and rejected a complete ffmpeg movie with
+50 000 one-frame fragments. The work is bounded by the file instead: a box takes at least 8 bytes, and the reader
+keeps its 8 KiB buffer across a seek that lands inside it, so a run of small boxes costs one read per 8 KiB and a
+large box one seek. The walk reads at most the file once, as the transfer just wrote it, and usually a few headers.
 
 It is a structural check, not a playability guarantee: it does not decode, and it does not cross-check the sample
 tables against the media. That would need ffprobe, which costs a worker command per video (or a local ffmpeg that
@@ -69,10 +85,11 @@ marathon does not require) and would change the worker-command stream. It runs o
 on the core executor, and holds one 8 KiB read buffer.
 
 Witnesses in `movie.rs`: simctl's layout (moov after mdat), ffmpeg's faststart layout, a 64-bit `mdat`, a size-0 last
-box, a fragmented layout with an empty first `mdat` pass. An empty file, an unfinalized recording (no moov), a moov
+box, a fragmented layout with an empty first `mdat`, 200 000 one-sample fragments (400 000 top-level boxes, 3.4 MB),
+a `moov` with 10 000 tracks, and `uuid` boxes with their user type (32- and 64-bit sizes) pass. An empty file, an unfinalized recording (no moov), a moov
 cut short, a faststart movie truncated just after its `mdat` header, a file ending inside a box header, an empty
 `moov`, a `moov` with only `mvhd` or only `trak`, a child overrunning its `moov`, no `mdat`, an empty `mdat`, garbage,
-sizes below the header and both caps are rejected.
+sizes below the header and `uuid` boxes without their 16-byte user type are rejected.
 
 ### Android and macOS
 
@@ -83,7 +100,7 @@ Neither was changed. Android publishing a pulled movie without a structural chec
 
 ### Result files
 
-For a rejected movie, the change removes the published empty file and its video attachment, and nothing else. Where
+For a rejected movie, the change publishes no new (empty) file and drops its video attachment, and nothing else. Where
 the attachment showed:
 
 - Allure already skipped it, because its reporter drops empty attachment files (`reporters/allure.rs`).
@@ -100,7 +117,7 @@ differential (`differential_vendors`, which compares the host rsync argv) needs 
 ### Witnesses
 
 `crates/marathon-ios/tests/ios_listeners.rs`, driving `ScreenRecordingListener` with the fake worker and a fake
-bridge that writes chosen bytes per remote path (so the default `receive_checked`):
+bridge that writes chosen bytes per remote path (its checked receive is the test-support staged one):
 
 - `a_failed_transcode_publishes_the_original_only_when_it_is_complete_u267`: transcode fails. With an empty original
   and with an unfinished one (moov cut off), there is exactly one `ERROR Video … was not delivered: <reason>`, no
@@ -117,7 +134,10 @@ bridge that writes chosen bytes per remote path (so the default `receive_checked
 `crates/marathon-apple/tests/rsync_file_bridge.rs` `a_checked_receive_publishes_only_what_its_check_accepts_u267`,
 through `RsyncFileBridge` with a stand-in rsync: an empty receive is rejected and leaves the earlier file, a non-empty
 one replaces it, no `.marathon-artifact-*` directory is left, and each check saw the received file in D97's own stage
-(one `.marathon-artifact-*` directory directly beside the destination, under the destination's name).
+(one `.marathon-artifact-*` directory directly beside the destination, under the destination's name). Round 3 adds a
+connection loss injected from inside an accepting check (`TransferStop::or_lost`, fired by the check): the receive is
+`NotReceived`, as base reports a lost connection before the rename, and the earlier file stays; and a cancellation
+fired from inside the check: `Cancelled`, the earlier file stays. No stage is left in either case.
 
 The fake bridges in `listener_support` and `simulator_video_pull.rs` used to write `media` / `video` as the "movie".
 They now write the committed fixture `fixtures/fake-worker/apple/media/recording.mp4`, read and never edited. The
@@ -171,31 +191,53 @@ The child's executor installs the supervisor under `/tmp/marathon-supervisor-XXX
 `executor.abandon()`, deliberately, to show that abandonment kills the worker command. Nothing retires the root, as
 for a hard-killed run (documented under D96/x95e). Each run left one root.
 
-Fix, test only:
+Fix, test only (round 3):
 
-- The root is recorded where it is created. The child writes its private sshd's configuration, and when the parent
-  sets `MRS_D96_ROOT_FILE` it adds a `ForceCommand` script. For the supervisor bootstrap (the command starting with
-  `/usr/bin/perl -MMIME::Base64 -e `) the script runs it, appends the root from its `MARATHON_D96_1 <root>` answer to
-  that file and passes the answer and exit status on. Every other command is `exec /bin/sh -c "$SSH_ORIGINAL_COMMAND"`,
-  so the process that runs it is the same command sshd would have started through the login shell. A root is
-  therefore recorded whatever the child does after its bootstrap. A child killed with SIGKILL right after the
-  bootstrap still had its root recorded (checked by hand; see [What was run](#what-was-run)).
-- The parent holds a guard, `SupervisorRoots`, over that file. After the child process has exited it retires every
-  recorded root as production does. It checks the root's exact shape (`/tmp/marathon-supervisor-` plus 10 characters)
-  and refuses anything else. It waits for an exclusive `flock` on the root's `supervisor.pl`, which every running
-  worker operation holds shared; that is the supervisor's retirement lock. The abandoned commands' owners outlive the
-  child by a moment and still write their receipts, so this wait is needed. Then it runs the worker's own
-  `/usr/bin/perl <root>/supervisor.pl retire <root> 60000`, which takes the lock again, removes the root and answers
-  `MARATHON_D96_1 retired`. A `busy` answer (an operation that started between the two) waits for the lock again. The
-  wait is a 60 s hang guard. A root already retired is skipped. If the parent panics before retiring, `Drop` retires.
+- The root is recorded before it is created, by the process that creates it. The parent writes a Perl module
+  (`ROOT_LEDGER_MODULE`, `U269Ledger.pm`) and an empty lock file into its temporary directory and passes the
+  directory to the child (`MRS_D96_ROOT_DIR`). The child's private sshd gives its sessions `PERL5OPT` loading the
+  module, and the ledger and lock paths (`SetEnv`), so every command still runs as sshd would run it. The module
+  wraps `mkdir`, which `File::Temp` calls when the worker's bootstrap (or its `init` mode) creates
+  `/tmp/marathon-supervisor-XXXXXXXXXX`. Under a shared lock on the lock file it appends `+ <root>` to the ledger and
+  only then calls the real `mkdir`. If the `mkdir` fails (the name was taken), it appends `- <root>`. Other paths are
+  untouched.
+- The parent holds a guard, `SupervisorRoots`. After the child process has exited (or from `Drop`, if the parent
+  panics before that), it takes the lock file's lock exclusively and keeps it. A root creation under way has then
+  finished and is on record, and a later one fails at the module (nothing creates a root after the child is gone,
+  but a session could still be running). It then retires each recorded root that exists as production does. It
+  checks the root's exact shape (`/tmp/marathon-supervisor-` plus 10 characters) and refuses anything else. It waits
+  for an exclusive `flock` on the root's `supervisor.pl`, which every running worker operation holds shared; that is
+  the supervisor's retirement lock, and the abandoned commands' owners outlive the child by a moment. Then it runs the
+  worker's own `/usr/bin/perl <root>/supervisor.pl retire <root> 60000`, which takes the lock again, removes the root
+  and answers `MARATHON_D96_1 retired`. A `busy` answer (an operation that started between the two) waits for the
+  lock again. A root with no `supervisor.pl` is one already retired, or one whose bootstrap stopped before installing
+  it; its empty directory, if any, is removed.
+- Every wait (the ledger lock, each root's lock, each `retire` process, killed if it overruns) runs on its own thread
+  against one 60 s deadline for the whole retirement. The retirement runs once: `Drop` retires only if it has not
+  started, so a failed retirement is reported, not retried for another 60 s.
 - The parent asserts the child's success, then that at least one root was recorded (unless the child skipped for lack
   of sshd or Perl), then that each is gone.
-- What the test checks is unchanged: the child runs the same steps on the same connection. Only the sshd's command
-  dispatch changed, as above.
+- What the test checks is unchanged: the child runs the same steps on the same connection, and its commands run as
+  before. Round 2's `ForceCommand` wrapper is gone.
 
-Round 1 learned the root from a supervised `ps -o args= -p $PPID` after the probe and removed it once `pgrep` found
-no process running the root's script. The review found a leak window (a failure between the bootstrap and that
-command) and that a process listing is not the supervisor's own lock. Both are gone.
+Coverage, exactly:
+
+- Normal exit and a failing child: retired after the child exits (the test runs this path every time).
+- A panic in the parent before the retirement: `Drop` retires.
+- The child, or an sshd session, killed at any point, SIGKILL included: the root is on record before it exists, and
+  the parent's exclusive lock waits for a creation under way. A session killed between the record and the `mkdir`
+  leaves a record of a root that does not exist, which is skipped. A bootstrap killed after the `mkdir` and before it
+  installs `supervisor.pl` leaves an empty directory, which is removed. A bootstrap killed in the middle of writing
+  `supervisor.pl` leaves a script that cannot run `retire`; the test then fails with that error and the root stays.
+  Checked by hand: the child run alone with `MRS_D96_ROOT_DIR`, killed with SIGKILL as soon as the ledger had a
+  record; the root was recorded and installed, and the lock-then-`retire` sequence removed it.
+- Not covered: the parent itself killed with SIGKILL (as for any temporary directory). A child killed with SIGKILL
+  also leaves its private sshd listener running (the child's `kill_on_drop` does not run); that is base behaviour
+  and outside U269.
+
+Round 1 learned the root from a supervised `ps -o args= -p $PPID` after the probe. Round 2 recorded it from the
+bootstrap's answer in a `ForceCommand` wrapper, which left a window between the answer and the record, and retired
+with an unbounded `output()` and a `Drop` that could retry for another 60 s. Round 3 closes both.
 
 Checked: a listing of `/tmp/marathon-supervisor-*` before and after one `ssh_supervisor` run showed 1 new root on base
 and 0 with the fix. The other tests that run the worker script were checked the same way, with a before/after listing
@@ -219,6 +261,17 @@ had cleaned them up), and there were none after the round-2 runs.
 | P2: the U269 root was recorded only after another command, and cleanup used a process listing | Yes | Recorded by the sshd as the bootstrap answers; retired under the supervisor's lock by the worker's own `retire`, from a guard. |
 | P3: the new witnesses' hang guards were 10 s and 30 s | Yes | 60 s (`HANG_GUARD` in the ADB witness; the U269 guard). The shared 10 s `TIMEOUT` of the ADB server tests, used by base tests and the client helpers, was left alone. |
 
+## Review round 2 (independent re-check) and what changed
+
+| Finding | Verified | Change |
+| --- | --- | --- |
+| P1: the 100 000-box cap rejected a complete ffmpeg movie with 50 000 one-frame fragments | Yes: two top-level boxes per fragment plus the headers is over 100 000 | No box-count limit (either cap). The walk's cost is bounded by the file: buffered seeks, at most one pass. Witness: `many_fragments_or_tracks_are_no_reason_to_reject_a_movie` (200 000 fragments, 10 000 tracks), which fails on round 2's code. |
+| P2: the rsync bridge sampled the connection before the check, so a disconnect during an accepting check could still publish | Yes: `connection_stop()` ran once, before `publish_checked` | `ArtifactStage::publish_checked(check, lost, stopped)` samples the connection before and after the check and the cancellation after it and at the rename; the rsync bridge passes base's `connection_stop()`. Witness: the loss and the cancellation fired from inside the check in `a_checked_receive_publishes_only_what_its_check_accepts_u267`; the loss case fails on round 2's code. |
+| P2: the default `receive_checked` published, then checked and deleted | Yes; only test doubles used it | The default refuses (an error, nothing received). The doubles use the staged helper in `marathon-test-support`. |
+| P2 (test): the U269 root could be created and not recorded (the wrapper killed between the bootstrap's answer and its record); retirement used an unbounded `output()`, and `Drop` could retry for another 60 s | Yes | The root is recorded before its `mkdir`, by the process that creates it, under a lock the parent closes before reading the ledger. One 60 s guard for every wait; `retire` runs once. See [U269](#u269-the-loopback-sshd-test-removes-its-worker-root). |
+| P3: a `uuid` box without its 16-byte user type passed | Yes | Its header includes the user type; witness `a_uuid_box_needs_its_user_type`. |
+| P3 docs: the changelog and U267 said the report has no file; the U269 coverage was overstated | Yes: an earlier file at the report path stays | "No new file"; the U269 section lists exactly what is covered. |
+
 ## Revert checks
 
 Round 1: a scratch worktree at `77a2e051` with this branch's test files copied in (`ios_listeners.rs`,
@@ -241,23 +294,31 @@ truncated after its `mdat` header, an empty `moov`) are cases round 1's check ac
 
 ## What was run
 
-On this Mac (macOS, 18 cores), round 2, on the final code:
+On this Mac (macOS, 18 cores), round 3, on the final code:
 
-- `cargo fmt --check`, and `cargo clippy -p marathon-core -p marathon-apple -p marathon-ios -p marathon-adb
-  --all-targets -- -D warnings`: clean.
-- `cargo test --no-fail-fast -p marathon-adb -p marathon-android -p marathon-apple -p marathon-ios -p marathon-macos
-  -p marathon-cli -p fake-adb -p fake-worker -p marathon-test-support`: 2006 passed, 0 failed, 34 ignored. This
-  includes `marathon-cli`'s `differential_vendors`, `differential_local`, `differential_parse` and `ios_production`,
-  with no U267 allowance. `/tmp/marathon-supervisor-*` had 0 entries before and 0 after.
-- `python3 -I tools/differential/test_evidence.py` (117 tests): OK, after `cargo build -q -p snakeyaml --example
-  yaml_tree`. `python3 -I tools/differential/make_registry.py --check`: OK.
-- Stress, each round running every new or changed witness: the three U267 listener witnesses, the `movie.rs` unit
-  tests, the rsync checked-receive witness, the U269 loopback test and the U268 ADB witness. 50 rounds: 0 failures. 20
-  rounds under CPU load (18 `yes` processes): 0 failures. No supervisor root left afterwards.
-- By hand: the loopback child run alone with `MRS_D96_ROOT_FILE` set and killed with SIGKILL as soon as the file was
-  written. Its root was recorded, and the lock-then-`retire` sequence removed it.
+- `cargo fmt --check`, and `cargo clippy -p marathon-apple -p marathon-ios -p marathon-test-support --all-targets --
+  -D warnings`: clean.
+- `cargo test --no-fail-fast -p marathon-ios -p marathon-apple -p marathon-test-support`: 1190 passed, 0 failed, 26
+  ignored. `cargo test --no-fail-fast -p marathon-adb -p marathon-android -p marathon-macos -p marathon-cli -p fake-adb
+  -p fake-worker`: 817 passed, 0 failed, 8 ignored, including `marathon-cli`'s `differential_vendors`,
+  `config_differential`, `ios_production` and `ios_stalled_send`. `/tmp/marathon-supervisor-*` had 0 entries before
+  and 0 after.
+- `python3 -I tools/differential/test_evidence.py`: OK, after `cargo build -q -p snakeyaml --example yaml_tree`.
+  `python3 -I tools/differential/make_registry.py --check`: OK.
+- Revert check in a scratch worktree at round 2's head (`9f8fa19d`) with round 3's `movie.rs` tests and
+  `rsync_file_bridge.rs` copied in, product code unchanged: `many_fragments_or_tracks_are_no_reason_to_reject_a_movie`
+  failed (`Err(NotAMovie)`), `a_uuid_box_needs_its_user_type` failed (`Ok(())` for a `uuid` box without user type),
+  and `a_checked_receive_publishes_only_what_its_check_accepts_u267` failed (`Ok(Published)` where a connection lost
+  during the check must give `Ok(NotReceived)`). The scratch worktree was removed.
+- Stress, each round running every new or changed witness: the `movie.rs` unit tests, the `ios_listeners` U267
+  witnesses, `simulator_video_pull`, the rsync checked-receive witness and the U269 loopback test. 50 rounds: 0
+  failures. 20 rounds under CPU load (18 `yes` processes): 0 failures. No supervisor root left afterwards.
+- By hand: the loopback child run alone with `MRS_D96_ROOT_DIR` set and killed with SIGKILL as soon as the ledger
+  had a record. The root was recorded and installed, and the lock-then-`retire` sequence removed it. (The killed
+  child's sshd listener, left running as on base, was stopped by hand.)
 
-Round 1 also ran the installer test 200 times, then 150 under load (0 failures), and the U268 witness 60 + 60.
+Round 2 ran the same suites (2006 passed) and the same stress counts. Round 1 also ran the installer test 200 times,
+then 150 under load (0 failures), and the U268 witness 60 + 60.
 
 Not run (the orchestrator's gates): `scripts/check.sh`, `scripts/remote-check.sh`, `cargo test --workspace`. The
 Linux build of `ssh_supervisor.rs` was not compiled here; `SupervisorRoots` is `#[cfg(target_os = "macos")]` like the
@@ -271,8 +332,10 @@ tests that use it.
 - U268's CI flake was reproduced locally under load. The CI failure's own transcript was not available, so a reset
   inside the push itself (a sync transfer, which still warns by design) was not ruled out for that one CI failure.
   The push of the small fixture APK takes milliseconds, against the 500 ms timeout.
-- The default `FileBridge::receive_checked` runs its check inline. Only test doubles use it: both production bridges
-  override it and check on their blocking threads.
+- The test doubles' staged receive (`receive_checked_in_stage`) runs its check and rename inline on the test's
+  executor. It is test support only; both production bridges check on their blocking threads.
+- A real ffmpeg movie with tens of thousands of fragments was not run through the check here; the witness is
+  synthetic boxes of the same layout (the re-check measured the ffmpeg case).
 
 ## Incidental bugs
 
