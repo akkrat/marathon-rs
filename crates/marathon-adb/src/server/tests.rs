@@ -1220,6 +1220,8 @@ devices: [{ serial: d1, shell: [ { prefix: "am instrument", stdout_file: big.txt
 /// reset in the middle of a request is still an unfinished exchange.
 #[tokio::test]
 async fn a_client_resetting_between_requests_is_not_a_warning_u268() {
+    // docs/testing.md: a polling deadline only catches hangs.
+    const HANG_GUARD: Duration = Duration::from_secs(60);
     for (read_okay, partial, warnings) in [(true, false, 0), (false, false, 0), (true, true, 1)] {
         let server = start("server: { strict: true }\ndevices: [{ serial: d1 }]\n").await;
         let mut c = Client::connect(server.port()).await;
@@ -1227,7 +1229,7 @@ async fn a_client_resetting_between_requests_is_not_a_warning_u268() {
         if read_okay {
             c.status().await.unwrap();
         } else {
-            let deadline = std::time::Instant::now() + TIMEOUT;
+            let deadline = std::time::Instant::now() + HANG_GUARD;
             while !records(&server, "request")
                 .iter()
                 .any(|r| r["service"] == "host:transport:d1")
@@ -1242,7 +1244,7 @@ async fn a_client_resetting_between_requests_is_not_a_warning_u268() {
         #[allow(deprecated)]
         c.s.set_linger(Some(Duration::ZERO)).unwrap();
         drop(c);
-        let deadline = std::time::Instant::now() + TIMEOUT;
+        let deadline = std::time::Instant::now() + HANG_GUARD;
         while records(&server, "event").iter().all(|e| e["event"] != "client_closed")
             && records(&server, "warning").is_empty()
         {
