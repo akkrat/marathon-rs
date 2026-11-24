@@ -41,7 +41,11 @@ the worker-cleanup and overlap-video claims, which the real check's per-run reco
 ## 0.15.5
 
 The private farm check of 0.15.5-rc.1 found nothing blocking. With video on, every failed attempt had a decodable
-video and nothing was reported as not delivered, so no farm recording was empty. With video off, the candidate
+video, nothing was reported as not delivered, and no published video was empty. With video off, the candidate
 matched 0.15.4 in total and job time and in per-test XCTest time. 0.15.5 is the candidate's code. The
 `## 0.15.5-rc.1` section becomes `## 0.15.5`, and its Evidence gains the farm runs. A stub `## 0.15.5-rc.1` section
 follows it, as for earlier candidates, and `README.md` names 0.15.5 as the current release.
+
+A small review by another model of the final notes asked for two wording fixes, both taken: the farm bullet states
+that no published video was empty instead of concluding that no recording was, and it counts the control's
+incomplete attempt apart from its failed ones.

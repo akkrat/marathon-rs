@@ -43,9 +43,9 @@ are unchanged. No new worker commands or SSH allowlist changes are needed. Every
 - The release candidate 0.15.5-rc.1, the same code as this release, ran the full iOS UI-test job of a private CI farm
   (Xcode 26.6 workers, `debug: false`), alternating with 0.15.4 on one code base. With video on, two runs of the
   candidate had a video for every failed attempt (31 of 31 and 40 of 40), and every movie decoded cleanly; no recorder
-  was refused, no busy warning was logged, and no video was reported as not delivered, so no recording on the farm was
-  empty or unfinished. A same-day 0.15.4 run with video on had 38 videos for 39 failed attempts: the attempt without
-  one ended on the batch's idle timeout, which this release does not change. With video off, two clean runs of the
+  was refused, no busy warning was logged, no video was reported as not delivered, and no published video was
+  empty. A same-day 0.15.4 run with video on had 38 videos for 38 failed attempts; one more attempt, left incomplete
+  when its batch hit the idle timeout, had no video, as before this release. With video off, two clean runs of the
   candidate and three of 0.15.4 had a median job time of 585 s against 582 s and a median total time of 373 s against
   378 s, and the candidate's tests ran as long inside XCTest (ratio 0.999). Five runs disturbed by workers dropping
   off the network or by a backend failure were excluded.
