@@ -724,23 +724,72 @@ fn copies_of_one_test_in_a_class_name_batch_are_dispatched_per_copy() {
     replay(&["K3:"]);
 }
 
-/// D99 supersedes the C5 recording, whose refused retry still added to the test's total, and it differs from the
-/// native queue exactly there: the refused failure is tracked as final and the progress lines count one attempt
-/// fewer (step 1), the later pass's line too (step 3), and the test ends Failed at total 1 instead of Failing at 2.
-/// The native expectation is `queue_behaviour::a_failure_that_meets_no_retries_left_ends_the_test_d99`.
+const C5_ROW: &str = "C5: a phantom AddRetry through the queue";
+/// Sets the one value of `events` that `find` picks, which must be `recorded`, to `native`.
+fn d99_moves(events: &mut Value, find: impl Fn(&Value) -> bool, recorded: Value, native: Value) {
+    let mut found: Vec<&mut Value> = events.as_array_mut().unwrap().iter_mut().filter(|e| find(e)).collect();
+    assert_eq!(found.len(), 1);
+    assert_eq!(*found[0], recorded);
+    *found[0] = native;
+}
+/// D99's allowance for the C5 recording: its native expectation is the recording with exactly the values D99 changes,
+/// each checked as recorded first. The refused failure of `C1` is tracked as final and its phantom attempt is gone from
+/// the total (4 attempts → 3), so the progress lines read 33 % (was 25 %) at that failure and 67 % (was 50 %) at the
+/// later pass, and the test ends Failed at 1 instead of Failing at 2. Everything else is replayed as recorded.
+fn d99_expected(row: Value) -> Value {
+    let mut row = native_expected(row);
+    let c1 = json!(["pkg", "C1", "m1"]);
+    let failed = &mut row["steps"][1]["events"];
+    d99_moves(
+        failed,
+        |e| e[0] == "stdout" && e[1].as_str().unwrap().ends_with("pkg.C1#m1 failed"),
+        json!(["stdout", "25% | [pool]-[serial-A1] pkg.C1#m1 failed"]),
+        json!(["stdout", "33% | [pool]-[serial-A1] pkg.C1#m1 failed"]),
+    );
+    d99_moves(
+        failed,
+        |e| e[0] == "track" && e[3] == c1,
+        json!(["track", "pool", "serial-A1", c1, "FAILURE", 0, 1, "batch", false]),
+        json!(["track", "pool", "serial-A1", c1, "FAILURE", 0, 1, "batch", true]),
+    );
+    d99_moves(
+        &mut row["steps"][3]["events"],
+        |e| e[0] == "stdout",
+        json!(["stdout", "50% | [pool]-[serial-A1] pkg.C0#m0 passed"]),
+        json!(["stdout", "67% | [pool]-[serial-A1] pkg.C0#m0 passed"]),
+    );
+    assert_eq!(row["progress"][1], json!(["pkg.C1#m1", "Failing", 2]));
+    row["progress"][1] = json!(["pkg.C1#m1", "Failed", 1]);
+    row
+}
+
+/// D99 supersedes the C5 recording, whose refused retry still added to the test's total. The whole row is replayed
+/// against `d99_expected`, which moves only the values D99 changes. The native expectation is also
+/// `queue_behaviour::a_failure_that_meets_no_retries_left_ends_the_test_d99`.
 #[test]
 fn d99_supersedes_exactly_the_c5_recording() {
-    let row = recorded_row("C5: a phantom AddRetry through the queue");
-    assert_eq!(row["progress"][1], json!(["pkg.C1#m1", "Failing", 2]));
-    let differing: Vec<String> = mismatches_of(vec![native_expected(row)])
-        .iter()
-        .map(|mismatch| {
-            let line = mismatch.lines().next().unwrap();
-            let what = line.split(": ").nth(2).unwrap();
-            what.split(' ').take(2).collect::<Vec<_>>().join(" ")
-        })
-        .collect();
-    assert_eq!(differing, ["step 1", "step 3", "progress"]);
+    let mismatches = mismatches_of(vec![d99_expected(recorded_row(C5_ROW))]);
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+    // The recording itself no longer replays.
+    assert!(!mismatches_of(vec![native_expected(recorded_row(C5_ROW))]).is_empty());
+}
+
+/// The D99 allowance covers values, not steps: a wrong result payload or queue action in a step it changes still fails.
+#[test]
+fn the_d99_allowance_rejects_other_changes_in_the_steps_it_moves() {
+    let expected = d99_expected(recorded_row(C5_ROW));
+    let mutations: [fn(&mut Value); 4] = [
+        |row| row["steps"][1]["events"][1][1][1][1] = json!("PASSED"),
+        |row| row["steps"][1]["replies"] = json!([]),
+        |row| row["steps"][3]["replies"] = json!([["Notify", ["worker-A"]]]),
+        |row| row["steps"][3]["state"]["queue"] = json!([["pkg", "C1", "m1"]]),
+    ];
+    for (index, mutate) in mutations.iter().enumerate() {
+        let mut tampered = expected.clone();
+        mutate(&mut tampered);
+        assert_ne!(tampered, expected, "mutation {index}");
+        assert_eq!(mismatches_of(vec![tampered]).len(), 1, "mutation {index}");
+    }
 }
 
 #[test]
