@@ -168,6 +168,19 @@ enum SharedAcquire {
 struct State {
     leases: HashMap<usize, Lease>,
     shared: HashMap<Transport, SharedWorker>,
+    /// U270 (review round 2): set by [`ConnectionFactory::close_remaining`], with its deadline. From then on no lease is
+    /// published: an acquisition still connecting closes its connection instead, and a new one is refused.
+    ended: Option<EndOfRun>,
+}
+#[derive(Clone, Copy)]
+struct EndOfRun {
+    deadline: Option<i64>,
+}
+fn run_ended() -> ConnectionError {
+    VendorError::Cancelled(crate::cmd::cancelled(
+        "The run has ended; no worker connection is opened any more",
+    ))
+    .into()
 }
 fn identity(executor: &Executor) -> usize {
     Arc::as_ptr(executor) as *const () as usize
@@ -361,9 +374,12 @@ impl ConnectionFactory {
         transport: Transport,
         catch_device: bool,
     ) -> ConnectionResult<(Option<Executor>, Bridge)> {
+        if self.state.lock().unwrap_or_else(|e| e.into_inner()).ended.is_some() {
+            return Err(run_ended());
+        }
         if transport == Transport::Local {
             let (executor, bridge) = self.create_local();
-            self.register(executor.clone());
+            self.register(executor.clone()).await?;
             return Ok((Some(executor), bridge));
         }
         let bridge = self.file_bridge(&transport).await?;
@@ -402,30 +418,60 @@ impl ConnectionFactory {
             Arc::new(JvmFileBridge::new(self.runtime.clone(), true)),
         )
     }
-    fn register(&self, executor: Executor) {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        state.leases.insert(
-            identity(&executor),
-            Lease {
-                executor,
-                shared_by: None,
-                users: 1,
-                slot: None,
+    /// Publishes a new connection's lease; after the end of the run, closes the connection instead and refuses it.
+    async fn register(&self, executor: Executor) -> ConnectionResult<()> {
+        let lease = Lease {
+            executor,
+            shared_by: None,
+            users: 1,
+            slot: None,
+        };
+        let ended = {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            match state.ended {
+                None => {
+                    state.leases.insert(identity(&lease.executor), lease);
+                    return Ok(());
+                }
+                Some(ended) => ended,
+            }
+        };
+        Err(self.close_unpublished(lease, ended).await)
+    }
+    /// U270 (review round 2): a connection that completed after the end of the run is closed here, as the end of the run
+    /// closes a lease, before anything is given it; it is not left for a release that the runtime's shutdown can cut off.
+    async fn close_unpublished(&self, lease: Lease, ended: EndOfRun) -> ConnectionError {
+        self.logging.log(
+            &self.logger,
+            Level::DEBUG,
+            || {
+                format!(
+                    "Closing the connection to {} that completed after the end of the run",
+                    lease.executor.host().id
+                )
             },
+            None,
         );
+        let deadline = release_deadline(self.clock.as_ref(), ended.deadline);
+        match self.close_lease(lease, deadline).await {
+            Ok(()) => run_ended(),
+            Err(error) => error.into(),
+        }
     }
     async fn acquire(&self, transport: Transport) -> ConnectionResult<Executor> {
         if !self.ssh.share_worker_connection {
             let executor = self.connect(transport).await?;
-            self.register(executor.clone());
+            self.register(executor.clone()).await?;
             return Ok(executor);
         }
         loop {
-            let action = self
-                .state
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .acquire_shared(&transport);
+            let action = {
+                let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                if state.ended.is_some() {
+                    return Err(run_ended());
+                }
+                state.acquire_shared(&transport)
+            };
             match action {
                 SharedAcquire::Reuse(executor) => {
                     let alive = self.check_connected(executor.clone()).await;
@@ -460,25 +506,34 @@ impl ConnectionFactory {
                     reserved,
                 } => {
                     let connected = self.connect_shared(transport.clone(), slots, reserved).await;
-                    let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-                    let State { shared, leases } = &mut *state;
-                    let worker = shared.get_mut(&transport).expect("shared worker is registered");
-                    worker.pending = None;
-                    let result = connected.map(|(executor, permit)| {
-                        let slot = executor.hold_shared_ssh_slot(permit);
-                        worker.current = Some(executor.clone());
-                        leases.insert(
-                            identity(&executor),
-                            Lease {
+                    let (result, unpublished) = {
+                        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                        let State { shared, leases, ended } = &mut *state;
+                        let worker = shared.get_mut(&transport).expect("shared worker is registered");
+                        worker.pending = None;
+                        let mut unpublished = None;
+                        let result = connected.and_then(|(executor, permit)| {
+                            let slot = executor.hold_shared_ssh_slot(permit);
+                            let lease = Lease {
                                 executor: executor.clone(),
                                 shared_by: Some(transport.clone()),
                                 users: 1,
                                 slot,
-                            },
-                        );
-                        executor
-                    });
-                    attempt.send_replace(Some(result.as_ref().map(|_| ()).map_err(Clone::clone)));
+                            };
+                            if let Some(ended) = *ended {
+                                unpublished = Some((lease, ended));
+                                return Err(run_ended());
+                            }
+                            worker.current = Some(executor.clone());
+                            leases.insert(identity(&executor), lease);
+                            Ok(executor)
+                        });
+                        attempt.send_replace(Some(result.as_ref().map(|_| ()).map_err(Clone::clone)));
+                        (result, unpublished)
+                    };
+                    if let Some((lease, ended)) = unpublished {
+                        return Err(self.close_unpublished(lease, ended).await);
+                    }
                     return result;
                 }
             }
@@ -652,9 +707,14 @@ impl ConnectionFactory {
     /// D93 kept out of use "for the rest of the run", or one whose release never came. Left open, it lived on until the
     /// process exited, and the transport, dropped then, logged its EOF as a lost connection (`Dying because …`). Each is
     /// closed as a release closes it, within `deadline`. The provider calls it last, when nothing acquires any more.
+    ///
+    /// It also ends acquisition, under the same lock (review round 2): an acquisition still connecting (a detached one
+    /// whose caller has gone, say) closes its connection when it completes instead of publishing it, and a later one is
+    /// refused, so no connection opened after this sweep is left for the process's exit either.
     pub async fn close_remaining(self: &Arc<Self>, deadline: Option<i64>) -> VendorResult<()> {
         let leases: Vec<Lease> = {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.ended.get_or_insert(EndOfRun { deadline });
             // No closed connection is handed out again. Each worker keeps its entry, which an acquisition still under
             // way expects to find.
             for worker in state.shared.values_mut() {

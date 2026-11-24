@@ -526,33 +526,57 @@ async fn the_end_of_the_run_closes_every_connection_still_leased_u270() {
         f.close_remaining(None).await.unwrap();
         f.dispose(other_user).await.unwrap();
         assert_eq!((q.count(), o.count(), u.count()), (1, 1, 1), "shared {shared}");
-        // A closed connection is never handed out again; an acquisition after the end gets a new one.
-        let late = get(&f, "a").await;
-        assert!(!Arc::ptr_eq(&late, &quarantined), "shared {shared}");
-        f.dispose(late).await.unwrap();
+        // Review round 2: acquisition has ended too; a later one is refused and connects nothing.
+        let connects = c.calls.load(Ordering::SeqCst);
+        let late = f.connect_worker(worker("a"), support::context()).await;
+        assert!(
+            matches!(late, Err(ConnectionError::Vendor(VendorError::Cancelled(_)))),
+            "shared {shared}: {:?}",
+            late.map(|_| ())
+        );
+        assert_eq!(c.calls.load(Ordering::SeqCst), connects, "shared {shared}");
         done(&f).await;
     }
 }
-/// U270: the end of the run while a shared acquisition is still connecting: that acquisition completes (the worker's entry
-/// is kept for it) and its connection is its caller's to release.
+/// U270: the end of the run while an acquisition is still connecting (for a shared worker, a replacement of its saturated
+/// connection, whose entry the worker keeps): the acquisition completes without a panic, closes its connection itself and
+/// is refused, as is a caller waiting for it. Review round 2: it published the connection after the sweep, which then
+/// lived on until the process exited.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn the_end_of_the_run_leaves_a_shared_acquisition_under_way_intact_u270() {
-    let (f, c) = factory(true, 8);
-    let held = get(&f, "a").await;
-    c.fake(&held).saturated.store(true, Ordering::SeqCst);
-    c.block();
-    let pending = call(&f, "a");
-    // The first connection's start and the pending one's: the replacement is connecting now.
-    wait(&c.started, 2).await;
-    f.close_remaining(None).await.unwrap();
-    assert_eq!(c.fake(&held).count(), 1);
-    c.release.add_permits(10);
-    let next = pending.await.unwrap().unwrap();
-    assert!(!Arc::ptr_eq(&next, &held));
-    assert_eq!(c.fake(&next).count(), 0);
-    f.dispose(next.clone()).await.unwrap();
-    assert_eq!(c.fake(&next).count(), 1);
-    done(&f).await;
+async fn an_acquisition_under_way_at_the_end_of_the_run_closes_its_connection_u270() {
+    for shared in [false, true] {
+        let (f, c) = factory(shared, 8);
+        let held = get(&f, "a").await;
+        c.fake(&held).saturated.store(true, Ordering::SeqCst);
+        c.block();
+        let pending = call(&f, "a");
+        // The first connection's start and the pending one's: the second connection is connecting now.
+        wait(&c.started, 2).await;
+        let waiter = shared.then(|| call(&f, "a"));
+        if waiter.is_some() {
+            wait(&c.waiting, 1).await;
+        }
+        f.close_remaining(None).await.unwrap();
+        assert_eq!(c.fake(&held).count(), 1, "shared {shared}");
+        c.release.add_permits(10);
+        for acquisition in std::iter::once(pending).chain(waiter) {
+            let result = support::bounded(60, acquisition).await.unwrap();
+            assert!(
+                matches!(result, Err(ConnectionError::Vendor(VendorError::Cancelled(_)))),
+                "shared {shared}: {:?}",
+                result.map(|_| ())
+            );
+        }
+        let next = c.last();
+        assert!(!Arc::ptr_eq(&(next.clone() as Executor), &held), "shared {shared}");
+        assert_eq!(
+            (next.count(), next.abandoned.load(Ordering::SeqCst)),
+            (1, 0),
+            "shared {shared}"
+        );
+        assert_eq!(c.calls.load(Ordering::SeqCst), 2, "shared {shared}");
+        done(&f).await;
+    }
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_requests_for_a_shared_worker_wait_for_one_connection_and_count_every_user() {
@@ -715,6 +739,105 @@ impl Connector for LoopbackConnector {
             });
             Ok(connect)
         })
+    }
+}
+
+/// A [`LoopbackConnector`] whose connect, once its SSH connection is up, waits for the test before the factory gets it.
+struct HeldLoopbackConnector {
+    inner: LoopbackConnector,
+    connected: Arc<Semaphore>,
+    release: Arc<Semaphore>,
+}
+impl Connector for HeldLoopbackConnector {
+    fn prepare(&self, transport: Transport) -> ConnectionFuture<'_, PreparedConnection> {
+        let (connected, release) = (self.connected.clone(), self.release.clone());
+        Box::pin(async move {
+            let connect = self.inner.prepare(transport).await?;
+            let held: PreparedConnection = Box::new(move || {
+                Box::pin(async move {
+                    let executor = connect().await?;
+                    connected.add_permits(1);
+                    wait(&release, 1).await;
+                    Ok(executor)
+                })
+            });
+            Ok(held)
+        })
+    }
+}
+
+/// U270 (review round 2): a real SSH connection that completes after the end of the run's sweep (a detached connect whose
+/// caller has gone) is closed by the factory before anything is given it, while the test still holds it: the worker sees
+/// it end and no `Dying because` line is logged. It was published as a lease after the sweep, left to a release that
+/// the runtime's shutdown could cut off. A later acquisition is refused without connecting.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_connection_completing_after_the_end_of_the_run_is_closed_locally_u270() {
+    for shared in [false, true] {
+        let wire = ssh::fake(ssh::suite_script(), 2).await;
+        let (logging, events) = ssh::logging(false);
+        let mut ssh = SshjCommandExecutorFactory::new(logging.clone(), Arc::new(Runtime), Arc::new(Clock::default()));
+        ssh.keep_alive_interval = duration(0);
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let (connected, release) = (Arc::new(Semaphore::new(0)), Arc::new(Semaphore::new(0)));
+        let factory = ConnectionFactory::with_seams(
+            false,
+            config(shared),
+            rsync(),
+            duration(1000),
+            DEFAULT_MAX_CONCURRENT_CONNECTS,
+            Arc::new(Runtime),
+            Arc::new(Clock::default()),
+            logging,
+            Arc::new(HeldLoopbackConnector {
+                inner: LoopbackConnector {
+                    port: wire.port(),
+                    ssh: Arc::new(ssh),
+                    opened: opened.clone(),
+                },
+                connected: connected.clone(),
+                release: release.clone(),
+            }),
+            Arc::new(Probe),
+        )
+        .unwrap();
+        let transport = Transport::Ssh {
+            addr: "127.0.0.1".into(),
+            port: i32::from(wire.port()),
+            authentication: None,
+            check_reachability: false,
+        };
+        let acquiring = {
+            let (factory, transport) = (factory.clone(), transport.clone());
+            tokio::spawn(async move { factory.connect_worker(transport, support::context()).await })
+        };
+        wait(&connected, 1).await;
+        factory.close_remaining(None).await.unwrap();
+        release.add_permits(1);
+        let result = support::bounded(60, acquiring).await.unwrap();
+        assert!(
+            matches!(result, Err(ConnectionError::Vendor(VendorError::Cancelled(_)))),
+            "shared {shared}: {:?}",
+            result.map(|_| ())
+        );
+        let executor = opened.lock().unwrap()[0].clone();
+        assert!(!executor.connected(), "shared {shared}");
+        support::bounded(60, wire.events_at_least("connection_end", 1)).await;
+        let late = factory.connect_worker(transport, support::context()).await;
+        assert!(
+            matches!(late, Err(ConnectionError::Vendor(VendorError::Cancelled(_)))),
+            "shared {shared}: {:?}",
+            late.map(|_| ())
+        );
+        assert_eq!(wire.events("connection").await.len(), 1, "shared {shared}");
+        factory.join_pending().await.unwrap();
+        drop(executor);
+        drop(factory);
+        let dying: Vec<_> = ssh::lines(&events)
+            .into_iter()
+            .filter(|(_, _, message)| message.starts_with("Dying because"))
+            .collect();
+        assert_eq!(dying, vec![], "shared {shared}");
+        wire.worker.shutdown().await.unwrap();
     }
 }
 
