@@ -1882,6 +1882,62 @@ fn matches_operation(row: &serde_json::Value, suffix: &str) -> bool {
         .ends_with(suffix.as_bytes())
 }
 
+/// U270: a supervised command outlives its first renewal, which dials the supervisor's control connection; closing the
+/// executor then ends that connection with the data connection, while the executor is still held. Before, the control
+/// connection stayed open until the executor was dropped, which a task still holding its simulator put off until exit.
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_an_executor_closes_its_supervisor_control_connection_u270() {
+    let fake = ssh::fake_with_handlers(
+        ssh::script(vec![]),
+        3,
+        |_| {},
+        vec![Arc::new(SupervisorWorker::default())],
+    )
+    .await;
+    let (logging, events) = ssh::logging(false);
+    let mut factory = ssh::factory(&logging);
+    // The supervisor renews a lease once per keep-alive interval (1 s here) on its control connection.
+    factory.keep_alive_interval = duration(1000);
+    let executor = factory
+        .connect_worker("127.0.0.1", fake.port(), ssh::password(), None, false, Arc::default())
+        .await
+        .unwrap();
+    let session = executor
+        .execute(CommandRequest::new(["echo", "batch"], duration(120_000)), context())
+        .await
+        .unwrap();
+    assert_eq!(session.base.stdout.receive().await.unwrap().as_deref(), Some("ready"));
+    let renewal = fake.events_at_least("supervisor_request", 1).await.remove(0);
+    let connections = fake.events("connection").await;
+    assert_eq!(connections.len(), 2, "the data connection and the control connection");
+    assert_ne!(renewal["connection"], connections[0]["connection"]);
+    support::bounded(30, executor.close()).await.unwrap();
+    let ended = support::bounded(30, async {
+        loop {
+            let ended = fake.events("connection_end").await;
+            if ended.len() == 2 {
+                break ended;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    assert!(ended.iter().any(|e| e["connection"] == renewal["connection"]));
+    assert_eq!(
+        fake.events("connection").await.len(),
+        2,
+        "no control connection is dialed after the close"
+    );
+    drop(session);
+    drop(executor);
+    let dying: Vec<_> = ssh::lines(&events)
+        .into_iter()
+        .filter(|(_, _, message)| message.starts_with("Dying because"))
+        .collect();
+    assert_eq!(dying, vec![]);
+    fake.worker.shutdown().await.unwrap();
+}
+
 #[tokio::test]
 async fn a_slow_control_exchange_keeps_its_transport_d96() {
     use marathon_apple::cmd::remote::ssh::sshj::SshjCommandExecutorFactory;

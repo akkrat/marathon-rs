@@ -1410,6 +1410,15 @@ impl AppleSimulatorProvider {
             )
         };
         released.extend(replaced);
+        // U270: what is still leased now (a quarantined simulator's connection, say) is closed here rather than left to
+        // die at exit.
+        if let Err(error) = self.services.connections.close_remaining(Some(deadline)).await {
+            self.log(
+                Level::ERROR,
+                || "Failed to close the remaining worker connections".into(),
+                Some(error.failure().clone()),
+            );
+        }
         let release_ended = clock.now_millis();
 
         tokio::select! { biased;

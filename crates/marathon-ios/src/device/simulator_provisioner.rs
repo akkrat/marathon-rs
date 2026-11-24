@@ -69,6 +69,12 @@ pub trait ProvisioningConnections: Send + Sync {
     fn quarantine(&self, executor: &Executor) {
         let _ = executor;
     }
+    /// U270: closes, within `deadline`, every connection still leased once the provider has released its simulators
+    /// (a quarantined one included: its "rest of the run" ends here). Nothing to close is the default.
+    fn close_remaining(&self, deadline: Option<i64>) -> VendorFuture<'_, ()> {
+        let _ = deadline;
+        Box::pin(async { Ok(()) })
+    }
 }
 
 /// Until setup hands a lease to a registered device, a dropped setup cannot
@@ -121,6 +127,9 @@ impl ProvisioningConnections for Arc<ConnectionFactory> {
     }
     fn quarantine(&self, executor: &Executor) {
         ConnectionFactory::quarantine(self, executor)
+    }
+    fn close_remaining(&self, deadline: Option<i64>) -> VendorFuture<'_, ()> {
+        Box::pin(ConnectionFactory::close_remaining(self, deadline))
     }
 }
 /// Mirrors the source's mockable simctl service; production keeps wrapper parsing/timeouts.

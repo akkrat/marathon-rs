@@ -488,6 +488,47 @@ async fn a_blocked_connect_to_one_worker_does_not_hold_up_another_worker() {
         done(&f).await;
     }
 }
+/// U270: the end of the run closes what is still leased: a connection D93 quarantined (kept out of use for the rest of
+/// the run, which ends here) and one whose release never came, each once, whatever users it still counts. A connection
+/// released before is not closed again. Before, both stayed open until the process exited and died by EOF there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_end_of_the_run_closes_every_connection_still_leased_u270() {
+    for shared in [false, true] {
+        let (f, c) = factory(shared, 8);
+        let quarantined = get(&f, "a").await;
+        let other_user = get(&f, "a").await;
+        let unreleased = get(&f, "b").await;
+        let released = get(&f, "c").await;
+        f.quarantine(&quarantined);
+        f.dispose(released.clone()).await.unwrap();
+        let (q, o, u, r) = (
+            c.fake(&quarantined),
+            c.fake(&other_user),
+            c.fake(&unreleased),
+            c.fake(&released),
+        );
+        assert_eq!(
+            (q.count(), o.count(), u.count(), r.count()),
+            (0, 0, 0, 1),
+            "shared {shared}"
+        );
+        f.close_remaining(None).await.unwrap();
+        assert_eq!(
+            (q.count(), o.count(), u.count(), r.count()),
+            (1, 1, 1, 1),
+            "shared {shared}"
+        );
+        assert_eq!(
+            q.abandoned.load(Ordering::SeqCst) + u.abandoned.load(Ordering::SeqCst),
+            0
+        );
+        // Nothing is left for a second call, nor for the users' own late releases.
+        f.close_remaining(None).await.unwrap();
+        f.dispose(other_user).await.unwrap();
+        assert_eq!((q.count(), o.count(), u.count()), (1, 1, 1), "shared {shared}");
+        done(&f).await;
+    }
+}
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_requests_for_a_shared_worker_wait_for_one_connection_and_count_every_user() {
     let (f, c) = factory(true, 8);

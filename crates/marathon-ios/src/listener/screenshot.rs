@@ -114,6 +114,11 @@ impl AppleTestRunListener for ScreenCapturerTestRunListener {
     fn test_ignored<'a>(&'a self, test: &'a Test, _: i64, _: i64) -> VendorFuture<'a, ()> {
         Box::pin(self.ended(test, false))
     }
+    /// U270: the batch's end stops a capture whose test never ended, as the video listener stops its recorder. Its
+    /// file is left as a test end without a result leaves it: not attached.
+    fn after_test_run(&self) -> VendorFuture<'_, ()> {
+        Box::pin(self.c.cancel(&self.job))
+    }
     fn test_run_failed<'a>(&'a self, _: &'a str, _: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             self.c.cancel(&self.job).await?;
@@ -139,6 +144,17 @@ impl AppleTestRunListener for ScreenCapturerTestRunListener {
             }
             Ok(())
         })
+    }
+}
+
+/// U270: the capture job cannot outlive its batch's listener, whichever callbacks ran (the composite stops at the first
+/// failing `after_test_run`). Kotlin gave it a parentless `SupervisorJob`, so a batch that ended after a test started and
+/// before its result (xcodebuild exiting without one) kept capturing until the process exited.
+impl Drop for ScreenCapturerTestRunListener {
+    fn drop(&mut self) {
+        if let Some(job) = self.job.get_mut().unwrap_or_else(|e| e.into_inner()).take() {
+            job.cancel(marathon_apple::cmd::cancelled("Recording finished"));
+        }
     }
 }
 

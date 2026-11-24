@@ -54,6 +54,12 @@ pub trait MacosConnections: Send + Sync {
     fn quarantine(&self, executor: &Executor) {
         let _ = executor;
     }
+    /// U270: closes, within `deadline`, every connection still leased once the provider has released its Macs (a
+    /// quarantined one included: its "rest of the run" ends here). Nothing to close is the default.
+    fn close_remaining(&self, deadline: Option<i64>) -> VendorFuture<'_, ()> {
+        let _ = deadline;
+        Box::pin(async { Ok(()) })
+    }
 }
 impl MacosConnections for Arc<ConnectionFactory> {
     fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
@@ -82,6 +88,9 @@ impl MacosConnections for Arc<ConnectionFactory> {
     }
     fn quarantine(&self, executor: &Executor) {
         ConnectionFactory::quarantine(self, executor)
+    }
+    fn close_remaining(&self, deadline: Option<i64>) -> VendorFuture<'_, ()> {
+        Box::pin(ConnectionFactory::close_remaining(self, deadline))
     }
 }
 pub struct AppleMacosProvider {
@@ -537,6 +546,19 @@ impl DeviceProvider for AppleMacosProvider {
                 (finished(), Ok(()))
             }))
             .await;
+            // U270: what is still leased now (a quarantined Mac's connection, say) is closed here rather than left to die
+            // at exit.
+            if first
+                && let Err(error) = self.connections.close_remaining(None).await
+                && self.options.logging.enabled(&self.logger, Level::ERROR)
+            {
+                (self.options.logging.sink)(
+                    &self.logger,
+                    Level::ERROR,
+                    "Failed to close the remaining worker connections".into(),
+                    Some(error.failure().clone()),
+                );
+            }
             let mut timed = marathon_core::run_end::Slowest::default();
             let mut outcome = Ok(());
             for ((udid, millis), result) in results {

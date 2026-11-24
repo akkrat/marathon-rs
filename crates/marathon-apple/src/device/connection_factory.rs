@@ -621,6 +621,10 @@ impl ConnectionFactory {
             || format!("Disposing of command executor for {}", executor.host().id),
             None,
         );
+        self.close_lease(lease, deadline).await
+    }
+    /// Closes a lease's connection within `deadline` (and any signal's device limit), or abandons it.
+    async fn close_lease(&self, lease: Lease, deadline: i64) -> VendorResult<()> {
         let closed = {
             tokio::select! { biased;
                 result = lease.executor.close() => Some(result),
@@ -637,12 +641,50 @@ impl ConnectionFactory {
             || {
                 format!(
                     "SSH lease release timed out. Abandoning the connection to {}.",
-                    executor.host().id
+                    lease.executor.host().id
                 )
             },
             None,
         );
         Ok(())
+    }
+    /// U270: the end of the run for every connection still leased, after the provider has released its devices: one that
+    /// D93 kept out of use "for the rest of the run", or one whose release never came. Left open, it lived on until the
+    /// process exited, and the transport, dropped then, logged its EOF as a lost connection (`Dying because …`). Each is
+    /// closed as a release closes it, within `deadline`. The provider calls it last, when nothing acquires any more.
+    pub async fn close_remaining(self: &Arc<Self>, deadline: Option<i64>) -> VendorResult<()> {
+        let leases: Vec<Lease> = {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.shared.clear();
+            state.leases.drain().map(|(_, lease)| lease).collect()
+        };
+        let deadline = release_deadline(self.clock.as_ref(), deadline);
+        let closes: Vec<_> = leases
+            .into_iter()
+            .map(|lease| {
+                self.logging.log(
+                    &self.logger,
+                    Level::DEBUG,
+                    || {
+                        format!(
+                            "Closing the connection to {} at the end of the run",
+                            lease.executor.host().id
+                        )
+                    },
+                    None,
+                );
+                let factory = self.clone();
+                self.tasks.spawn(self.runtime.as_ref(), async move {
+                    factory.close_lease(lease, deadline).await
+                })
+            })
+            .collect();
+        let mut result = Ok(());
+        for close in closes {
+            // One failed close must not leave the others unjoined.
+            result = result.and(close.join().await);
+        }
+        result
     }
     async fn file_bridge(&self, transport: &Transport) -> ConnectionResult<Bridge> {
         let Transport::Ssh {

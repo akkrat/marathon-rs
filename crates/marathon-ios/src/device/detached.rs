@@ -131,6 +131,9 @@ impl ProvisioningConnections for DetachedConnections {
     fn quarantine(&self, executor: &Executor) {
         self.inner.quarantine(executor)
     }
+    fn close_remaining(&self, deadline: Option<i64>) -> VendorFuture<'_, ()> {
+        self.inner.close_remaining(deadline)
+    }
 }
 
 /// The provider overrides SimulatorProvisioner's legacy nullable `create` call with
@@ -162,5 +165,8 @@ impl ProvisioningConnections for ProviderConnections {
     }
     fn quarantine(&self, executor: &Executor) {
         self.0.quarantine(executor)
+    }
+    fn close_remaining(&self, deadline: Option<i64>) -> VendorFuture<'_, ()> {
+        Box::pin(self.0.close_remaining(deadline))
     }
 }

@@ -536,6 +536,7 @@ impl CommandExecutor for SshCommandExecutor {
                 let (completed, retired) = oneshot::channel();
                 self.runtime.spawn(Box::pin(async move {
                     supervisor.retire().await;
+                    supervisor.close_control().await;
                     let _ = completed.send(());
                     Ok(())
                 }));

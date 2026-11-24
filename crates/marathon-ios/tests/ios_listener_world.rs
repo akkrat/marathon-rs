@@ -159,6 +159,66 @@ async fn replay(
     })
     .await?;
 
+    let mut listeners = listeners;
+    if outcome >= UNFINISHED {
+        let shot = h
+            .services
+            .output
+            .create_file(&marathon_core::output::FileTarget {
+                kind: marathon_core::output::FileType::Screenshot,
+                pool: c.pool.clone(),
+                device: marathon_core::vendor::Device::info(d.as_ref()),
+                test: Some(test.clone()),
+                test_batch_id: Some(c.batch.id.clone()),
+                id: None,
+                chunk: None,
+            })
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        // A finished GIF ends with its trailer, which the capture writes only when it stops.
+        let finished = || std::fs::read(&shot).is_ok_and(|bytes| bytes.starts_with(b"GIF89a") && bytes.ends_with(b";"));
+        assert!(!finished(), "the capture is running");
+        if outcome == UNFINISHED {
+            listeners
+                .recorder
+                .after_test_run()
+                .await
+                .map_err(|e| format!("{e:?}"))?;
+            assert!(
+                finished(),
+                "U270: the batch's end stops a capture whose test never ended"
+            );
+        } else {
+            listeners.recorder = Arc::new(Empty);
+            tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                while !finished() {
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .map_err(|_| "U270: a dropped listener's capture never stopped")?;
+        }
+        let shots = || {
+            worker
+                .commands
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|c| c.iter().any(|a| a == "screenshot"))
+                .count()
+        };
+        let taken = shots();
+        listeners
+            .device_log
+            .after_test_run()
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        assert!(collector.get(&test).is_none());
+        h.finish(&[d]).await;
+        worker.close().await.map_err(|e| format!("{e:?}"))?;
+        assert_eq!(shots(), taken, "no screenshot after the capture stopped");
+        return Ok(());
+    }
     if batch_failure {
         listeners
             .recorder
@@ -295,6 +355,23 @@ async fn replay(
     worker.close().await.map_err(|e| format!("{e:?}"))?;
 
     Ok(())
+}
+/// `replay` outcomes past the test-end ones: the batch ends before the test's result (xcodebuild exits without one), and
+/// then the listener is dropped without its `after_test_run` either.
+const UNFINISHED: u8 = 3;
+const DROPPED: u8 = 4;
+struct Empty;
+impl marathon_apple::listener::AppleTestRunListener for Empty {}
+
+/// U270: a capture belongs to its batch. Before, a test that started and never ended (the farm's suite, whose xcodebuild
+/// exits 65 without results) kept its capture, and with it the simulator and its connection, until the process exited.
+#[tokio::test]
+async fn a_capture_whose_test_never_ended_stops_with_its_batch_u270() -> TestResult {
+    replay(true, false, Codec::H264, UNFINISHED, ScreenRecordingPolicy::OnAny).await
+}
+#[tokio::test]
+async fn a_dropped_screenshot_listener_stops_its_capture_u270() -> TestResult {
+    replay(true, false, Codec::H264, DROPPED, ScreenRecordingPolicy::OnAny).await
 }
 #[tokio::test]
 async fn ios_media_replay_keeps_a19_temp_and_exact_transcode() -> TestResult {

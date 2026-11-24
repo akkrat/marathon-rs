@@ -219,6 +219,18 @@ impl Supervisor {
         }
     }
 
+    /// U270: closes the control connection, after `retire`, which may still need it.
+    pub(super) async fn close_control(&self) {
+        let capability = self
+            .capability
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        if let Capability::Ready(Some(peer)) = capability {
+            peer.close_control().await;
+        }
+    }
+
     async fn peer(self: &Arc<Self>, connection: &Arc<SshConnection>) -> VendorResult<Option<Arc<Peer>>> {
         let (reply, launch) = {
             let mut capability = self.capability.lock().unwrap_or_else(|error| error.into_inner());
@@ -370,6 +382,8 @@ struct Control {
     stream: Option<Arc<SharedDeferred<Arc<ControlSession>>>>,
     next_dial: Option<Instant>,
     retry_delay: Option<WallDuration>,
+    /// U270: set by the executor's close; no control connection is dialed after it.
+    closed: bool,
 }
 struct Peer {
     data: Arc<SshConnection>,
@@ -486,6 +500,9 @@ impl Peer {
         let mut control = timeout_at(deadline, self.control.lock())
             .await
             .map_err(|_| protocol_error("Worker supervisor reconnect is busy"))?;
+        if control.closed {
+            return Err(protocol_error("Worker supervisor control is closed"));
+        }
         if let Some(active) = &control.active
             && active.is_connected()
         {
@@ -507,6 +524,20 @@ impl Peer {
         control.active = Some(active.clone());
         control.stream = None;
         Ok(active)
+    }
+
+    /// U270: the control connection this peer dialed is its executor's to close, with the data connection. Before, it
+    /// stayed open until the peer was dropped, which a task still holding the simulator could put off until exit.
+    async fn close_control(&self) {
+        let active = {
+            let mut control = self.control.lock().await;
+            control.closed = true;
+            control.stream = None;
+            control.active.take()
+        };
+        if let Some(active) = active {
+            let _ = active.close().await;
+        }
     }
 
     /// D98: a recorder's start-confirmation status. It uses only an already open control stream: no dial, no
