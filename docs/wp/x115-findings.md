@@ -308,6 +308,25 @@ No real-worker run this round: item 2 changes only acquisitions that complete af
 and item 3 changes what an open pending at a stop costs, not what goes on the wire (before: the open's reply, then a
 CLOSE without exec; now: the CLOSE without exec from the open's task when the reply comes).
 
+## Review round 3: accepted edges
+
+A static re-review of round 2 found no P1. Its two P2 findings and two P3 findings were judged against real runs and
+left as documented edges rather than fixed:
+
+- **A connect or release that is still running when the runtime shuts down.** `close_remaining` seals the factory and
+  joins the closes of the leases it drains. A detached connect that authenticates just as the sweep returns, or a
+  release that removed its lease before the sweep, is not joined, and runtime shutdown can drop it before it closes
+  its connection. That costs at most one `Dying because` line per such connection. It needs a connect or release that
+  overlaps the end of the run, after the provider has released its devices; the Step B runs with the fix had none.
+- **A cancellation racing a successful open.** If the open's reply is claimed just before the cancellation, the
+  executor closes the new channel and waits for the worker's CLOSE reply. A worker that accepts the open but never
+  answers the close holds the screenshot capture's join, and with it the batch's xcresult, for up to the channel's
+  30 s. A worker in that state already stalls the batch in other ways.
+- **The open witness uses real time** (a 5 s reply against a 3 s open timeout at factor 10), like the other U157
+  witnesses in `ssh_session.rs`.
+- **A refusal of the open that is queued but not yet read when we cancel** is not logged. We were abandoning that
+  open anyway, and a transport disconnect still logs at ERROR on its own path.
+
 ## Verification
 
 Ran, all passing (details in the report): `cargo fmt --check`; `cargo clippy` on the changed crates with
@@ -342,8 +361,6 @@ allowances above.
 
 - The screenshot capture leak is a kept Kotlin behaviour (parentless `SupervisorJob`) that x115 fixes as part of U270;
   it has no row of its own in `known-kotlin-bugs.md`.
-- `scripts/parity_matrix.py --check` reports a `SkipCopyingDerivedDataTest` row as no longer found in the Kotlin
-  checkout; the same on the base commit, so not from this WP.
 - D69's allowance in `queue_oracle` (`d69_supersedes_exactly_the_c45_to_c47_recordings`) has the shape item 4 of
   review round 2 fixed for C5: it checks which steps differ, not how. It predates x115; round 1 only added
   `K2 progress` to its list. Not changed here.
@@ -351,5 +368,3 @@ allowances above.
   releases its use of the drained lease and logs `Command executor for … is not in use, ignoring dispose` (WARN) before
   it is refused. Only an acquisition that overlaps the end of the run (after the provider has released its devices)
   can reach it; not changed here.
-- `scripts/parity_matrix.py --check` now also reports `CodeCoverageTargetsTest` rows as no longer found in the Kotlin
-  checkout; the parity matrix is not changed by this WP, so this comes from the checkout, not from x115.
