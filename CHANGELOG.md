@@ -58,8 +58,9 @@ allowlist changes are needed. Everything else is as in
 - A connection to an SSH worker that is still being opened or released at the moment the run ends can still be logged
   as lost (`Dying because - Broken transport`) when marathon exits, at most once per such connection. No real-worker
   run reached it (U270).
-- If marathon cancels a screenshot command just as the worker accepts it and the worker then never acknowledges the
-  close, the capture's stop can delay that batch's result bundle by up to 30 s (U271).
+- If marathon cancels a screenshot command just as the worker accepts its channel open, before the command is sent, and
+  the worker then never acknowledges the close, the capture's stop can delay that batch's result bundle by up to 30 s
+  (U271).
 - There is no Windows, Intel Mac, Linux on ARM or universal build. The macOS binary requests macOS 11.0 or later; versions
   older than the build and test hosts are not tested.
 - The macOS binary is ad-hoc signed and not notarised; see the note on quarantine in the
