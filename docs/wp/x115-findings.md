@@ -146,6 +146,11 @@ Each fails without its part of the fix (checked on a scratch copy with that part
 - `connection_factory::the_end_of_the_run_closes_every_connection_still_leased_u270` (shared and unshared): a quarantined
   lease, a second user of it and a never-released lease are closed once each by `close_remaining`, none abandoned; a
   connection released before is not closed again; a second call and late releases close nothing more.
+- `connection_factory::the_end_of_the_run_leaves_a_shared_acquisition_under_way_intact_u270`: a shared acquisition that
+  is still connecting a replacement when `close_remaining` runs completes, and its connection is its caller's to
+  release. The first version of `close_remaining` cleared the workers' shared state, and that acquisition then
+  panicked on its `expect("shared worker is registered")` (found in the self-review; now each worker keeps its entry
+  and only loses its current connection, so a closed one is never handed out again).
 - `ssh_supervisor::closing_an_executor_closes_its_supervisor_control_connection_u270` (loopback fake SSH worker with the
   supervisor fixture): a supervised command outlives its first renewal (1 s interval), which dials the control
   connection; `executor.close()` then ends both connections at the server while the executor is still held, no control
@@ -253,9 +258,10 @@ marathon-cli; `scripts/check_plan_dag.py`, `tools/differential/run validate`, `t
 Each new witness fails without its fix, checked on a scratch worktree of this branch with only that part of the
 production change reverted: the D99 witnesses (11, including both allowances) with the old check-then-decrement
 semantics; the two listener witnesses without `after_test_run`/`Drop` (the dropped-listener one at its 60 s hang
-guard); the factory witness with `close_remaining` closing nothing; the control-connection witness without
+guard); the factory witnesses with `close_remaining` closing nothing, and with the first version that cleared the shared state
+(a panic); the control-connection witness without
 `close_control` (at its 30 s hang guard); the U271 witness without the executor's `exec_stopped` branch. Stress: each
-U270 and U271 witness 50 runs (the factory one 100) and 20 more with every core busy, all passing.
+U270 and U271 witness 50 runs (the factory ones 100) and 20 more with every core busy, all passing.
 
 A marathon-cli run started from a shell background job (`… &`) inherits SIGINT and SIGQUIT as ignored, and four
 `shutdown_reports` tests then fail (exit 143 for 130, no state dump); started in the foreground they pass. Not a product

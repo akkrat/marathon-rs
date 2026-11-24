@@ -526,8 +526,33 @@ async fn the_end_of_the_run_closes_every_connection_still_leased_u270() {
         f.close_remaining(None).await.unwrap();
         f.dispose(other_user).await.unwrap();
         assert_eq!((q.count(), o.count(), u.count()), (1, 1, 1), "shared {shared}");
+        // A closed connection is never handed out again; an acquisition after the end gets a new one.
+        let late = get(&f, "a").await;
+        assert!(!Arc::ptr_eq(&late, &quarantined), "shared {shared}");
+        f.dispose(late).await.unwrap();
         done(&f).await;
     }
+}
+/// U270: the end of the run while a shared acquisition is still connecting: that acquisition completes (the worker's entry
+/// is kept for it) and its connection is its caller's to release.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_end_of_the_run_leaves_a_shared_acquisition_under_way_intact_u270() {
+    let (f, c) = factory(true, 8);
+    let held = get(&f, "a").await;
+    c.fake(&held).saturated.store(true, Ordering::SeqCst);
+    c.block();
+    let pending = call(&f, "a");
+    // The first connection's start and the pending one's: the replacement is connecting now.
+    wait(&c.started, 2).await;
+    f.close_remaining(None).await.unwrap();
+    assert_eq!(c.fake(&held).count(), 1);
+    c.release.add_permits(10);
+    let next = pending.await.unwrap().unwrap();
+    assert!(!Arc::ptr_eq(&next, &held));
+    assert_eq!(c.fake(&next).count(), 0);
+    f.dispose(next.clone()).await.unwrap();
+    assert_eq!(c.fake(&next).count(), 1);
+    done(&f).await;
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_requests_for_a_shared_worker_wait_for_one_connection_and_count_every_user() {

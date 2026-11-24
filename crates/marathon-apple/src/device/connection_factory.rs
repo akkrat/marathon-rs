@@ -655,7 +655,11 @@ impl ConnectionFactory {
     pub async fn close_remaining(self: &Arc<Self>, deadline: Option<i64>) -> VendorResult<()> {
         let leases: Vec<Lease> = {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            state.shared.clear();
+            // No closed connection is handed out again. Each worker keeps its entry, which an acquisition still under
+            // way expects to find.
+            for worker in state.shared.values_mut() {
+                worker.current = None;
+            }
             state.leases.drain().map(|(_, lease)| lease).collect()
         };
         let deadline = release_deadline(self.clock.as_ref(), deadline);
