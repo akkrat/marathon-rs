@@ -440,13 +440,21 @@ impl CommandExecutor for DeviceCommands {
         });
         let executing = self.lease.execute(request, gated);
         Box::pin(async move {
-            match ADMISSION.scope(admission, executing).await {
+            let (outcome, reported) = super::exec_outcome::reported(ADMISSION.scope(admission, executing)).await;
+            match outcome {
                 Err(VendorError::Cancelled(reason)) if self.is_gate_cancellation(&reason) => {
-                    // Refused before the command was sent: it started nothing.
-                    super::exec_outcome::record(true);
+                    // An executor that did not say otherwise refused before the command was sent: it started nothing.
+                    // U271: the SSH executor also returns the gate's cancellation for an exec it sent whose reply had
+                    // not come, and reports that it may have started; that verdict is kept.
+                    super::exec_outcome::record(reported.unwrap_or(true));
                     Err(self.command_refusal().unwrap_or(VendorError::Cancelled(reason)))
                 }
-                other => other,
+                other => {
+                    if let Some(started_nothing) = reported {
+                        super::exec_outcome::record(started_nothing);
+                    }
+                    other
+                }
             }
         })
     }

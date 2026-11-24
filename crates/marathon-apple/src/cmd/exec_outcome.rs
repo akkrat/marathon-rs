@@ -11,18 +11,25 @@
 use std::{cell::Cell, future::Future};
 
 tokio::task_local! {
-    static STARTED_NOTHING: Cell<bool>;
+    static STARTED_NOTHING: Cell<Option<bool>>;
 }
 
 /// The latest execute in this scope ended: `started_nothing` if it failed knowing that nothing reached the worker.
 pub fn record(started_nothing: bool) {
-    let _ = STARTED_NOTHING.try_with(|cell| cell.set(started_nothing));
+    let _ = STARTED_NOTHING.try_with(|cell| cell.set(Some(started_nothing)));
 }
 
 /// Runs `body`, and says whether the last execute in it failed having started nothing.
 pub async fn observe<T>(body: impl Future<Output = T>) -> (T, bool) {
+    let (output, reported) = reported(body).await;
+    (output, reported.unwrap_or(false))
+}
+
+/// Runs `body`, and returns what its last execute reported, if any execute in it did. A layer over an executor (the
+/// device's command handle) passes the report on with [`record`] and adds its own only where the executor gave none.
+pub async fn reported<T>(body: impl Future<Output = T>) -> (T, Option<bool>) {
     STARTED_NOTHING
-        .scope(Cell::new(false), async move {
+        .scope(Cell::new(None), async move {
             let output = body.await;
             (output, STARTED_NOTHING.with(Cell::get))
         })

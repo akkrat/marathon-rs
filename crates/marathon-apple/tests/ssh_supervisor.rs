@@ -1673,14 +1673,14 @@ async fn a_sealed_device_stops_a_token_when_the_exec_reply_is_missing_d96() {
     let sibling = DeviceCommands::new(executor);
     let executing = {
         let device = device.clone();
-        tokio::spawn(async move {
+        tokio::spawn(marathon_apple::cmd::exec_outcome::observe(async move {
             device
                 .execute(
                     CommandRequest::new(["echo", "fixture-no-launch-ack"], duration(30000)),
                     context(),
                 )
                 .await
-        })
+        }))
     };
     let wire = |row: &serde_json::Value| {
         String::from_utf8(STANDARD.decode(row["detail"]["base64"].as_str().unwrap()).unwrap()).unwrap()
@@ -1708,7 +1708,14 @@ async fn a_sealed_device_stops_a_token_when_the_exec_reply_is_missing_d96() {
     let proof = proof.unwrap();
     assert_eq!(command.unwrap().stdout, ["sibling"]);
     assert_eq!(proof, TransferCleanup::Confirmed);
-    assert!(executing.await.unwrap().is_err());
+    // U271 (review round 2): the exec was sent and its reply had not come, so it may have started; the gate's
+    // cancellation must not turn that into "started nothing", which would let xcodebuild's opener count it as closed.
+    let (result, started_nothing) = executing.await.unwrap();
+    assert!(result.is_err());
+    assert!(
+        !started_nothing,
+        "an exec awaiting its reply was reported as never started"
+    );
     let launch = wire(waiting);
     let token = launch.split_ascii_whitespace().nth(6).unwrap();
     let requests = fake.events("supervisor_request").await;
