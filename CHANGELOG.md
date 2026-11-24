@@ -2,6 +2,29 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
+## Unreleased
+
+### Results
+
+- **A test whose last failure used up the total retry quota is counted as failed (D99, x115):** with
+  `retryStrategy: fixed-quota`, a failure that came when exactly 0 retries of `totalAllowedRetryQuota` were left
+  started a retry that was never run, so the test never ended: it is now counted as failed in the summary and listed
+  in `Failed tests:`, instead of being left out with an `Expected to run … more, but no terminal events received`
+  error. The tests that run, the retries and the exit status are unchanged.
+
+### iOS
+
+- **No more `Dying because - Broken transport` errors at the end of runs that use the screenshot recorder (U270,
+  x115):** when a batch ended after a test had started but before its result (xcodebuild exiting without one), the
+  screenshot recorder kept capturing that simulator until the run ended, and the run left that simulator's SSH
+  connection open, so it was logged as lost when marathon exited, about once per remote simulator. The capture now
+  stops with its batch, and every SSH connection is closed when its device is released or, at the latest, at the end of
+  the run. A connection that is really lost is still an ERROR.
+- **No ERROR when marathon itself stops a screenshot whose command has not started yet (U271, x115):** when a test
+  ended while one of its screenshot commands was still waiting for the worker's answer, the run logged `ERROR … Unable
+  to start a remote shell session [xcrun, simctl, io, …, screenshot, …] … Stopped while waiting for exec reply`. That
+  stop is marathon's own and is no longer reported; a real connection failure still is.
+
 ## 0.15.5
 
 This release stops publishing iOS videos that are empty or unfinished. The inputs, the CLI, the configuration, the summary text, report formats, test results and the exit status

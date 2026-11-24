@@ -1,9 +1,9 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/queue/QueueActor.kt
 //!
 //! A line-by-line port, including the fork's retry placement and the Kotlin bugs
-//! listed in docs/known-kotlin-bugs.md (C5, C30), with D60's ordered queue. D69
+//! listed in docs/known-kotlin-bugs.md (C30), with D60's ordered queue. D69
 //! replaces C45–C47 and C86: a test that is finished is not queued again, and the
-//! copies that will not run leave its totals.
+//! copies that will not run leave its totals. D99 (in the retry strategy) replaces C5.
 //!
 //! D82: a retry from a device without a worker (an Android device) is kept off that device as one from a worker is kept off
 //! the worker's devices, so a device whose instrumentation keeps failing does not take the same test back at once.

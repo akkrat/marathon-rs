@@ -137,7 +137,7 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 | cancel runs with SIGINT, SIGTERM or SIGHUP, or take a run's reports as a sign that it finished ([D52](deviations.md#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit)) | Whatever `debug` says, a cancelled run attempts to write its reports if the output directory is ready and starts provider cleanup. It hands off to exit by 24 s, with up to 1 s more for console output, and exits with 130, 143 or 129; reports or cleanup can remain unfinished. A second signal exits at once. | Allow 25 s before killing it, and read the exit code to tell whether a run finished. [See below](#cancelling-a-run). |
 
 These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D22, D23, D26, D28–D30, D34, D36, D37, D40, D42, D45, D49,
-D51, D53, D54, D64–D66, D68–D70, D74–D77, D79–D84, D88, D90–D95, D97 and D98. D65 can include a previously missed late pool,
+D51, D53, D54, D64–D66, D68–D70, D74–D77, D79–D84, D88, D90–D95, D97, D98 and D99. D65 can include a previously missed late pool,
 lengthen a run and correct its reports and existing exit status; it needs no configuration change. D66 turns a SIGQUIT, which used to end the run at once, into a
 logged state dump; a wrapper that sends SIGQUIT and then SIGTERM now gets the dump, then D52's reports and exit status. D2, D3, D6, D8–D12, D14, D20, D24, D25, D67, D71, D72, D78 and D87 have an action of their own, described in their entries and in the
 sections below.
@@ -150,7 +150,8 @@ already existed for about two seconds; a stalled console can now hold exit for
 up to 60 seconds. A wrapper needing a hard stop then must use SIGKILL.
 
 The D68–D81 notes apply to 0.14.0. The D82–D88 and D90–D97 notes apply when moving from 0.14.0 to 0.15.0 (D89 was not
-used), and the D98 note when moving from 0.15.0 to 0.15.1. All of these notes also apply when migrating from Kotlin. D71 is
+used), the D98 note when moving from 0.15.0 to 0.15.1, and the D99 note when moving from 0.15.5 to the next release.
+All of these notes also apply when migrating from Kotlin. D71 is
 in the table above, and so are D85, D86, D87 and D96.
 
 D68 and D69 need no configuration change. With D68 a run whose test queue
@@ -294,6 +295,12 @@ after that, restart the simulator before it records again. The busy warning and 
 why it did not happen, print with `debug: false` from 0.15.2 (x104); in 0.15.1 they needed `debug: true`. If SSH command filters
 on a worker list allowed commands, allow `xcrun simctl shutdown <udid>`. Workers without usable Perl keep the legacy
 recorder, which this does not change.
+
+[D99](deviations.md#d99--a-failure-that-meets-no-total-retry-quota-left-ends-its-test) is new after 0.15.5 and needs
+no configuration change. With `retryStrategy: fixed-quota`, a failure that meets exactly 0 retries left of
+`totalAllowedRetryQuota` ends its test as failed: it is counted in the summary and listed in `Failed tests:`, instead of
+being left out with `Expected to run … more, but no terminal events received`. The tests that run, the retries and the
+exit status are unchanged.
 
 ### iOS recorder warnings
 

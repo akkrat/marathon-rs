@@ -3354,3 +3354,37 @@ stderr marathon reads. The busy decision and the shutdown are unchanged. See [x1
 **Migration action:** none, unless SSH command filters on the worker list allowed commands: allow
 `xcrun simctl shutdown <udid>` there. A simulator whose video service is busy and that marathon could not shut down
 needs a restart (`xcrun simctl shutdown <udid>`, then `xcrun simctl boot <udid>`) before it records again.
+
+## D99 — A failure that meets no total retry quota left ends its test
+
+Approved 2026-11-24 (project owner's decision). WP x115. Fixes [C5](known-kotlin-bugs.md).
+See [x115 findings](wp/x115-findings.md).
+
+A farm job of an iOS project (40 remote and 4 local simulators, `retryStrategy: fixed-quota` with
+`totalAllowedRetryQuota: 20` and `retryPerTestQuota: 3`, `uncompletedTestRetryQuota: 3`, ANY_SUCCESS, no flakiness
+strategy) used up its 20 retries. One test came back incomplete twice (each re-queued without changing its total of 1)
+and then failed when exactly 0 retries were left. Kotlin's fixed-quota strategy checked `left >= 0`, ran AddRetry,
+which raised the test's total to 2, and only then decremented the quota to -1 and refused the retry. The test stayed
+`Failing` at 1 of 2 with nothing queued, so it never ended: its failure was not tracked as final, the summary counted
+it neither passed nor failed and left it out of `Failed tests:`, and the run ended with `ERROR … Expected to run <test>
+more, but no terminal events received`. The run's exit status was a failure all the same.
+
+The strategy now asks the quota once, and that one call decides and charges: it grants only while a retry is left
+(`left > 0`) and the test is within `retryPerTestQuota`, and only then runs AddRetry; the quota is charged after
+AddRetry, so a refused retry never changes the test's total. A failure that meets no retry left therefore ends its
+test as Failed, like any other refused failure: it is tracked as the final result and counted in the summary and its
+`Failed tests:` list, and no `Expected to run … more` line is logged. As before, a test that AddRetry finds complete
+is neither granted nor charged, grants with quota left come in the same order within a batch, flaky copies count as
+failures, the per-test quota is unchanged, and D69's refund gives back a granted retry that is not run. A refund after
+the quota has run out now restores one whole retry: Kotlin's phantom had left the quota at -1, which a refund only
+brought back to 0. `retryStrategy: no-retry` never runs AddRetry and is unchanged; there are no other retry strategies.
+
+Within one pool this changes only runs that use fixed-quota retries and reach the end of their total quota exactly on
+a failure. Such a test is now counted as failed: the first summary line has one failed test more, the test is in
+`Failed tests:`, and its per-test result file, JUnit and Allure entries carry that failure as its final result. Its
+attempts, the tests that run, the retries granted and the exit status are as before. The JVM recordings of C5 are kept
+unedited: the queue replay leaves out the C5 recording as it does D69's (its native contract is pinned in
+`queue_behaviour`), and the strategy and pool-scheduling replays apply narrow, named D99 allowances.
+
+**Migration action:** none. A dashboard that compared the summary's passed and failed counts with the number of tests
+could see the difference close.
