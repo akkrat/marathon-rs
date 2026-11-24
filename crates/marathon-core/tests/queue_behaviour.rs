@@ -1,7 +1,8 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/queue/QueueActor.kt: behaviour the Kotlin tests
 //! leave out — the per-pool retry quota (C30), close, a failing handler and the D13 prepare step — and the native
-//! contract of D68 (console failures), D69 (finished tests are not run again; C45–C47) and D82 (a retry from a device
-//! without a worker is left to the other devices while anything else is queued).
+//! contract of D68 (console failures), D69 (finished tests are not run again; C45–C47), D82 (a retry from a device
+//! without a worker is left to the other devices while anything else is queued) and D99 (a failure that meets no
+//! total retry quota left ends its test; C5).
 #[path = "support/queue.rs"]
 mod support;
 
@@ -406,6 +407,70 @@ fn failed(total: i32, done: i32, running: i32) -> TestState {
 }
 fn passing(total: i32, done: i32, running: i32) -> TestState {
     TestState::Passed { total, done, running }
+}
+
+/// D99 (C5): two tests fail in one batch with a total quota of 1. The first takes the retry; the second meets 0 left
+/// and is refused before AddRetry, so its failure ends the test: it is tracked as final, the test is Failed with
+/// exact totals, and the pool's result is a failure without `Expected to run … more`. Kotlin's phantom AddRetry
+/// left that test Failing at total 2, its failure non-final, for the rest of the run (`queue.jsonl` "C5").
+#[test]
+fn a_failure_that_meets_no_retries_left_ends_the_test_d99() {
+    use marathon_config::schema::ExecutionMode::AnySuccess;
+    let (c0, c1) = (mtest("pkg", "C0", "m0"), mtest("pkg", "C1", "m1"));
+    let setup = retry_setup(
+        fixed_size(2),
+        AnySuccess,
+        true,
+        (1, 3),
+        vec![c0.clone(), c1.clone()],
+        vec![],
+    );
+    run(move |core| {
+        Box::pin(async move {
+            let queue = Queue::spawn(&core, setup);
+            let a1 = device("serial-A1");
+            let batch = batch_of(&queue.request(&a1, Some("worker-A")).await[0]);
+            let (first, second) = (batch.tests[0].clone(), batch.tests[1].clone());
+            queue.trace.drain();
+
+            let failures = statuses(&a1, &batch, &[TestStatus::Failure, TestStatus::Failure]);
+            assert_eq!(
+                queue.complete(&a1, failures).await,
+                [FromQueue::Notify {
+                    retry_workers: vec!["worker-A".into()]
+                }]
+            );
+            assert_eq!(
+                tracks(&queue),
+                [
+                    track(&first, "serial-A1", "FAILURE", false),
+                    track(&second, "serial-A1", "FAILURE", true),
+                ]
+            );
+            assert_eq!(state(&queue, &second).await, failed(1, 1, -1));
+            let now = snapshot(&queue);
+            assert_eq!(now.queue, std::slice::from_ref(&first));
+            assert_eq!(now.total_retries_left, Some(0));
+
+            let retry = batch_of(&queue.request(&a1, Some("worker-A")).await[0]);
+            assert_eq!(retry.tests, std::slice::from_ref(&first));
+            let replies = queue.complete(&a1, statuses(&a1, &retry, &[TestStatus::Passed])).await;
+            assert_eq!(replies, [FromQueue::Terminated]);
+            assert_eq!(tracks(&queue), [track(&first, "serial-A1", "PASSED", true)]);
+            assert_eq!(state(&queue, &first).await, passing(2, 2, -2));
+            assert_eq!(state(&queue, &second).await, failed(1, 1, -1));
+
+            assert_eq!(queue.progress.lock().await.aggregate_result().ok(), Some(false));
+            queue.drain_logs();
+            let errors: Vec<_> = lock(&queue.sink.progress_logs)
+                .iter()
+                .filter(|(level, _)| *level == marathon_logging::Level::ERROR)
+                .map(|(_, message)| message.clone())
+                .collect();
+            assert_eq!(errors, Vec::<String>::new());
+            Ok(())
+        })
+    });
 }
 
 /// D69 (C45): under strict mode (fast ALL_SUCCESS) the failure that is granted a retry also completes the test. The

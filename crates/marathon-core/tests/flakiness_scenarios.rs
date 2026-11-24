@@ -1,6 +1,6 @@
 //! Native-only runs of the production run graph with the Stub vendor (no Kotlin counterpart):
 //! D71 (unavailable history adds no probability copies), D72 (`flakinessStrategy: fixed`) and D83 (copies
-//! of different tests take turns in the queue).
+//! of different tests take turns in the queue), D99 (a failure that meets no total retry quota left ends its test).
 //! The scenario input is tools/oracle/scenarios/success.json, adjusted before the run.
 use marathon_config::schema::{ExecutionMode, FlakinessStrategyConfiguration};
 use marathon_core::model::TestStatus;
@@ -23,16 +23,23 @@ fn run_in(
     fast: bool,
     statuses: &[TestStatus],
 ) -> Outcome {
+    run_with(
+        |configuration| {
+            configuration.flakiness_strategy = flakiness;
+            configuration.execution_strategy.fast = fast;
+            configuration.execution_strategy.mode = mode;
+        },
+        statuses,
+    )
+}
+fn run_with(configure: impl FnOnce(&mut marathon_config::schema::Configuration), statuses: &[TestStatus]) -> Outcome {
     let (mut factory, mut script) = scenario::load("success.json");
     for (at, event, ..) in &mut script.events {
         if event == "end" {
             *at = 60_000;
         }
     }
-    let configuration = &mut factory.configuration.configuration;
-    configuration.flakiness_strategy = flakiness;
-    configuration.execution_strategy.fast = fast;
-    configuration.execution_strategy.mode = mode;
+    configure(&mut factory.configuration.configuration);
     let test = scenario::test("test", "SimpleTest", "test");
     script.devices["serial-1"].set_execution_results(HashMap::from([(test, statuses.to_vec())]));
     let outcome = scenario::drive(factory, script, None, None);
@@ -297,6 +304,55 @@ fn d77_fast_and_not_fast_track_the_same_final_record() {
             format!("{:?}", slow.value),
             "{mode:?} {answers:?}"
         );
+    }
+}
+
+fn errors(outcome: &Outcome) -> Vec<String> {
+    outcome
+        .lines
+        .iter()
+        .filter_map(|line| match line {
+            Line::Log { level, message, .. } if *level == Level::ERROR => Some(message.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// D99 (C5): with fixed-quota retries, the failure that meets 0 total retries left ends the test as failed. Kotlin
+/// added a phantom attempt there and refused the retry, so the test was never completed: the summary counted it
+/// neither passed nor failed, left it out of `Failed tests:`, and the run logged `Expected to run … more, but no
+/// terminal events received`. The run's result was a failure either way.
+#[test]
+fn d99_a_failure_that_meets_no_retries_left_is_counted_failed() {
+    use TestStatus::*;
+    for (total, answers) in [(1, &[Failure, Failure, Passed][..]), (0, &[Failure, Passed][..])] {
+        let outcome = run_with(
+            |configuration| {
+                configuration.retry_strategy = marathon_config::schema::RetryStrategyConfiguration::FixedQuota {
+                    total_allowed_retry_quota: total,
+                    retry_per_test_quota: 3,
+                };
+            },
+            answers,
+        );
+        let runs = total as usize + 1;
+        assert_eq!(statuses(&outcome), vec!["FAILURE"; runs], "quota {total}");
+        assert!(matches!(outcome.value, Some(Ok(false))), "quota {total}");
+        assert_eq!(final_status(&outcome), "FAILURE", "quota {total}");
+        let text = summary(&outcome);
+        assert!(
+            text.starts_with(
+                "Marathon run finished:\nDevice pool omni:\n\t0 passed, 1 failed, 0 ignored tests\n\tFailed tests:\n\t\ttest.SimpleTest#test\n"
+            ),
+            "quota {total}: {text}"
+        );
+        assert!(
+            text.contains(&format!(
+                "\tRaw: 0 passed, {runs} failed, 0 ignored, 0 incomplete tests\n"
+            )),
+            "quota {total}: {text}"
+        );
+        assert_eq!(errors(&outcome), Vec::<String>::new(), "quota {total}");
     }
 }
 

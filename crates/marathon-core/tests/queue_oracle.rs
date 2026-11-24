@@ -1,7 +1,8 @@
 //! Port of tools/oracle/queue-probes/QueueProbes.kt: replays fixtures/oracle/queue/queue.jsonl, the JVM run of the
 //! real QueueActor, message by message. D60 gives the recorded inputs explicit native key,
 //! batch and queue-order expectations; accounting, replies, logs and final states remain exact.
-//! D69 supersedes the three recordings of C45–C47; `queue_behaviour` pins their native contract.
+//! D69 supersedes the three recordings of C45–C47 and D99 the recording of C5; `queue_behaviour` pins their native
+//! contract.
 //! D77 moves the final flag of tracked runs in the `fast: false` recordings (`d77_finals`).
 #[path = "support/d77.rs"]
 mod d77;
@@ -428,11 +429,16 @@ fn d77_finals(row: &mut Value) {
 /// the fixture unedited and are left out of the replay; `d69_supersedes_exactly_the_c45_to_c47_recordings` checks
 /// that they differ exactly where D69 says.
 const SUPERSEDED_D69: [&str; 3] = ["K1:", "K2:", "K4:"];
+/// D99: the recording of C5's phantom AddRetry, left out the same way; `d99_supersedes_exactly_the_c5_recording`.
+const SUPERSEDED_D99: [&str; 1] = ["C5:"];
 fn superseded(case: &str) -> bool {
-    SUPERSEDED_D69.iter().any(|prefix| case.starts_with(prefix))
+    SUPERSEDED_D69
+        .iter()
+        .chain(&SUPERSEDED_D99)
+        .any(|prefix| case.starts_with(prefix))
 }
 
-/// Replays the rows whose case starts with one of `prefixes` (all rows for none), except those D69 supersedes.
+/// Replays the rows whose case starts with one of `prefixes` (all rows for none), except those D69 and D99 supersede.
 fn replay(prefixes: &'static [&'static str]) {
     let rows: Vec<Value> = rows()
         .into_iter()
@@ -655,7 +661,7 @@ fn d77_moves_only_final_flags_of_non_fast_recordings() {
 
 #[test]
 fn native_replay_rejects_queue_and_accounting_mutations() {
-    let native = native_expected(recorded_row("C5: a phantom AddRetry through the queue"));
+    let native = native_expected(recorded_row("ReturnBatch at Long.MAX_VALUE"));
     let mut tampered = native.clone();
     tampered["progress"][0][1] = json!("tampered");
     assert_eq!(mismatches_of(vec![tampered]).len(), 1);
@@ -667,12 +673,17 @@ fn native_replay_rejects_queue_and_accounting_mutations() {
 /// D69 narrows the replay by exactly three recordings, and each still differs from the native queue only from the
 /// message D69 changes on: K1 (C45) from the failure whose retry is no longer queued, K2 (C46) at the batch whose
 /// second failed copy is now ended and at the pass that now completes the test, K4 (C47) from the rejection that no
-/// longer queues the completed test. The native expectations are `queue_behaviour`'s `_d69` tests.
+/// longer queues the completed test. The native expectations are `queue_behaviour`'s `_d69` tests. K2's progress
+/// differs by D99 too: its second failed copy met 0 retries left, so the JVM's phantom total is gone and the retry's
+/// pass completes the test.
 #[test]
 fn d69_supersedes_exactly_the_c45_to_c47_recordings() {
     let rows: Vec<Value> = rows()
         .into_iter()
-        .filter(|row| superseded(row["case"].as_str().unwrap()))
+        .filter(|row| {
+            let case = row["case"].as_str().unwrap();
+            SUPERSEDED_D69.iter().any(|prefix| case.starts_with(prefix))
+        })
         .collect();
     assert_eq!(rows.len(), SUPERSEDED_D69.len());
     let differing: Vec<String> = mismatches_of(rows.into_iter().map(native_expected).collect())
@@ -698,6 +709,7 @@ fn d69_supersedes_exactly_the_c45_to_c47_recordings() {
             "K1 progress",
             "K2 step 1",
             "K2 step 3",
+            "K2 progress",
             "K4 step 3",
             "K4 step 4",
             "K4 step 5",
@@ -712,10 +724,23 @@ fn copies_of_one_test_in_a_class_name_batch_are_dispatched_per_copy() {
     replay(&["K3:"]);
 }
 
-/// C5 through the real accumulator and queue: the refused retry still adds to the test's total.
+/// D99 supersedes the C5 recording, whose refused retry still added to the test's total, and it differs from the
+/// native queue exactly there: the refused failure is tracked as final and the progress lines count one attempt
+/// fewer (step 1), the later pass's line too (step 3), and the test ends Failed at total 1 instead of Failing at 2.
+/// The native expectation is `queue_behaviour::a_failure_that_meets_no_retries_left_ends_the_test_d99`.
 #[test]
-fn phantom_add_retry_through_the_queue() {
-    replay(&["C5:"]);
+fn d99_supersedes_exactly_the_c5_recording() {
+    let row = recorded_row("C5: a phantom AddRetry through the queue");
+    assert_eq!(row["progress"][1], json!(["pkg.C1#m1", "Failing", 2]));
+    let differing: Vec<String> = mismatches_of(vec![native_expected(row)])
+        .iter()
+        .map(|mismatch| {
+            let line = mismatch.lines().next().unwrap();
+            let what = line.split(": ").nth(2).unwrap();
+            what.split(' ').take(2).collect::<Vec<_>>().join(" ")
+        })
+        .collect();
+    assert_eq!(differing, ["step 1", "step 3", "progress"]);
 }
 
 #[test]

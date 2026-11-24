@@ -136,34 +136,39 @@ fn different_device_pool_ids_record_should_increment_counter_only_for_specified_
     );
 }
 
+/// RetryWatchdogTest's `requestRetry(n)`: D99 decides and charges in `grant`, around AddRetry.
+fn grants(mut watchdog: RetryWatchdog, failures: i32) -> bool {
+    watchdog.grant(failures, || true)
+}
+
 #[test]
 fn total_allowed_quota_tests_should_return_false_if_total_allowed_quota_is_0() {
-    assert!(!RetryWatchdog::new(0, 3).request_retry(1));
+    assert!(!grants(RetryWatchdog::new(0, 3), 1));
 }
 
 #[test]
 fn total_allowed_quota_tests_should_return_true_if_total_allowed_quota_is_not_0() {
-    assert!(RetryWatchdog::new(100, 3).request_retry(1));
+    assert!(grants(RetryWatchdog::new(100, 3), 1));
 }
 
 #[test]
 fn max_retry_per_test_quota_should_return_false_if_max_retry_per_test_quota_is_0_and_input_is_1() {
-    assert!(!RetryWatchdog::new(100, 0).request_retry(1));
+    assert!(!grants(RetryWatchdog::new(100, 0), 1));
 }
 
 #[test]
 fn max_retry_per_test_quota_should_return_false_if_max_retry_per_test_quota_is_2_and_input_is_3() {
-    assert!(!RetryWatchdog::new(100, 2).request_retry(3));
+    assert!(!grants(RetryWatchdog::new(100, 2), 3));
 }
 
 #[test]
 fn max_retry_per_test_quota_should_return_true_if_max_retry_per_test_quota_is_3_and_input_is_1() {
-    assert!(RetryWatchdog::new(100, 3).request_retry(1));
+    assert!(grants(RetryWatchdog::new(100, 3), 1));
 }
 
 #[test]
 fn max_retry_per_test_quota_should_return_true_if_max_retry_per_test_quota_is_2_and_input_is_1() {
-    assert!(RetryWatchdog::new(100, 2).request_retry(1));
+    assert!(grants(RetryWatchdog::new(100, 2), 1));
 }
 
 // ---- rule pins -----------------------------------------------------------------------------------------
@@ -182,9 +187,9 @@ impl RetryProgress for ScriptedProgress {
 }
 
 #[test]
-fn at_zero_quota_left_add_retry_still_runs_and_the_decrement_refuses() {
-    // C5: t0 takes the only retry; t1 passes retryPossible at left == 0, its
-    // AddRetry runs (a phantom total+1 in the accumulator) and requestRetry refuses.
+fn at_zero_quota_left_add_retry_does_not_run_d99() {
+    // D99 (C5): t0 takes the only retry; t1 meets 0 left and is refused before AddRetry, so its total is
+    // unchanged and the failure can end the test. Kotlin ran t1's AddRetry and refused in the decrement (-1).
     let tests = generate_tests(3);
     let mut strategy = fixed_quota(1);
     let mut progress = ScriptedProgress::default();
@@ -196,12 +201,32 @@ fn at_zero_quota_left_add_retry_still_runs_and_the_decrement_refuses() {
     );
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].test, tests[0]);
-    // t2 then fails retryPossible (left -1) and never reaches the accumulator.
-    assert_eq!(progress.calls, vec![tests[0].clone(), tests[1].clone()]);
+    assert_eq!(progress.calls, vec![tests[0].clone()]);
     let RetryStrategy::FixedQuota(fixed) = &strategy else {
         unreachable!()
     };
-    assert_eq!(fixed.watchdog().total_allowed_retry_left(), -1);
+    assert_eq!(fixed.watchdog().total_allowed_retry_left(), 0);
+}
+
+#[test]
+fn a_refund_after_the_quota_ran_out_grants_the_next_failure_d99() {
+    // D99 with D69: nothing is charged at 0 left, so a refunded retry is one whole retry again. Kotlin's
+    // phantom left -1, which the refund only brought back to 0, the C5 boundary.
+    let tests = generate_tests(3);
+    let mut strategy = fixed_quota(1);
+    let mut progress = ScriptedProgress::default();
+    let results = generate_test_results(&tests);
+    let pool = pool("p");
+    assert_eq!(
+        strategy.retried(&pool, &results[..2], &shard(&tests), &mut progress),
+        [0]
+    );
+    strategy.refund();
+    assert_eq!(
+        strategy.retried(&pool, &results[2..], &shard(&tests), &mut progress),
+        [0]
+    );
+    assert_eq!(progress.calls, vec![tests[0].clone(), tests[2].clone()]);
 }
 
 #[test]
@@ -239,11 +264,20 @@ fn each_strategy_instance_has_its_own_total_quota() {
 }
 
 #[test]
-fn watchdog_counters_wrap_like_java_ints() {
+fn a_negative_total_quota_grants_nothing_and_is_not_charged_d99() {
+    // Kotlin's decrement wrapped Int.MIN_VALUE to MAX_VALUE; its retryPossible refused first, and D99's single
+    // check refuses before anything is charged, so no AddRetry runs and the counter never wraps.
     let mut watchdog = RetryWatchdog::new(i32::MIN, i32::MAX);
-    assert!(!watchdog.retry_possible(0));
-    assert!(watchdog.request_retry(0), "MIN - 1 wraps to MAX");
-    assert_eq!(watchdog.total_allowed_retry_left(), i32::MAX);
+    assert!(!watchdog.grant(0, || unreachable!("AddRetry ran for a refused retry")));
+    assert_eq!(watchdog.total_allowed_retry_left(), i32::MIN);
+}
+
+#[test]
+fn a_grant_refused_by_the_per_test_quota_runs_no_add_retry() {
+    let mut watchdog = RetryWatchdog::new(5, 2);
+    assert!(!watchdog.grant(3, || unreachable!("AddRetry ran for a refused retry")));
+    assert!(watchdog.grant(2, || true));
+    assert_eq!(watchdog.total_allowed_retry_left(), 4);
 }
 
 // ---- oracle (d) ----------------------------------------------------------------------------------------
@@ -273,83 +307,167 @@ impl RetryProgress for OracleProgress {
     }
 }
 
-#[test]
-fn retry_oracle_table_replays() {
-    for row in rows(include_str!("../../../fixtures/oracle/strategies/retry.jsonl"), "retry") {
-        let case = row["case"].as_str().unwrap_or_default();
-        let trace = Trace::default();
-        let shard_tests = tests_of(&row["shard"]);
-        let flaky = tests_of(&row["flaky"]);
-        let mut states = HashMap::new();
-        for test in shard_tests.iter().chain(&flaky) {
-            states
-                .entry(test.to_test_name('.', '#').to_owned())
-                .or_insert(("Added", 0))
-                .1 += 1;
-        }
-        for pre in row["pre"].as_array().into_iter().flatten() {
-            let name = test_of(&pre[0]).to_test_name('.', '#').to_owned();
-            let terminal = if pre[1] == "PASSED" { "Passed" } else { "Failed" };
-            if let Some(state) = states.get_mut(&name) {
-                state.0 = terminal;
-            }
-        }
-        let mut progress = OracleProgress {
-            states,
-            trace: trace.clone(),
-        };
-        let shard = TestShard {
-            tests: shard_tests.clone(),
-            flaky_tests: flaky.clone(),
-        };
-        let total = row["total"].as_i64().unwrap_or_default() as i32;
-        let per_test = row["perTest"].as_i64().unwrap_or_default() as i32;
-        let mut strategy = RetryStrategy::from_config(&Cnf::FixedQuota {
-            total_allowed_retry_quota: total,
-            retry_per_test_quota: per_test,
-        });
-        let pool = pool("pool");
-        for (i, round) in row["rounds"].as_array().into_iter().flatten().enumerate() {
-            let at = format!("{case}, round {i}");
-            let failed: Vec<_> = tests_of(&round["failed"])
-                .iter()
-                .map(|t| generate_test_result(t, TestStatus::Failure))
-                .collect();
-            let returned: Vec<Test> = strategy
-                .process(&pool, &failed, &shard, &mut progress)
-                .into_iter()
-                .map(|r| r.test.clone())
-                .collect();
-            assert_eq!(tsj(&returned), round["returned"], "{at}");
-            assert_eq!(Value::Array(trace.drain()), round["trace"], "{at}");
-            let RetryStrategy::FixedQuota(fixed) = &strategy else {
-                unreachable!()
-            };
-            assert_eq!(
-                json!(fixed.watchdog().total_allowed_retry_left()),
-                round["left"],
-                "{at}"
+fn retry_rows() -> Vec<Value> {
+    rows(include_str!("../../../fixtures/oracle/strategies/retry.jsonl"), "retry")
+}
+
+/// D99: the JVM recording of a C5 phantom, rewritten to what the native strategy does. A round whose total quota
+/// goes from >= 0 to -1 ended with a refused retry whose AddRetry still ran; that is always the round's last
+/// `retryTest`, since nothing reaches AddRetry at -1. D99 refuses it before AddRetry: the call leaves the trace,
+/// its total gains nothing, and the quota stays at 0 in this and later rounds. Rows without a phantom are
+/// returned unchanged.
+fn d99_expected(mut row: Value) -> Value {
+    let mut left = row["total"].as_i64().unwrap();
+    let mut phantom: Option<String> = None;
+    for round in row["rounds"].as_array_mut().unwrap() {
+        let jvm_left = round["left"].as_i64().unwrap();
+        if phantom.is_none() && left >= 0 && jvm_left == -1 {
+            let call = round["trace"].as_array_mut().unwrap().pop().unwrap();
+            assert_eq!(call[0], "retryTest");
+            assert!(
+                call[2] != "Passed" && call[2] != "Failed",
+                "a terminal test is no phantom: {call}"
             );
-            for entry in round["counts"].as_array().into_iter().flatten() {
-                assert_eq!(
-                    json!(fixed.accumulator().count(&pool, &test_of(&entry[0]))),
-                    entry[1],
-                    "{at}"
-                );
-            }
-            // The accumulator totals (C5's phantom total+1) are 3.7's assertion; the
-            // stand-in only has to agree with them where it models AddRetry.
-            for entry in round["totals"].as_array().into_iter().flatten() {
-                let name = entry[0].as_str().unwrap_or_default();
-                let (state, total) = progress.states[name];
-                assert_eq!(
-                    (json!(state), json!(total)),
-                    (entry[1].clone(), entry[2].clone()),
-                    "{at}: {name}"
-                );
+            phantom = Some(call[1].as_str().unwrap().to_owned());
+        }
+        left = jvm_left;
+        if let Some(name) = &phantom {
+            round["left"] = json!(0);
+            for entry in round["totals"].as_array_mut().unwrap() {
+                if entry[0] == name.as_str() {
+                    entry[2] = json!(entry[2].as_i64().unwrap() - 1);
+                }
             }
         }
     }
+    row
+}
+
+#[test]
+fn retry_oracle_table_replays_with_d99() {
+    for row in retry_rows() {
+        let mismatches = retry_mismatches(&d99_expected(row));
+        assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+    }
+}
+
+/// The D99 allowance rewrites exactly the five recordings that reach a phantom, and the native strategy no longer
+/// reproduces any of them as the JVM recorded it.
+#[test]
+fn the_d99_allowance_covers_only_the_c5_phantoms() {
+    let mut rewritten = Vec::new();
+    for row in retry_rows() {
+        let case = row["case"].as_str().unwrap().to_owned();
+        let native = d99_expected(row.clone());
+        if native == row {
+            continue;
+        }
+        assert!(
+            !retry_mismatches(&row).is_empty(),
+            "{case}: the JVM's phantom still replays"
+        );
+        rewritten.push(case);
+    }
+    assert_eq!(
+        rewritten,
+        [
+            "total quota 1, two failures",
+            "total quota 2 across rounds",
+            "total quota 0",
+            "pool A of two, total quota 1",
+            "pool B of two, total quota 1",
+        ]
+    );
+    // A quota that starts below 0 never charges, so -1 there is no phantom.
+    let negative = retry_rows()
+        .into_iter()
+        .find(|row| row["case"] == "negative quotas")
+        .unwrap();
+    assert_eq!(d99_expected(negative.clone()), negative);
+}
+
+/// What differs from a recorded row, round by round.
+fn retry_mismatches(row: &Value) -> Vec<String> {
+    let mut mismatches = Vec::new();
+    let mut check = |at: String, actual: Value, expected: &Value| {
+        if actual != *expected {
+            mismatches.push(format!("{at}: rust {actual} expected {expected}"));
+        }
+    };
+    let case = row["case"].as_str().unwrap_or_default();
+    let trace = Trace::default();
+    let shard_tests = tests_of(&row["shard"]);
+    let flaky = tests_of(&row["flaky"]);
+    let mut states = HashMap::new();
+    for test in shard_tests.iter().chain(&flaky) {
+        states
+            .entry(test.to_test_name('.', '#').to_owned())
+            .or_insert(("Added", 0))
+            .1 += 1;
+    }
+    for pre in row["pre"].as_array().into_iter().flatten() {
+        let name = test_of(&pre[0]).to_test_name('.', '#').to_owned();
+        let terminal = if pre[1] == "PASSED" { "Passed" } else { "Failed" };
+        if let Some(state) = states.get_mut(&name) {
+            state.0 = terminal;
+        }
+    }
+    let mut progress = OracleProgress {
+        states,
+        trace: trace.clone(),
+    };
+    let shard = TestShard {
+        tests: shard_tests.clone(),
+        flaky_tests: flaky.clone(),
+    };
+    let total = row["total"].as_i64().unwrap_or_default() as i32;
+    let per_test = row["perTest"].as_i64().unwrap_or_default() as i32;
+    let mut strategy = RetryStrategy::from_config(&Cnf::FixedQuota {
+        total_allowed_retry_quota: total,
+        retry_per_test_quota: per_test,
+    });
+    let pool = pool("pool");
+    for (i, round) in row["rounds"].as_array().into_iter().flatten().enumerate() {
+        let at = format!("{case}, round {i}");
+        let failed: Vec<_> = tests_of(&round["failed"])
+            .iter()
+            .map(|t| generate_test_result(t, TestStatus::Failure))
+            .collect();
+        let returned: Vec<Test> = strategy
+            .process(&pool, &failed, &shard, &mut progress)
+            .into_iter()
+            .map(|r| r.test.clone())
+            .collect();
+        check(format!("{at}: returned"), tsj(&returned), &round["returned"]);
+        check(format!("{at}: trace"), Value::Array(trace.drain()), &round["trace"]);
+        let RetryStrategy::FixedQuota(fixed) = &strategy else {
+            unreachable!()
+        };
+        check(
+            format!("{at}: left"),
+            json!(fixed.watchdog().total_allowed_retry_left()),
+            &round["left"],
+        );
+        for entry in round["counts"].as_array().into_iter().flatten() {
+            check(
+                format!("{at}: count"),
+                json!(fixed.accumulator().count(&pool, &test_of(&entry[0]))),
+                &entry[1],
+            );
+        }
+        // The accumulator totals are 3.7's assertion; the stand-in only has to agree with
+        // them where it models AddRetry.
+        for entry in round["totals"].as_array().into_iter().flatten() {
+            let name = entry[0].as_str().unwrap_or_default();
+            let (state, total) = progress.states[name];
+            check(
+                format!("{at}: {name}"),
+                json!([state, total]),
+                &json!([entry[1], entry[2]]),
+            );
+        }
+    }
+    mismatches
 }
 
 #[test]

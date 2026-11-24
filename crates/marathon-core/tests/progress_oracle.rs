@@ -313,8 +313,6 @@ fn empty_reduce_nan_and_rounding_match_the_jvm() {
 
 #[test]
 fn ended_only_and_terminal_retry_keep_the_source_bookkeeping() {
-    use marathon_config::schema::RetryStrategyConfiguration;
-    use marathon_core::strategy::retry::RetryStrategy;
     run(|core| {
         Box::pin(async move {
             let t = test("method");
@@ -345,6 +343,21 @@ fn ended_only_and_terminal_retry_keep_the_source_bookkeeping() {
                 })
                 .collect::<Vec<_>>();
             assert_eq!(tracks, vec![true, false]);
+            Ok(())
+        })
+    });
+}
+
+/// D99 (C5) with the real FSM: a failure that meets 0 retries left gets no AddRetry, so it ends its test as
+/// Failed. Kotlin's phantom left the test Failing at total 2, done 1.
+#[test]
+fn a_failure_refused_at_zero_quota_ends_the_test_d99() {
+    use marathon_config::schema::RetryStrategyConfiguration;
+    use marathon_core::strategy::retry::RetryStrategy;
+    run(|core| {
+        Box::pin(async move {
+            let t = test("method");
+            let d = device("1");
             let mut pending = Harness::new(&core, vec![t.clone()], ExecutionMode::AnySuccess, false);
             let mut retry = RetryStrategy::from_config(&RetryStrategyConfiguration::FixedQuota {
                 total_allowed_retry_quota: 0,
@@ -365,9 +378,11 @@ fn ended_only_and_terminal_retry_keep_the_source_bookkeeping() {
                     )
                     .is_empty()
             );
-            assert_eq!(pending.reporter.state(&t).unwrap().counters(), (2, 0, 0));
-            pending.end(failed, false).await;
-            assert_eq!(pending.reporter.state(&t).unwrap().counters(), (2, 1, -1));
+            assert_eq!(pending.reporter.state(&t).unwrap().counters(), (1, 0, 0));
+            assert_eq!(pending.end(failed, false).await, Some(TestAction::Complete));
+            let state = pending.reporter.state(&t).unwrap();
+            assert!(matches!(state, TestState::Failed { .. }), "{state:?}");
+            assert_eq!(state.counters(), (1, 1, -1));
             Ok(())
         })
     });

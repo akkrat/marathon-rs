@@ -876,6 +876,20 @@ pub fn scheduling_test(body: impl FnOnce(Rc<Harness>) -> LocalFuture<'static, ()
                         ]
                         .map(str::to_owned)
                         .to_vec(),
+                        // D99 (C5): with one retry for two failures, the failure that meets 0 retries left ends
+                        // its test and is tracked as final; the JVM's phantom AddRetry left it non-final. Only
+                        // that flag moves, and only in this recording.
+                        "a_retry_of_one_of_two_batches_that_failed_together_runs_on_an_idle_device_of_another_worker" =>
+                        {
+                            assert_eq!(
+                                normalize(expected),
+                                ["FAILURE non-final", "FAILURE non-final", "PASSED final"],
+                                "the D99 allowance assumes this recording"
+                            );
+                            ["FAILURE final", "FAILURE non-final", "PASSED final"]
+                                .map(str::to_owned)
+                                .to_vec()
+                        }
                         _ => normalize(expected),
                     };
                     assert_eq!(

@@ -1,7 +1,7 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/retry/fixedquota/FixedQuotaRetryStrategy.kt
 //! and impl/retry/fixedquota/{PoolTestFailureAccumulator,RetryWatchdog}.kt, impl/retry/NoRetryStrategy.kt.
 //!
-//! Counters are Java `Int`s, so arithmetic wraps.
+//! Failure counters are Java `Int`s, so they wrap. D99 replaced Kotlin's check-then-decrement watchdog (C5).
 
 use crate::model::{DevicePoolId, Test, TestAction, TestResult, TestShard};
 use marathon_config::schema::RetryStrategyConfiguration;
@@ -122,11 +122,10 @@ impl FixedQuotaRetryStrategy {
                 self.accumulator.record(pool, &result.test);
                 let flaky = shard.flaky_tests.iter().filter(|t| **t == result.test).count() as i32;
                 let failures = self.accumulator.count(pool, &result.test).wrapping_add(flaky);
-                // C5: retryPossible accepts left == 0, AddRetry then runs, and only the
-                // decrement in requestRetry refuses: a phantom total+1 with no retry.
-                self.watchdog.retry_possible(failures)
-                    && progress.retry_test(&result.test) != Some(TestAction::Complete)
-                    && self.watchdog.request_retry(failures)
+                // D99 (C5): one call decides and charges, so AddRetry runs only for a retry the quota grants.
+                self.watchdog.grant(failures, || {
+                    progress.retry_test(&result.test) != Some(TestAction::Complete)
+                })
             })
             .collect()
     }
@@ -146,20 +145,23 @@ impl RetryWatchdog {
         }
     }
 
-    /// Decrements first, then checks; the decrement happens even when refused.
-    pub fn request_retry(&mut self, failures: i32) -> bool {
-        self.total_allowed_retry_left = self.total_allowed_retry_left.wrapping_sub(1);
-        let total_allowed = self.total_allowed_retry_left >= 0;
-        total_allowed && failures <= self.max_retry_per_test_quota
+    /// Whether a test with `failures` failures gets a retry, charging the total quota when it does.
+    ///
+    /// D99 (C5): Kotlin checked `left >= 0` before AddRetry and refused only in the decrement after it, so a
+    /// failure that met exactly 0 retries left gained a phantom total and never ended its test. Here the one
+    /// boundary, `left > 0`, is checked before `add_retry` (AddRetry) runs, and the charge follows it. As in
+    /// Kotlin, `add_retry` answering false (the test is already complete) neither grants nor charges.
+    pub fn grant(&mut self, failures: i32, add_retry: impl FnOnce() -> bool) -> bool {
+        if self.total_allowed_retry_left <= 0 || failures > self.max_retry_per_test_quota || !add_retry() {
+            return false;
+        }
+        self.total_allowed_retry_left -= 1;
+        true
     }
 
-    /// D69: undoes the decrement of a granted retry that is not run.
+    /// D69: undoes the charge of a granted retry that is not run.
     pub fn refund(&mut self) {
         self.total_allowed_retry_left = self.total_allowed_retry_left.wrapping_add(1);
-    }
-
-    pub fn retry_possible(&self, failures: i32) -> bool {
-        self.total_allowed_retry_left >= 0 && failures <= self.max_retry_per_test_quota
     }
 
     pub fn total_allowed_retry_left(&self) -> i32 {
