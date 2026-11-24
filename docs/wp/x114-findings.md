@@ -37,3 +37,11 @@ not the length or contents), which videos it covers, that the not-delivered line
 ERROR, and that a file already at the path stays; the short-run times are called medians and the healthy-run
 difference is described by its per-run causes; U268 says the failure was reproduced locally. Not taken: narrowing
 the worker-cleanup and overlap-video claims, which the real check's per-run records support.
+
+## 0.15.5
+
+The private farm check of 0.15.5-rc.1 found nothing blocking. With video on, every failed attempt had a decodable
+video and nothing was reported as not delivered, so no farm recording was empty. With video off, the candidate
+matched 0.15.4 in total and job time and in per-test XCTest time. 0.15.5 is the candidate's code. The
+`## 0.15.5-rc.1` section becomes `## 0.15.5`, and its Evidence gains the farm runs. A stub `## 0.15.5-rc.1` section
+follows it, as for earlier candidates, and `README.md` names 0.15.5 as the current release.

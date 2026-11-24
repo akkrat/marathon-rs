@@ -2,10 +2,9 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
-## 0.15.5-rc.1
+## 0.15.5
 
-The first release candidate of 0.15.5, a pre-release for trial runs. It stops publishing iOS videos that are empty or
-unfinished. The inputs, the CLI, the configuration, the summary text, report formats, test results and the exit status
+This release stops publishing iOS videos that are empty or unfinished. The inputs, the CLI, the configuration, the summary text, report formats, test results and the exit status
 are unchanged. No new worker commands or SSH allowlist changes are needed. Everything else is as in
 [0.15.4](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG.md#0154).
 
@@ -29,7 +28,7 @@ are unchanged. No new worker commands or SSH allowlist changes are needed. Every
   test-only fixes: a fake ADB server that warned when a client reset an idle connection, which failed one installer
   test on a loaded CI runner and was reproduced locally under load (U268), and a loopback SSH test that left a
   supervisor directory in `/tmp` on every run (U269).
-- On a real SSH worker with Perl (Xcode 27.2 simulators), the code of this release candidate and 0.15.4 ran the same
+- On a real SSH worker with Perl (Xcode 27.2 simulators), the code of 0.15.5-rc.1 and 0.15.4 ran the same
   checks. Each of the three healthy video runs per build published 6/6 videos, all of which decoded cleanly, and 6/6
   result bundles; the report data matched an earlier reference run, and no run logged a `was not delivered` line or a
   warning. The median wall time was 37.4 s against 34.9 s; of the candidate's runs, one had a slower preparation and
@@ -41,6 +40,15 @@ are unchanged. No new worker commands or SSH allowlist changes are needed. Every
   short but not empty, and an empty movie with transcoding off or as the batch-failure video, were not seen on the
   real worker; tests cover them.
 - CI runs the repository gate on macOS and Linux; it passes on the code of this release.
+- The release candidate 0.15.5-rc.1, the same code as this release, ran the full iOS UI-test job of a private CI farm
+  (Xcode 26.6 workers, `debug: false`), alternating with 0.15.4 on one code base. With video on, two runs of the
+  candidate had a video for every failed attempt (31 of 31 and 40 of 40), and every movie decoded cleanly; no recorder
+  was refused, no busy warning was logged, and no video was reported as not delivered, so no recording on the farm was
+  empty or unfinished. A same-day 0.15.4 run with video on had 38 videos for 39 failed attempts: the attempt without
+  one ended on the batch's idle timeout, which this release does not change. With video off, two clean runs of the
+  candidate and three of 0.15.4 had a median job time of 585 s against 582 s and a median total time of 373 s against
+  378 s, and the candidate's tests ran as long inside XCTest (ratio 0.999). Five runs disturbed by workers dropping
+  off the network or by a backend failure were excluded.
 
 ### Known limits
 
@@ -148,6 +156,11 @@ are unchanged. No new worker commands or SSH allowlist changes are needed. Every
   without them (D25).
 - Apple event/line scheduling can move a boundary line between per-test and batch logs (A20). The Phase 8 differential
   harness gates that interleaving; production retains it ([WP 8.12](docs/wp/8.12-test-changes.md#differential-only-eventline-gates)).
+
+## 0.15.5-rc.1
+
+The first release candidate of 0.15.5, published on 2026-11-24 as a pre-release for trial runs. Its changes are all in
+0.15.5 above.
 
 ## 0.15.4
 
