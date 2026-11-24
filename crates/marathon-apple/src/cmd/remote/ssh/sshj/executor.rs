@@ -227,10 +227,13 @@ async fn execute(
         None => None,
     };
     let runtime = connection.runtime.clone();
-    let channel = connection
-        .start_session()
-        .await
-        .map_err(|error| (error.into_vendor(), true))?;
+    // x115 (review round 2): the caller's stop also ends the wait for the open's reply, which takes up to 30 s from a
+    // worker that does not answer; a screenshot capture's batch joins it before the batch's xcresult is pulled. Nothing
+    // was sent on the channel. A reply that comes later is closed by the open's own task, as when the 30 s run out (U157).
+    let channel = tokio::select! { biased;
+        reason = context.cancellation.cancelled() => return Err((VendorError::Cancelled(reason), true)),
+        channel = connection.start_session() => channel.map_err(|error| (error.into_vendor(), true))?,
+    };
     // D93 (round 8): the last look before the command is sent. The channel can take long to be accepted, and the caller
     // (or its device's command gate, which the context carries) may have stopped meanwhile: then the channel is closed
     // and no exec is sent, which starts nothing.

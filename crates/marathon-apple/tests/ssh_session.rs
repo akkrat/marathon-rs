@@ -447,6 +447,44 @@ async fn an_open_with_no_reply_fails_with_its_timeout_and_a_late_reply_is_closed
     assert!(executor.connected());
 }
 
+/// x115 (review round 2): the caller's cancellation ends the wait for an open's reply. A screenshot capture waits this way,
+/// and its batch's end joins it before the batch's xcresult is pulled, so an open the worker did not answer held that up
+/// until the open's 30 s ran out (3 s here), and then logged the open as failed. The channel a later reply opens is still
+/// closed, exec-less, and the connection goes on.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancelled_caller_stops_waiting_for_an_open_reply_and_a_late_reply_is_closed() {
+    use marathon_core::executor::shared::Signal;
+    let fake = ssh::fake(late_open_script(5_000, false), 1).await;
+    let (executor, events) = executor_with(&fake, 10, 0).await;
+    let executor = Arc::new(executor);
+    let stop = Signal::new();
+    let waiting = {
+        let executor = executor.clone();
+        let context = VendorContext {
+            cancellation: stop.clone(),
+            ..context()
+        };
+        tokio::spawn(async move { executor.execute(request(&["echo", "hello"], 5000), context).await })
+    };
+    fake.events_at_least("session_open", 1).await;
+    stop.cancel(cancelled("fixture stop"));
+    let result = support::bounded(60, waiting).await.unwrap();
+    assert!(
+        matches!(result, Err(VendorError::Cancelled(_))),
+        "{:?}",
+        result.map(|_| ())
+    );
+    let lines = ssh::lines(&events);
+    assert!(!lines.iter().any(|(_, level, _)| *level == Level::ERROR), "{lines:?}");
+    assert_eq!(fake.events_at_least("late_open_reply", 1).await.len(), 1);
+    assert_eq!(fake.events_at_least("client_close", 1).await.len(), 1);
+    assert!(fake.events("exec").await.is_empty());
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 600_000).await.unwrap().stdout,
+        ["hello"]
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_slow_open_inside_its_30_s_still_works_u157() {
     let fake = ssh::fake(late_open_script(1_000, false), 1).await;
