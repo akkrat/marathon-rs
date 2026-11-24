@@ -7,7 +7,7 @@ Base `cbd0b8c7` (0.15.5). Follow-ups from a farm trial of 0.15.5-rc.1, an iOS pr
 - **U270**: runs with the screenshot recorder no longer end with about one `Dying because - Broken transport;
   encountered EOF` ERROR per remote simulator.
 - **U271** (owner's go on the same day, after a related observation from another farm trial): marathon's own stop of a
-  screenshot command that waits for its exec reply is no longer logged as `ERROR … Unable to start a remote shell
+  screenshot command that is still awaiting the worker's exec reply is no longer logged as `ERROR … Unable to start a remote shell
   session`.
 
 ## D99: a failure that meets no total retry quota left
@@ -55,8 +55,8 @@ here (`RetryStrategyConfiguration` has `FixedQuota` and `NoRetry`).
 - Queue and progress: `queue_behaviour::a_failure_that_meets_no_retries_left_ends_the_test_d99`: two tests fail together
   with a total quota of 1; the second ends Failed (1, 1, -1), its failure is tracked as final, the pool's result is
   false and no ERROR is logged. The JVM recording of C5 is superseded like D69's three
-  (`queue_oracle::d99_supersedes_exactly_the_c5_recording` pins that it differs exactly at step 1, step 3 and the
-  progress); `d69_supersedes_exactly_the_c45_to_c47_recordings` now also lists `K2 progress`, because K2's second failed
+  (`queue_oracle::d99_supersedes_exactly_the_c5_recording` replays the whole row with only D99's values moved, see
+  review round 2); `d69_supersedes_exactly_the_c45_to_c47_recordings` now also lists `K2 progress`, because K2's second failed
   copy met 0 left as well: the phantom total is gone and the retry's pass completes the test (Passed 3, JVM Passing 4).
   `native_replay_rejects_queue_and_accounting_mutations` uses another recording.
 - Run graph with the Stub vendor: `flakiness_scenarios::d99_a_failure_that_meets_no_retries_left_is_counted_failed`
@@ -146,9 +146,10 @@ Each fails without its part of the fix (checked on a scratch copy with that part
 - `connection_factory::the_end_of_the_run_closes_every_connection_still_leased_u270` (shared and unshared): a quarantined
   lease, a second user of it and a never-released lease are closed once each by `close_remaining`, none abandoned; a
   connection released before is not closed again; a second call and late releases close nothing more.
-- `connection_factory::the_end_of_the_run_leaves_a_shared_acquisition_under_way_intact_u270`: a shared acquisition that
-  is still connecting a replacement when `close_remaining` runs completes, and its connection is its caller's to
-  release. The first version of `close_remaining` cleared the workers' shared state, and that acquisition then
+- `connection_factory::an_acquisition_under_way_at_the_end_of_the_run_closes_its_connection_u270` (was
+  `the_end_of_the_run_leaves_a_shared_acquisition_under_way_intact_u270`; review round 2 changed what it expects): a
+  shared acquisition that is still connecting a replacement when `close_remaining` runs completes without a panic. The
+  first version of `close_remaining` cleared the workers' shared state, and that acquisition then
   panicked on its `expect("shared worker is registered")` (found in the self-review; now each worker keeps its entry
   and only loses its current connection, so a closed one is never handed out again).
 - `ssh_supervisor::closing_an_executor_closes_its_supervisor_control_connection_u270` (loopback fake SSH worker with the
@@ -239,7 +240,8 @@ real-worker counts are too small to show the fix; the witness below does.
 When its gate stops the wait for the reply, the channel records the gate's own reason (`ExecChannel::exec_stopped`,
 beside D93's `exec_withheld`), and `SshCommandExecutor`'s `execute` returns `VendorError::Cancelled(reason)` instead of
 the connection failure. The D93 "known to have started nothing" flag stays false for it, as before (the request was
-sent; the supervisor ends the token). `safe_execute` passes a cancellation on without logging it; the capture loop ends
+sent and the worker may be running the command; the supervisor ends the token), and a device's command handle keeps
+it (review round 2). `safe_execute` passes a cancellation on without logging it; the capture loop ends
 on it as on any cancellation. A real loss of the connection on the same wait is still a connection failure, logged at
 ERROR. Nothing filters text or changes a level.
 
@@ -247,6 +249,64 @@ Witness: `ssh_supervisor::our_own_stop_of_an_exec_waiting_for_its_reply_is_not_a
 whose supervised exec never gets its reply): cancelling the caller's context makes `safe_execute` return
 `Err(Cancelled)` with no ERROR line; then, on the same kind of wait, shutting the worker down gives `Ok(None)` and one
 `Unable to start a remote shell session [echo, fixture-no-launch-ack]` ERROR.
+
+## Review round 2
+
+A cross-model static review found no P1 and six P2/P3 findings; the orchestrator accepted all six. Each was checked
+against the code first, and each held.
+
+1. **A gate's stop overwrote the executor's launch verdict (U271, P2).** `DeviceCommands::execute` recorded "started
+   nothing" for every gate cancellation. Before U271 that was right (the executor returned the gate's cancellation only
+   for an exec it had not sent), but U271's `exec_stopped` returns it for an exec that was sent and reports that it may
+   have started; the device's handle then overwrote that, which could let xcodebuild's opener count a running session as
+   closed. `exec_outcome` now has `reported`, a nested scope that tells whether the executor reported at all; the device
+   handle passes the executor's report on and adds "started nothing" only where it gave none. Witness: the device-seal
+   witness `ssh_supervisor::a_sealed_device_stops_a_token_when_the_exec_reply_is_missing_d96` now observes the verdict
+   and asserts "may have started".
+2. **A connection opened after the end-of-run sweep was published (U270, P2).** `close_remaining` drained the leases
+   but left acquisition open, so a detached connect that completed after it published a lease that only its release
+   would close, and the runtime's shutdown could cut that off. The sweep now seals the factory under the lease lock
+   (`State::ended`): a late connection is closed as a release closes it (or abandoned at the deadline, with the existing
+   WARN) before anything is given it, and it and its waiters get a cancellation; a later acquisition is refused without
+   connecting. Witnesses: `connection_factory::a_connection_completing_after_the_end_of_the_run_is_closed_locally_u270`
+   (loopback fake SSH worker, shared and unshared: a connect held after its handshake until the sweep has run is closed
+   at the worker while the test still holds it, no `Dying because` line, and a later acquisition connects nothing),
+   `an_acquisition_under_way_at_the_end_of_the_run_closes_its_connection_u270` (fake executors, both modes, with a
+   caller waiting on the shared attempt), and the late-acquisition part of
+   `the_end_of_the_run_closes_every_connection_still_leased_u270`.
+3. **An unanswered channel open delayed the batch's xcresult (P2).** The SSH executor looked at its caller's
+   cancellation only after `start_session` returned, which an unanswered open makes take 30 s; the screenshot listener's
+   `after_test_run` joins the capture before the batch's xcresult is pulled. The executor now selects the open against
+   the cancellation. Dropping the open is already safe (U157, x38): an unclaimed reply goes back to the open's own task,
+   which closes a channel that opens later, exec-less. Witness:
+   `ssh_session::a_cancelled_caller_stops_waiting_for_an_open_reply_and_a_late_reply_is_closed` (the fake worker answers
+   the open only after the scaled 30 s): the cancelled execute returns the cancellation, not the open's timeout, with no
+   ERROR; the late reply's channel is closed, no exec is sent, and the connection then runs a command. It is ordered by
+   the worker's events; time bounds are hang guards only. The witness is at the executor, where the wait is; the
+   listener's join and the xcresult pull after it are unchanged.
+4. **The C5 oracle allowance compared steps, not values (P2).** `d99_supersedes_exactly_the_c5_recording` now replays
+   the whole recording against `d99_expected`, which moves only D99's values, each checked as recorded first: the
+   refused failure's track flag (final), the two progress lines it shifts (25 % → 33 %, 50 % → 67 %) and the test's end
+   (Failing at 2 → Failed at 1). Negative test `the_d99_allowance_rejects_other_changes_in_the_steps_it_moves`: a
+   changed result payload or reply in step 1, and a changed reply or queue state in step 3, each fail the replay. On a
+   scratch copy the round-1 check accepted all four mutations.
+5. **The U271 loss witness could shut down the wrong exec (P2).** On a scratch copy the transcript already held three
+   execs (the supervisor's install, the command, the control connection's) when the first stop returned, so waiting for
+   a third returned at once and the shutdown could come before the second command. The witness now waits for the
+   command's own execs (`Fake::wait_for_events`, a 60 s hang guard as docs/testing.md asks), and its result waits are
+   60 s too. The round-2 witnesses use the same helper.
+6. **Wording (P3).** The CHANGELOG bullet, the U271 row and this file say the screenshot command is still awaiting the
+   worker's reply, which the worker may already be running, rather than that it has not started.
+
+Each witness of items 1–3 fails without its fix on a scratch worktree of the round-1 head with only the new tests (and
+the `exec_outcome` helper) copied in: item 1 asserts "never started", item 2's three tests get the late connection
+(`Ok`), item 3's execute ends with the open's timeout. Stress, from the built test binaries: the two `ssh_supervisor`
+witnesses (items 1 and 5) 100 runs, the three U270 factory tests 100 runs, the open witness 50 runs (five parallel
+loops of 10), and each again 20 runs with every core busy: no failure.
+
+No real-worker run this round: item 2 changes only acquisitions that complete after the sweep (no real run had one),
+and item 3 changes what an open pending at a stop costs, not what goes on the wire (before: the open's reply, then a
+CLOSE without exec; now: the CLOSE without exec from the open's task when the reply comes).
 
 ## Verification
 
@@ -284,3 +344,12 @@ allowances above.
   it has no row of its own in `known-kotlin-bugs.md`.
 - `scripts/parity_matrix.py --check` reports a `SkipCopyingDerivedDataTest` row as no longer found in the Kotlin
   checkout; the same on the base commit, so not from this WP.
+- D69's allowance in `queue_oracle` (`d69_supersedes_exactly_the_c45_to_c47_recordings`) has the shape item 4 of
+  review round 2 fixed for C5: it checks which steps differ, not how. It predates x115; round 1 only added
+  `K2 progress` to its list. Not changed here.
+- A shared acquisition that is checking its reused connection when `close_remaining` runs finds it no longer current,
+  releases its use of the drained lease and logs `Command executor for … is not in use, ignoring dispose` (WARN) before
+  it is refused. Only an acquisition that overlaps the end of the run (after the provider has released its devices)
+  can reach it; not changed here.
+- `scripts/parity_matrix.py --check` now also reports `CodeCoverageTargetsTest` rows as no longer found in the Kotlin
+  checkout; the parity matrix is not changed by this WP, so this comes from the checkout, not from x115.

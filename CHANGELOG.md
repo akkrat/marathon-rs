@@ -21,10 +21,11 @@ The section for a version becomes the text of its GitHub release, which carries 
   connection open, so it was logged as lost when marathon exited, about once per remote simulator. The capture now
   stops with its batch, and every SSH connection is closed when its device is released or, at the latest, at the end of
   the run. A connection that is really lost is still an ERROR.
-- **No ERROR when marathon itself stops a screenshot whose command has not started yet (U271, x115):** when a test
-  ended while one of its screenshot commands was still waiting for the worker's answer, the run logged `ERROR … Unable
-  to start a remote shell session [xcrun, simctl, io, …, screenshot, …] … Stopped while waiting for exec reply`. That
-  stop is marathon's own and is no longer reported; a real connection failure still is.
+- **No ERROR when marathon itself stops a screenshot command that is still awaiting the worker's reply (U271, x115):**
+  when a test ended while one of its screenshot commands was still waiting for the worker's reply (the worker may
+  already be running it), the run logged `ERROR … Unable to start a remote shell session [xcrun, simctl, io, …,
+  screenshot, …] … Stopped while waiting for exec reply`. That stop is marathon's own and is no longer reported; a real
+  connection failure still is.
 
 ## 0.15.5
 
