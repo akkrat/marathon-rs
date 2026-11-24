@@ -4,46 +4,52 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## 0.15.6-rc.1
 
-The first release candidate of 0.15.6, a pre-release for trial runs. It counts a test as failed when its last failure
-used up the total retry quota, and removes two kinds of ERROR lines that were not real failures from runs on SSH workers
-that use the screenshot recorder. The inputs, the CLI, the configuration and report formats are unchanged. No new
-worker commands or SSH allowlist changes are needed. Everything else is as in
+The first release candidate of 0.15.6, a pre-release for trial runs. It counts a test as failed when it fails again
+after the total retry quota has run out, and removes two kinds of ERROR lines that were not real failures from runs on
+SSH workers. The inputs, the CLI, the configuration and report formats are unchanged. No new worker commands or SSH
+allowlist changes are needed. Everything else is as in
 [0.15.5](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG.md#0155).
 
 ### Results
 
-- **A test whose last failure used up the total retry quota is counted as failed (D99, x115):** with
-  `retryStrategy: fixed-quota`, a failure that came when exactly 0 retries of `totalAllowedRetryQuota` were left
-  started a retry that was never run, so the test never ended: it is now counted as failed in the summary and listed
-  in `Failed tests:`, instead of being left out with an `Expected to run … more, but no terminal events received`
-  error. The exit status is unchanged, and so are the retries, except that a retry given back after the quota ran
-  out can now be used by one more failure.
+- **A test that fails after the total retry quota has run out is counted as failed (D99, x115):** with `retryStrategy:
+  fixed-quota`, a failure that came when no retries of `totalAllowedRetryQuota` were left recorded a retry that was
+  never queued, so the test never ended: it was left out of the summary, its last attempt was not reported as its
+  result, and the log had an `Expected to run … more, but no terminal events received` error. Now that failure ends
+  the test as failed, in the per-test result, the reports, the summary and `Failed tests:`. Retries granted while
+  quota is left are unchanged. A retry given back after the quota ran out (D69's refund) is now a whole retry that one
+  more failure can use; that can change the outcome of that one test.
 
-### iOS
+### iOS and macOS
 
-- **No more `Dying because - Broken transport` errors at the end of runs that use the screenshot recorder (U270,
+- **No `Dying because - Broken transport` errors at exit from connections and captures marathon left open (U270,
   x115):** when a batch ended after a test had started but before its result (xcodebuild exiting without one), the
-  screenshot recorder kept capturing that simulator until the run ended, and the run left that simulator's SSH
-  connection open, so it was logged as lost when marathon exited, about once per remote simulator. The capture now
-  stops with its batch, and every SSH connection is closed when its device is released or, at the latest, at the end of
-  the run. A connection that is really lost is still an ERROR.
-- **No ERROR when marathon itself stops a screenshot command that is still awaiting the worker's reply (U271, x115):**
-  when a test ended while one of its screenshot commands was still waiting for the worker's reply (the worker may
-  already be running it), the run logged `ERROR … Unable to start a remote shell session [xcrun, simctl, io, …,
-  screenshot, …] … Stopped while waiting for exec reply`. That stop is marathon's own and is no longer reported; a real
-  connection failure still is.
+  screenshot recorder kept capturing that simulator until the run ended, and the run could leave SSH connections open,
+  so they were logged as lost when marathon exited (in the farm runs that showed it, about once per remote simulator).
+  Now a capture stops with its batch, and at the end of the run the iOS and macOS providers close every worker
+  connection still held, a quarantined one included, within the release deadline; one that cannot close in time is
+  abandoned with the existing warning. A connection that is really lost is still an ERROR.
+- **No ERROR when marathon itself stops a supervised SSH command that is still awaiting the worker's reply (U271,
+  x115):** on a supervised SSH worker, when a test ended while one of its screenshot commands was still waiting for
+  the worker's reply (the worker may already be running it), the run logged `ERROR … Unable to start a remote shell
+  session [xcrun, simctl, io, …, screenshot, …] … Stopped while waiting for exec reply`. That stop is marathon's own
+  and is no longer reported; a real connection failure still is.
 
 ### Evidence
 
 - The [x115 findings](docs/wp/x115-findings.md) document the causes, the tests and the changes made in two reviews.
-  The D99 change is checked against the whole recorded run of the JVM program that showed the problem, with only the
-  values D99 changes moved.
-- On a real SSH worker (Xcode 27.2 simulators) with the screenshot recorder, runs in which a batch ended before its
-  tests reported a result left the capture running until the end of the run on 0.15.5, and three of six such runs
-  logged a `Dying because` line at exit; with this release candidate's code the capture stopped with its batch and
-  none of five such runs logged one. Healthy runs of both builds published the same screenshots and result bundles,
-  with median wall times of 30.0 s (0.15.5) and 29.2 s. The ERROR for marathon's own stop of a screenshot was too rare
-  on the worker to count (twice in 33 runs, both on builds without the fix); a test covers it.
+  D99 is checked by tests only: against the whole recorded run of the JVM program that showed the problem, with only
+  the values D99 changes moved, and by state-machine and run tests that check the result file and the summary; it was
+  not run on a real worker. The original problem was seen once, in a private CI farm run. Closing a quarantined
+  connection at the end of the run is covered by tests only.
+- On a real SSH worker (Xcode 27.2 simulators) with the screenshot recorder, intermediate builds of this code were
+  compared with 0.15.5. In runs where a batch ended before its tests reported a result, 0.15.5 kept the capture
+  running until the end of the run, and three of six such runs logged a `Dying because` line at exit; with the U270
+  fix the capture stopped with its batch, and none of five such runs logged one. Healthy runs of both builds delivered
+  the same screenshots and result bundles, except one healthy run of the fix that delivered five of six screenshot
+  GIFs after delayed xcodebuild output (its result bundles were delivered); the healthy comparison runs had median
+  wall times of 30.0 s (0.15.5) and 29.2 s. The ERROR for marathon's own stop of a screenshot was too rare on the
+  worker to show the U271 fix (twice in 33 runs, both on builds without it); a loopback test covers it.
 - CI runs the repository gate on macOS and Linux; it passes on the code of this release.
 - Not exercised: a private CI farm run (planned for this release candidate), and macOS UI tests on a real worker.
 
@@ -51,7 +57,9 @@ worker commands or SSH allowlist changes are needed. Everything else is as in
 
 - A connection to an SSH worker that is still being opened or released at the moment the run ends can still be logged
   as lost (`Dying because - Broken transport`) when marathon exits, at most once per such connection. No real-worker
-  run of this release reached it (U270).
+  run reached it (U270).
+- If marathon cancels a screenshot command just as the worker accepts it and the worker then never acknowledges the
+  close, the capture's stop can delay that batch's result bundle by up to 30 s (U271).
 - There is no Windows, Intel Mac, Linux on ARM or universal build. The macOS binary requests macOS 11.0 or later; versions
   older than the build and test hosts are not tested.
 - The macOS binary is ad-hoc signed and not notarised; see the note on quarantine in the
@@ -143,8 +151,8 @@ worker commands or SSH allowlist changes are needed. Everything else is as in
 - A process marathon has spawned but not yet registered is outside the reaper's view, and a full reaper table (4,096
   entries) fails the launch. After an abrupt loss of both connections to a worker, the supervisor's private directory and
   its small receipts can remain under the worker's `/tmp` (D96).
-- A quarantined worker connection stays open until marathon exits, and with `shareWorkerConnection` it keeps one of the
-  worker's two connection slots (D90, D93).
+- A quarantined worker connection stays open until the end of the run, where it is closed (U270), and with
+  `shareWorkerConnection` it keeps one of the worker's two connection slots until then (D90, D93).
 - On a filesystem that rejects rename flags, publishing a bundle checks that the destination is absent and then renames,
   so another writer can win in between, and replacing an existing tree can leave its path absent for a moment; if a
   failed publication also fails to restore the earlier tree, that tree is kept in a named `.marathon-artifact-*`
