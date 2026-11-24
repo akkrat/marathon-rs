@@ -70,6 +70,9 @@ struct State {
     /// D93 (round 9): the writer did not send the exec request, because its gate had closed when it came to write it; it
     /// sent CLOSE instead. Nothing was started.
     exec_withheld: Option<marathon_core::error::Cancellation>,
+    /// U271: the exec request was sent, and its gate (the caller's cancellation, with its device's gate) closed while the
+    /// reply was missing, so the channel was closed. The caller stopped it; the transport did not fail.
+    exec_stopped: Option<marathon_core::error::Cancellation>,
     worker_lease: Option<Arc<Lease>>,
     window: u32,
 }
@@ -349,7 +352,8 @@ impl ExecChannel {
                 return Err(SshFailure::connection(DisconnectReason::Unknown, "The exec request was not sent"));
             }
             reply = replying => reply,
-            _ = stopped => {
+            reason = stopped => {
+                self.update(|s| s.exec_stopped = Some(reason));
                 self.request_close();
                 return Err(SshFailure::connection(DisconnectReason::Unknown, "Stopped while waiting for exec reply"));
             }
@@ -386,6 +390,11 @@ impl ExecChannel {
     /// D93 (round 9): why the writer withheld the exec request, if it did (the command did not start).
     pub fn exec_withheld(&self) -> Option<marathon_core::error::Cancellation> {
         self.read(|s| s.exec_withheld.clone())
+    }
+    /// U271: why the exec's own gate stopped the wait for its reply, if it did. The command may have started; the worker
+    /// supervisor ends its token.
+    pub fn exec_stopped(&self) -> Option<marathon_core::error::Cancellation> {
+        self.read(|s| s.exec_stopped.clone())
     }
     /// D93: the worker answered the exec request with a refusal, so the command did not start.
     pub fn exec_refused(&self) -> bool {

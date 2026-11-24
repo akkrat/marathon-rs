@@ -1723,6 +1723,61 @@ async fn a_sealed_device_stops_a_token_when_the_exec_reply_is_missing_d96() {
     fake.worker.shutdown().await.unwrap();
 }
 
+/// U271: a supervised exec whose reply has not come when its caller stops it (a screenshot at its test's end, say)
+/// returns the caller's cancellation, which `safe_execute` does not log; it was a connection failure, logged as
+/// `ERROR Unable to start a remote shell session [...]`. A real loss of the connection on the same wait still is.
+#[tokio::test(flavor = "multi_thread")]
+async fn our_own_stop_of_an_exec_waiting_for_its_reply_is_not_an_error_u271() {
+    use marathon_core::{error::VendorError, executor::shared::Signal, vendor::VendorContext};
+    let fake = ssh::fake_with_handlers(
+        ssh::script(vec![]),
+        3,
+        |config| config.script.faults.silent_exec = Some("fixture-no-launch-ack".into()),
+        vec![Arc::new(SupervisorWorker::default())],
+    )
+    .await;
+    let (logging, events) = ssh::logging(false);
+    let executor = Arc::new(
+        ssh::factory(&logging)
+            .connect_worker("127.0.0.1", fake.port(), ssh::password(), None, false, Arc::default())
+            .await
+            .unwrap(),
+    );
+    let request = || CommandRequest::new(["echo", "fixture-no-launch-ack"], duration(30000));
+    let session_lines = || {
+        ssh::lines(&events)
+            .into_iter()
+            .filter(|(_, level, message)| {
+                *level == Level::ERROR && message.contains("a remote shell session [echo, fixture-no-launch-ack]")
+            })
+            .count()
+    };
+    let stop = Signal::new();
+    let stopped = {
+        let executor = executor.clone();
+        let context = VendorContext {
+            cancellation: stop.clone(),
+            ..context()
+        };
+        tokio::spawn(async move { executor.safe_execute(request(), context).await })
+    };
+    fake.events_at_least("exec", 2).await;
+    stop.cancel(marathon_apple::cmd::cancelled("fixture stop"));
+    let result = support::bounded(10, stopped).await.unwrap();
+    assert!(matches!(result, Err(VendorError::Cancelled(_))), "{result:?}");
+    assert_eq!(session_lines(), 0);
+
+    let lost = {
+        let executor = executor.clone();
+        tokio::spawn(async move { executor.safe_execute(request(), context()).await })
+    };
+    fake.events_at_least("exec", 3).await;
+    fake.worker.shutdown().await.unwrap();
+    let result = support::bounded(40, lost).await.unwrap();
+    assert!(matches!(result, Ok(None)), "{result:?}");
+    assert_eq!(session_lines(), 1, "{:?}", ssh::lines(&events));
+}
+
 #[tokio::test]
 async fn d30_escalation_joins_worker_proof_without_a_data_close_d96() {
     use marathon_apple::cmd::remote::ssh::sshj::SshjCommandExecutorFactory;

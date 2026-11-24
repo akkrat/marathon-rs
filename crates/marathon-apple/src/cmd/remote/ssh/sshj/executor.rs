@@ -256,6 +256,11 @@ async fn execute(
         if let Some(reason) = channel.exec_withheld() {
             return Err((VendorError::Cancelled(reason), true));
         }
+        // U271: the caller's own stop is its cancellation, not a connection failure (which `safe_execute` logs at ERROR
+        // as a session that could not start), as a coroutine cancellation was in Kotlin.
+        if let Some(reason) = channel.exec_stopped() {
+            return Err((VendorError::Cancelled(reason), false));
+        }
         let refused = channel.exec_refused();
         return Err((error.into_vendor(), refused));
     }
