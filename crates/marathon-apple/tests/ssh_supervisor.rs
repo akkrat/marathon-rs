@@ -1759,6 +1759,14 @@ async fn our_own_stop_of_an_exec_waiting_for_its_reply_is_not_an_error_u271() {
             })
             .count()
     };
+    // Only the command's own execs: the first stop also makes the supervisor dial its control connection, whose exec
+    // must not be mistaken for the second command's.
+    let commands = |count| {
+        fake.wait_for_events("exec", count, |row| {
+            let wire = String::from_utf8(STANDARD.decode(row["detail"]["base64"].as_str().unwrap()).unwrap()).unwrap();
+            wire.ends_with("fixture-no-launch-ack'")
+        })
+    };
     let stop = Signal::new();
     let stopped = {
         let executor = executor.clone();
@@ -1768,9 +1776,9 @@ async fn our_own_stop_of_an_exec_waiting_for_its_reply_is_not_an_error_u271() {
         };
         tokio::spawn(async move { executor.safe_execute(request(), context).await })
     };
-    fake.events_at_least("exec", 2).await;
+    commands(1).await;
     stop.cancel(marathon_apple::cmd::cancelled("fixture stop"));
-    let result = support::bounded(10, stopped).await.unwrap();
+    let result = support::bounded(60, stopped).await.unwrap();
     assert!(matches!(result, Err(VendorError::Cancelled(_))), "{result:?}");
     assert_eq!(session_lines(), 0);
 
@@ -1778,9 +1786,9 @@ async fn our_own_stop_of_an_exec_waiting_for_its_reply_is_not_an_error_u271() {
         let executor = executor.clone();
         tokio::spawn(async move { executor.safe_execute(request(), context()).await })
     };
-    fake.events_at_least("exec", 3).await;
+    commands(2).await;
     fake.worker.shutdown().await.unwrap();
-    let result = support::bounded(40, lost).await.unwrap();
+    let result = support::bounded(60, lost).await.unwrap();
     assert!(matches!(result, Ok(None)), "{result:?}");
     assert_eq!(session_lines(), 1, "{:?}", ssh::lines(&events));
 }

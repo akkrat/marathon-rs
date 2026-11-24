@@ -466,7 +466,7 @@ async fn a_cancelled_caller_stops_waiting_for_an_open_reply_and_a_late_reply_is_
         };
         tokio::spawn(async move { executor.execute(request(&["echo", "hello"], 5000), context).await })
     };
-    fake.events_at_least("session_open", 1).await;
+    fake.wait_for_events("session_open", 1, |_| true).await;
     stop.cancel(cancelled("fixture stop"));
     let result = support::bounded(60, waiting).await.unwrap();
     assert!(
@@ -476,8 +476,8 @@ async fn a_cancelled_caller_stops_waiting_for_an_open_reply_and_a_late_reply_is_
     );
     let lines = ssh::lines(&events);
     assert!(!lines.iter().any(|(_, level, _)| *level == Level::ERROR), "{lines:?}");
-    assert_eq!(fake.events_at_least("late_open_reply", 1).await.len(), 1);
-    assert_eq!(fake.events_at_least("client_close", 1).await.len(), 1);
+    assert_eq!(fake.wait_for_events("late_open_reply", 1, |_| true).await.len(), 1);
+    assert_eq!(fake.wait_for_events("client_close", 1, |_| true).await.len(), 1);
     assert!(fake.events("exec").await.is_empty());
     assert_eq!(
         ssh::run(&executor, &["echo", "hello"], 600_000).await.unwrap().stdout,

@@ -50,6 +50,26 @@ impl Fake {
         }
         self.events(name).await
     }
+    /// The `name` events that `matching` accepts, once there are at least `count` of them; the test fails if that takes
+    /// 60 s (docs/testing.md: a hang guard only).
+    pub async fn wait_for_events(
+        &self,
+        name: &str,
+        count: usize,
+        matching: impl Fn(&serde_json::Value) -> bool,
+    ) -> Vec<serde_json::Value> {
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            loop {
+                let events: Vec<_> = self.events(name).await.into_iter().filter(&matching).collect();
+                if events.len() >= count {
+                    return events;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("fewer than {count} matching {name} events within 60 s"))
+    }
 }
 pub async fn fake(script: Script, max_sessions: usize) -> Fake {
     fake_with(script, max_sessions, |_| {}).await

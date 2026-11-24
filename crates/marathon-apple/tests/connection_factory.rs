@@ -821,7 +821,7 @@ async fn a_connection_completing_after_the_end_of_the_run_is_closed_locally_u270
         );
         let executor = opened.lock().unwrap()[0].clone();
         assert!(!executor.connected(), "shared {shared}");
-        support::bounded(60, wire.events_at_least("connection_end", 1)).await;
+        wire.wait_for_events("connection_end", 1, |_| true).await;
         let late = factory.connect_worker(transport, support::context()).await;
         assert!(
             matches!(late, Err(ConnectionError::Vendor(VendorError::Cancelled(_)))),
