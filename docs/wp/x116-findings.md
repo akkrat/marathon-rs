@@ -1,4 +1,4 @@
-# x116 findings: 0.15.6-rc.1 release notes
+# x116 findings: 0.15.6 release notes
 
 Release documentation for 0.15.6-rc.1, a release candidate that ships x115 (D99: a failure that meets an exhausted
 total retry quota ends the test as failed; U270: SSH connections and screenshot captures are closed with their batch
@@ -35,3 +35,10 @@ qualified to supervised SSH commands; the Evidence names the intermediate builds
 GIFs, the healthy-run medians, and D99 and the quarantine close as test-only; Known limits add the 30 s close wait
 after a cancelled open, and the quarantined-connection limit says it is now closed at the end of the run. Not taken:
 the CI wording, since the tag is made only after CI passes on this commit.
+
+## 0.15.6 without a release candidate
+
+The owner approved the final 0.15.6 on the same day and asked to move the integration MRs to it as soon as possible,
+so no 0.15.6-rc.1 was tagged: the `## 0.15.6-rc.1` section becomes `## 0.15.6` (no rc stub, since no candidate was
+published), its Evidence says the farm run had not happened before the release, and `README.md` names 0.15.6 as the
+current release. The farm check is the integration MRs' full pipelines with 0.15.6.

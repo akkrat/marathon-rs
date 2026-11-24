@@ -2,12 +2,11 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
-## 0.15.6-rc.1
+## 0.15.6
 
-The first release candidate of 0.15.6, a pre-release for trial runs. It counts a test as failed when it fails again
-after the total retry quota has run out, and removes two kinds of ERROR lines that were not real failures from runs on
-SSH workers. The inputs, the CLI, the configuration and report formats are unchanged. No new worker commands or SSH
-allowlist changes are needed. Everything else is as in
+This release counts a test as failed when it fails again after the total retry quota has run out, and removes two
+kinds of ERROR lines that were not real failures from runs on SSH workers. The inputs, the CLI, the configuration and
+report formats are unchanged. No new worker commands or SSH allowlist changes are needed. Everything else is as in
 [0.15.5](https://github.com/akkrat/marathon-rs/blob/main/CHANGELOG.md#0155).
 
 ### Results
@@ -51,7 +50,7 @@ allowlist changes are needed. Everything else is as in
   wall times of 30.0 s (0.15.5) and 29.2 s. The ERROR for marathon's own stop of a screenshot was too rare on the
   worker to show the U271 fix (twice in 33 runs, both on builds without it); a loopback test covers it.
 - CI runs the repository gate on macOS and Linux; it passes on the code of this release.
-- Not exercised: a private CI farm run (planned for this release candidate), and macOS UI tests on a real worker.
+- Not exercised before this release: a private CI farm run, and macOS UI tests on a real worker.
 
 ### Known limits
 
