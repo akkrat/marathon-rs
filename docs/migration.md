@@ -300,7 +300,8 @@ recorder, which this does not change.
 no configuration change. With `retryStrategy: fixed-quota`, a failure that meets exactly 0 retries left of
 `totalAllowedRetryQuota` ends its test as failed: it is counted in the summary and listed in `Failed tests:`, instead of
 being left out with `Expected to run … more, but no terminal events received`. The tests that run, the retries and the
-exit status are unchanged.
+exit status are otherwise unchanged; only a retry that D69 gives back after the quota has run out can now let one more
+failure be retried.
 
 ### iOS recorder warnings
 

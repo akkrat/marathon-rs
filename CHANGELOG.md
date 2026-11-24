@@ -10,7 +10,8 @@ The section for a version becomes the text of its GitHub release, which carries 
   `retryStrategy: fixed-quota`, a failure that came when exactly 0 retries of `totalAllowedRetryQuota` were left
   started a retry that was never run, so the test never ended: it is now counted as failed in the summary and listed
   in `Failed tests:`, instead of being left out with an `Expected to run … more, but no terminal events received`
-  error. The tests that run, the retries and the exit status are unchanged.
+  error. The exit status is unchanged, and so are the retries, except that a retry given back after the quota ran
+  out can now be used by one more failure.
 
 ### iOS
 

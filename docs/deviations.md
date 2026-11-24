@@ -3382,7 +3382,8 @@ brought back to 0. `retryStrategy: no-retry` never runs AddRetry and is unchange
 Within one pool this changes only runs that use fixed-quota retries and reach the end of their total quota exactly on
 a failure. Such a test is now counted as failed: the first summary line has one failed test more, the test is in
 `Failed tests:`, and its per-test result file, JUnit and Allure entries carry that failure as its final result. Its
-attempts, the tests that run, the retries granted and the exit status are as before. The JVM recordings of C5 are kept
+attempts, the tests that run, the retries granted and the exit status are as before, except after a D69 refund that
+comes once the quota has run out: that refund can now let one more failure be retried. The JVM recordings of C5 are kept
 unedited: the queue replay leaves out the C5 recording as it does D69's (its native contract is pinned in
 `queue_behaviour`), and the strategy and pool-scheduling replays apply narrow, named D99 allowances.
 

@@ -161,8 +161,9 @@ Each fails without its part of the fix (checked on a scratch copy with that part
 The shared real-worker harness (a Mac reached over a dedicated port forward with a throwaway key and a forced command,
 two simulators of our own, iOS 18.6, Xcode 27.2, the R01 UI sample) with the R01 configuration changed to the screenshot
 recorder (`preferableRecorderType: screenshot`, JPEG, video off, `xcresult` `ALWAYS` with `remoteClean`), `debug: false`
-unless stated. Control: the published 0.15.5 macOS build (zip checked against `SHA256SUMS`). Fix: a release build of
-this branch. "Interrupted" runs stop our own `xcodebuild` for simulator A about 3 s after its first screenshot (SIGTERM,
+unless stated. Control: the published 0.15.5 macOS build (zip checked against `SHA256SUMS`). Fix: release builds of
+this branch (`F`/`H` runs before the U271 commit, `U` runs after it; both before the self-review change to
+`close_remaining`, which only matters to an acquisition still under way at the end, which no run had). "Interrupted" runs stop our own `xcodebuild` for simulator A about 3 s after its first screenshot (SIGTERM,
 or SIGKILL), which ends that batch with started tests and no results, as the farm's suite does; no network fault was
 injected. "A shots" counts simulator A's screenshot commands on the worker.
 
