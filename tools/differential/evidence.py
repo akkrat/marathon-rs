@@ -673,7 +673,8 @@ def native_content(name, data):
 
 def normalized(directory, contract, native=False):
     record = validate(directory, contract)
-    paths = canonical_paths(record, contract, may_withhold(directory, record))
+    historical = may_withhold(directory, record)
+    paths = canonical_paths(record, contract, historical)
     files = {}
     rules = contract['normalization']
     used = set()
@@ -707,19 +708,20 @@ def normalized(directory, contract, native=False):
                     else:
                         console = vendor_console.normalize(
                             data,record['identities'],record['implementation'],name,facts,
-                            d96_askpass=contract['transport'] == 'ssh' and not may_withhold(directory,record))
+                            d96_askpass=contract['transport'] == 'ssh' and not historical)
                     content = base64.b64encode(console).decode()
                 elif name == 'host-argv.jsonl':
                     content = vendor_transport.host_argv(
-                        data, record['identities'], may_withhold(directory,record),
+                        data, record['identities'], historical,
                         d97_native_staging=record['implementation'] == 'native',
-                        d96_worker=not may_withhold(directory, record))
+                        d96_worker=not historical,
+                        d104_historical=contract['paths'] if historical else ())
                 elif contract['transport'] == 'ssh':
                     content = vendor_transport.ssh(
-                        data,contract['vendor'],may_withhold(directory,record),d96_recorder_transport=True,
-                        d96_worker_transport=not may_withhold(directory,record))
+                        data,contract['vendor'],historical,d96_recorder_transport=True,
+                        d96_worker_transport=not historical)
                 else:
-                    content = vendor_transport.adb(data, may_withhold(directory,record),
+                    content = vendor_transport.adb(data, historical,
                                                    d85_native_setup=record['implementation'] == 'native')
             elif native and (name == 'state.json' or name.startswith(('reports/', 'tree/'))) and name.endswith(('.json', '.xml', '.yml', '.yaml')):
                 content = native_content(name, data)

@@ -211,19 +211,6 @@ def _d96_recorder_reply(session, status, stdout=b'', stderr=b''):
     )
 
 
-def d96_native_golden(lanes):
-    """The pinned ios-media native view predates the foreground recorder."""
-    control = lanes['control']
-    sessions = {
-        index: dict(session, **{stream: base64.b64decode(session[stream], validate=True)
-                                for stream in ('stdout', 'stderr', 'stdin')})
-        for index, session in enumerate(control)
-        if 'wire' in session
-    }
-    removed, recorder = d96_recorder(sessions, defaultdict(list), True)
-    return dict(lanes, recorder=recorder, control=[s for index, s in enumerate(control) if index not in removed])
-
-
 def _d96_probe(session):
     wire = session['wire']
     if not wire.startswith('/usr/bin/perl -MMIME::Base64 -e '):

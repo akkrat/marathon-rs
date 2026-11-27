@@ -960,6 +960,9 @@ class VendorEvidenceTests(unittest.TestCase):
         args = [source, old]
         t.d104_device_log_destination(args, contract['paths'])
         self.assertEqual(args, [source, new])
+        lanes = e.normalized(self.source, contract)['host-argv.jsonl']['content']
+        self.assertIn('rsync:' + new, lanes)
+        self.assertNotIn('rsync:' + old, lanes)
         for src, dst in ((source, old + '-extra'), (source, old.replace('/omni/', '/other/')),
                          (source.replace('device.log', 'other.log'), old)):
             args = [src, dst]
