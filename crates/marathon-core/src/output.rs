@@ -38,7 +38,7 @@ impl FileTarget {
 }
 /// create_file returns a path after creating directories, not an opened file.
 /// WP 3.9a uses FileManager plans and materializes them off core, preserving
-/// the merged path rules and C1/C2 suffix bugs.
+/// the merged path rules and the C2 suffix bug.
 /// Backend failures propagate as OperationError::Failed; cancellation stays typed.
 pub trait OutputFiles: Send + Sync {
     fn output_dir(&self) -> &std::path::Path;

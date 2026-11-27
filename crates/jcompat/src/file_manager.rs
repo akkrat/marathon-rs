@@ -239,13 +239,8 @@ impl FileManager {
         if r.test_name.is_some() {
             component(r.chunk);
         }
-        // C1: batch ID, not the file type's suffix.
         filename.push('.');
-        filename.push_str(if r.test_name.is_none() {
-            r.batch_id.unwrap_or(r.file_type.suffix())
-        } else {
-            r.file_type.suffix()
-        });
+        filename.push_str(r.file_type.suffix());
         if r.test_name.is_none()
             && r.batch_id.is_some()
             && let Some(chunk) = r.chunk

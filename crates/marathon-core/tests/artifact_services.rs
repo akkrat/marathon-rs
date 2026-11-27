@@ -148,7 +148,7 @@ fn logs_keep_preamble_reset_tail_partition_blank_lines_and_arc_removal() {
                     chunk: None,
                 })
                 .await?;
-            assert!(batch.to_string_lossy().into_owned().ends_with("batch.batch"));
+            assert!(batch.to_string_lossy().into_owned().ends_with("batch.log"));
             assert!(producer.listeners.lock().unwrap().is_empty());
             // Synchronous verification belongs to a blocking task as production writes do.
             let (tx, rx) = tokio::sync::oneshot::channel();
@@ -789,89 +789,54 @@ fn output_materialization_retains_diagnostic_order_and_ignored_mkdirs() {
     .unwrap();
 }
 #[test]
-fn output_adapter_reuses_existing_jvm_path_tables() {
-    let original: Vec<Value> = include_str!("../../../fixtures/oracle/jcompat/file_manager.jsonl")
+fn output_adapter_plans_test_log_from_jvm_table_and_batch_log_with_d104_suffix() {
+    let edge: Value = include_str!("../../../fixtures/oracle/jcompat/file_manager_edges.jsonl")
         .lines()
-        .map(|s| serde_json::from_str(s).unwrap())
-        .collect();
-    let edge: Vec<Value> = include_str!("../../../fixtures/oracle/jcompat/file_manager_edges.jsonl")
-        .lines()
-        .map(|s| serde_json::from_str(s).unwrap())
-        .collect();
-    // Only replace the table's sandbox prefix. The relative path remains its JVM result.
-    let row = original
-        .iter()
-        .find(|r| {
-            r["op"] == "createFile"
-                && r["maxPath"] == 0
-                && r["maxFilename"] == 255
-                && r["args"]["test"].is_null()
-                && r["args"]["testBatchId"].is_string()
-                && r["args"]["fileType"] == "LOG"
-        })
-        .unwrap()
-        .clone();
-    let edge = edge
-        .iter()
+        .map(|s| serde_json::from_str::<Value>(s).unwrap())
         .find(|r| r["id"] == "create_filename_normal_length_test")
-        .unwrap()
-        .clone();
+        .unwrap();
     let temp = Arc::new(Temp::new());
-    let retained = temp.clone();
     CoreExecutor::run(move |core| {
         Box::pin(async move {
-            let temp = retained;
-            for (index, row) in [row, edge].into_iter().enumerate() {
-                let out = temp.path(&index.to_string());
-                let files = output(core.vendor(), out.clone());
-                let args = &row["args"];
-                let mut d = device();
-                d.serial_number = args["serial"].as_str().unwrap().into();
-                let target = FileTarget {
-                    kind: FileType::Log,
-                    pool: pool(args["pool"].as_str().unwrap()),
-                    device: d,
-                    test: if index == 1 {
-                        Some(Test {
-                            pkg: "com".into(),
-                            clazz: "example.Clazz".into(),
-                            method: "method".into(),
-                            meta_properties: vec![],
-                        })
-                    } else {
-                        None
-                    },
-                    test_batch_id: args[if index == 1 { "batch" } else { "testBatchId" }]
-                        .as_str()
-                        .map(String::from),
-                    id: args["id"].as_str().map(String::from),
-                    chunk: args["chunk"].as_str().map(String::from),
-                };
-                let actual = files.create_file(&target).await?;
-                let expected = if index == 1 {
-                    String::from_utf16(
-                        &row["result"]["units"]
-                            .as_array()
-                            .unwrap()
-                            .iter()
-                            .map(|u| u.as_u64().unwrap() as u16)
-                            .collect::<Vec<_>>(),
-                    )
+            let out = temp.path("output");
+            let files = output(core.vendor(), out.clone());
+            let args = &edge["args"];
+            let mut d = device();
+            d.serial_number = args["serial"].as_str().unwrap().into();
+            let mut target = FileTarget {
+                kind: FileType::Log,
+                pool: pool(args["pool"].as_str().unwrap()),
+                device: d,
+                test: Some(Test {
+                    pkg: "com".into(),
+                    clazz: "example.Clazz".into(),
+                    method: "method".into(),
+                    meta_properties: vec![],
+                }),
+                test_batch_id: args["batch"].as_str().map(String::from),
+                id: args["id"].as_str().map(String::from),
+                chunk: args["chunk"].as_str().map(String::from),
+            };
+            let expected = String::from_utf16(
+                &edge["result"]["units"]
+                    .as_array()
                     .unwrap()
-                } else {
-                    row["result"]["ok"].as_str().unwrap().into()
-                };
-                let prefix = if index == 1 {
-                    "/tmp/oracle-wp17/out"
-                } else {
-                    "/tmp/oracle-file-manager/out"
-                };
-                let relative = expected.strip_prefix(prefix).unwrap();
-                assert_eq!(
-                    actual.to_string_lossy().into_owned(),
-                    format!("{}{relative}", out.to_string_lossy().into_owned())
-                );
-            }
+                    .iter()
+                    .map(|u| u.as_u64().unwrap() as u16)
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+            assert_eq!(
+                files.create_file(&target).await?,
+                out.join(expected.strip_prefix("/tmp/oracle-wp17/out/").unwrap())
+            );
+
+            target.test = None;
+            target.test_batch_id = Some("batch".into());
+            target.id = Some("part".into());
+            target.chunk = Some("7".into());
+            let batch = files.create_file(&target).await?;
+            assert_eq!(batch.file_name().unwrap(), "batch-part.log-7");
             Ok(())
         })
     })

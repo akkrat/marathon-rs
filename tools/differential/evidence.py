@@ -232,13 +232,22 @@ def expand(template, values):
     return re.sub(r'\{([^{}]+)\}', lambda m: values[m[1]], template)
 
 
-def canonical_paths(record, contract):
+def d104_batch_log_path(template):
+    # Only contract-declared batch logs changed in these recordings. Keep the
+    # UUID, pool, device and artifact bytes exact, including for native runs.
+    match = re.fullmatch(r'(reports/(?:device-)?logs/[^/]+/\{safe_serial\}/'
+                         r'([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}))\.\2', template)
+    return match[1] + '.log' if match else template
+
+
+def canonical_paths(record, contract, historical):
     values = bindings(record, contract)
     mapping = {}
     for template in contract['paths']:
-        raw = expand(template, values)
+        current = d104_batch_log_path(template) if contract.get('scenario') == 'vendor' else template
+        raw = expand(template if historical else current, values)
         require(raw not in mapping, 'path normalization collision')
-        mapping[raw] = template
+        mapping[raw] = current
     actual = {row['path'] for row in record['entries']}
     require(set(mapping) <= actual, f'missing declared paths: {sorted(set(mapping) - actual)}')
     if contract.get('scenario') == 'vendor':
@@ -327,7 +336,7 @@ def validate(directory, contract):
             and record['outcome']['joined'] is True and record['outcome']['unused'] == []
             and record['outcome']['unmatched'] == [], 'failed cleanup/tape/command completion')
     require(isinstance(record['entries'], list) and record['entries'], 'empty manifest')
-    paths = canonical_paths(record, contract)
+    paths = canonical_paths(record, contract, may_withhold(directory, record))
     names, digests = set(), set()
     for row in record['entries']:
         name = relative(row['path'])
@@ -664,7 +673,7 @@ def native_content(name, data):
 
 def normalized(directory, contract, native=False):
     record = validate(directory, contract)
-    paths = canonical_paths(record, contract)
+    paths = canonical_paths(record, contract, may_withhold(directory, record))
     files = {}
     rules = contract['normalization']
     used = set()

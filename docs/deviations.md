@@ -3392,6 +3392,21 @@ unedited: the queue replay leaves out the C5 recording as it does D69's (its nat
 **Migration action:** none. A dashboard that compared the summary's passed and failed counts with the number of tests
 could see the difference close.
 
+## D104 — Batch-level artifacts use their type suffix
+
+Approved 2026-11-27 (project owner's decision).
+
+Kotlin's `FileManager.createBatchFilename` inserts the batch ID where the suffix belongs (C1). The
+historical iOS smoke pair and the retained local iOS pairs show the doubled batch-log name.
+Marathon now uses `<batchId>[-<id>].<suffix>[-<chunk>]`. Only the suffix changes. Per-test and
+per-device names, remote source names, and the existing file-length rules are unchanged.
+
+**User impact.** Batch-level files now carry their type's extension (for example, `.mp4` or `.log`),
+so a script that globs by extension in those folders will now also see batch-level files.
+Scripts that look for `<batchId>.<batchId>` must look for `<batchId>.<suffix>` instead. If a file
+has an ID or a chunk number, those components stay in their existing positions.
+
+See [WP x123 findings](wp/x123-findings.md).
 
 ## D105 — A full remote metrics queue does not delay tests
 

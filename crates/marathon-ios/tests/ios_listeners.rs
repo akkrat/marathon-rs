@@ -1020,7 +1020,7 @@ async fn every_pull_of_a_movie_publishes_only_a_complete_one_u267() -> TestResul
         let attached = (path != MoviePath::BatchFailure).then_some(listener_support::MOVIE);
         assert_eq!(attachment.as_deref(), attached, "{path:?}");
         let published = if path == MoviePath::BatchFailure {
-            "batch.batch"
+            "batch.mp4"
         } else {
             "Tests.Suite#test1-batch.mp4"
         };

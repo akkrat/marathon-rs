@@ -37,7 +37,7 @@ pub struct LogTarget {
     pub pool: DevicePoolId,
     pub batch_id: String,
     pub device: DeviceInfo,
-    /// None selects batch logs, retaining C1's batchId.batchId filename in 3.9a.
+    /// None selects the batch log rather than an individual test log.
     pub test: Option<Test>,
 }
 /// Backend failures propagate as OperationError::Failed; cancellation stays typed.

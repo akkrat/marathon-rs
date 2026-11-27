@@ -532,7 +532,20 @@ def d97_staging_destination(args):
             return
 
 
-def host_argv(data, values, before_d31=False, d97_native_staging=False, *, d96_worker=False, sender_tokens=None):
+def d104_device_log_destination(args, declared_paths):
+    # Only a device.log receive can use this controller-side destination.
+    if len(args) < 2 or not re.fullmatch(D97_WORKER_PATH + r'device\.log', args[-2]):
+        return
+    for path in declared_paths:
+        if path.startswith('reports/device-logs/'):
+            old = '{sandbox}/in/report/' + path.removeprefix('reports/')
+            new = e.d104_batch_log_path(path)
+            if args[-1] == old and new != path:
+                args[-1] = '{sandbox}/in/report/' + new.removeprefix('reports/')
+                return
+
+
+def host_argv(data, values, before_d31=False, d97_native_staging=False, *, d96_worker=False, sender_tokens=None, d104_historical=()):
     lanes, wrapped = defaultdict(list), defaultdict(set)
     def sender(program, argv):
         identity = _d96_sender(argv)
@@ -582,6 +595,8 @@ def host_argv(data, values, before_d31=False, d97_native_staging=False, *, d96_w
             args = args[:index+1] + ['--server'] + (['--sender'] if '--sender' in remote else []) + ['{protocol-options}', '.', remote[-1]]
         if d97_native_staging and row['program'] == 'rsync':
             d97_staging_destination(args)
+        if d104_historical and row['program'] == 'rsync':
+            d104_device_log_destination(args, d104_historical)
         row['argv'] = args
         # Each send/receive has its own host process and no shared total order.
         # The explicit destination identifies its transfer lane; repeated uses

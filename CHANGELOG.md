@@ -16,6 +16,11 @@ The section for a version becomes the text of its GitHub release, which carries 
   Local results are unchanged (D105).
 - Graphite reuses its Carbon connection across test results and reconnects if the connection breaks (U284).
 
+### Reports
+
+- Batch-level artifacts now use the correct extension, such as `.log` or `.mp4`, instead of repeating
+  the batch ID. Extension-based globs can now find those files too (D104).
+
 ## 0.15.6
 
 This release counts a test as failed when it fails again after the total retry quota has run out, and removes two

@@ -932,6 +932,40 @@ class EvidenceTests(unittest.TestCase):
 
 
 class VendorEvidenceTests(unittest.TestCase):
+    def test_d104_only_declared_batch_logs_have_a_historical_spelling(self):
+        contract = DRIVER['contract']('ios-smoke')
+        record = e.load(ROOT / 'fixtures/differential/vendors/ios-smoke/jvm-v2/evidence.json')
+        rename, = [(path, e.d104_batch_log_path(path)) for path in contract['paths']
+                   if e.d104_batch_log_path(path) != path]
+        old, new = [e.expand(path, record['identities']) for path in rename]
+        historical = e.canonical_paths(record, contract, historical=True)
+        self.assertEqual(historical[old], rename[1])
+        row = next(row for row in record['entries'] if row['path'] == old)
+        for wrong in (old, new + '.log', new.replace('.log', '.mp4')):
+            row['path'] = wrong
+            with self.subTest(wrong=wrong), self.assertRaisesRegex(e.Invalid, 'missing declared paths'):
+                e.canonical_paths(record, contract, historical=False)
+        row['path'] = new
+        self.assertEqual(e.canonical_paths(record, contract, historical=False)[new], rename[1])
+
+    def test_d104_only_the_declared_device_log_receive_destination_changes(self):
+        import vendor_transport as t
+        contract = DRIVER['contract']('ios-media')
+        path, = [path for path in contract['paths']
+                 if path.startswith('reports/device-logs/') and e.d104_batch_log_path(path) != path]
+        prefix = '{sandbox}/in/report/'
+        old = prefix + path.removeprefix('reports/')
+        new = prefix + e.d104_batch_log_path(path).removeprefix('reports/')
+        source = '127.0.0.1:/tmp/marathon/00000000-0000-0000-0000-000000000001/device.log'
+        args = [source, old]
+        t.d104_device_log_destination(args, contract['paths'])
+        self.assertEqual(args, [source, new])
+        for src, dst in ((source, old + '-extra'), (source, old.replace('/omni/', '/other/')),
+                         (source.replace('device.log', 'other.log'), old)):
+            args = [src, dst]
+            t.d104_device_log_destination(args, contract['paths'])
+            self.assertEqual(args, [src, dst])
+
     def test_d96_worker_probe_requires_exact_program_and_fallback(self):
         import shlex
         import vendor_transport as t
@@ -1195,6 +1229,13 @@ class VendorEvidenceTests(unittest.TestCase):
         import vendor_transport as t
         if record['implementation'] != 'native' or not e.may_withhold(directory, record):
             return
+        import vendors
+        values = record['identities']
+        for entry in record['entries']:
+            canonical = vendors.canonical(entry['path'], values)
+            current = e.d104_batch_log_path(canonical)
+            if current != canonical:
+                entry['path'] = e.expand(current, values)
         import vendor_console as vc
         stderr = next(r for r in record['entries'] if r['path'] == 'stderr')
         previous = e.payload(directory, stderr, record)

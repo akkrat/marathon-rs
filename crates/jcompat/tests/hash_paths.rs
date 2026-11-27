@@ -73,6 +73,10 @@ fn file_manager_oracle() {
             "/",
         );
         let a = &row["args"];
+        // D104 replaces the batch-only Kotlin spelling; it has its own native witness below.
+        if op == "createFile" && a["test"].is_null() && optional(a, "testBatchId").is_some() {
+            continue;
+        }
         let plan = if op == "createFolder" {
             fm.plan_folder(
                 if text(a, "folderType") == "HTML" {
@@ -105,6 +109,38 @@ fn file_manager_oracle() {
             })
         };
         assert_eq!(plan.path.as_os_str(), OsStr::new(text(&row["result"], "ok")), "{row}");
+    }
+}
+#[test]
+fn batch_files_use_their_type_suffix_before_the_chunk_d104() {
+    let fm = FileManager::new(0, 255, "/out", "/");
+    for (kind, id, chunk, expected) in [
+        (FileType::Log, None, None, "/out/logs/omni/a-b/batch.log"),
+        (
+            FileType::DeviceLog,
+            Some("id"),
+            None,
+            "/out/device-logs/omni/a-b/batch-id.log",
+        ),
+        (FileType::Video, None, Some("2"), "/out/video/omni/a-b/batch.mp4-2"),
+        (
+            FileType::Video,
+            Some("id"),
+            Some("2"),
+            "/out/video/omni/a-b/batch-id.mp4-2",
+        ),
+        (FileType::Tracing, None, None, "/out/profiling/omni/a-b/batch.profile"),
+    ] {
+        let plan = fm.plan_file(FileRequest {
+            file_type: kind,
+            pool: "omni",
+            serial: "a:b",
+            test_name: None,
+            batch_id: Some("batch"),
+            id,
+            chunk,
+        });
+        assert_eq!(plan.path.as_os_str(), OsStr::new(expected));
     }
 }
 fn input_text(value: &Value) -> Option<String> {
@@ -199,6 +235,38 @@ fn check_edge(row: &Value) {
                 };
                 assert_eq!(plan.path.to_string_lossy(), expected, "{}", text(row, "id"));
                 assert_eq!(plan.diagnostics.len(), usize::from(!op.starts_with("result")));
+                return;
+            }
+            // D104: keep the JVM path-limit oracle wherever the suffix is not reached.
+            // These affected rows have explicit native expectations instead.
+            let d104_name = match text(row, "id") {
+                "batch-0" => Some(r#"a/b\c:<*>?"|.log"#),
+                "batch-1" => Some("😀é中.log"),
+                "batch-3" => Some(".log"),
+                "batch-4" => Some("a/b/../c.log"),
+                "filename-10" => Some("😀é中-😀.lo"),
+                id if id.starts_with("filename-") && !matches!(id, "filename-1" | "filename-2" | "filename-3") => {
+                    Some("😀é中-😀.log")
+                }
+                _ => None,
+            };
+            if let Some(name) = d104_name {
+                assert_eq!(
+                    plan.path.as_os_str(),
+                    OsStr::new(&format!("/tmp/oracle-wp17/out/logs/testPoolId/xxyyzz/{name}")),
+                    "{}",
+                    text(row, "id")
+                );
+                if row["id"] == "filename-10" {
+                    assert_eq!(
+                        plan.diagnostics,
+                        [
+                            "File name length cannot exceed 10 characters and has been trimmed to 😀é中-😀.lo and can create a conflict.This usually happens because the test name is too long."
+                        ]
+                    );
+                } else {
+                    assert!(plan.diagnostics.is_empty());
+                }
                 return;
             }
             let actual_messages = if row["id"] == "filename-1" {
