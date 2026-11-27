@@ -111,7 +111,15 @@ async fn getprop_distinguishes_idle_timeout_from_eof_u162() -> Result<(), Box<dy
         (true, &b"[ro.sdk]: [27]\nx0\n"[..], None),
     ] {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let factory = SocketFactory::new(0, if idle { 1_000 } else { 0 });
+        // The idle limit runs on the transport's own clock from the socket's creation and is checked before buffered
+        // data is read, so a reader stalled past it sees only the close. The complete reply also ends at the idle
+        // close, and gets a limit long enough that only a stall of seconds could cut it short on a loaded runner.
+        let idle_ms = match (idle, expected) {
+            (false, _) => 0,
+            (true, Some(_)) => 1_000,
+            (true, None) => 5_000,
+        };
+        let factory = SocketFactory::new(0, idle_ms);
         let mut socket = factory.tcp(listener.local_addr()?, None, None, None).await?;
         let (mut peer, _) = listener.accept().await?;
         peer.write_all(output).await?;

@@ -62,3 +62,10 @@ succeed, fail or retry. The JVM recording and published worker script were not e
 
 No other product issues found. U283 remains unused. No real Android device, simulator, farm
 worker or remote gate was tested for this harness-only and diagnostic work.
+
+## Review round 1
+
+One review by another model (REQUEST_CHANGES, one P2): U162's complete-reply case used the 1 s idle limit, which runs on
+the transport's clock from the socket's creation and is checked before buffered data is read, so a test stalled for a
+second on a loaded runner would see a timeout instead of the reply. That case now uses a 5 s limit; the two failing cases
+keep 1 s, since they end at the limit whichever way they are scheduled.
