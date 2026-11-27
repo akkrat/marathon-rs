@@ -20,7 +20,7 @@
 
 use std::io;
 use std::net::{Shutdown, SocketAddr};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, PoisonError, Weak};
 use std::time::Duration;
 
@@ -202,7 +202,7 @@ impl SocketFactory {
             std::mem::take(&mut *live)
         };
         for shared in live.iter().filter_map(Weak::upgrade) {
-            shared.shut_down();
+            shared.shut_down(Close::Other);
         }
     }
 
@@ -244,12 +244,20 @@ struct Shared {
     wr: Mutex<OwnedWriteHalf>,
     /// A second handle on the connection, to shut it down while a read or write holds the halves.
     handle: std::net::TcpStream,
-    closed: AtomicBool,
+    close: AtomicU8,
     idle: Option<Duration>,
     start: Instant,
     /// Nanoseconds after `start` of the last read or write.
     last_activity: AtomicU64,
     factory_closed: watch::Receiver<bool>,
+}
+
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum Close {
+    Open,
+    Other,
+    Idle,
 }
 
 impl Shared {
@@ -268,20 +276,30 @@ impl Shared {
     /// reads and writes and before each write: netty closes the channel when it fires, so anything later
     /// sees it closed.
     fn is_closed(&self) -> bool {
-        if self.closed.load(Ordering::Relaxed) {
+        if self.close.load(Ordering::Relaxed) != Close::Open as u8 {
             return true;
         }
-        let expired = self.idle_deadline().is_some_and(|d| Instant::now() >= d);
-        if expired || *self.factory_closed.borrow() {
-            self.shut_down();
-            return true;
-        }
-        false
+        let cause = if *self.factory_closed.borrow() {
+            Close::Other
+        } else if self.idle_deadline().is_some_and(|d| Instant::now() >= d) {
+            Close::Idle
+        } else {
+            return false;
+        };
+        self.shut_down(cause);
+        true
+    }
+
+    fn record_close(&self, cause: Close) {
+        // Keep the cause that first closed the stream, even if the factory is closed later.
+        let _ = self
+            .close
+            .compare_exchange(Close::Open as u8, cause as u8, Ordering::Relaxed, Ordering::Relaxed);
     }
 
     /// netty's channel close: the server sees the end now, not when the request drops the socket.
-    fn shut_down(&self) {
-        self.closed.store(true, Ordering::Relaxed);
+    fn shut_down(&self, cause: Close) {
+        self.record_close(cause);
         // Fails only if the connection is already gone.
         let _ = self.handle.shutdown(Shutdown::Both);
     }
@@ -317,7 +335,7 @@ impl Socket {
         let shared = Shared {
             wr: Mutex::new(wr),
             handle,
-            closed: AtomicBool::new(false),
+            close: AtomicU8::new(Close::Open as u8),
             idle,
             start: Instant::now(),
             last_activity: AtomicU64::new(0),
@@ -370,10 +388,16 @@ impl Socket {
         self.eof
     }
 
+    /// Whether the transport observed an idle timeout as the cause of this socket's closure.
+    /// An idle close still reads as EOF for all clients.
+    pub fn closed_by_idle_timeout(&self) -> bool {
+        self.writer.0.close.load(Ordering::Relaxed) == Close::Idle as u8
+    }
+
     fn mark_eof(&mut self) {
         self.eof = true;
         // vert.x closes the whole channel at EOF (no half-closure), so writes stop too.
-        self.writer.0.closed.store(true, Ordering::Relaxed);
+        self.writer.0.record_close(Close::Other);
     }
 
     /// One read of at most `buf.len()` bytes; 0 means the end of the stream.

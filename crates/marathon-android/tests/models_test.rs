@@ -91,6 +91,46 @@ fn test_none_available() {
 fn test_get_all() {
     assert_eq!(GetPropRequest.serialize(), b"0016shell:getprop;echo x$?")
 }
+#[tokio::test]
+async fn getprop_distinguishes_idle_timeout_from_eof_u162() -> Result<(), Box<dyn std::error::Error>> {
+    use marathon_adb::client::{AdbError, ComplexRequest, SocketFactory};
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpListener;
+
+    for (idle, output, expected) in [
+        (
+            true,
+            &b"[ro.sdk]: [27]\n"[..],
+            Some("ADB socket idle timeout (socketIdleTimeout) while reading device properties"),
+        ),
+        (
+            false,
+            &b"[ro.sdk]: [27]\n"[..],
+            Some("No exit code delimiter found in [ro.sdk]: [27]\n"),
+        ),
+        (true, &b"[ro.sdk]: [27]\nx0\n"[..], None),
+    ] {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let factory = SocketFactory::new(0, if idle { 1_000 } else { 0 });
+        let mut socket = factory.tcp(listener.local_addr()?, None, None, None).await?;
+        let (mut peer, _) = listener.accept().await?;
+        peer.write_all(output).await?;
+        if !idle {
+            peer.shutdown().await?;
+        }
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            GetPropRequest.read_element(&mut socket),
+        )
+        .await?;
+        match expected {
+            Some(message) => assert_eq!(result, Err(AdbError::RequestRejected(message.into()))),
+            None => assert_eq!(result?["ro.sdk"], "27"),
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn test_returns_proper_content() {
     assert_eq!(

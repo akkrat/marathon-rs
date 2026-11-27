@@ -17,7 +17,17 @@ impl Request for GetPropRequest {
 impl ComplexRequest for GetPropRequest {
     type Output = HashMap<String, String>;
     async fn read_element(&mut self, socket: &mut Socket) -> Result<Self::Output, AdbError> {
-        let response = ShellCommandRequest::new("getprop").read_element(socket).await?;
+        let result = ShellCommandRequest::new("getprop").read_element(socket).await;
+        let response = match result {
+            // The v1 parser sees EOF in both cases. Keep the same error kind, and leave a
+            // complete reply successful even when the socket later idles out.
+            Err(AdbError::RequestRejected(_)) if socket.closed_by_idle_timeout() => {
+                return Err(AdbError::RequestRejected(
+                    "ADB socket idle timeout (socketIdleTimeout) while reading device properties".into(),
+                ));
+            }
+            other => other?,
+        };
         parse_props(response.output().as_str())
     }
 }
