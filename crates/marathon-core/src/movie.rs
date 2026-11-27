@@ -1,12 +1,8 @@
-//! U267: a received movie reaches the report only if its box structure is complete; Rust-only support for the port of
-//! vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/video/ScreenRecordingListener.kt.
+//! Top-level MP4 and QuickTime delivery check (U267, U273).
 //!
-//! simctl can exit cleanly after INT on a recording a few hundred milliseconds long and still leave an empty or
-//! unfinished movie. A transcode of it fails, and the fallback pulled that original and published it as is. The check
-//! runs in the receive's own D97 stage (`marathon_apple::cmd::ReceiveCheck`), so a rejected movie never reaches the
-//! report path and an earlier file there stays.
-//!
-//! It is a structural check, not a playability guarantee: it reads box headers and none of the media.
+//! A recorder can exit cleanly and still leave an empty or unfinished movie. Checking inside the receive's
+//! D97 stage keeps it out of the report and preserves any earlier file at the destination.
+//! This structural check is not a playability guarantee: it reads box headers and none of the media.
 use std::{
     fs,
     io::{self, BufReader, Read, Seek, SeekFrom},
@@ -161,8 +157,8 @@ pub fn check(path: &Path) -> io::Result<Result<(), Incomplete>> {
 mod tests {
     use super::*;
 
-    const RECORDING: &[u8] = include_bytes!("../../../../fixtures/fake-worker/apple/media/recording.mp4");
-    const TRANSCODED: &[u8] = include_bytes!("../../../../fixtures/fake-worker/apple/media/transcoded.mp4");
+    const RECORDING: &[u8] = include_bytes!("../../../fixtures/fake-worker/apple/media/recording.mp4");
+    const TRANSCODED: &[u8] = include_bytes!("../../../fixtures/fake-worker/apple/media/transcoded.mp4");
 
     fn boxed(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
         let mut out = u32::try_from(body.len() + 8).unwrap().to_be_bytes().to_vec();

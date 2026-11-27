@@ -138,7 +138,7 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 | look up batch-level artifacts by name or glob by extension ([D104](deviations.md#d104--batch-level-artifacts-use-their-type-suffix)) | Batch files use their type's suffix, such as `.log` or `.mp4`, rather than repeating the batch ID. | Update lookups from `<batchId>.<batchId>` to `<batchId>.<suffix>`. If a glob is meant to find only per-test files, filter out batch-level files. |
 
 These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D22, D23, D26, D28–D30, D34, D36, D37, D40, D42, D45, D49,
-D51, D53, D54, D64–D66, D68–D70, D74–D77, D79–D84, D88, D90–D95, D97, D98 and D99. D65 can include a previously missed late pool,
+D51, D53, D54, D64–D66, D68–D70, D74–D77, D79–D84, D88, D90–D95, D97, D98, D99 and D102. D65 can include a previously missed late pool,
 lengthen a run and correct its reports and existing exit status; it needs no configuration change. D66 turns a SIGQUIT, which used to end the run at once, into a
 logged state dump; a wrapper that sends SIGQUIT and then SIGTERM now gets the dump, then D52's reports and exit status. D2, D3, D6, D8–D12, D14, D20, D24, D25, D67, D71, D72, D78 and D87 have an action of their own, described in their entries and in the
 sections below.
@@ -303,6 +303,10 @@ no configuration change. With `retryStrategy: fixed-quota`, a failure that meets
 being left out with `Expected to run … more, but no terminal events received`. The tests that run, the retries and the
 exit status are otherwise unchanged; only a retry that D69 gives back after the quota has run out can now let one more
 failure be retried.
+
+[D102](deviations.md#d102--stop-android-video-once-and-check-recorder-artifacts) changes Android recorder stopping
+and delivery. No configuration changes are needed. Empty or unfinished Android movies and GIFs without a finished
+capture are not included in new reports.
 
 [D105](deviations.md#d105--a-full-remote-metrics-queue-does-not-delay-tests) is new after 0.15.6. Full remote analytics
 queues now drop incoming metric events instead of delaying a batch. No configuration change is needed. Check for

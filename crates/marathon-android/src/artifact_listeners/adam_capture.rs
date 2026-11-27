@@ -37,8 +37,7 @@ impl AndroidTestRunListener for AdamScreenCaptureTestRunListener {
                         "gif" => Some((FileType::ScreenshotGif, AttachmentType::ScreenshotGif)),
                         _ => None,
                     };
-                    // N30/N31: wrong logger name and no pull despite promising a report file.
-                    let logger = "marathon_ios::listener::screenshot";
+                    let logger = module_path!();
                     if let Some((kind, attachment)) = pair {
                         let test = to_test(id);
                         let uuid = context

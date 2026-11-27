@@ -309,7 +309,7 @@ impl Media {
         let start = self.c.millis(label)?;
         // U267: checked in the receive's D97 stage, on its blocking thread, before it is renamed into place.
         let check: ReceiveCheck =
-            Box::new(|movie| Ok(super::movie::check(movie)?.map_err(|why| why.reason().to_owned())));
+            Box::new(|movie| Ok(marathon_core::movie::check(movie)?.map_err(|why| why.reason().to_owned())));
         let received = self.c.device.pull_checked(src, &local, check).await?;
         if received != Received::Published {
             return Ok(received);

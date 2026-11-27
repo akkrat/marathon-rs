@@ -12,6 +12,7 @@ pub mod listener;
 pub mod logging;
 pub mod marathon;
 pub mod model;
+pub mod movie;
 pub mod output;
 pub mod runtime;
 pub mod strategy;

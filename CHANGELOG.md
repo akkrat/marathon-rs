@@ -9,6 +9,9 @@ The section for a version becomes the text of its GitHub release, which carries 
 - **ADB property reads name the idle timeout (U162, x122).** If the socket closes because of
   `socketIdleTimeout` before the device finishes replying, the error names the timeout instead of
   reporting a missing or invalid shell exit code. Timeout behavior is unchanged.
+- Android waits for the screen recorder to exit without repeated stop signals or the routine stop warning (D102).
+- Android reports no longer include empty or unfinished videos or GIF captures with no completed frames (U273, U274).
+- Android screenshot diagnostics now use Android log targets (U275).
 
 ### Analytics
 

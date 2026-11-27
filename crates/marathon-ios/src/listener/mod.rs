@@ -1,8 +1,8 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorDevice.kt (lines 609–676 and 1089–1123)
+pub use marathon_core::movie;
 use marathon_error::FailureKind;
 pub mod data_container_clear;
 pub mod device_log;
-pub mod movie;
 pub mod pending;
 pub mod screenshot;
 pub mod video;

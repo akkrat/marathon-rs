@@ -25,6 +25,8 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+type PullCheck = fn(&Path) -> VendorResult<()>;
+
 impl AndroidDevice {
     fn measurement(&self) -> TransferMeasurement {
         TransferMeasurement {
@@ -36,7 +38,7 @@ impl AndroidDevice {
         }
     }
     pub async fn pull_file(&self, remote: &str, local: &str, context: VendorContext) -> VendorResult<()> {
-        let result = self.receive_file(remote, local, context).await;
+        let result = self.receive_file(remote, local, context, None).await;
         if let Err(error) = &result {
             self.undelivered(remote, local, Some(error.failure()));
         }
@@ -52,7 +54,13 @@ impl AndroidDevice {
         );
     }
 
-    async fn receive_file(&self, remote: &str, local: &str, context: VendorContext) -> VendorResult<()> {
+    async fn receive_file(
+        &self,
+        remote: &str,
+        local: &str,
+        context: VendorContext,
+        check: Option<PullCheck>,
+    ) -> VendorResult<()> {
         let _work = self.admit()?;
         let owner = marathon_core::executor::shared::Signal::new();
         let _owner = PullOwner(owner.clone());
@@ -111,9 +119,15 @@ impl AndroidDevice {
                     .await;
                     let closed = completion.close().await.map_err(adb_error);
                     let result = match received.and(closed) {
-                        Ok(()) => publish_pull(&staged.path, destination, &context, runtime.dependencies.io.as_ref())
-                            .await
-                            .map_err(publication_error),
+                        Ok(()) => publish_pull(
+                            &staged.path,
+                            destination,
+                            &context,
+                            runtime.dependencies.io.as_ref(),
+                            check,
+                        )
+                        .await
+                        .map_err(publication_error),
                         Err(error) => Err(error),
                     };
                     if result.is_err() {
@@ -294,6 +308,35 @@ impl AndroidDevice {
         local: &str,
         context: VendorContext,
     ) -> VendorResult<Option<()>> {
+        self.receive_checked_with_timeout(remote, local, context, None).await
+    }
+
+    pub(crate) async fn receive_movie_with_timeout(
+        &self,
+        remote: &str,
+        local: &str,
+        context: VendorContext,
+    ) -> VendorResult<Option<()>> {
+        self.receive_checked_with_timeout(
+            remote,
+            local,
+            context,
+            Some(|path| {
+                marathon_core::movie::check(path)
+                    .map_err(io)?
+                    .map_err(|why| transfer(why.reason()))
+            }),
+        )
+        .await
+    }
+
+    async fn receive_checked_with_timeout(
+        &self,
+        remote: &str,
+        local: &str,
+        context: VendorContext,
+        check: Option<PullCheck>,
+    ) -> VendorResult<Option<()>> {
         // The clock joins its cancelled body. A commit already won if that body successfully returned a receipt.
         let delivered = std::sync::Mutex::new(false);
         let result = timed(
@@ -308,6 +351,7 @@ impl AndroidDevice {
                             cancellation: signal,
                             ..context.clone()
                         },
+                        check,
                     )
                     .await?;
                     *lock(&delivered) = true;
@@ -647,9 +691,9 @@ impl AndroidDevice {
         remote: &str,
         options: &marathon_config::vendor::AndroidVideoConfiguration,
         context: VendorContext,
-    ) -> VendorResult<()> {
+    ) -> VendorResult<bool> {
         let cmd = to_screen_recorder_command(options, remote, self.api_level() >= 34).to_owned();
-        let result = timed(
+        timed(
             &context,
             millis(self.runtime().configuration.timeout_configuration.screenrecorder)?,
             |signal| {
@@ -682,18 +726,8 @@ impl AndroidDevice {
                 }))
             },
         )
-        .await;
-        match result {
-            Err(e @ VendorError::Cancelled(_)) => {
-                self.log(Level::WARN, "screenrecord start was interrupted", Some(e.failure()));
-                Err(e)
-            }
-            Err(e) => {
-                self.log(Level::ERROR, "Unable to start screenrecord", Some(e.failure()));
-                Err(e)
-            }
-            _ => Ok(()),
-        }
+        .await
+        .map(|result| result.is_some())
     }
 }
 struct PullOwner(Arc<marathon_core::executor::shared::Signal>);
@@ -710,10 +744,21 @@ async fn publish_pull(
     destination: PathBuf,
     context: &VendorContext,
     runtime: &dyn VendorRuntime,
+    check: Option<PullCheck>,
 ) -> VendorResult<()> {
     let staged = staged.to_owned();
     let cancellation = context.cancellation.clone();
     blocking(runtime, move || {
+        if let Some(check) = check {
+            if let Some(reason) = cancellation.reason() {
+                return Err(VendorError::Cancelled(reason));
+            }
+            let checked = check(&staged);
+            if let Some(reason) = cancellation.reason() {
+                return Err(VendorError::Cancelled(reason));
+            }
+            checked?;
+        }
         // A failed handshake never creates a destination parent.
         if let Some(parent) = destination.parent().filter(|path| !path.as_os_str().is_empty()) {
             std::fs::create_dir_all(parent).map_err(io)?;

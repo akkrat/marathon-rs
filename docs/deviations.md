@@ -3392,6 +3392,34 @@ unedited: the queue replay leaves out the C5 recording as it does D69's (its nat
 **Migration action:** none. A dashboard that compared the summary's passed and failed counts with the number of tests
 could see the difference close.
 
+## D102 — Stop Android video once and check recorder artifacts
+
+Approved 2026-11-27 (project owner's decision). WP x119. Fixes [N33](known-kotlin-bugs.md) and
+[U273 and U274](found-bugs.md). See [x119 findings](wp/x119-findings.md).
+
+The Kotlin stop took the PID from the last line containing `screenrecord`, which could be the grep itself.
+It sent INT, slept 300 ms and repeated up to five times. When a second lookup found nothing it logged
+`Did not kill any screen recording process` and still slept. An API 36 emulator reproduced the warning after a
+normal recorder exit in the published 0.15.6 build. ADB's complete-transfer receipt also did not imply that the
+received bytes made up a movie, and the screenshot listener could attach a GIF with no frames.
+
+Android now looks up the exact recorder name once (`ps -A`, or `ps` before API 26), sends one INT and checks that PID's
+`/proc` entry, immediately and every 75 ms while present, within a 1.5 s budget for the whole stop. It does not repeat
+the signal or pull the current chunk if its exit could not be confirmed. Earlier chunks whose recording commands
+finished are still eligible to pull. Below API 34, a recorder that finishes its time-limited command still rolls into
+another chunk. If the host recording command itself times out rather than exiting, it does not launch an overlapping
+chunk. The stop remains in the instrumentation event handler. Confirmed stops no longer log the missing-recorder
+warning. Device loss and disposal retain their D70 and D92 cleanup paths.
+
+Both Android per-test and batch-failure movies are checked in their D97 receive stage, before rename. Like iOS U267,
+the check requires well-formed top-level boxes, a non-empty `moov` and an `mdat` containing data. It does not decode the
+movie. A rejection emits one `Video <path> was not delivered: …` line, publishes no replacement, and leaves the device
+copy intact. Android attaches a GIF only after one or more captured frames and a successful finish, flush and close of
+that test's capture. It drops an empty or failed capture instead of attaching it.
+
+**Migration action:** none. Healthy recordings use the same report paths. Invalid or unconfirmed recordings can be
+absent from new reports and attachments.
+
 ## D104 — Batch-level artifacts use their type suffix
 
 Approved 2026-11-27 (project owner's decision).

@@ -65,6 +65,30 @@ fn shell(script: &mut Value, command: &str, stdout: &str) {
         .unwrap()
         .push(json!({"exact":command,"stdout":stdout}));
 }
+const PS_HEADER: &str = "USER PID PPID NAME\n";
+const PS_OUTPUT: &str = "USER PID PPID NAME\nshell 123 1 screenrecord\nshell 456 1 grep screenrecord\n";
+const PID_PROBE: &str = "if [ -d /proc/123 ]; then echo alive; else echo gone; fi";
+const VIDEO_REMOTE: &str = "/sdcard/pkg.clazz-method-batch-0.mp4";
+
+fn recorder_stop(script: &mut Value, ps: &str) {
+    shell(script, ps, PS_OUTPUT);
+    shell(script, "kill -2 123", "");
+    shell(script, PID_PROBE, "gone");
+}
+
+type ArtifactLog = Arc<std::sync::Mutex<Vec<(String, marathon_logging::Level, String)>>>;
+
+fn log_lines(runtime: &mut Arc<marathon_android::services::AndroidRuntime>) -> ArtifactLog {
+    let lines = Arc::new(std::sync::Mutex::new(vec![]));
+    let sink = lines.clone();
+    Arc::get_mut(runtime).unwrap().log = Arc::new(move |logger, level, message, _| {
+        sink.lock()
+            .unwrap()
+            .push((logger.target().to_owned(), level, message.to_owned()));
+    });
+    lines
+}
+
 fn extract_fixture_app_data(package: &str) -> String {
     format!(
         "probe=$(run-as {package} sh -c '[ -d /data/data/{package}/fixture4 ] || exit 44' 2>&1); check=$?; if [ \"$check\" -eq 44 ]; then echo marathon-app-data-absent; elif [ \"$check\" -ne 0 ]; then case \"$probe\" in *'not debuggable'*) echo marathon-app-data-refused;; esac; else set -o pipefail && mkdir -p /data/local/tmp/fixture4 && run-as {package} sh -c 'cd /data/data/{package}/fixture4 && tar cf - .' | tar xvf - -C /data/local/tmp/fixture4 && echo marathon-app-data-extracted; fi"
@@ -643,14 +667,14 @@ mod screen_recorder_test_run_listener_test {
                 script["devices"][0]["files"] = json!(
                     paths
                         .iter()
-                        .map(|p| json!({"path":p,"content":"video"}))
+                        .map(|p| json!({"path":p,"file":fixture("fake-adb/android-artifacts/sample.mp4")}))
                         .collect::<Vec<_>>()
                 );
                 for (i, p) in paths.iter().enumerate() {
                     script["shell"].as_array_mut().unwrap().push(json!({"exact":format!("screenrecord --size 720x1280 --bit-rate 1000000 --time-limit 180 {p}"),"hang":!chunked||i==1}));
                     shell(&mut script, &format!("rm {p}"), "");
                 }
-                shell(&mut script, "ps -A | grep screenrecord", "");
+                recorder_stop(&mut script, "ps -A");
                 shell(&mut script, "echo quickhealthcheck", "quickhealthcheck");
                 let server = server(script).await;
                 let device = device(&server, runtime);
@@ -699,7 +723,10 @@ mod screen_recorder_test_run_listener_test {
                             "screen".into()
                         }))
                     );
-                    assert_eq!(checked(tokio::fs::read(a.file.clone()).await), b"video");
+                    assert_eq!(
+                        checked(tokio::fs::read(&a.file).await),
+                        checked(tokio::fs::read(fixture("fake-adb/android-artifacts/sample.mp4")).await)
+                    );
                 }
                 let commands = commands(&server);
                 expect_setup(&commands);
@@ -710,14 +737,17 @@ mod screen_recorder_test_run_listener_test {
                 if run_failure {
                     expected.push("echo quickhealthcheck".into());
                 }
-                expected.push("ps -A | grep screenrecord".into());
+                expected.extend(["ps -A", "kill -2 123", PID_PROBE].map(str::to_owned));
                 expected.extend(paths.iter().map(|p| format!("rm {p}")));
                 assert_eq!(commands[SETUP_COMMANDS.len()..], expected);
                 if run_failure {
                     let local = artifacts(&device)
                         .file(marathon_core::output::FileType::Video, None, None, Some(js("0")))
                         .await?;
-                    assert_eq!(checked(tokio::fs::read(local.clone()).await), b"video");
+                    assert_eq!(
+                        checked(tokio::fs::read(local).await),
+                        checked(tokio::fs::read(fixture("fake-adb/android-artifacts/sample.mp4")).await)
+                    );
                 }
                 finish(server, device).await;
                 Ok(())
@@ -901,25 +931,6 @@ fn adam_capture_with_relative_output_directory() {
     });
 }
 
-#[test]
-fn grep_pid_oracle() {
-    let rows = checked(std::fs::read_to_string(fixture("oracle/android-artifact-probes.jsonl")));
-    for line in rows.lines() {
-        let r: Value = checked(serde_json::from_str(line));
-        let input = match r["case"].as_str().unwrap_or("") {
-            "pid:normal" => Some("shell 123 1 screenrecord\n"),
-            "pid:grep-last" => Some("shell 123 1 screenrecord\nshell 456 1 grep screenrecord\n"),
-            "pid:bad" => Some("shell pid 1 screenrecord\n"),
-            "pid:empty" => Some(""),
-            "pid:tab" => Some("shell\t123 1 screenrecord\n"),
-            _ => None,
-        };
-        if let Some(input) = input {
-            assert_eq!(grep_pid(input), r["value"].as_str().unwrap());
-        }
-    }
-}
-
 async fn setup_bundle(device: &marathon_android::device::AndroidDevice) {
     use marathon_android::{dex_test_parser::DexTestBundleFiles, models::AndroidTestBundle};
     let bundle = Arc::new(AndroidTestBundle::new(
@@ -963,16 +974,31 @@ fn scenario(mode: &'static str) {
             aggregation_mode: AggregationMode::Device,
         });
     }
-    if mode == "video-timeout" {
-        a.timeout_configuration.screenrecorder = jcompat::jtime::duration_of(0, 80_000_000).unwrap();
-    }
     run(c, move |runtime, context| {
         Box::pin(async move {
             let _temp = temp;
             let base = fixture("fake-adb/android-artifacts");
-            let script = checked(marathon_adb::server::Script::from_yaml(&checked(
-                tokio::fs::read_to_string(base.join(format!("{mode}.json"))).await,
-            )));
+            let raw = checked(tokio::fs::read_to_string(base.join(format!("{mode}.json"))).await);
+            let mut input: Value = checked(serde_json::from_str(&raw));
+            if mode.starts_with("video") {
+                let rules = input["shell"].as_array_mut().unwrap();
+                rules.retain(|rule| rule["exact"] != "ps -A | grep screenrecord" && rule["prefix"] != "screenrecord ");
+                // D102: these script files model both recorders as hanging, and the Kotlin trace
+                // never sees a PID. Model a normal first-chunk exit and an INT stop for the last one.
+                if mode == "video-timeout" {
+                    shell(
+                        &mut input,
+                        "screenrecord --size 720x1280 --bit-rate 1000000 --time-limit 180 /sdcard/pkg.clazz-method-batch-0.mp4",
+                        "",
+                    );
+                }
+                input["shell"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"prefix":"screenrecord ","hang":true}));
+                recorder_stop(&mut input, "ps -A");
+            }
+            let script = checked(marathon_adb::server::Script::from_yaml(&input.to_string()));
             let mut server = checked(FakeAdbServer::start(checked(script.compile(&base)), Default::default()).await);
             server.capture_output();
             let device = device(&server, runtime);
@@ -1027,6 +1053,9 @@ fn scenario(mode: &'static str) {
                     .collect::<Vec<_>>()
             };
             let mut reference = services(reference);
+            if mode.starts_with("video") {
+                reference = d102_video_stop_reference(reference).expect("unrecognized JVM recorder stop");
+            }
             if mode == "filesync-coverage" {
                 // D81 allowance: the file-sync listener no longer handles coverage (the coverage listener does, without
                 // `run-as`). Kotlin's coverage rows go: its shell commands on the coverage folders and the two sync
@@ -1075,6 +1104,36 @@ fn scenario(mode: &'static str) {
         })
     });
 }
+fn d102_video_stop_reference(mut reference: Vec<String>) -> Option<Vec<String>> {
+    let old = "shell:ps -A | grep screenrecord;echo x$?";
+    let index = reference.iter().position(|service| service == old)?;
+    if reference.iter().skip(index + 1).any(|service| service == old)
+        || !reference.get(index.checked_sub(1)?)?.starts_with("shell:screenrecord ")
+        || reference.get(index + 1)? != "sync:"
+    {
+        return None;
+    }
+    reference.splice(
+        index..=index,
+        ["ps -A", "kill -2 123", PID_PROBE].map(|cmd| format!("shell:{cmd};echo x$?")),
+    );
+    Some(reference)
+}
+
+#[test]
+fn d102_video_allowance_only_rewrites_the_recorded_stop_slot() {
+    let start = "shell:screenrecord --time-limit 180 /sdcard/test.mp4;echo x$?";
+    let stop = "shell:ps -A | grep screenrecord;echo x$?";
+    let as_vec = |rows: &[&str]| rows.iter().map(|row| row.to_string()).collect();
+    let expected =
+        d102_video_stop_reference(as_vec(&[start, stop, "sync:", "shell:rm /sdcard/test.mp4;echo x$?"])).unwrap();
+    assert_eq!(expected[2], "shell:kill -2 123;echo x$?");
+    assert_eq!(expected[5], "shell:rm /sdcard/test.mp4;echo x$?");
+    assert!(d102_video_stop_reference(as_vec(&[start, stop, stop, "sync:"])).is_none());
+    assert!(d102_video_stop_reference(as_vec(&[stop, start, "sync:"])).is_none());
+    assert!(d102_video_stop_reference(as_vec(&[start, stop, "shell:rm other;echo x$?", "sync:"])).is_none());
+}
+
 fn compare_gif(actual: &[u8], expected: &[u8]) {
     fn decode(bytes: &[u8]) -> (u16, u16, u16, Vec<u8>) {
         let mut options = gif::DecodeOptions::new();
@@ -1196,7 +1255,7 @@ fn factory_produces_all_attachments_before_results_complete() {
         Box::pin(async move {
             let _temp = temp;
             let mut script = base_script(33, vec![]);
-            script["devices"][0]["files"] = json!([{"path":"/sdcard/pkg.clazz-method-batch-0.mp4","content":"video"},{"path":"/sdcard/capture.png","content":"png"},{"path":"/data/misc/perfetto-traces/pkg.clazz-method-batch.perfetto-trace","content":"trace"}]);
+            script["devices"][0]["files"] = json!([{"path":VIDEO_REMOTE,"file":fixture("fake-adb/android-artifacts/sample.mp4")},{"path":"/sdcard/capture.png","content":"png"},{"path":"/data/misc/perfetto-traces/pkg.clazz-method-batch.perfetto-trace","content":"trace"}]);
             script["shell"]
                 .as_array_mut()
                 .unwrap()
@@ -1207,7 +1266,6 @@ fn factory_produces_all_attachments_before_results_complete() {
                     "echo 'pid: 42' | perfetto --txt -c - -o /data/misc/perfetto-traces/pkg.clazz-method-batch.perfetto-trace",
                     "",
                 ),
-                ("ps -A | grep screenrecord", ""),
                 ("rm /sdcard/pkg.clazz-method-batch-0.mp4", ""),
                 ("killall perfetto", ""),
                 (
@@ -1217,6 +1275,7 @@ fn factory_produces_all_attachments_before_results_complete() {
             ] {
                 shell(&mut script, cmd, out);
             }
+            recorder_stop(&mut script, "ps -A");
             let server = server(script).await;
             let device = device(&server, runtime.clone());
             device.setup(context.clone()).await?;
@@ -1268,29 +1327,270 @@ fn factory_produces_all_attachments_before_results_complete() {
     });
 }
 #[test]
-fn stop_uses_last_grep_line_and_five_kill_attempts() {
-    run(configuration(), |runtime, context| {
+fn d102_stop_signals_the_recorder_once_and_waits_before_pull_without_warning() {
+    run(configuration(), |mut runtime, context| {
         Box::pin(async move {
-            let mut script = base_script(33, vec![]);
-            shell(
-                &mut script,
-                "ps -A | grep screenrecord",
-                "shell 123 1 screenrecord\nshell 456 1 grep screenrecord\n",
-            );
-            shell(&mut script, "kill -2 456", "");
+            let logs = log_lines(&mut runtime);
+            let mut script = base_script(25, vec![]);
+            let rules = script["shell"].as_array_mut().unwrap();
+            rules.extend([
+                json!({"prefix":"screenrecord ","hang":true}),
+                json!({"exact":PID_PROBE,"stdout":"alive","times":1}),
+                json!({"exact":PID_PROBE,"output":[{"gate":"recorder-exited"},{"stdout":"gone"}],"times":1}),
+            ]);
+            shell(&mut script, "ps", PS_OUTPUT);
+            shell(&mut script, "kill -2 123", "");
+            shell(&mut script, &format!("rm {VIDEO_REMOTE}"), "");
+            script["devices"][0]["files"] =
+                json!([{"path":VIDEO_REMOTE,"file":fixture("fake-adb/android-artifacts/sample.mp4")}]);
             let server = server(script).await;
             let device = device(&server, runtime);
             device.setup(context.clone()).await?;
-            stop_screen_record(&device, context).await?;
+            let listener = Arc::new(ScreenRecorderTestBatchListener::new(
+                artifacts(&device),
+                ScreenRecordingPolicy::OnAny,
+            ));
+            let collected = collector(listener.clone());
+            listener.on_event_in(&start(), context.clone()).await?;
+            started(&server, "shell:screenrecord", 1).await;
+            let event = end();
+            let mut ended = listener.on_event_in(&event, context);
+            tokio::select! {
+                result = &mut ended => panic!("test end before recorder exit: {result:?}"),
+                () = started(&server, PID_PROBE, 2) => {}
+            }
+            assert!(!request_services(&server).contains(&"sync:".into()));
+            assert!(collected.get(&test()).is_none());
+            server.open_gate("recorder-exited");
+            ended.await?;
+            let commands = commands(&server);
             assert_eq!(
-                commands(&server)[SETUP_COMMANDS.len()..],
-                ["ps -A | grep screenrecord", "kill -2 456"].repeat(5)
+                commands[SETUP_COMMANDS.len() + 1..],
+                ["ps", "kill -2 123", PID_PROBE, PID_PROBE, &format!("rm {VIDEO_REMOTE}")]
+            );
+            assert_eq!(collected.get(&test()).unwrap().len(), 1);
+            assert!(
+                !logs
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|(_, level, _)| *level == marathon_logging::Level::WARN)
             );
             finish(server, device).await;
             Ok(())
         })
     });
 }
+
+#[test]
+fn d102_missing_or_unconfirmed_pid_does_not_pull_the_pending_recording() {
+    for missing in [true, false] {
+        run(configuration(), move |mut runtime, context| {
+            Box::pin(async move {
+                let logs = log_lines(&mut runtime);
+                let mut script = base_script(33, vec![]);
+                script["shell"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"prefix":"screenrecord ","hang":true}));
+                if missing {
+                    shell(&mut script, "ps -A", PS_HEADER);
+                } else {
+                    script["shell"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(json!({"exact":"ps -A","stdout":PS_OUTPUT,"times":1}));
+                    shell(&mut script, "ps -A", PS_HEADER); // D92's later cleanup.
+                    shell(&mut script, "kill -2 123", "");
+                    shell(&mut script, PID_PROBE, "alive");
+                }
+                let server = server(script).await;
+                let device = device(&server, runtime);
+                device.setup(context.clone()).await?;
+                let listener = Arc::new(ScreenRecorderTestBatchListener::new(
+                    artifacts(&device),
+                    ScreenRecordingPolicy::OnAny,
+                ));
+                let collected = collector(listener.clone());
+                listener.on_event_in(&start(), context.clone()).await?;
+                started(&server, "shell:screenrecord", 1).await;
+                checked(
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(15),
+                        listener.on_event_in(&end(), context),
+                    )
+                    .await,
+                )?;
+                assert!(collected.get(&test()).is_none());
+                assert!(!request_services(&server).contains(&"sync:".into()));
+                let commands = commands(&server);
+                assert_eq!(commands.iter().filter(|cmd| *cmd == "ps -A").count(), 1);
+                assert_eq!(
+                    commands.iter().filter(|cmd| *cmd == "kill -2 123").count(),
+                    usize::from(!missing)
+                );
+                assert_eq!(
+                    logs.lock()
+                        .unwrap()
+                        .iter()
+                        .filter(|(_, level, message)| *level == marathon_logging::Level::WARN
+                            && message == "No screen recorder was found to stop")
+                        .count(),
+                    usize::from(missing)
+                );
+                finish(server, device).await;
+                Ok(())
+            })
+        });
+    }
+}
+
+#[test]
+fn android_movies_publish_only_after_validating_the_staged_bytes_u273() {
+    for (bytes, run_failure, why) in [
+        ("", false, "the recording is empty"),
+        ("short", true, "the recording is not a complete movie (it is cut short)"),
+    ] {
+        let mut c = configuration();
+        let temp = output(&mut c);
+        run(c, move |mut runtime, context| {
+            Box::pin(async move {
+                let _temp = temp;
+                let logs = log_lines(&mut runtime);
+                let mut script = base_script(33, vec![]);
+                script["devices"][0]["files"] = json!([{"path": VIDEO_REMOTE, "content":bytes}]);
+                script["shell"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"prefix":"screenrecord ","hang":true}));
+                recorder_stop(&mut script, "ps -A");
+                shell(&mut script, "echo quickhealthcheck", "quickhealthcheck");
+                shell(&mut script, &format!("rm {VIDEO_REMOTE}"), "");
+                let server = server(script).await;
+                let device = device(&server, runtime);
+                device.setup(context.clone()).await?;
+                let a = artifacts(&device);
+                let path = a
+                    .file(
+                        marathon_core::output::FileType::Video,
+                        (!run_failure).then_some(&test()),
+                        None,
+                        Some("0".into()),
+                    )
+                    .await?;
+                if run_failure {
+                    checked(tokio::fs::write(&path, b"prior movie").await);
+                }
+                let listener = Arc::new(ScreenRecorderTestBatchListener::new(a, ScreenRecordingPolicy::OnAny));
+                let collected = collector(listener.clone());
+                listener.on_event_in(&start(), context.clone()).await?;
+                started(&server, "shell:screenrecord", 1).await;
+                listener
+                    .on_event_in(&if run_failure { run_failed() } else { end() }, context)
+                    .await?;
+                assert!(collected.get(&test()).is_none());
+                if run_failure {
+                    assert_eq!(checked(tokio::fs::read(path).await), b"prior movie");
+                } else {
+                    assert!(!path.exists());
+                }
+                assert!(
+                    server
+                        .transcript()
+                        .iter()
+                        .any(|row| row["op"] == "RECV" && row["path"] == VIDEO_REMOTE)
+                );
+                assert!(!commands(&server).iter().any(|cmd| cmd.starts_with("rm ")));
+                let diagnostics = logs
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|(_, _, line)| line.contains("was not delivered"))
+                    .map(|(_, _, line)| line.clone())
+                    .collect::<Vec<_>>();
+                assert_eq!(diagnostics, [format!("Video {VIDEO_REMOTE} was not delivered: {why}")]);
+                finish(server, device).await;
+                Ok(())
+            })
+        });
+    }
+}
+
+#[test]
+fn no_frames_means_no_gif_attachment_or_file_u274() {
+    let mut c = configuration();
+    let temp = output(&mut c);
+    let timeouts = &mut android(&mut c).timeout_configuration;
+    timeouts.screencapturer = jcompat::jtime::Duration::ZERO;
+    run(c, move |runtime, context| {
+        Box::pin(async move {
+            let _temp = temp;
+            let server = server(base_script(33, vec![])).await;
+            let device = device(&server, runtime);
+            device.setup(context.clone()).await?;
+            let a = artifacts(&device);
+            let path = a
+                .file(marathon_core::output::FileType::Screenshot, Some(&test()), None, None)
+                .await?;
+            let listener = Arc::new(ScreenCapturerTestRunListener::new(a, ScreenRecordingPolicy::OnAny));
+            let collected = collector(listener.clone());
+            listener.on_event_in(&start(), context.clone()).await?;
+            until(|| path.exists()).await;
+            listener.on_event_in(&end(), context).await?;
+            assert_eq!(listener.captures_taken(), 0);
+            assert!(collected.get(&test()).is_none());
+            assert!(!path.exists());
+            finish(server, device).await;
+            Ok(())
+        })
+    });
+}
+
+#[test]
+fn screenshot_listeners_log_on_their_android_targets_u275() {
+    let mut c = configuration();
+    let temp = output(&mut c);
+    android(&mut c).timeout_configuration.screencapturer = jcompat::jtime::Duration::ZERO;
+    run(c, move |mut runtime, context| {
+        Box::pin(async move {
+            let _temp = temp;
+            let logs = log_lines(&mut runtime);
+            let server = server(base_script(33, vec![])).await;
+            let device = device(&server, runtime);
+            device.setup(context.clone()).await?;
+            let a = artifacts(&device);
+            let gif = ScreenCapturerTestRunListener::new(a.clone(), ScreenRecordingPolicy::OnAny);
+            let adam = AdamScreenCaptureTestRunListener::new(a);
+            gif.on_event_in(&start(), context.clone()).await?;
+            gif.on_event_in(&end(), context.clone()).await?;
+            let mut metrics = MetricMap::new();
+            metrics.insert(js(METRIC), js("/sdcard/capture.unknown"));
+            adam.on_event_in(&E::TestEnded { id: id(), metrics }, context).await?;
+            let lines = logs
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(_, _, message)| {
+                    message.starts_with("Starting recording for ")
+                        || message.starts_with("Finished recording for ")
+                        || message.starts_with("Unable to decode image format")
+                })
+                .map(|(target, _, _)| target.clone())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                lines,
+                [
+                    "marathon_android::artifact_listeners::screenshot",
+                    "marathon_android::artifact_listeners::screenshot",
+                    "marathon_android::artifact_listeners::adam_capture"
+                ]
+            );
+            finish(server, device).await;
+            Ok(())
+        })
+    });
+}
+
 #[test]
 fn a_failed_recorder_stop_does_not_restart_probes_at_disposal_d92() {
     let mut c = configuration();
@@ -1341,7 +1641,7 @@ fn unhealthy_run_failure_joins_recording_without_pull() {
                 .unwrap()
                 .push(json!({"prefix":"screenrecord ","hang":true}));
             shell(&mut script, "echo quickhealthcheck", "unhealthy");
-            shell(&mut script, "ps -A | grep screenrecord", "");
+            shell(&mut script, "ps -A", PS_HEADER);
             let server = server(script).await;
             let device = device(&server, runtime);
             device.setup(context.clone()).await?;
@@ -1376,7 +1676,7 @@ fn cancelled_and_dropped_execute_join_artifact_jobs() {
                 let _temp = temp;
                 let mut script = base_script(33, vec![]);
                 script["shell"].as_array_mut().unwrap().extend([json!({"prefix":"screenrecord ","hang":true}),json!({"prefix":"am instrument ","stdout":"INSTRUMENTATION_STATUS: class=pkg.clazz\nINSTRUMENTATION_STATUS: test=method\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\n","hang":true})]);
-                shell(&mut script, "ps -A | grep screenrecord", "");
+                shell(&mut script, "ps -A", PS_HEADER);
                 let server = server(script).await;
                 let device = device(&server, runtime.clone());
                 device.setup(context.clone()).await?;
@@ -1559,13 +1859,17 @@ fn missing_and_timed_out_pulls_publish_no_video_capture_or_trace_attachments_d97
                 let _temp = temp;
                 let mut script = base_script(33, vec![]);
                 for command in [
-                    "ps -A | grep screenrecord",
                     "rm /sdcard/pkg.clazz-method-batch-0.mp4",
                     "killall perfetto",
                     "rm -f /data/misc/perfetto-traces/pkg.clazz-method-batch.perfetto-trace",
                 ] {
                     shell(&mut script, command, "");
                 }
+                script["shell"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"prefix":"screenrecord ","hang":true}));
+                recorder_stop(&mut script, "ps -A");
                 let server = server(script).await;
                 let device = device(&server, runtime);
                 device.setup(context.clone()).await?;
@@ -1580,6 +1884,8 @@ fn missing_and_timed_out_pulls_publish_no_video_capture_or_trace_attachments_d97
                     capture.clone(),
                     trace.clone(),
                 ]));
+                video.on_event_in(&start(), context.clone()).await?;
+                started(&server, "shell:screenrecord", 1).await;
                 video.on_event_in(&end(), context.clone()).await?;
                 let mut metrics = MetricMap::new();
                 metrics.insert(js(METRIC), js("/missing.png"));

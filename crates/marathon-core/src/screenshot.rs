@@ -324,7 +324,7 @@ impl ScreenCapturer {
     /// 6.6b owns launch/cancel-and-join. Returning means the encoder and stream
     /// cleanup have finished, including cancellation during capture/write/delay.
     pub fn start<'a>(&'a mut self, test: &Test, cancellation: Arc<dyn CancellationSignal>) -> VendorFuture<'a, ()> {
-        self.capture(test, cancellation)
+        self.capture(test, cancellation, None)
     }
     /// The `'static` form for a spawned capture job. 6.6b keeps one `Arc<ScreenCapturer>`
     /// per device, spawns `start_owned` beside the test batch, then cancels and joins
@@ -336,9 +336,24 @@ impl ScreenCapturer {
         test: &Test,
         cancellation: Arc<dyn CancellationSignal>,
     ) -> VendorFuture<'static, ()> {
-        self.capture(test, cancellation)
+        self.capture(test, cancellation, None)
     }
-    fn capture(&self, test: &Test, cancellation: Arc<dyn CancellationSignal>) -> VendorFuture<'static, ()> {
+    /// A test-owned receipt, set only after a nonempty GIF has been finished and closed. A cancelled
+    /// task's join result does not distinguish a completed GIF from an error closing its file.
+    pub fn start_owned_with_delivery(
+        self: Arc<Self>,
+        test: &Test,
+        cancellation: Arc<dyn CancellationSignal>,
+        delivery: Arc<AtomicBool>,
+    ) -> VendorFuture<'static, ()> {
+        self.capture(test, cancellation, Some(delivery))
+    }
+    fn capture(
+        &self,
+        test: &Test,
+        cancellation: Arc<dyn CancellationSignal>,
+        delivery: Option<Arc<AtomicBool>>,
+    ) -> VendorFuture<'static, ()> {
         let (settings, services, source, transform, captures, logger, test) = (
             self.settings.clone(),
             self.services.clone(),
@@ -384,6 +399,7 @@ impl ScreenCapturer {
                     .await?;
                     let (writer, delay) = writer;
                     let mut writer = Some(writer);
+                    let mut frame_write_failed = false;
                     let outcome = async {
                         let orientation = source.orientation()?;
                         loop {
@@ -407,7 +423,9 @@ impl ScreenCapturer {
                                 let mut owned = writer.take().ok_or_else(|| {
                                     VendorError::Other(failure(FailureKind::IllegalState, "Missing GIF writer"))
                                 })?;
-                                // Return the writer even on a frame failure so finally can finish it.
+                                // Return the writer even on a frame failure so finally can close it,
+                                // but do not deliver: a partial frame may already have reached the stream.
+                                frame_write_failed = true;
                                 let (next, result) = blocking(services.io.as_ref(), move || {
                                     let result = transform
                                         .lock()
@@ -419,6 +437,7 @@ impl ScreenCapturer {
                                 .await?;
                                 writer = Some(next);
                                 result?;
+                                frame_write_failed = false;
                                 captures.fetch_add(1, Ordering::Release);
                             }
                             let elapsed = services
@@ -442,6 +461,12 @@ impl ScreenCapturer {
                         nix::unistd::close(stream).map_err(|e| io_error(std::io::Error::from_raw_os_error(e as i32)))
                     })
                     .await?;
+                    if let Some(delivery) = delivery {
+                        delivery.store(
+                            !frame_write_failed && captures.load(Ordering::Acquire) > 0,
+                            Ordering::Release,
+                        );
+                    }
                     outcome
                 }),
             )

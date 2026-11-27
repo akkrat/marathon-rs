@@ -818,6 +818,8 @@ def generate(root: pathlib.Path, existing):
                              "failed local finalization keeps the remote bundle and never replaces an existing destination")
         ):
             tail = ["n/a", "x96: D97", ""]
+        if r[2] == "ScreenRecorderTestRunListenerTest":
+            tail = ["n/a", "x119: D102", ""]
         out.append(r + tail)
     return out
 

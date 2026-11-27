@@ -5,11 +5,17 @@ use marathon_adb::testrunner::TestEvent;
 use marathon_config::ScreenRecordingPolicy;
 use marathon_core::{executor::shared::requested, runtime::*, screenshot::*, vendor::VendorContext};
 use marathon_logging::Level;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+struct Capture {
+    job: Arc<dyn VendorTask>,
+    delivered: Arc<AtomicBool>,
+}
 pub struct ScreenCapturerTestRunListener {
     pub artifacts: ArtifactContext,
     policy: ScreenRecordingPolicy,
     capturer: Arc<ScreenCapturer>,
-    job: Mutex<Option<Arc<dyn VendorTask>>>,
+    job: Mutex<Option<Capture>>,
     state: Mutex<(bool, Option<Test>)>,
     attachments: Attachments,
 }
@@ -53,15 +59,11 @@ impl ScreenCapturerTestRunListener {
     pub fn captures_taken(&self) -> i32 {
         self.capturer.captures_taken()
     }
-    async fn join(&self) -> bool {
-        let job = lock(&self.job).take();
-        if let Some(job) = job {
-            job.cancel(requested("screen capturer stopped"));
-            let _ = job.join().await;
-            true
-        } else {
-            false
-        }
+    async fn join(&self) -> Option<bool> {
+        let capture = lock(&self.job).take()?;
+        capture.job.cancel(requested("screen capturer stopped"));
+        let _ = capture.job.join().await;
+        Some(capture.delivered.load(Ordering::Acquire))
     }
 }
 impl AttachmentProvider for ScreenCapturerTestRunListener {
@@ -97,7 +99,7 @@ impl AndroidTestRunListener for ScreenCapturerTestRunListener {
                     let test = to_test(id);
                     *lock(&self.state) = (false, Some(test.clone()));
                     self.artifacts.device.log_named(
-                        "marathon_ios::listener::screenshot",
+                        module_path!(),
                         Level::DEBUG,
                         &format!(
                             "Starting recording for {}",
@@ -106,18 +108,19 @@ impl AndroidTestRunListener for ScreenCapturerTestRunListener {
                         None,
                     );
                     let capturer = self.capturer.clone();
-                    *lock(&self.job) = Some(
-                        self.artifacts
-                            .device
-                            .spawn_owned(Box::new(move |signal| capturer.start_owned(&test, signal)))?,
-                    );
+                    let delivered = Arc::new(AtomicBool::new(false));
+                    let receipt = delivered.clone();
+                    let job = self.artifacts.device.spawn_owned(Box::new(move |signal| {
+                        capturer.start_owned_with_delivery(&test, signal, receipt)
+                    }))?;
+                    *lock(&self.job) = Some(Capture { job, delivered });
                 }
                 TestEvent::TestFailed { .. } => lock(&self.state).0 = true,
                 TestEvent::TestEnded { id, .. } => {
                     let test = to_test(id);
                     lock(&self.state).1 = None;
                     self.artifacts.device.log_named(
-                        "marathon_ios::listener::screenshot",
+                        module_path!(),
                         Level::DEBUG,
                         &format!(
                             "Finished recording for {}",
@@ -125,56 +128,39 @@ impl AndroidTestRunListener for ScreenCapturerTestRunListener {
                         ),
                         None,
                     );
-                    let had_job = self.join().await;
-                    if !lock(&self.state).0 && self.policy == ScreenRecordingPolicy::OnFailure {
-                        if had_job {
-                            let file = self
-                                .artifacts
-                                .file(FileType::Screenshot, Some(&test), None, None)
-                                .await?;
-                            blocking(self.artifacts.device.runtime().dependencies.io.as_ref(), move || {
-                                let _ = std::fs::remove_file(file);
-                                Ok(())
-                            })
+                    if let Some(delivered) = self.join().await {
+                        let file = self
+                            .artifacts
+                            .file(FileType::Screenshot, Some(&test), None, None)
                             .await?;
-                        }
-                    } else {
-                        for listener in self.attachments.listeners() {
-                            let file = self
-                                .artifacts
-                                .file(FileType::Screenshot, Some(&test), None, None)
-                                .await?;
-                            listener.on_attachment(
-                                &test,
-                                Attachment {
-                                    file,
-                                    kind: AttachmentType::ScreenshotGif,
-                                    name: Some("screen".into()),
-                                },
-                            )?;
+                        let keep = (lock(&self.state).0 || self.policy == ScreenRecordingPolicy::OnAny)
+                            && self.captures_taken() > 0
+                            && delivered;
+                        if keep {
+                            self.attachments
+                                .emit(&test, file, AttachmentType::ScreenshotGif, "screen")?;
+                        } else {
+                            let _ = tokio::fs::remove_file(file).await;
                         }
                     }
                 }
                 TestEvent::TestRunFailed { .. } => {
-                    self.join().await;
+                    let delivered = self.join().await == Some(true);
                     let test = lock(&self.state).1.clone();
                     if let Some(test) = test {
                         let file = self
                             .artifacts
                             .file(FileType::Screenshot, Some(&test), None, None)
                             .await?;
-                        let path = file.clone();
-                        let nonempty = blocking(self.artifacts.device.runtime().dependencies.io.as_ref(), move || {
-                            Ok(path.metadata().map(|m| m.len() > 0).unwrap_or(false))
-                        })
-                        .await?;
-                        if nonempty {
+                        if delivered {
                             let batch = self.artifacts.file(FileType::Screenshot, None, None, None).await?;
                             blocking(self.artifacts.device.runtime().dependencies.io.as_ref(), move || {
                                 let _ = std::fs::rename(file, batch);
                                 Ok(())
                             })
                             .await?;
+                        } else {
+                            let _ = tokio::fs::remove_file(file).await;
                         }
                     }
                 }

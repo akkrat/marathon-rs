@@ -8,91 +8,123 @@ use marathon_core::{executor::shared::requested, runtime::*, vendor::VendorConte
 use marathon_logging::Level;
 use std::path::PathBuf;
 
-/// Kotlin splits only on spaces, uses the last nonempty line, and normalizes the Int.
-pub fn grep_pid(output: &str) -> String {
-    let last = output.split(['\r', '\n']).rfind(|s| !s.is_empty()).unwrap_or("");
-    last.split(' ')
-        .filter(|s| !s.chars().all(jcompat::jstring::is_whitespace))
-        .nth(1)
-        .and_then(jcompat::jnum::parse_int)
-        .map(|i| i.to_string())
-        .unwrap_or_default()
-}
-pub async fn stop_screen_record(device: &AndroidDevice, context: VendorContext) -> VendorResult<()> {
-    stop_screen_record_inner(device, context, false).await
-}
-pub(crate) async fn stop_screen_record_for_cleanup(device: &AndroidDevice, context: VendorContext) -> VendorResult<()> {
-    stop_screen_record_inner(device, context, true).await
-}
-async fn stop_screen_record_inner(device: &AndroidDevice, context: VendorContext, cleanup: bool) -> VendorResult<()> {
-    let shell = async |command: &str| {
-        if cleanup {
-            device.cleanup_shell(command, context.clone()).await
-        } else {
-            device.safe_execute_shell_command(command, "", context.clone()).await
+const POLL_MILLIS: i64 = 75;
+const STOP_MILLIS: i64 = 1_500;
+
+/// A process name, not an argument of grep (N33). Both toolbox and toybox put the PID and name
+/// in columns named PID and NAME, but the intervening columns differ.
+fn recorder_pid(output: &str) -> Result<Option<u32>, ()> {
+    let mut lines = output.lines();
+    let header: Vec<_> = lines.next().ok_or(())?.split_whitespace().collect();
+    let pid_column = header.iter().position(|column| *column == "PID").ok_or(())?;
+    let name_column = header.iter().position(|column| *column == "NAME").ok_or(())?;
+    let remaining = name_column.checked_sub(pid_column + 1).ok_or(())?;
+    let mut recorder = None;
+    for line in lines {
+        let mut columns = line.split_whitespace();
+        let pid = columns.nth(pid_column);
+        let name = columns.nth(remaining);
+        if matches!(name, Some("screenrecord" | "/system/bin/screenrecord")) {
+            let pid = pid
+                .and_then(|value| value.parse::<u32>().ok())
+                .filter(|pid| *pid > 0)
+                .ok_or(())?;
+            if recorder.replace(pid).is_some() {
+                return Err(());
+            }
         }
-    };
-    device.log_named("ScreenRecorder", Level::DEBUG, "Stopping screen recorder", None);
-    for _ in 0..5 {
-        let killed: VendorResult<bool> = async {
-            let cmd = if device.version().is_greater_or_equal_than(26) {
-                "ps -A | grep screenrecord"
-            } else {
-                "ps | grep screenrecord"
+    }
+    Ok(recorder)
+}
+
+#[derive(PartialEq, Eq)]
+enum Stop {
+    Exited,
+    Missing,
+    Unconfirmed,
+}
+
+pub(crate) async fn stop_screen_record_for_cleanup(device: &AndroidDevice, context: VendorContext) -> VendorResult<()> {
+    stop_screen_record(device, context, true).await.map(|_| ())
+}
+
+async fn stop_screen_record(device: &AndroidDevice, context: VendorContext, cleanup: bool) -> VendorResult<Stop> {
+    let target = module_path!();
+    device.log_named(target, Level::DEBUG, "Stopping screen recorder", None);
+    let result = timed(&context, STOP_MILLIS, |signal| {
+        let context = VendorContext {
+            cancellation: signal,
+            ..context.clone()
+        };
+        Box::pin(async move {
+            let shell = async |command: &str| {
+                if cleanup {
+                    device.cleanup_shell(command, context.clone()).await
+                } else {
+                    device
+                        .safe_execute_shell_command(command, "Screen recorder stop command failed", context.clone())
+                        .await
+                }
             };
-            let output = shell(cmd).await?.map(|r| r.output.to_owned()).unwrap_or_default();
-            let pid = grep_pid(&output);
-            if !output.chars().all(jcompat::jstring::is_whitespace) {
-                device.log_named(
-                    "ScreenRecorder",
-                    Level::TRACE,
-                    &format!("Extracted PID {pid} from output {output}"),
-                    None,
-                );
-            }
-            if pid.is_empty() {
-                device.log_named(
-                    "ScreenRecorder",
-                    Level::WARN,
-                    "Did not kill any screen recording process",
-                    None,
-                );
-                return Ok(false);
-            }
+            let ps = if device.api_level() >= 26 { "ps -A" } else { "ps" };
+            let Some(reply) = shell(ps).await?.filter(|reply| reply.exit_code == 0) else {
+                return Ok(Stop::Unconfirmed);
+            };
+            let Ok(pid) = recorder_pid(&reply.output.to_owned()) else {
+                return Ok(Stop::Unconfirmed);
+            };
+            let Some(pid) = pid else {
+                return Ok(Stop::Missing);
+            };
+            // The recorder may have exited on its own between ps and INT. Only the PID probe proves exit.
             device.log_named(
-                "ScreenRecorder",
+                target,
                 Level::TRACE,
-                &format!("Killing PID {pid} on {}", device.serial_number().to_owned()),
+                &format!("Sending INT to screen recorder PID {pid}"),
                 None,
             );
             shell(&format!("kill -2 {pid}")).await?;
-            Ok(true)
-        }
-        .await;
-        let killed = match killed {
-            Ok(v) => v,
-            Err(e) => {
-                device.log_named(
-                    "ScreenRecorder",
-                    Level::ERROR,
-                    "Error while killing recording processes",
-                    Some(e.failure()),
-                );
-                false
+            let probe = format!("if [ -d /proc/{pid} ]; then echo alive; else echo gone; fi");
+            loop {
+                // Screenrecord runs as the adb shell user. /proc/<pid> is visible until the process
+                // has exited (and been reaped), not just until it has handled SIGINT.
+                match shell(&probe).await?.filter(|reply| reply.exit_code == 0) {
+                    Some(reply) if reply.output.to_owned().trim() == "gone" => return Ok(Stop::Exited),
+                    Some(reply) if reply.output.to_owned().trim() == "alive" => {}
+                    _ => return Ok(Stop::Unconfirmed),
+                }
+                context.clock.delay(POLL_MILLIS, context.cancellation.clone()).await?;
             }
-        };
-        context.clock.delay(300, context.cancellation.clone()).await?;
-        if !killed {
-            break;
+        })
+    })
+    .await;
+    let stopped = match result {
+        Ok(stopped) => stopped.unwrap_or(Stop::Unconfirmed),
+        Err(error @ VendorError::Cancelled(_)) => return Err(error),
+        Err(error) => {
+            device.log_named(
+                target,
+                Level::ERROR,
+                "Could not confirm screen recorder exit",
+                Some(error.failure()),
+            );
+            return Ok(Stop::Unconfirmed);
         }
+    };
+    match stopped {
+        Stop::Missing => device.log_named(target, Level::WARN, "No screen recorder was found to stop", None),
+        Stop::Unconfirmed => device.log_named(target, Level::ERROR, "Could not confirm screen recorder exit", None),
+        _ => {}
     }
-    Ok(())
+    Ok(stopped)
 }
+
 #[derive(Default)]
 struct Recording {
     failed: bool,
     cancelling: bool,
-    chunks: std::collections::HashMap<Test, i64>,
+    pending: bool,
+    test: Option<Test>,
     last: Vec<String>,
 }
 pub struct ScreenRecorderTestBatchListener {
@@ -129,20 +161,20 @@ impl ScreenRecorderTestBatchListener {
             let _ = job.join().await;
         }
     }
-    async fn join_after_stop(&self) {
-        self.join().await;
-        if !self.artifacts.device.stopping() {
-            self.artifacts.device.screenrecord_active(false);
-        }
-    }
-    async fn stop(&self, context: VendorContext) -> VendorResult<()> {
-        lock(&self.state).cancelling = true;
+    async fn stop(&self, context: VendorContext) -> VendorResult<Vec<String>> {
+        let expected = {
+            let mut state = lock(&self.state);
+            state.cancelling = true;
+            state.pending && !state.last.is_empty()
+        };
         let start = self.artifacts.now("android.ScreenRecorderTestBatchListener.stop")?;
-        let result = stop_screen_record(&self.artifacts.device, context).await;
-        if result.is_err() {
-            self.join_after_stop().await;
-            return result;
-        }
+        let result = if let Some(reason) = context.cancellation.reason() {
+            Err(VendorError::Cancelled(reason))
+        } else if expected {
+            stop_screen_record(&self.artifacts.device, context, false).await
+        } else {
+            Ok(Stop::Missing)
+        };
         let end = self.artifacts.now("android.ScreenRecorderTestBatchListener.stop")?;
         self.artifacts.device.log_named(
             "ScreenRecorderTestBatchListener",
@@ -151,10 +183,7 @@ impl ScreenRecorderTestBatchListener {
             None,
         );
         let start = self.artifacts.now("android.ScreenRecorderTestBatchListener.join")?;
-        self.artifacts
-            .device
-            .log_named("ScreenRecorderTestBatchListener", Level::TRACE, "cancel", None);
-        self.join_after_stop().await;
+        self.join().await;
         let end = self.artifacts.now("android.ScreenRecorderTestBatchListener.join")?;
         self.artifacts.device.log_named(
             "ScreenRecorderTestBatchListener",
@@ -162,7 +191,26 @@ impl ScreenRecorderTestBatchListener {
             &format!("join {}ms", end.wrapping_sub(start)),
             None,
         );
-        Ok(())
+        let mut state = lock(&self.state);
+        let stopped = matches!(&result, Ok(Stop::Exited));
+        if !state.last.is_empty()
+            && (stopped || !state.pending || matches!(&result, Err(VendorError::Cancelled(_))))
+            && !self.artifacts.device.stopping()
+        {
+            self.artifacts.device.screenrecord_active(false);
+        }
+        // No PID is not proof that an in-flight start reached the device. Earlier chunks
+        // have their own shell exit receipts, but don't pull this one without one.
+        if stopped {
+            state.pending = false;
+        }
+        result?;
+        let mut paths = std::mem::take(&mut state.last);
+        if state.pending {
+            paths.pop();
+            state.pending = false;
+        }
+        Ok(paths)
     }
     async fn pull(
         &self,
@@ -178,12 +226,31 @@ impl ScreenRecorderTestBatchListener {
             "android.ScreenRecorderTestBatchListener.pullLastBatchVideo"
         };
         let start = self.artifacts.now(label)?;
-        if !self
-            .artifacts
-            .device
-            .safe_pull_file(remote, &local.to_string_lossy(), context)
-            .await?
+        let device = &self.artifacts.device;
+        let reason = match device
+            .receive_movie_with_timeout(remote, &local.to_string_lossy(), context)
+            .await
         {
+            Ok(Some(())) => None,
+            Ok(None) => Some("the receive did not complete".to_owned()),
+            Err(VendorError::Transfer(failure)) => Some(failure.message.clone().unwrap_or_else(|| failure.to_string())),
+            Err(error) => {
+                device.log_named(
+                    module_path!(),
+                    Level::ERROR,
+                    &format!("Video {remote} was not delivered: {}", error.failure()),
+                    None,
+                );
+                return Err(error);
+            }
+        };
+        if let Some(reason) = reason {
+            device.log_named(
+                module_path!(),
+                Level::ERROR,
+                &format!("Video {remote} was not delivered: {reason}"),
+                None,
+            );
             return Ok(None);
         }
         let end = self.artifacts.now(label)?;
@@ -220,14 +287,16 @@ impl ScreenRecorderTestBatchListener {
         Ok(())
     }
     async fn finish_test(&self, test: &Test, context: VendorContext) -> VendorResult<()> {
-        self.stop(context.clone()).await?;
-        let (failed, count) = {
+        let remotes = self.stop(context.clone()).await?;
+        let (matches_test, failed) = {
             let state = lock(&self.state);
-            (state.failed, *state.chunks.get(test).unwrap_or(&0))
+            (state.test.as_ref() == Some(test), state.failed)
         };
+        if !matches_test {
+            return Ok(());
+        }
         let mut removable = Vec::new();
-        for i in 0..=count {
-            let remote = self.remote(test, i)?;
+        for (i, remote) in remotes.into_iter().enumerate() {
             if self.policy == ScreenRecordingPolicy::OnAny || failed {
                 let Some(file) = self
                     .pull(
@@ -278,8 +347,9 @@ impl AndroidTestRunListener for ScreenRecorderTestBatchListener {
                         let mut state = lock(&self.state);
                         state.failed = false;
                         state.cancelling = false;
-                        state.chunks.insert(test.clone(), 0);
-                        state.last = vec![first.clone()];
+                        state.pending = false;
+                        state.test = Some(test.clone());
+                        state.last.clear();
                     }
                     let artifacts = self.artifacts.clone();
                     let state = self.state.clone();
@@ -291,12 +361,22 @@ impl AndroidTestRunListener for ScreenRecorderTestBatchListener {
                                 ..context
                             };
                             let mut remote = first;
+                            let mut chunk = 0i64;
                             loop {
                                 let result = async {
                                     artifacts.device.ensure_running()?;
-                                    artifacts.device.screenrecord_active(true);
+                                    {
+                                        let mut state = lock(&state);
+                                        // Once stop takes this lock, no new chunk can be admitted.
+                                        if state.cancelling {
+                                            return Ok(false);
+                                        }
+                                        state.pending = true;
+                                        state.last.push(remote.clone());
+                                        artifacts.device.screenrecord_active(true);
+                                    }
                                     let start = artifacts.now("android.ScreenRecorder.startRecordingTestVideo")?;
-                                    artifacts
+                                    let completed = artifacts
                                         .device
                                         .safe_start_screen_recorder(
                                             &remote.to_owned(),
@@ -320,32 +400,33 @@ impl AndroidTestRunListener for ScreenRecorderTestBatchListener {
                                         ),
                                         None,
                                     );
-                                    Ok(())
+                                    Ok(completed)
                                 }
                                 .await;
-                                if let Err(e) = result {
-                                    let (level, msg) = if matches!(e, VendorError::Cancelled(_)) {
-                                        (Level::WARN, "screenrecord start was interrupted")
-                                    } else {
-                                        (Level::ERROR, "Something went wrong while screen recording")
-                                    };
-                                    artifacts
-                                        .device
-                                        .log_named("ScreenRecorder", level, msg, Some(e.failure()));
-                                    return Err(e);
+                                match result {
+                                    Ok(false) => break,
+                                    Ok(true) => lock(&state).pending = false,
+                                    Err(error) => {
+                                        if !matches!(error, VendorError::Cancelled(_)) || !lock(&state).cancelling {
+                                            artifacts.device.log_named(
+                                                module_path!(),
+                                                Level::ERROR,
+                                                "Screen recording failed",
+                                                Some(error.failure()),
+                                            );
+                                        }
+                                        return Err(error);
+                                    }
                                 }
-                                let mut state = lock(&state);
-                                if !chunked || state.cancelling {
+                                if !chunked {
                                     break;
                                 }
-                                let chunk = state.chunks.entry(test.clone()).or_default();
-                                *chunk = chunk.wrapping_add(1);
+                                chunk = chunk.wrapping_add(1);
                                 remote = artifacts.device.file_manager().remote_chunked_video_for_test(
                                     &test,
                                     &artifacts.batch.id,
-                                    Some(*chunk),
+                                    Some(chunk),
                                 )?;
-                                state.last.push(remote.clone());
                             }
                             Ok(())
                         })
@@ -368,7 +449,6 @@ impl AndroidTestRunListener for ScreenRecorderTestBatchListener {
                         ),
                         r => r?,
                     }
-                    lock(&self.state).last.clear();
                 }
                 TestEvent::TestRunFailed { .. } => {
                     lock(&self.state).cancelling = true;
@@ -392,8 +472,7 @@ impl AndroidTestRunListener for ScreenRecorderTestBatchListener {
                         .flatten()
                         .is_some_and(|r| r.output.to_owned().contains("quickhealthcheck"));
                         if healthy {
-                            self.stop(context.clone()).await?;
-                            let remotes = lock(&self.state).last.clone();
+                            let remotes = self.stop(context.clone()).await?;
                             let mut removable = Vec::new();
                             for (i, remote) in remotes.iter().enumerate() {
                                 if self
