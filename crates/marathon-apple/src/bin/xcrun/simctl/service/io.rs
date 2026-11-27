@@ -229,7 +229,7 @@ impl IoService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::process::Command;
+    use marathon_process::Command;
 
     #[test]
     fn decode_a_nonempty_base64_frame_d100() {
@@ -239,26 +239,29 @@ mod tests {
         assert_eq!(decode_frame(vec![b'A'; MAX_BASE64_BYTES + 1]), None);
     }
 
-    #[test]
-    fn worker_frame_keeps_simctl_status_and_removes_the_temporary_file_d100() -> std::io::Result<()> {
+    #[tokio::test]
+    async fn worker_frame_keeps_simctl_status_and_removes_the_temporary_file_d100() -> std::io::Result<()> {
         let directory = tempfile::tempdir()?;
         let file = directory.path().join("a 'quoted' file.png");
         let run = |limit: &str, body: &str| {
-            Command::new("/bin/sh")
+            let mut command = Command::new("/bin/sh");
+            command
                 .args(["-c", FRAME_SCRIPT, "marathon-screenshot"])
                 .arg(&file)
-                .args([limit, "/bin/sh", "-c", body, "xcrun"])
-                .output()
+                .args([limit, "/bin/sh", "-c", body, "xcrun"]);
+            command
         };
-        let result = run("3", "printf abc > \"$1\"; echo not-a-frame; exit 37")?;
+        let result = run("3", "printf abc > \"$1\"; echo not-a-frame; exit 37")
+            .output()
+            .await?;
         assert_eq!(result.status.code(), Some(37));
         assert!(result.stdout.is_empty());
         assert!(!file.exists());
-        let oversize = run("2", "printf abc > \"$1\"")?;
+        let oversize = run("2", "printf abc > \"$1\"").output().await?;
         assert_eq!(oversize.status.code(), Some(65));
         assert!(oversize.stdout.is_empty());
         assert!(!file.exists());
-        let success = run("3", "printf abc > \"$1\"; echo not-a-frame")?;
+        let success = run("3", "printf abc > \"$1\"; echo not-a-frame").output().await?;
         assert!(success.status.success());
         assert_eq!(decode_frame(success.stdout), Some(b"abc".to_vec()));
         assert!(!file.exists());

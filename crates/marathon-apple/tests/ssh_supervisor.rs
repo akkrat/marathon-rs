@@ -1178,6 +1178,7 @@ fn the_worker_sender_uses_the_original_server_arguments_d96() -> Result<(), Box<
 
 #[derive(Default)]
 struct SupervisorWorker {
+    screenshot_proof: Option<Arc<tokio::sync::Semaphore>>,
     sibling_token: std::sync::Mutex<Option<String>>,
     resistant_token: std::sync::Mutex<Option<String>>,
     stall_term: bool,
@@ -1222,6 +1223,12 @@ impl fake_worker::router::Handler for SupervisorWorker {
                     if *directory == root && *program == format!("{root}/supervisor.pl") =>
                 {
                     let (token, operation) = control.split_once(':').unwrap();
+                    if let Some(proof) = &self.screenshot_proof
+                        && matches!(operation, "2" | "3" | "status")
+                    {
+                        let _permit = proof.acquire().await?;
+                        return Ok(Some(Action::output(&format!("{token} done:137\n"), 0)));
+                    }
                     if operation == "status"
                         && self.silent_status.load(std::sync::atomic::Ordering::SeqCst)
                         && self.recordings.lock().unwrap().contains_key(token)
@@ -1939,6 +1946,144 @@ async fn our_own_stop_of_an_exec_waiting_for_its_reply_is_not_an_error_u271() {
     let result = support::bounded(60, lost).await.unwrap();
     assert!(matches!(result, Ok(None)), "{result:?}");
     assert_eq!(session_lines(), 1, "{:?}", ssh::lines(&events));
+}
+
+#[tokio::test]
+async fn supervised_screenshot_stops_mid_frame_and_waits_for_proof_d100() {
+    supervised_screenshot_stop(false).await;
+}
+
+#[tokio::test]
+async fn supervised_screenshot_stops_before_exec_reply_and_waits_for_proof_d100() {
+    supervised_screenshot_stop(true).await;
+}
+
+async fn supervised_screenshot_stop(withhold_reply: bool) {
+    use fake_worker::{
+        router::Request,
+        script::{Matcher, Rule},
+    };
+    use marathon_apple::{
+        bin::{
+            Tools,
+            xcrun::simctl::{SimctlService, service::IoService},
+        },
+        cmd::{TransferCleanup, cancelled, device_commands::DeviceCommands},
+    };
+    use marathon_config::vendor::{AppleTimeoutParameters, Display, Mask, ScreenshotType, apple_timeout_configuration};
+    use marathon_core::{error::VendorError, executor::shared::Signal, vendor::VendorContext};
+
+    watchdog(async {
+        let proof = Arc::new(tokio::sync::Semaphore::new(0));
+        let world = Arc::new(SupervisorWorker {
+            screenshot_proof: Some(proof.clone()),
+            ..SupervisorWorker::default()
+        });
+        let fake = ssh::fake_with_handlers(
+            ssh::script(vec![Rule {
+                name: "partial frame".into(),
+                matcher: Matcher::Pattern("* marathon-screenshot *".into()),
+                action: ssh::hang(vec![ssh::chunk("YW")]),
+            }]),
+            3,
+            |config| {
+                if withhold_reply {
+                    config.script.faults.silent_exec = Some("marathon-screenshot".into());
+                }
+            },
+            vec![world],
+        )
+        .await;
+        let (logging, events) = ssh::logging(true);
+        let executor = ssh::factory(&logging)
+            .connect_worker("127.0.0.1", fake.port(), ssh::password(), None, true, Arc::default())
+            .await
+            .unwrap();
+        let device = DeviceCommands::new(Arc::new(executor));
+        let mut timeouts = AppleTimeoutParameters::empty();
+        timeouts.screenshot = Some(duration(60_000));
+        let io = IoService::new(SimctlService::new(Tools {
+            executor: device.clone(),
+            timeouts: Arc::new(apple_timeout_configuration(timeouts)),
+            runtime: Arc::new(support::Runtime),
+            logging,
+        }));
+        let stop = Signal::new();
+        let context = VendorContext {
+            cancellation: stop.clone(),
+            ..context()
+        };
+        let frame = tokio::spawn(async move {
+            io.screenshot_ssh(
+                "fixture",
+                "/tmp/worker/frame.png",
+                ScreenshotType::Png,
+                Display::Internal,
+                Mask::Black,
+                &context,
+            )
+            .await
+        });
+        let exec = &fake
+            .wait_for_events("exec", 1, |row| {
+                STANDARD
+                    .decode(row["detail"]["base64"].as_str().unwrap())
+                    .unwrap()
+                    .windows(b"marathon-screenshot".len())
+                    .any(|bytes| bytes == b"marathon-screenshot")
+            })
+            .await[0];
+        let wire = STANDARD.decode(exec["detail"]["base64"].as_str().unwrap()).unwrap();
+        let request = Request::parse(&wire).unwrap();
+        assert_eq!(&request.argv[3], "run");
+        let token = &request.argv[6];
+        let on_frame_channel =
+            |row: &serde_json::Value| row["connection"] == exec["connection"] && row["channel"] == exec["channel"];
+        if !withhold_reply {
+            fake.wait_for_events("output", 1, |row| on_frame_channel(row) && matches_operation(row, "YW"))
+                .await;
+        }
+
+        let reason = cancelled("fixture test ended");
+        stop.cancel(reason.clone());
+        // Neither the rest of the frame nor its worker proof is available to the caller.
+        assert_eq!(frame.await.unwrap(), Err(VendorError::Cancelled(reason)));
+        let stop_request = format!("{token}:{}", if withhold_reply { "3" } else { "2" });
+        let signal = &fake
+            .wait_for_events("supervisor_request", 1, |row| matches_operation(row, &stop_request))
+            .await[0];
+        assert_ne!(signal["connection"], exec["connection"]);
+        if withhold_reply {
+            // The channel has already been closed locally; that is not proof about a possibly started exec.
+            fake.wait_for_events("client_close", 1, on_frame_channel).await;
+        }
+
+        let receipts = device.handed_commands();
+        assert_eq!(receipts.len(), 1);
+        assert_eq!(receipts[0].ended(), None);
+        let handed = device.wait_handed(Signal::new());
+        tokio::pin!(handed);
+        tokio::select! { biased;
+            result = &mut handed => panic!("settled without worker proof: {result:?}"),
+            _ = std::future::ready(()) => {}
+        }
+
+        proof.add_permits(1);
+        handed.await.unwrap();
+        assert_eq!(receipts[0].ended(), Some(TransferCleanup::Confirmed));
+        assert!(device.handed_left().is_empty());
+        fake.wait_for_events("supervisor_reply", 1, |row| matches_operation(row, &stop_request))
+            .await;
+        fake.wait_for_events("client_close", 1, on_frame_channel).await;
+        assert!(
+            fake.events("signal").await.is_empty(),
+            "stop must go through the supervisor"
+        );
+        device.close().await.unwrap();
+        assert!(ssh::lines(&events).iter().all(|(_, level, _)| *level != Level::ERROR));
+        fake.worker.shutdown().await.unwrap();
+    })
+    .await;
 }
 
 #[tokio::test]

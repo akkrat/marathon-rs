@@ -94,3 +94,19 @@ the screenshot script unlinks its file can leave that unique name until the next
 were not injected on the real worker.
 
 **Incidental bugs:** none new. The pre-existing worker shell and symbol-table diagnostics were left unchanged.
+
+## Review round 1
+
+- P1 — The shell-script unit test now uses the async `marathon_process::Command`. The process-spawn checker,
+  formatting check and Apple all-targets Clippy passed.
+- P2 — Two new `ssh_supervisor` witnesses use `connect_worker`, `SupervisorWorker` and `DeviceCommands`.
+  Cancellation is ordered after a partial frame or after an exec whose reply is withheld. In both cases the caller
+  returns its own cancellation with no ERROR log. The independent control connection carries a stop for the same
+  worker token (TERM mid-frame, KILL when the exec reply is missing). The worker holds its proof behind a gate.
+  D93's `wait_handed` stays pending until that gate opens, then the receipt is confirmed. Both witnesses passed
+  50 repeats and one extra run with two local CPU burners. The full supervisor binary passed 52 tests, and the
+  existing SSH screenshot binary passed 5.
+- P3 — The U272 ledger row now has its `fixed` status cell.
+
+Free disk space fell below the work package's 20 GB threshold after Clippy. The broader Cargo test build and
+scratch counterexample build were not run. This round changes tests and documentation only.
