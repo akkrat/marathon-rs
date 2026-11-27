@@ -360,9 +360,9 @@ async fn marker(root: &Path, label: &str) {
     .unwrap();
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn process_gates_child() {
+async fn process_gates_child() -> Result<(), Box<dyn std::error::Error>> {
     let Ok(mode) = std::env::var("MRS43_PROCESS_CHILD") else {
-        return;
+        return Ok(());
     };
     let root = std::path::PathBuf::from(std::env::var_os("MRS43_GATE_ROOT").unwrap());
     let src = root.join("source");
@@ -439,16 +439,46 @@ async fn process_gates_child() {
             .unwrap();
         assert!(first_exit < second_enter);
     } else {
-        // D43, where fixtures/oracle/connections/deadlines.jsonl is the JVM's witness: there the receive fails at 30 s and the
-        // send stays running. On this clock 30 s is 3 s, which this outlasts, and the 300 s with nothing arriving is 30 s.
+        use serde_json::{Value, json};
+        let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/oracle/connections/deadlines.jsonl");
+        let jvm = std::fs::read_to_string(corpus)?
+            .lines()
+            .map(serde_json::from_str::<Value>)
+            .collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(
+            jvm,
+            [
+                json!({"case": "receive-after-timeout", "value": false}),
+                json!({"case": "send-still-running-after-receive-timeout", "value": true}),
+                json!({"case": "send-after-release", "value": true}),
+            ],
+            "unchanged Kotlin probe at its 30 s total receive timeout"
+        );
+
+        // With both fake processes held, pass Kotlin's old 30 s total deadline (3 s on this clock).
+        // D43 removes that deadline. None means the receive was still pending at that checkpoint.
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        let still_running = !receive.is_finished() && !send.is_finished();
+        let receive_at_deadline = receive.is_finished();
+        let send_at_deadline = send.is_finished();
         std::fs::write(root.join("release"), b"").unwrap();
-        assert!(send.await.unwrap().unwrap());
-        assert!(receive.await.unwrap().unwrap());
+        let sent = send.await.unwrap().unwrap();
+        let received = receive.await.unwrap().unwrap();
         b.join_pending().await.unwrap();
-        assert!(still_running);
+
+        let mut expected = jvm;
+        expected[0]["value"] = Value::Null;
+        assert_eq!(
+            vec![
+                json!({"case": "receive-after-timeout", "value": receive_at_deadline.then_some(received)}),
+                json!({"case": "send-still-running-after-receive-timeout", "value": !send_at_deadline}),
+                json!({"case": "send-after-release", "value": sent}),
+            ],
+            expected,
+            "D43 changes only the first checkpoint"
+        );
+        assert!(received, "the receive must succeed after release");
     }
+    Ok(())
 }
 
 #[test]

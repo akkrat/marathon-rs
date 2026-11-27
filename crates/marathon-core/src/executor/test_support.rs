@@ -47,6 +47,13 @@ impl ControlledReplay {
     pub fn spawn_vendor_cancellable(&self, body: VendorTaskBody) -> (Arc<dyn VendorTask>, tokio::task::JoinHandle<()>) {
         self.core.vendor.spawn_cancellable_with_join(body)
     }
+    /// Captures the physical join for the next indirect vendor spawn, such as an actor's execute.
+    /// Arm this only at a drained boundary, with a single known spawn to follow.
+    pub fn next_vendor_join(&self) -> tokio::sync::oneshot::Receiver<tokio::task::JoinHandle<()>> {
+        let (send, receive) = tokio::sync::oneshot::channel();
+        assert!(self.core.vendor.next_join.lock().unwrap().replace(send).is_none());
+        receive
+    }
     pub fn set_hooks(&self, hooks: Arc<dyn ReplayHooks>) {
         *self.hooks.borrow_mut() = Some(hooks);
     }

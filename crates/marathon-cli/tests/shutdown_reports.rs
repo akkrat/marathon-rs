@@ -86,8 +86,46 @@ async fn dumped(child: &mut tokio::process::Child, log: &Path, count: usize) -> 
     }
 }
 
+#[allow(unsafe_code)]
+fn set_shutdown_dispositions(command: &mut tokio::process::Command, handler: nix::sys::signal::SigHandler) {
+    // SAFETY: the callback only sets signal dispositions and converts errno, without allocation or locks.
+    unsafe {
+        command.pre_exec(move || {
+            for signal in [Signal::SIGINT, Signal::SIGQUIT] {
+                nix::sys::signal::signal(signal, handler)
+                    .map_err(|errno| std::io::Error::from_raw_os_error(errno as i32))?;
+            }
+            Ok(())
+        });
+    }
+}
+
+#[tokio::test]
+async fn a_background_jobs_ignored_signals_are_reset_u281() -> Result {
+    use nix::sys::signal::SigHandler;
+    use std::os::unix::process::ExitStatusExt;
+    for name in ["INT", "QUIT"] {
+        let mut command = tokio::process::Command::new("/bin/sh");
+        command
+            .args(["-c", r#"kill -s "$1" "$$"; exit 42"#, "signal-test", name])
+            .kill_on_drop(true);
+        // Simulate the two ignored dispositions an async shell job can inherit, without changing the test process.
+        set_shutdown_dispositions(&mut command, SigHandler::SigIgn);
+        set_shutdown_dispositions(&mut command, SigHandler::SigDfl);
+        let status = exited(&mut command.spawn()?).await?;
+        assert_eq!(
+            status.signal(),
+            Some(if name == "INT" { Signal::SIGINT } else { Signal::SIGQUIT } as i32)
+        );
+    }
+    Ok(())
+}
+
 fn marathon(cwd: &Path, stdout: &Path, stderr: &Path) -> Result<tokio::process::Child> {
-    Ok(tokio::process::Command::new(env!("CARGO_BIN_EXE_marathon"))
+    let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_marathon"));
+    // Background shells can leave SIG_IGN across exec. Only the CLI child should reset it.
+    set_shutdown_dispositions(&mut command, nix::sys::signal::SigHandler::SigDfl);
+    Ok(command
         .current_dir(cwd)
         .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
         .stdin(Stdio::null())

@@ -634,41 +634,48 @@ async fn a_scan_leaves_alone_a_handle_replaced_since_its_snapshot() -> TestResul
         .await
         .map_err(test_error)?;
     let (homes, connects) = (home(&fresh, "a"), p.connections.attempts(&Transport::Local, false));
-    let (checking, in_check) = std::sync::mpsc::channel();
+    let (checking, in_check) = tokio::sync::oneshot::channel();
+    let checking = Mutex::new(Some(checking));
     let (replaced, was_replaced) = std::sync::mpsc::channel::<()>();
     let was_replaced = Mutex::new(was_replaced);
-    let once = AtomicBool::new(true);
-    // Only the scan's second look at the old handle, once it has passed the first check.
+    // Hold the connected check after the scan captured the old handle.
     *p.h().worker.on_connected_check.lock().unwrap() = Arc::new(move || {
-        if once.swap(false, Ordering::SeqCst) {
-            checking.send(()).unwrap();
-            was_replaced
-                .lock()
-                .unwrap()
-                .recv_timeout(std::time::Duration::from_secs(60))
-                .unwrap();
+        let checking = checking.lock().unwrap().take();
+        if let Some(checking) = checking {
+            let _ = checking.send(());
+            assert_ne!(
+                was_replaced
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(std::time::Duration::from_secs(60)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout),
+                "replacement did not release the scan"
+            );
         }
     });
     p.h().worker.connected.store(false, Ordering::SeqCst);
     let (provider, recovery, context) = (p.provider.clone(), p.recovery.clone(), p.h().services.context.clone());
     use marathon_ios::device::simulator_provider::ProviderRecovery;
     let scan = tokio::spawn(async move { recovery.reconnect(provider, context).await });
-    let in_check = tokio::task::spawn_blocking(move || in_check.recv_timeout(std::time::Duration::from_secs(60)));
-    in_check.await?.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(60), in_check).await??;
     p.provider
         .register("a@local".into(), replacement)
         .await
         .map_err(test_error)?;
     replaced.send(()).unwrap();
     scan.await?.map_err(test_error)?;
-    p.connected(1).await;
     assert!(!Arc::ptr_eq(&old, &p.current("a")));
-    // A stale scan would have raised a disconnect for the old handle and started a recovery that sets it up again.
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    // Read the first event directly so a stale disconnect cannot be swallowed by connected().
+    assert!(matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(60), p.provider.subscribe().receive()).await?.map_err(test_error)?,
+        Some(DeviceEvent::Connected(device)) if Arc::ptr_eq(&device.0, &(p.current("a") as Arc<dyn Device>))
+    ));
+    // Termination joins the scan's recovery and event publishers before closing the channel.
+    p.finish().await?;
     assert_eq!(p.provider.subscribe().state().queued, 0);
     assert_eq!(home(&fresh, "a"), homes);
     assert_eq!(p.connections.attempts(&Transport::Local, false), connects);
-    p.finish().await
+    Ok(())
 }
 #[tokio::test(start_paused = true)]
 async fn borrow_takes_a_simulator_that_can_work_and_not_one_that_left_the_devices_file() -> TestResult {

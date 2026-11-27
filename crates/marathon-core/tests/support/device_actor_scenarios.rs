@@ -323,11 +323,17 @@ pub fn run_scenario(name: &'static str) -> Outcome {
                             Ok(())
                         }
                     })));
+                    let mut prepare = run.driver.next_vendor_join();
                     run.send(DeviceEvent::Initialize);
                     run.run_current().await;
+                    prepare.try_recv().unwrap().await.unwrap();
+                    let mut physical = run.driver.next_vendor_join();
                     run.send(DeviceEvent::Execute(run.batch.clone()));
                     run.send(DeviceEvent::Terminate);
                     run.run_current().await;
+                    // Logical completion can be visible before Tokio drops the tracked vendor future.
+                    // Join that task before checking the replay's quiescence.
+                    physical.try_recv().unwrap().await.unwrap();
                     for (key, value) in entry.lock().unwrap().iter() {
                         run.extra.borrow_mut().insert((*key).into(), (*value).into());
                     }

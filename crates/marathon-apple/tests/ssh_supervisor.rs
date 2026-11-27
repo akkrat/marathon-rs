@@ -2666,6 +2666,8 @@ async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::err
 ///   `SIGSTOP` until the test continues it, as if descheduled there.
 /// - `late_after_exit=<ms>`: after the first `select` that found the status pipe readable, the owner's clock moves
 ///   `<ms>` on, as if it had been descheduled that long right after seeing the exit.
+/// - `cleanup_on_eof`: for foreground runs only, readability of the otherwise unused stdin pipe ends the
+///   loop so the owner can kill and reap the anchor on a test failure.
 const X111_HOOKS: &[(&str, &str)] = &[
     (
         "table",
@@ -2712,11 +2714,13 @@ if ($first_open && ($hook{stop_at} // '') eq 'sample') {
 }
 if ($first_open && $hook{parked} && open my $file, '>', $hook{parked}) {
     close $file;
-}"##,
+}
+vec($bits, fileno(STDIN), 1) = 1 if $hook{cleanup_on_eof};"##,
     ),
     (
         "woken",
-        r##"if ($hook{late_after_exit} && $found > 0 && vec($out, fileno($status), 1) && !$late++) {
+        r##"last if $hook{cleanup_on_eof} && $found > 0 && vec($out, fileno(STDIN), 1);
+if ($hook{late_after_exit} && $found > 0 && vec($out, fileno($status), 1) && !$late++) {
     $skew += $hook{late_after_exit};
     $trace .= '!' if defined $trace;
 }
@@ -2876,11 +2880,11 @@ fn the_shipped_worker_script_has_no_test_hooks_and_the_tests_run_its_logic_x111(
     }
 }
 
-/// Starts `mode` (`run` or `detach`) of the hooked script of [`x111_root`] with its wake trace hook on: the owner
+/// Builds a command for `mode` (`run` or `detach`) of the hooked script of [`x111_root`] with its wake trace hook on: the owner
 /// appends one letter per pass of its monitor loop to `trace`, by what woke it (`e` a pipe, `w` the wake FIFO, `d` a
 /// deadline, `b` a busy retry, `p` the longest sleep), once it has ended and before its receipt. `env` sets further
 /// test hooks.
-fn x111_spawn(
+fn x111_command(
     supervisor: &Path,
     root: &Path,
     lease: &str,
@@ -2888,7 +2892,7 @@ fn x111_spawn(
     args: &[&str],
     trace: &Path,
     env: &[(&str, &str)],
-) -> std::io::Result<tokio::process::Child> {
+) -> tokio::process::Command {
     let mut command = tokio::process::Command::new("/usr/bin/perl");
     command
         .arg(supervisor)
@@ -2899,7 +2903,89 @@ fn x111_spawn(
         .env("MARATHON_D96_TEST_WAKES", trace)
         .envs(env.iter().copied())
         .kill_on_drop(true);
-    command.spawn()
+    command
+}
+
+/// Dropping a test's Tokio child kills only the owner, stranding the anchor in a different process group.
+struct X111Owner(Option<std::process::Child>);
+
+impl X111Owner {
+    fn spawn(mut command: tokio::process::Command) -> std::io::Result<Self> {
+        command
+            .env("MARATHON_D96_TEST_CLEANUP_ON_EOF", "1")
+            .stdin(std::process::Stdio::piped())
+            // Never let an orphan keep the test harness's pipes open, even if the owner crashes.
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        Ok(Self(Some(command.as_std_mut().spawn()?)))
+    }
+
+    async fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        let child = self.0.as_mut().expect("the guard owns its child until drop");
+        loop {
+            if let Some(status) = child.try_wait()? {
+                return Ok(status);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+}
+
+impl Drop for X111Owner {
+    fn drop(&mut self) {
+        let Some(mut child) = self.0.take() else { return };
+        drop(child.stdin.take());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while matches!(child.try_wait(), Ok(None)) {
+            // The descheduling hook may stop after the pipe closes. Keep resuming this unreaped child.
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(child.id() as i32),
+                nix::sys::signal::Signal::SIGCONT,
+            );
+            if std::time::Instant::now() >= deadline {
+                // Do not kill the owner at the hang guard: its waitpid is what reaps the anchor.
+                // Its stdio is isolated, so late cleanup cannot keep the test harness's pipes open.
+                let _ = std::thread::Builder::new().spawn(move || {
+                    let _ = child.wait();
+                });
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+}
+
+#[tokio::test]
+async fn dropping_a_stopped_x111_owner_reaps_its_anchor_u282() -> Result<(), Box<dyn std::error::Error>> {
+    if !Path::new("/usr/bin/perl").is_file() {
+        eprintln!("worker witness requires stock Perl");
+        return Ok(());
+    }
+    let (root, supervisor) = x111_root()?;
+    let files = tempfile::tempdir()?;
+    let stopped = files.path().join("stopped");
+    let token = "00000000000000000000000000000001";
+    let owner = X111Owner::spawn(x111_command(
+        &supervisor,
+        root.path(),
+        "600000",
+        "run",
+        &[token, "/bin/sleep", "600"],
+        &files.path().join("trace"),
+        &[
+            ("MARATHON_D96_TEST_FALLBACK_MS", "120000"),
+            ("MARATHON_D96_TEST_STOP_AT", "sleep"),
+            ("MARATHON_D96_TEST_STOP_FILE", stopped.to_str().unwrap()),
+        ],
+    ))?;
+    // This marker is written after the owner launched the payload, just before SIGSTOP.
+    d98_file(&stopped).await?;
+    drop(owner);
+    // The shipped cleanup only writes done once waitpid has reaped the anchor and the group is gone.
+    let (receipt, _) = d98_receipt(&supervisor, root.path(), token).await?;
+    assert_eq!(receipt, "done:125");
+    assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");
+    Ok(())
 }
 
 /// The traces the owners wrote, one line per supervised command.
@@ -2924,7 +3010,7 @@ async fn x111_stop_witness(kill_after_commit: bool) -> Result<(), Box<dyn std::e
     let token = "0123456789abcdef0123456789abcdef";
     let payload = r#"my ($int, $handler) = @ARGV; $SIG{INT} = sub { open my $f, '>', $int; close $f; exit 3 };
 open my $f, '>', $handler or die $!; close $f; while (1) { select undef, undef, undef, .01 }"#;
-    let owner = x111_spawn(
+    let mut owner = X111Owner::spawn(x111_command(
         &supervisor,
         root.path(),
         "600000",
@@ -2942,7 +3028,7 @@ open my $f, '>', $handler or die $!; close $f; while (1) { select undef, undef, 
             ("MARATHON_D96_TEST_FALLBACK_MS", "120000"),
             ("MARATHON_D96_TEST_PARKED", parked.to_str().unwrap()),
         ],
-    )?;
+    ))?;
     d98_file(&handler).await?;
     d98_file(&parked).await?;
     let requested = Instant::now();
@@ -2978,8 +3064,8 @@ open my $f, '>', $handler or die $!; close $f; while (1) { select undef, undef, 
     .await??;
     d98_file(&int).await?;
     println!("INT {:?} after the request", requested.elapsed());
-    let output = tokio::time::timeout(Duration::from_secs(60), owner.wait_with_output()).await??;
-    assert_eq!(output.status.code(), Some(3));
+    let status = tokio::time::timeout(Duration::from_secs(60), owner.wait()).await??;
+    assert_eq!(status.code(), Some(3));
     let (receipt, _) = d98_receipt(&supervisor, root.path(), token).await?;
     assert_eq!(receipt, "done:3");
     let traces = x111_traces(&trace)?;
@@ -3026,7 +3112,7 @@ async fn an_idle_supervised_command_and_recorder_wake_rarely_x111() -> Result<()
     // Both stay idle until the test releases them: the command polls for a file, the recorder (started, so its
     // stderr pipe is watched) waits for INT.
     let started = Instant::now();
-    let owner = x111_spawn(
+    let mut owner = X111Owner::spawn(x111_command(
         &supervisor,
         root.path(),
         "60000",
@@ -3040,10 +3126,10 @@ async fn an_idle_supervised_command_and_recorder_wake_rarely_x111() -> Result<()
         ],
         &trace,
         &[],
-    )?;
+    ))?;
     let payload = r#"$SIG{INT} = sub { exit 0 }; print STDERR "Recording started\n";
 open my $f, '>', $ARGV[0] or die $!; close $f; while (1) { select undef, undef, undef, .01 }"#;
-    let detached = x111_spawn(
+    let detached = x111_command(
         &supervisor,
         root.path(),
         "60000",
@@ -3051,7 +3137,8 @@ open my $f, '>', $ARGV[0] or die $!; close $f; while (1) { select undef, undef, 
         &[recorder, "/usr/bin/perl", "-e", payload, ready.to_str().unwrap()],
         &trace,
         &[],
-    )?;
+    )
+    .spawn()?;
     let output = tokio::time::timeout(Duration::from_secs(60), detached.wait_with_output()).await??;
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     d98_file(&ready).await?;
@@ -3069,8 +3156,8 @@ open my $f, '>', $ARGV[0] or die $!; close $f; while (1) { select undef, undef, 
     // An idle window long enough for the old 25 ms loop to pass a hundred times.
     tokio::time::sleep(Duration::from_secs(3)).await;
     std::fs::write(&release, b"")?;
-    let output = tokio::time::timeout(Duration::from_secs(60), owner.wait_with_output()).await??;
-    assert!(output.status.success());
+    let status = tokio::time::timeout(Duration::from_secs(60), owner.wait()).await??;
+    assert!(status.success());
     let reply = d98_control(&supervisor, root.path(), &format!("{recorder}:1")).await?;
     assert!(reply.starts_with(&format!("{recorder} recording:")), "{reply}");
     let (receipt, _) = d98_receipt(&supervisor, root.path(), recorder).await?;
@@ -3237,7 +3324,7 @@ async fn an_exit_seen_before_a_missed_deadline_keeps_its_own_status_x111() -> Re
         ("MARATHON_D96_TEST_KILL_LATER", "300000"),
     ];
     let command = "00000000000000000000000000000001";
-    let owner = x111_spawn(
+    let mut owner = X111Owner::spawn(x111_command(
         &supervisor,
         root.path(),
         "600000",
@@ -3251,18 +3338,18 @@ async fn an_exit_seen_before_a_missed_deadline_keeps_its_own_status_x111() -> Re
         ],
         &trace,
         &hooks[..3],
-    )?;
+    ))?;
     d98_file(&parked).await?;
     std::fs::write(&gate, b"")?;
-    let output = tokio::time::timeout(std::time::Duration::from_secs(60), owner.wait_with_output()).await??;
-    assert_eq!(output.status.code(), Some(0));
+    let status = tokio::time::timeout(std::time::Duration::from_secs(60), owner.wait()).await??;
+    assert_eq!(status.code(), Some(0));
     let (receipt, _) = d98_receipt(&supervisor, root.path(), command).await?;
     assert_eq!(receipt, "done:0");
     let recorder = "00000000000000000000000000000002";
     let ready = files.path().join("ready");
     let payload = r#"close STDERR; $SIG{TERM} = sub { exit 0 }; open my $f, '>', $ARGV[0] or die $!; close $f;
 while (1) { select undef, undef, undef, .01 }"#;
-    let detached = x111_spawn(
+    let detached = x111_command(
         &supervisor,
         root.path(),
         "600000",
@@ -3270,7 +3357,8 @@ while (1) { select undef, undef, undef, .01 }"#;
         &[recorder, "/usr/bin/perl", "-e", payload, ready.to_str().unwrap()],
         &trace,
         &[hooks[0], hooks[1], hooks[3]],
-    )?;
+    )
+    .spawn()?;
     let output = tokio::time::timeout(std::time::Duration::from_secs(60), detached.wait_with_output()).await??;
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     d98_file(&ready).await?;
@@ -3302,7 +3390,7 @@ async fn x111_descheduled_witness(point: &str) -> Result<(), Box<dyn std::error:
     let files = tempfile::tempdir()?;
     let (trace, stop) = (files.path().join("trace"), files.path().join("stop"));
     let command = "00000000000000000000000000000001";
-    let owner = x111_spawn(
+    let mut owner = X111Owner::spawn(x111_command(
         &supervisor,
         root.path(),
         "600000",
@@ -3314,7 +3402,7 @@ async fn x111_descheduled_witness(point: &str) -> Result<(), Box<dyn std::error:
             ("MARATHON_D96_TEST_STOP_AT", point),
             ("MARATHON_D96_TEST_STOP_FILE", stop.to_str().unwrap()),
         ],
-    )?;
+    ))?;
     d98_file(&stop).await?;
     let told = std::fs::read_to_string(&stop)?;
     let [pid, left] = told.split_whitespace().collect::<Vec<_>>()[..] else {
@@ -3338,10 +3426,10 @@ async fn x111_descheduled_witness(point: &str) -> Result<(), Box<dyn std::error:
     tokio::time::sleep(Duration::from_millis(left + 300)).await;
     let continued = Instant::now();
     nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), nix::sys::signal::Signal::SIGCONT)?;
-    let output = tokio::time::timeout(Duration::from_secs(60), owner.wait_with_output()).await??;
+    let status = tokio::time::timeout(Duration::from_secs(60), owner.wait()).await??;
     let late = continued.elapsed();
     println!("{point}: ended {late:?} after SIGCONT");
-    assert_eq!(output.status.code(), Some(137));
+    assert_eq!(status.code(), Some(137));
     assert!(late < Duration::from_millis(2500), "{point}: {late:?}");
     let (receipt, _) = d98_receipt(&supervisor, root.path(), command).await?;
     assert_eq!(receipt, "done:137");
@@ -3388,7 +3476,7 @@ async fn escalation_and_lease_expiry_end_with_their_receipts_x111() -> Result<()
     let ready = files.path().join("ready");
     let payload = r#"$SIG{TERM} = 'IGNORE'; print STDERR "Note: No display specified.\n";
 open my $f, '>', $ARGV[0] or die $!; close $f; while (1) { select undef, undef, undef, .01 }"#;
-    let detached = x111_spawn(
+    let detached = x111_command(
         &supervisor,
         root.path(),
         "60000",
@@ -3396,7 +3484,8 @@ open my $f, '>', $ARGV[0] or die $!; close $f; while (1) { select undef, undef, 
         &[recorder, "/usr/bin/perl", "-e", payload, ready.to_str().unwrap()],
         &files.path().join("recorder"),
         &[],
-    )?;
+    )
+    .spawn()?;
     let output = tokio::time::timeout(Duration::from_secs(60), detached.wait_with_output()).await??;
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     d98_file(&ready).await?;
@@ -3406,7 +3495,7 @@ open my $f, '>', $ARGV[0] or die $!; close $f; while (1) { select undef, undef, 
     assert_eq!(receipt.split(' ').next(), Some("done:137"));
     // A 1.5 s lease that nobody renews ends a command at its expiry.
     let command = "00000000000000000000000000000002";
-    let owner = x111_spawn(
+    let mut owner = X111Owner::spawn(x111_command(
         &supervisor,
         root.path(),
         "1500",
@@ -3414,9 +3503,9 @@ open my $f, '>', $ARGV[0] or die $!; close $f; while (1) { select undef, undef, 
         &[command, "/bin/sleep", "60"],
         &files.path().join("command"),
         &[],
-    )?;
-    let output = tokio::time::timeout(Duration::from_secs(60), owner.wait_with_output()).await??;
-    assert_eq!(output.status.code(), Some(137));
+    ))?;
+    let status = tokio::time::timeout(Duration::from_secs(60), owner.wait()).await??;
+    assert_eq!(status.code(), Some(137));
     let (receipt, _) = d98_receipt(&supervisor, root.path(), command).await?;
     assert_eq!(receipt, "done:137");
     assert_eq!(d98_retire(&supervisor, root.path()).await?, "MARATHON_D96_1 retired");

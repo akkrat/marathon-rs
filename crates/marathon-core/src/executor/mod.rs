@@ -91,7 +91,12 @@ impl CoreExecutor {
                     myself: myself.clone(),
                     clock,
                     tracker: tracker.clone(),
-                    vendor: Arc::new(IoRuntime { handle, tracker }),
+                    vendor: Arc::new(IoRuntime {
+                        handle,
+                        tracker,
+                        #[cfg(feature = "test-support")]
+                        next_join: Mutex::default(),
+                    }),
                     #[cfg(any(test, feature = "test-support"))]
                     completions: RefCell::new(Vec::new()),
                     log: Rc::default(),
@@ -268,15 +273,22 @@ impl VendorTask for IoTask {
         Box::pin(async move { self.result.wait().await.map(|_| ()) })
     }
 }
+#[cfg(feature = "test-support")]
+type PhysicalJoin = tokio::sync::oneshot::Sender<tokio::task::JoinHandle<()>>;
+
 struct IoRuntime {
     handle: tokio::runtime::Handle,
     tracker: Arc<Tracker>,
+    #[cfg(feature = "test-support")]
+    next_join: Mutex<Option<PhysicalJoin>>,
 }
 #[cfg(test)]
 pub(crate) fn vendor_on_current_runtime() -> impl VendorRuntime {
     IoRuntime {
         handle: tokio::runtime::Handle::current(),
         tracker: Arc::default(),
+        #[cfg(feature = "test-support")]
+        next_join: Mutex::default(),
     }
 }
 impl IoRuntime {
@@ -318,7 +330,14 @@ impl VendorRuntime for IoRuntime {
         self.spawn_cancellable(Box::new(move |_| body))
     }
     fn spawn_cancellable(&self, body: VendorTaskBody) -> Arc<dyn VendorTask> {
-        self.spawn_cancellable_tracked(body).0
+        let (task, physical) = self.spawn_cancellable_tracked(body);
+        #[cfg(feature = "test-support")]
+        if let Some(join) = self.next_join.lock().unwrap().take() {
+            let _ = join.send(physical);
+        }
+        #[cfg(not(feature = "test-support"))]
+        drop(physical);
+        task
     }
     fn spawn_blocking(&self, body: Box<dyn FnOnce() -> VendorResult<()> + Send>) -> Arc<dyn VendorTask> {
         let task = Arc::new(IoTask {
