@@ -33,6 +33,7 @@ rustls-native-certs = "=0.8.5"
 webpki-roots = "=1.0.11"
 hyper-timeout = "=0.5.2"
 tower-service = "=0.3.3"
+socket2 = "=0.6.5"
 
 [dev-dependencies]
 marathon-test-support = { path = "../marathon-test-support" }

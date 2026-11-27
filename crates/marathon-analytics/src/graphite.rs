@@ -133,12 +133,13 @@ impl DataSender for SocketSender {
                 let mut budget = self.limits.write;
                 let mut remaining = data.as_bytes();
                 if let Some((_, _, socket)) = cached.as_mut() {
-                    // Carbon plaintext sends no reply. Check for a FIN/RST before letting
-                    // the kernel buffer a write on a connection it already knows is dead.
-                    let usable = match socket.try_read(&mut [0; 1]) {
-                        Ok(n) => n != 0,
-                        Err(error) => error.kind() == io::ErrorKind::WouldBlock,
-                    };
+                    // Tokio's read readiness may lag a FIN already visible to the kernel.
+                    // Carbon sends no reply, so only an empty nonblocking receive queue is safe
+                    // to reuse. A FIN arriving after this probe can still race the write.
+                    let usable = matches!(
+                        socket2::SockRef::from(&*socket).peek(&mut [std::mem::MaybeUninit::uninit()]),
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock
+                    );
                     if usable {
                         let started = Monotonic::now();
                         match self.write(socket, &mut remaining, budget).await? {
@@ -287,6 +288,63 @@ mod tests {
     use super::*;
     use marathon_core::executor::Signal;
     use tokio::{io::AsyncReadExt, net::TcpListener};
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_closed_carbon_connection_delivers_the_next_payload_once_u284() -> OperationResult<()> {
+        let listener = TcpListener::bind("127.0.0.1:0").await.map_err(write_error)?;
+        let port = listener.local_addr().map_err(write_error)?.port();
+        let sender = SocketSender::default();
+        let signal = Signal::new();
+        timeout(Duration::from_secs(60), async {
+            sender
+                .send_data("127.0.0.1", port, "before 1 0\n".into(), signal.clone())
+                .await?;
+            let (mut first, _) = listener.accept().await.map_err(write_error)?;
+            let mut before = [0; b"before 1 0\n".len()];
+            first.read_exact(&mut before).await.map_err(write_error)?;
+            assert_eq!(&before, b"before 1 0\n");
+            drop(first);
+
+            // Wait for kernel EOF without polling Tokio's reactor, so its cached read
+            // readiness still predates the FIN when the next send starts.
+            {
+                let cached = sender.cached();
+                let (_, _, client) = cached.as_ref().expect("first send retains its connection");
+                let socket = socket2::SockRef::from(client);
+                let deadline = Monotonic::now() + Duration::from_secs(60);
+                loop {
+                    match socket.peek(&mut [std::mem::MaybeUninit::uninit()]) {
+                        Ok(0) => break,
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                            assert!(Monotonic::now() < deadline, "kernel did not report Carbon EOF");
+                            std::thread::sleep(Duration::from_millis(1));
+                        }
+                        result => panic!("expected Carbon EOF, got {result:?}"),
+                    }
+                }
+            }
+
+            sender
+                .send_data("127.0.0.1", port, "after 2 0\n".into(), signal)
+                .await?;
+            sender.close();
+            let listener = listener.into_std().map_err(write_error)?;
+            let (second, _) = listener.accept().map_err(|error| {
+                graphite_error(format!(
+                    "no replacement Carbon connection after successful second send: {error}"
+                ))
+            })?;
+            second.set_nonblocking(true).map_err(write_error)?;
+            let mut second = TcpStream::from_std(second).map_err(write_error)?;
+            let mut after = String::new();
+            second.read_to_string(&mut after).await.map_err(write_error)?;
+            assert_eq!(after, "after 2 0\n");
+            assert!(matches!(listener.accept(), Err(error) if error.kind() == io::ErrorKind::WouldBlock));
+            Ok(())
+        })
+        .await
+        .map_err(|_| graphite_error("Carbon graceful-close witness timed out".into()))?
+    }
 
     #[tokio::test]
     async fn a_reset_carbon_connection_is_reopened_without_losing_the_next_payload_u284() -> OperationResult<()> {
