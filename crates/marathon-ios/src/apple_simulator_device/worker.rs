@@ -229,6 +229,21 @@ impl AppleSimulatorDevice {
             .on_worker(self.executor.clone())
             .owned_by(receipt)
     }
+    pub(crate) async fn pull_device_log(&self, src: &str, dst: &Path) -> VendorResult<bool> {
+        let transfer = self.bridge.receive_device_log(src, dst, self.receive_stop());
+        self.finish_file_pull(src, dst, transfer).await
+    }
+    async fn finish_file_pull(&self, src: &str, dst: &Path, transfer: VendorFuture<'_, bool>) -> VendorResult<bool> {
+        let received = self
+            .measurement()
+            .measure_delivery(
+                jcompat::file_manager::file_path(dst.to_string_lossy().as_ref()),
+                transfer,
+                false,
+            )
+            .await;
+        self.gated_pull(received, src)
+    }
     /// U267: `pull_file` of a file published only if `check` accepts it, in the receive's D97 stage.
     pub async fn pull_checked(
         &self,
@@ -456,15 +471,8 @@ impl AppleDevice for AppleSimulatorDevice {
     }
     fn pull_file<'a>(&'a self, src: &'a str, dst: &'a Path, _: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
-            let received = self
-                .measurement()
-                .measure_delivery(
-                    jcompat::file_manager::file_path(dst.to_string_lossy().as_ref()),
-                    self.bridge.receive_with(src, dst, self.receive_stop()),
-                    false,
-                )
-                .await;
-            self.gated_pull(received, src)
+            let transfer = self.bridge.receive_with(src, dst, self.receive_stop());
+            self.finish_file_pull(src, dst, transfer).await
         })
     }
     fn push_folder<'a>(&'a self, src: &'a Path, dst: &'a str, context: &'a VendorContext) -> VendorFuture<'a, bool> {

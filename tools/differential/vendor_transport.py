@@ -502,13 +502,14 @@ def with_d43_flag(program, args):
 D97_WORKER_PATH = r'127\.0\.0\.1:/tmp/marathon/(?P<device>[A-Fa-f0-9-]{36})/'
 D97_REPORT_PATH = r'\{sandbox\}/in/report/'
 D97_STAGE = r'\.marathon-artifact-[A-Za-z0-9]{6}/'
+D97_DEVICE_LOG_SOURCE = D97_WORKER_PATH + r'device\.log'
+D97_DEVICE_LOG_DIRECTORY = D97_REPORT_PATH + r'device-logs/[^/]+/\{safe_serial\}/'
 D97_ARTIFACT_DESTINATIONS = (
     (D97_WORKER_PATH + r'(?P=device)\.[A-Fa-f0-9-]{36}\.xcresult',
      '(' + D97_REPORT_PATH + r'device-files/[^/]+/\{safe_serial\}/xcresult/)' + D97_STAGE + '()'),
     (D97_WORKER_PATH + r'[^/]+\.mp4(?:\.tmp)?',
      '(' + D97_REPORT_PATH + r'video/[^/]+/\{safe_serial\}/)' + D97_STAGE + r'([^/]+\.mp4)'),
-    (D97_WORKER_PATH + r'device\.log',
-     '(' + D97_REPORT_PATH + r'device-logs/[^/]+/\{safe_serial\}/)' + D97_STAGE + r'([^/]+)'),
+    (D97_DEVICE_LOG_SOURCE, '(' + D97_DEVICE_LOG_DIRECTORY + ')' + D97_STAGE + r'([^/]+)'),
 )
 
 
@@ -536,8 +537,31 @@ def d104_device_log_destination(args, declared_paths):
                 return
 
 
+def d106_log_compression(program, args):
+    """Normalize exactly the SSH compression option on a native iOS device-log receive."""
+    if program == 'rsync' and len(args) >= 2 and re.fullmatch(D97_DEVICE_LOG_SOURCE, args[-2]):
+        e.require(re.fullmatch(D97_DEVICE_LOG_DIRECTORY + D97_STAGE + r'[^/]+', args[-1]),
+                  'D106 expected a staged device-log destination')
+        e.require(args.count('--rsh') == 1, 'D106 expected one remote shell')
+        pos = args.index('--rsh') + 1
+        prefix = ' -F /dev/null '
+        rsh = args[pos]
+        e.require(rsh.count(prefix + '-C ') == 1 and shlex.split(rsh).count('-C') == 1,
+                  'D106 expected one device-log compression option in the remote shell')
+        args[pos] = rsh.replace(prefix + '-C ', prefix, 1)
+    if program == 'ssh' and args[-2:-1] == ['.'] and re.fullmatch(D97_DEVICE_LOG_SOURCE, '127.0.0.1:' + args[-1]):
+        worker = args.index('127.0.0.1') + 1
+        if args[worker:worker+3] != ['/usr/bin/rsync', '--server', '--sender']:
+            return
+        host = args[:worker-1]
+        e.require(host.count('-F') == 1 and host.count('-C') == 1, 'D106 expected one SSH compression option')
+        pos = host.index('-F') + 1
+        e.require(host[pos:pos+2] == ['/dev/null', '-C'], 'D106 misplaced SSH compression option')
+        del args[pos+1]
+
+
 def host_argv(data, values, before_d31=False, d97_native_staging=False, *, d96_worker=False, sender_tokens=None,
-              d104_historical=(), d100_stream=False):
+              d104_historical=(), d100_stream=False, d106_compression=False):
     lanes, wrapped = defaultdict(list), defaultdict(set)
     def sender(program, argv):
         identity = _d96_sender(argv)
@@ -580,6 +604,8 @@ def host_argv(data, values, before_d31=False, d97_native_staging=False, *, d96_w
                 e.require(' -p ' + values['port'] + ' ' in arg,'inconsistent --rsh port')
                 arg = arg.replace(' -p ' + values['port'] + ' ',' -p {port} ')
             args[i] = arg
+        if d106_compression:
+            d106_log_compression(row['program'], args)
         if row['program'] == 'ssh':
             index = args.index('/usr/bin/rsync')
             remote = args[index:]

@@ -32,6 +32,8 @@ The section for a version becomes the text of its GitHub release, which carries 
   busy workers can reclaim confirmed command receipts before shutdown (U276–U279).
 - Screenshot recording on remote iOS simulators no longer opens a new SSH login per frame (D100).
   If you use a forced command that filters SSH execs, see the [migration note](docs/migration.md#ios-screenshot-streaming).
+- Device logs from remote iOS simulators transfer with SSH compression when available, reducing the time between
+  batches with `deviceLog: true`. Report files and worker allowlists are unchanged (D106).
 
 ## 0.15.6
 

@@ -398,6 +398,50 @@ async fn log_disabled_no_pid_and_failed_pull_reports_undelivered_d97() -> TestRe
     Ok(())
 }
 #[tokio::test(start_paused = true)]
+async fn device_log_receive_error_can_lose_the_device_after_results_are_published() -> TestResult {
+    for mode in [1, 3] {
+        let h = harness(|v| {
+            v.device_log = true;
+            v.screen_record_configuration.video_configuration.enabled = false;
+            v.screen_record_configuration.screenshot_configuration.enabled = false;
+        })?;
+        let bridge = Arc::new(Bridge::default());
+        bridge.mode.store(mode, Ordering::SeqCst);
+        let d = device(&h, bridge.clone()).await?;
+        h.prepare(&d).await.map_err(|e| e.failure().to_string())?;
+        let script = Arc::new(simulator_support::BatchScript::default());
+        script.attach(&h.worker);
+        script.output(simulator_support::passed(1));
+        let boot = h.boot.clone();
+        *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
+            let answer = if cmd.get(2).is_some_and(|s| s.contains("log stream")) {
+                Some(ok(["12"]))
+            } else {
+                boot.answer(&cmd)
+            };
+            Box::pin(async move { Ok(answer) })
+        });
+
+        let (outcome, results) = simulator_support::run(&h, &d).await;
+        assert_eq!(results.unwrap().finished.len(), 1);
+        assert_eq!(bridge.pulls.lock().unwrap().len(), 1);
+        if mode == 3 {
+            let Err(VendorError::DeviceLost(lost)) = outcome else {
+                panic!("log error should lose the device in its own batch: {outcome:?}");
+            };
+            let cause = lost.cause.unwrap();
+            assert_eq!(cause.kind, FailureKind::IllegalState);
+            assert_eq!(cause.message.as_deref(), Some("other"));
+            assert!(d.lost());
+        } else {
+            assert!(outcome.is_ok(), "a false receive is diagnostic only: {outcome:?}");
+            assert!(!d.lost());
+        }
+        h.finish(&[d]).await;
+    }
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
 async fn data_clear_disabled_avoids_identification_and_unlocated_test_fails() -> TestResult {
     for enabled in [false, true] {
         let h = harness(|v| v.data_container_clear = enabled)?;

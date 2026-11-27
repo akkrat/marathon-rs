@@ -109,7 +109,8 @@ impl AppleTestRunListener for DeviceLogListener {
             let local = self.c.file(FileType::DeviceLog, None).await?;
             let remote = self.c.device.remote_file_manager().remote_log();
             let start = self.c.millis("ios.DeviceLogListener.pullLogfile")?;
-            let pulled = self.c.device.pull_file(&remote, &local, &self.c.context).await;
+            // A receive error can retire this simulator in the originating batch, unlike an undelivered xcresult.
+            let pulled = self.c.device.pull_device_log(&remote, &local).await;
             if !matches!(pulled, Ok(true)) {
                 self.c.log(
                     &self.logger,

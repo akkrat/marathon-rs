@@ -119,6 +119,7 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 | filter SSH exec or rsync senders on Apple workers ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)) | D96 is new in 0.15.0. Stock `/usr/bin/perl` with its core modules is optional and recommended. A successful pull verifies the sender through rsync's own status. The independent control connection keeps one exec open and can retry token requests on a spare command session. | Allow bootstrap, supervised requests, token controls and supervisor retirement. Allow `control-stream` with stdin intact. Use `exec` to run the original supervised command so a wrapper failure arrives as an SSH signal. |
 | filter iOS video commands on the worker ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)) | A supervised recorder detaches and releases its SSH session after launch. Token control sends INT to finalize it and can escalate to TERM and KILL. `timeoutConfiguration.video` bounds the open. | Allow the supervisor bootstrap, detached launcher and token controls. Without Perl, allow the legacy `nohup` launcher, pidfile commands and PID-based stop. OpenSSH rejects channel signals for forced commands and subsystems. |
 | filter iOS screenshot commands on the worker ([D100](deviations.md#d100--stream-ios-screenshots-over-the-existing-ssh-connection)) | A screenshot frame is captured and streamed on the existing SSH connection. No screenshot rsync sender is launched. | Allow the bounded screenshot shell wrapper. [See below](#ios-screenshot-streaming). |
+| wrap the SSH client for iOS device-log transfers ([D106](deviations.md#d106--compress-ios-device-logs-over-ssh)) | The rsync remote shell requests SSH compression for device-log receives only. | Accept `-C` in a controller-side SSH wrapper. Worker forced commands and allowlists need no change. [See below](#ios-device-log-compression). |
 | have a forced command or wrapper on an iOS or macOS worker ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails), [D32](deviations.md#d32--xcodebuild-on-a-worker-runs-unbuffered)) | xcodebuild is sent as `env NSUnbufferedIO=YES xcrun xcodebuild …`. Sends and pulls carry `--timeout=300` ([D43](deviations.md#d43--an-rsync-receive-has-a-limit-on-progress)). On a host with rsync 3 the worker's `rsync --server` gets it too, and so does a wrapper set with `RSYNC4J_RSYNC`. | Match `env NSUnbufferedIO=YES xcrun xcodebuild` at the start of `SSH_ORIGINAL_COMMAND`, keep `env` on the worker's `PATH`, and accept the new flag. |
 | run iOS 16 or 17 simulators on a slow host or link ([D38](deviations.md#d38--a-failed-readiness-probe-means-not-running)) | On runtimes 16 and 17 a readiness probe still returns about 20 MB, and a failed or timed-out probe now means "not running". It must arrive within `shell` (30 s by default). From runtime 18 on the probe is about 100 KB ([D46](deviations.md#d46--the-readiness-probe-is-launchctl-print-userforeground-from-runtime-18)). | Raise `shell` on 16 and 17. The time a simulator can then spend is in [D38](deviations.md#d38--a-failed-readiness-probe-means-not-running). |
 | have a forced command or filter on an iOS worker that allows the readiness probe ([D46](deviations.md#d46--the-readiness-probe-is-launchctl-print-userforeground-from-runtime-18)) | On iOS 18 and later the probe is `xcrun simctl spawn <udid> launchctl print user/foreground`, where it was `… launchctl dumpstate user/foreground/com.apple.SpringBoard`. Runtimes 16 and 17 still send `dumpstate`. | Allow the new command too. A filter that refuses it makes every probe fail, and the simulator leaves the run after its setups (D38). |
@@ -152,7 +153,7 @@ already existed for about two seconds; a stalled console can now hold exit for
 up to 60 seconds. A wrapper needing a hard stop then must use SIGKILL.
 
 The D68–D81 notes apply to 0.14.0. The D82–D88 and D90–D97 notes apply when moving from 0.14.0 to 0.15.0 (D89 was not
-used), D98 when moving from 0.15.0 to 0.15.1, D99 when moving from 0.15.5 to 0.15.6, and D100 after 0.15.6.
+used), D98 when moving from 0.15.0 to 0.15.1, D99 when moving from 0.15.5 to 0.15.6, and D100 and D106 after 0.15.6.
 All of these notes also apply when migrating from Kotlin. D71 is
 in the table above, and so are D85, D86, D87 and D96.
 
@@ -323,6 +324,13 @@ included in new reports.
 [D105](deviations.md#d105--a-full-remote-metrics-queue-does-not-delay-tests) is new after 0.15.6. Full remote analytics
 queues now drop incoming metric events instead of delaying a batch. No configuration change is needed. Check for
 `queue full` in the rejection summary when history is sparse. Local results and the shutdown deadline are unchanged.
+
+### iOS device log compression
+
+[D106](deviations.md#d106--compress-ios-device-logs-over-ssh) needs no Marathonfile or worker forced-command changes.
+The controller adds `-C` to the OpenSSH invocation used by rsync to receive a simulator's `device.log`. A wrapper
+that checks controller-side SSH arguments must pass it through. Compression is negotiated with the worker, and
+the worker receives the same rsync sender command either way.
 
 ### iOS recorder warnings
 

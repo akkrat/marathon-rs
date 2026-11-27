@@ -1435,6 +1435,42 @@ class VendorEvidenceTests(unittest.TestCase):
         # An older record is not given it on the version form, and neither program but rsync gets it.
         self.assertEqual(self.d31_argv(('rsync',version))(True)['rsync:/tmp'][0]['argv'],version)
 
+    def test_d106_requires_ssh_compression_only_for_the_native_device_log_pull(self):
+        import vendor_transport as t
+        values = dict(sandbox='/sandbox', safe_serial='serial', port='1')
+        source = '/tmp/marathon/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE/device.log'
+        dest = '/sandbox/in/report/device-logs/pool/serial/'
+        stage = dest + '.marathon-artifact-A0b1C2/batch.log'
+        remote = ['127.0.0.1', '/usr/bin/rsync', '--server', '--sender', '-r', '.', source]
+        host = ['-F', '/dev/null', '-p', '1']
+        rsh = "ssh -o 'StrictHostKeyChecking no' -F /dev/null -p 1 "
+        compressed = rsh.replace('/dev/null ', '/dev/null -C ')
+
+        def normalized(shell, ssh, src=source, dst=stage, capture=True, sender=remote):
+            rows = [dict(event='host_argv', program='rsync', argv=['--rsh', shell, '127.0.0.1:' + src, dst]),
+                    dict(event='host_argv', program='ssh', argv=ssh + sender)]
+            data = b''.join(json.dumps(row).encode() + b'\n' for row in rows)
+            return t.host_argv(data, values, d97_native_staging=capture, d106_compression=capture)
+
+        old = normalized(rsh, host, dst=dest + 'batch.log', capture=False)
+        new = ['-F', '/dev/null', '-C', '-p', '1']
+        self.assertEqual(old, normalized(compressed, new))
+        for bad_rsh in (rsh, compressed + '-C ', rsh + '-C '):
+            with self.assertRaisesRegex(e.Invalid, 'D106.*compression'):
+                normalized(bad_rsh, new)
+        for bad_ssh in (host, new + ['-C'], host + ['-C']):
+            with self.assertRaisesRegex(e.Invalid, 'D106.*compression'):
+                normalized(compressed, bad_ssh)
+        with self.assertRaisesRegex(e.Invalid, 'D106.*destination'):
+            normalized(compressed, new, dst=stage.replace('device-logs', 'video'))
+
+        other = source.replace('device.log', 'video.mp4')
+        other_sender = remote[:-1] + [other]
+        self.assertNotEqual(normalized(rsh, host, src=other, sender=other_sender),
+                            normalized(compressed, new, src=other, sender=other_sender))
+        # Keep changes to the legacy record visible.
+        self.assertNotEqual(old, normalized(compressed, new, dst=dest + 'batch.log', capture=False))
+
     def test_d31_d43_an_older_record_that_already_has_the_flag_is_refused(self):
         with self.assertRaisesRegex(e.Invalid,'D31 flag'):
             self.d31_argv(('rsync',['--times','--timeout=300','/src','127.0.0.1:/tmp/marathon/x']))(True)

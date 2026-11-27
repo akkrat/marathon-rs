@@ -258,6 +258,10 @@ pub trait FileBridge: Send + Sync {
         let _ = stop;
         self.receive(src, dst)
     }
+    /// D106: a device log can benefit from transport compression. Otherwise this is an ordinary receive.
+    fn receive_device_log<'a>(&'a self, src: &'a str, dst: &'a Path, stop: TransferStop) -> VendorFuture<'a, bool> {
+        self.receive_with(src, dst, stop)
+    }
     /// U267: `receive_with` of a file that is published only if `check` accepts it. A bridge checks the received file
     /// before it publishes it, so a rejected file never reaches `dst` and any earlier file there stays: the staging
     /// bridges run `check` in the receive's D97 stage, on their blocking threads, before the stage's rename.

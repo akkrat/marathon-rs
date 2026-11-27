@@ -730,7 +730,8 @@ def normalized(directory, contract, native=False):
                         data, record['identities'], historical,
                         d97_native_staging=record['implementation'] == 'native',
                         d96_worker=not historical,
-                        d104_historical=contract['paths'] if historical else (), d100_stream=streaming)
+                        d104_historical=contract['paths'] if historical else (), d100_stream=streaming,
+                        d106_compression=contract['vendor'].startswith('ios-') and not historical)
                 elif contract['transport'] == 'ssh':
                     content = vendor_transport.ssh(
                         data,contract['vendor'],historical,d96_recorder_transport=True,

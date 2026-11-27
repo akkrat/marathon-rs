@@ -149,6 +149,7 @@ struct Admission {
 enum ReceiveName {
     Source,
     Bundle,
+    DeviceLog,
 }
 impl RsyncFileBridge {
     #[allow(clippy::too_many_arguments)]
@@ -264,7 +265,7 @@ impl RsyncFileBridge {
     }
     /// The rsync argv before the launcher selects the host password transport.
     pub fn arguments(&self, source: String, destination: String) -> VendorResult<Vec<String>> {
-        self.0.arguments(source, destination, None)
+        self.0.arguments(source, destination, None, None)
     }
 }
 #[derive(Clone)]
@@ -361,6 +362,7 @@ impl Inner {
         source: String,
         destination: String,
         worker: Option<&WorkerRsync>,
+        publication: Option<ReceiveName>,
     ) -> VendorResult<Vec<String>> {
         let auth = worker
             .map(|worker| &worker.auth)
@@ -390,6 +392,10 @@ impl Inner {
         );
         args.push(format!("--timeout={TRANSFER_IO_TIMEOUT_SECONDS}"));
         let mut rsh = "ssh -o 'StrictHostKeyChecking no' -F /dev/null ".to_owned();
+        // D106: negotiate compression on just this transport. The worker sender's argv is unchanged.
+        if publication == Some(ReceiveName::DeviceLog) {
+            rsh.push_str("-C ");
+        }
         let interval = self.ssh.keep_alive_interval.seconds();
         if interval > 0 {
             rsh.push_str(&format!(
@@ -1087,7 +1093,7 @@ impl Inner {
         let auth = worker.as_ref().map(|worker| &worker.auth).or(self.auth.as_ref());
         let mut outcome = self
             .process(
-                self.arguments(source.clone(), destination.clone(), worker.as_ref())?,
+                self.arguments(source.clone(), destination.clone(), worker.as_ref(), publication)?,
                 arriving,
                 match auth {
                     Some(SshAuthentication::Password { password, .. }) => Some(password.clone()),
@@ -1907,6 +1913,14 @@ impl FileBridge for RsyncFileBridge {
     fn receive_with<'a>(&'a self, src: &'a str, dst: &'a Path, stop: TransferStop) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             Ok(self.receive_staged(src, dst, stop, ReceiveName::Source, None).await? == Received::Published)
+        })
+    }
+    fn receive_device_log<'a>(&'a self, src: &'a str, dst: &'a Path, stop: TransferStop) -> VendorFuture<'a, bool> {
+        Box::pin(async move {
+            Ok(self
+                .receive_staged(src, dst, stop, ReceiveName::DeviceLog, None)
+                .await?
+                == Received::Published)
         })
     }
     fn receive_bundle<'a>(&'a self, src: &'a str, dst: &'a Path, stop: TransferStop) -> VendorFuture<'a, bool> {

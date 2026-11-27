@@ -3477,3 +3477,16 @@ Approved 2026-11-27 (project owner's decision).
 
 **Migration action.** No configuration changes. Check the queue-full rejection count if history-based sorting,
 batching or flakiness strategies have less data in later runs. Use local reports for complete test results.
+
+## D106 — Compress iOS device logs over SSH
+
+**Approved 2026-11-27 (project owner's decision).** With `deviceLog: true`, an iOS simulator's log reached the
+controller uncompressed while its batch waited for the rsync receive. OpenSSH now requests compression (`-C`) on
+that file's rsync connection only. If the SSH peer does not offer compression, the connection can still use the
+uncompressed transport. The worker-side `log stream` and rsync sender commands are unchanged, as are other rsync
+transfers, local simulators and the device log's report path and bytes.
+
+The batch still waits for the receive and handles its result as before. A failed delivery can be diagnostic only,
+but a receive error such as an illegal state can remove the simulator from the pool in that batch. Deferring the
+receive to the result-bundle queue would change that behavior. See [x125 findings](wp/x125-findings.md) for the
+measurements and [the migration note](migration.md#ios-device-log-compression) for SSH wrappers.

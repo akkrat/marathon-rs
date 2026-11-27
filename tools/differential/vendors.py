@@ -379,7 +379,7 @@ def validate_record(directory, contract, record):
         else:
             t.check_new_native_transfer(artifact('transcript.jsonl'))
         t.host_argv(artifact('host-argv.jsonl'), record['identities'], d96_worker=live, sender_tokens=senders,
-                    d100_stream=d100_stream)
+                    d100_stream=d100_stream, d106_compression=live and contract['vendor'].startswith('ios-'))
         state = e.loads(artifact('state.json'))
         e.require(not state['deferred'] and all(s['state'] == 'finished' for s in state['sessions']),
                   'unfinished Apple world state')
