@@ -18,11 +18,15 @@ use marathon_core::{
     runtime::*,
 };
 use marathon_error::{AnalyticsKind, FailureKind};
-use std::{sync::Arc, time::Duration};
+use std::{
+    io,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio::{
     io::AsyncWriteExt,
     net::{TcpStream, lookup_host},
-    time::timeout,
+    time::{Instant as Monotonic, timeout},
 };
 
 pub struct GraphiteMetric {
@@ -38,13 +42,15 @@ pub trait DataSender: Send + Sync {
         data: String,
         cancellation: Arc<dyn CancellationSignal>,
     ) -> ServiceFuture<'a, ()>;
+
+    fn close(&self) {}
 }
-/// D51: Kotlin has no timeout on either, and each send holds the Carbon connection.
+/// D51: Kotlin has no timeout on either connect or write.
 #[derive(Clone, Copy)]
 pub struct CarbonLimits {
     /// Name lookup and connect together.
     pub connect: Duration,
-    /// Write and shutdown together.
+    /// Total time allowed for writing one payload, including a retry.
     pub write: Duration,
 }
 impl Default for CarbonLimits {
@@ -58,12 +64,58 @@ impl Default for CarbonLimits {
         }
     }
 }
-#[derive(Clone, Copy, Default)]
+#[derive(Default)]
 pub struct SocketSender {
-    pub limits: CarbonLimits,
+    limits: CarbonLimits,
+    cached: Mutex<Option<(String, u16, TcpStream)>>,
 }
 fn graphite_error(message: String) -> OperationError {
     failure(FailureKind::Analytics(AnalyticsKind::Graphite), &message).into()
+}
+fn write_error(error: io::Error) -> OperationError {
+    graphite_error(format!("Error while writing data to graphite: {error}"))
+}
+impl SocketSender {
+    pub fn new(limits: CarbonLimits) -> Self {
+        Self {
+            limits,
+            ..Self::default()
+        }
+    }
+
+    fn cached(&self) -> std::sync::MutexGuard<'_, Option<(String, u16, TcpStream)>> {
+        self.cached.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    async fn connect(&self, host: &str, port: u16) -> OperationResult<TcpStream> {
+        let connect = async {
+            let addresses = lookup_host((host, port))
+                .await
+                .map_err(|_| graphite_error(format!("Unknown host: {host}")))?
+                .collect::<Vec<_>>();
+            TcpStream::connect(addresses.as_slice()).await.map_err(write_error)
+        };
+        timeout(self.limits.connect, connect).await.map_err(|_| {
+            graphite_error(format!(
+                "Error while writing data to graphite: connect timed out after {} ms",
+                self.limits.connect.as_millis()
+            ))
+        })?
+    }
+
+    async fn write(
+        &self,
+        socket: &mut TcpStream,
+        remaining: &mut &[u8],
+        budget: Duration,
+    ) -> OperationResult<io::Result<()>> {
+        timeout(budget, socket.write_all_buf(remaining)).await.map_err(|_| {
+            graphite_error(format!(
+                "Error while writing data to graphite: write timed out after {} ms",
+                self.limits.write.as_millis()
+            ))
+        })
+    }
 }
 impl DataSender for SocketSender {
     fn send_data<'a>(
@@ -74,41 +126,46 @@ impl DataSender for SocketSender {
         cancellation: Arc<dyn CancellationSignal>,
     ) -> ServiceFuture<'a, ()> {
         Box::pin(async move {
-            let limits = self.limits;
             let send = async {
-                let connect = async {
-                    let addresses = lookup_host((host, port))
-                        .await
-                        .map_err(|_| graphite_error(format!("Unknown host: {host}")))?
-                        .collect::<Vec<_>>();
-                    TcpStream::connect(addresses.as_slice())
-                        .await
-                        .map_err(|e| graphite_error(format!("Error while writing data to graphite: {e}")))
-                };
-                let mut socket = timeout(limits.connect, connect).await.map_err(|_| {
-                    graphite_error(format!(
-                        "Error while writing data to graphite: connect timed out after {} ms",
-                        limits.connect.as_millis()
-                    ))
-                })??;
-                let write = async {
-                    socket.write_all(data.as_bytes()).await?;
-                    socket.shutdown().await
-                };
-                timeout(limits.write, write)
-                    .await
-                    .map_err(|_| {
-                        graphite_error(format!(
-                            "Error while writing data to graphite: write timed out after {} ms",
-                            limits.write.as_millis()
-                        ))
-                    })?
-                    .map_err(|e| graphite_error(format!("Error while writing data to graphite: {e}")))?;
+                // The remote delivery task is the single writer. Move the socket out so no lock
+                // is held during I/O, and cancellation or a partial write cannot put it back.
+                let mut cached = self.cached().take().filter(|(h, p, _)| h == host && *p == port);
+                let mut budget = self.limits.write;
+                let mut remaining = data.as_bytes();
+                if let Some((_, _, socket)) = cached.as_mut() {
+                    // Carbon plaintext sends no reply. Check for a FIN/RST before letting
+                    // the kernel buffer a write on a connection it already knows is dead.
+                    let usable = match socket.try_read(&mut [0; 1]) {
+                        Ok(n) => n != 0,
+                        Err(error) => error.kind() == io::ErrorKind::WouldBlock,
+                    };
+                    if usable {
+                        let started = Monotonic::now();
+                        match self.write(socket, &mut remaining, budget).await? {
+                            Ok(()) => {
+                                *self.cached() = cached;
+                                return Ok(());
+                            }
+                            // Replay only if none of this payload reached the socket.
+                            Err(error) if remaining.len() != data.len() => return Err(write_error(error)),
+                            Err(_) => budget = budget.saturating_sub(started.elapsed()),
+                        }
+                    }
+                }
+                drop(cached);
+                let mut socket = self.connect(host, port).await?;
+                self.write(&mut socket, &mut remaining, budget)
+                    .await?
+                    .map_err(write_error)?;
+                *self.cached() = Some((host.to_owned(), port, socket));
                 Ok(())
             };
             // Approved P3: typed cancellation interrupts a stuck carbon write. D51 adds the limits.
             tokio::select! {biased; reason=cancellation.cancelled()=>Err(reason.into()),result=send=>result}
         })
+    }
+    fn close(&self) {
+        self.cached().take();
     }
 }
 pub struct BasicGraphiteClient {
@@ -182,6 +239,12 @@ impl TrackerInternalAdapter for GraphiteTracker {
     fn test<'a>(&'a self, event: &'a TestEvent) -> VendorFuture<'a, ()> {
         Box::pin(async move { self.track_test(event).await.map_err(vendor) })
     }
+    fn close(&self) -> ServiceFuture<'_, ()> {
+        Box::pin(async move {
+            self.client.sender.close();
+            Ok(())
+        })
+    }
 }
 pub struct QueryableGraphiteClient {
     // OkHttp parses the URL per call, so an invalid host fails each query
@@ -216,5 +279,47 @@ impl GraphiteQuery for QueryableGraphiteClient {
                 .map(str::to_owned)
                 .collect())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use marathon_core::executor::Signal;
+    use tokio::{io::AsyncReadExt, net::TcpListener};
+
+    #[tokio::test]
+    async fn a_reset_carbon_connection_is_reopened_without_losing_the_next_payload_u284() -> OperationResult<()> {
+        let listener = TcpListener::bind("127.0.0.1:0").await.map_err(write_error)?;
+        let addr = listener.local_addr().map_err(write_error)?;
+        let sender = SocketSender::default();
+        let signal = Signal::new();
+        timeout(Duration::from_secs(60), async {
+            sender
+                .send_data("127.0.0.1", addr.port(), "before 1 0\n".into(), signal.clone())
+                .await?;
+            let (mut first, _) = listener.accept().await.map_err(write_error)?;
+            let mut before = [0; b"before 1 0\n".len()];
+            first.read_exact(&mut before).await.map_err(write_error)?;
+            assert_eq!(&before, b"before 1 0\n");
+            first.set_zero_linger().map_err(write_error)?;
+            drop(first);
+            // Wait for the kernel to report the reset, rather than racing its notification.
+            let cached = sender.cached().take().expect("first send retains its connection");
+            cached.2.readable().await.map_err(write_error)?;
+            *sender.cached() = Some(cached);
+
+            sender
+                .send_data("127.0.0.1", addr.port(), "after 2 0\n".into(), signal)
+                .await?;
+            sender.close();
+            let (mut second, _) = listener.accept().await.map_err(write_error)?;
+            let mut after = String::new();
+            second.read_to_string(&mut after).await.map_err(write_error)?;
+            assert_eq!(after, "after 2 0\n");
+            Ok(())
+        })
+        .await
+        .map_err(|_| graphite_error("Carbon reset witness timed out".into()))?
     }
 }

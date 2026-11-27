@@ -2474,6 +2474,8 @@ device never becomes ready. D49's per-run request-loss limit does not trigger th
 
 ## D86 — Remote metrics use bounded buffering
 
+[D105](#d105--a-full-remote-metrics-queue-does-not-delay-tests) supersedes the admission wait and its expiry-triggered cool-off.
+
 Batch completion previously awaited each remote tracking call. A Carbon connection per eligible result put its
 connect and write time on that path. InfluxDB v2 issued a request per result. InfluxDB v1 usually returned after
 enqueueing a point, but a full 1,000-point channel made the next result wait for the writer
@@ -3389,3 +3391,22 @@ unedited: the queue replay leaves out the C5 recording as it does D69's (its nat
 
 **Migration action:** none. A dashboard that compared the summary's passed and failed counts with the number of tests
 could see the difference close.
+
+
+## D105 — A full remote metrics queue does not delay tests
+
+Under [D86](#d86--remote-metrics-use-bounded-buffering), after 1,000 events queued behind a slow metrics sender,
+batch completion could wait up to 30 seconds for a slot. A scheduler run with a held Carbon send used that
+allowance before it started its next batch. The same saturation occurred with a real InfluxDB 2 client waiting
+for a loopback HTTP response. See the [x124 findings](wp/x124-findings.md).
+
+**Native behaviour.** A full queue rejects the incoming event immediately. It does not evict queued events or
+start a cool-off. The worker sends admitted events in order and can accept new events as soon as room returns.
+The first rejection warns during the run, and the final release gives the total by cause, including queue-full
+drops. Actual slow send failures still start the five-minute D51 cool-off, and the shutdown drain and flush
+still share 30 seconds.
+
+Approved 2026-11-27 (project owner's decision).
+
+**Migration action.** No configuration changes. Check the queue-full rejection count if history-based sorting,
+batching or flakiness strategies have less data in later runs. Use local reports for complete test results.

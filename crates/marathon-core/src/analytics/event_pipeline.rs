@@ -24,7 +24,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{Notify, mpsc, oneshot},
+    sync::{mpsc, oneshot},
     time::{Instant as Deadline, sleep_until},
 };
 
@@ -261,7 +261,6 @@ impl GuardState {
 #[derive(Default)]
 struct BackendState {
     guard: Mutex<GuardState>,
-    changed: Notify,
 }
 impl BackendState {
     fn lock(&self) -> std::sync::MutexGuard<'_, GuardState> {
@@ -303,9 +302,6 @@ impl BackendGuard {
             let announce = slow && !std::mem::replace(&mut state.announced_skip, true);
             (first_of_kind, announce)
         };
-        if slow {
-            self.state.changed.notify_waiters();
-        }
         if first_of_kind {
             let text = "Cannot send test metrics to the analytics backend; the run carries on. Each kind of failure is logged once";
             (self.log)(&self.logger, Level::WARN, text, Some(failure));
@@ -391,7 +387,7 @@ impl TrackerInternal for BackendGuard {
 }
 
 // At about 34 events/s this backlog fits D51's 30 s drain allowance for any backend.
-// More buffering would delay backpressure and leave a larger backlog at shutdown.
+// More buffering would defer dropping metrics but leave a larger backlog at shutdown.
 const REMOTE_QUEUE_CAPACITY: usize = 1000;
 
 struct RemoteAdmission {
@@ -401,7 +397,7 @@ struct RemoteAdmission {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Rejected {
-    WaitExpired,
+    QueueFull,
     CoolingOff,
     Closing,
     WorkerStopped,
@@ -409,7 +405,7 @@ enum Rejected {
 impl Rejected {
     fn reason(self) -> &'static str {
         match self {
-            Self::WaitExpired => "the queue wait expired",
+            Self::QueueFull => "the queue is full",
             Self::CoolingOff => "the backend is cooling off",
             Self::Closing => "admission has closed",
             Self::WorkerStopped => "the delivery task stopped",
@@ -419,19 +415,19 @@ impl Rejected {
 
 #[derive(Default)]
 struct RejectedCounts {
-    wait_expired: u64,
+    queue_full: u64,
     cooling_off: u64,
     closing: u64,
     worker_stopped: u64,
 }
 impl RejectedCounts {
     fn total(&self) -> u64 {
-        self.wait_expired + self.cooling_off + self.closing + self.worker_stopped
+        self.queue_full + self.cooling_off + self.closing + self.worker_stopped
     }
     fn add(&mut self, reason: Rejected) -> bool {
         let first = self.total() == 0;
         match reason {
-            Rejected::WaitExpired => self.wait_expired += 1,
+            Rejected::QueueFull => self.queue_full += 1,
             Rejected::CoolingOff => self.cooling_off += 1,
             Rejected::Closing => self.closing += 1,
             Rejected::WorkerStopped => self.worker_stopped += 1,
@@ -471,63 +467,24 @@ impl RemoteTracker {
         }
     }
 
-    fn with_admission<T>(
-        &self,
-        action: impl FnOnce(&mpsc::Sender<Event>, &mut GuardState) -> Result<T, Rejected>,
-    ) -> Result<T, Rejected> {
+    fn admit(&self, event: &Event) -> Result<(), Rejected> {
         let admission = self.admission.lock().unwrap_or_else(|e| e.into_inner());
         let sender = &admission.as_ref().ok_or(Rejected::Closing)?.sender;
         if sender.is_closed() {
             return Err(Rejected::WorkerStopped);
         }
-        // Keep either transition from racing an enqueue, including an enqueue with a reserved permit.
-        let mut state = self.state.lock();
+        // Keep close and cool-off from racing an enqueue.
+        let state = self.state.lock();
         if state.cooling_off() {
             return Err(Rejected::CoolingOff);
         }
-        action(sender, &mut state)
-    }
-
-    async fn admit(&self, event: &Event) -> Result<(), Rejected> {
-        let waiting = self.with_admission(|sender, _| match sender.try_reserve() {
+        match sender.try_reserve() {
             Ok(permit) => {
                 permit.send(event.clone());
-                Ok(None)
+                Ok(())
             }
-            Err(mpsc::error::TrySendError::Full(())) => Ok(Some((sender.clone(), Deadline::now() + self.limits.send))),
+            Err(mpsc::error::TrySendError::Full(())) => Err(Rejected::QueueFull),
             Err(mpsc::error::TrySendError::Closed(())) => Err(Rejected::WorkerStopped),
-        })?;
-        let Some((sender, deadline)) = waiting else {
-            return Ok(());
-        };
-        let reserve = sender.reserve_owned();
-        let deadline = sleep_until(deadline);
-        tokio::pin!(reserve, deadline);
-        loop {
-            let changed = self.state.changed.notified();
-            tokio::pin!(changed);
-            changed.as_mut().enable();
-            self.with_admission(|_, _| Ok(()))?;
-            tokio::select! {
-                biased;
-                _ = &mut changed => {}
-                // A slot ready at the deadline can still admit this event.
-                permit = &mut reserve => return self.with_admission(|_, _| {
-                    permit.map_err(|_| Rejected::WorkerStopped)?.send(event.clone());
-                    Ok(())
-                }),
-                _ = &mut deadline => {
-                    // The first expiry opens the same circuit as a slow send and releases other waiters.
-                    let result = self.with_admission(|_, state| {
-                        state.skip_until = Some(Deadline::now() + self.limits.cool_off);
-                        Err(Rejected::WaitExpired)
-                    });
-                    if result == Err(Rejected::WaitExpired) {
-                        self.state.changed.notify_waiters();
-                    }
-                    return result;
-                }
-            }
         }
     }
 
@@ -586,8 +543,8 @@ impl Drop for RemoteTracker {
         let total = counts.total();
         if total > 0 {
             let text = format!(
-                "The analytics backend dropped {total} test metric events before admission: {} wait expired, {} cooling off, {} admission closed, {} delivery task stopped",
-                counts.wait_expired, counts.cooling_off, counts.closing, counts.worker_stopped,
+                "The analytics backend dropped {total} test metric events before admission: {} queue full, {} cooling off, {} admission closed, {} delivery task stopped",
+                counts.queue_full, counts.cooling_off, counts.closing, counts.worker_stopped,
             );
             (self.log)(&self.logger, Level::WARN, &text, None);
         }
@@ -599,7 +556,7 @@ impl TrackerInternal for RemoteTracker {
         Box::pin(async move {
             // The production remote trackers only implement test metrics.
             if matches!(event, Event::Test(_))
-                && let Err(reason) = self.admit(event).await
+                && let Err(reason) = self.admit(event)
             {
                 self.record_rejection(reason);
             }
@@ -614,7 +571,6 @@ impl TrackerInternal for RemoteTracker {
                 // Set the one drain-and-close deadline before making the FIFO ready to finish.
                 let _ = shutdown.send(Deadline::now() + self.limits.send);
                 drop(sender);
-                self.state.changed.notify_waiters();
             }
             self.task.join().await.map_err(operation_error)
         })
@@ -1289,7 +1245,7 @@ mod remote_delivery_tests {
     use crate::executor::vendor_on_current_runtime;
     use jcompat::jtime::instant_of;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use tokio::sync::watch;
+    use tokio::sync::{Notify, watch};
 
     struct GatedBackend {
         entered: Notify,
@@ -1385,113 +1341,69 @@ mod remote_delivery_tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn admission_expiry_starts_cool_off_and_releases_other_waiters_d86() {
-        let (mut tracker, backend, release, warnings) = full_queue(false).await;
-        // Give admission the earlier deadline so this exercises its own expiry, rather than the send's.
-        tracker.limits.send = Duration::from_secs(10);
+    async fn full_queue_drops_without_waiting_and_recovers_without_cool_off_d105() {
+        let (tracker, backend, release, warnings) = full_queue(false).await;
         let event = test_event();
-        let start = Deadline::now();
-        {
-            let mut first = tracker.track(&event);
-            assert!(futures_util::poll!(first.as_mut()).is_pending());
-            tokio::time::advance(Duration::from_secs(5)).await;
-            let mut second = tracker.track(&event);
-            assert!(futures_util::poll!(second.as_mut()).is_pending());
-            tokio::time::timeout(Duration::from_secs(60), async {
-                first.await.unwrap();
-                second.await.unwrap();
-                tracker.track(&event).await.unwrap();
-            })
-            .await
-            .unwrap();
+        let started = Deadline::now();
+        for _ in 0..3 {
+            let mut rejected = tracker.track(&event);
+            assert!(matches!(
+                futures_util::poll!(rejected.as_mut()),
+                std::task::Poll::Ready(Ok(()))
+            ));
         }
-        assert_eq!(start.elapsed(), Duration::from_secs(10));
+        assert_eq!(started.elapsed(), Duration::ZERO);
         assert_eq!(
             warnings.lock().unwrap().len(),
             1,
             "the first drop is logged during the run"
         );
         release.send_replace(true);
+        backend.entered.notified().await;
+        tracker.track(&event).await.unwrap();
         tracker.close().await.unwrap();
-        assert_eq!(backend.sends.load(Ordering::Relaxed), 1);
+        assert_eq!(backend.sends.load(Ordering::Relaxed), 3);
         drop(tracker);
         assert_rejections(
             &warnings,
-            "the queue wait expired",
-            "3 test metric events before admission: 1 wait expired, 2 cooling off, 0 admission closed, 0 delivery task stopped",
+            "the queue is full",
+            "3 test metric events before admission: 3 queue full, 0 cooling off, 0 admission closed, 0 delivery task stopped",
         );
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_permit_ready_at_the_admission_deadline_wins_d86() {
-        let (mut tracker, backend, release, warnings) = full_queue(false).await;
-        let limit = Duration::from_secs(10);
-        tracker.limits.send = limit;
-        let event = test_event();
-        let started = Deadline::now();
-        {
-            let mut blocked = tracker.track(&event);
-            assert!(futures_util::poll!(blocked.as_mut()).is_pending());
-            // Leave the waiter unpolled until its timer has elapsed and the worker has freed a slot.
-            sleep_until(started + limit).await;
-            release.send_replace(true);
-            backend.entered.notified().await;
-            assert_eq!(started.elapsed(), limit);
-            blocked.await.unwrap();
-        }
-        tracker.close().await.unwrap();
-        assert_eq!(backend.sends.load(Ordering::Relaxed), 3);
-        drop(tracker);
-        assert!(warnings.lock().unwrap().is_empty());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn closing_wakes_waiters_and_counts_submissions_even_after_close_returns_d86() {
+    async fn counts_submissions_during_and_after_close_d105() {
         let (tracker, backend, release, warnings) = full_queue(false).await;
         let event = test_event();
-        let start = Deadline::now();
-        {
-            let mut blocked = tracker.track(&event);
-            assert!(futures_util::poll!(blocked.as_mut()).is_pending());
-            let mut closing = tracker.close();
-            assert!(futures_util::poll!(closing.as_mut()).is_pending());
-            blocked.await.unwrap();
-            tracker.track(&event).await.unwrap();
-            release.send_replace(true);
-            closing.await.unwrap();
-        }
+        let mut closing = tracker.close();
+        assert!(futures_util::poll!(closing.as_mut()).is_pending());
+        tracker.track(&event).await.unwrap();
+        release.send_replace(true);
+        closing.await.unwrap();
         tracker.track(&event).await.unwrap();
         tracker.close().await.unwrap();
-        assert_eq!(start.elapsed(), Duration::ZERO);
         assert_eq!(backend.sends.load(Ordering::Relaxed), 2);
         assert_eq!(warnings.lock().unwrap().len(), 1);
         drop(tracker);
         assert_rejections(
             &warnings,
             "admission has closed",
-            "3 test metric events before admission: 0 wait expired, 0 cooling off, 3 admission closed, 0 delivery task stopped",
+            "2 test metric events before admission: 0 queue full, 0 cooling off, 2 admission closed, 0 delivery task stopped",
         );
     }
 
     #[tokio::test(start_paused = true)]
-    async fn panicking_delivery_wakes_waiters_and_counts_later_submissions_d86() {
+    async fn counts_submissions_after_delivery_panics_d105() {
         let (tracker, _, release, warnings) = full_queue(true).await;
-        let event = test_event();
-        let start = Deadline::now();
-        {
-            let mut blocked = tracker.track(&event);
-            assert!(futures_util::poll!(blocked.as_mut()).is_pending());
-            release.send_replace(true);
-            blocked.await.unwrap();
-        }
-        tracker.track(&event).await.unwrap();
+        release.send_replace(true);
+        assert!(tracker.task.join().await.is_err());
+        tracker.track(&test_event()).await.unwrap();
         assert!(tracker.close().await.is_err());
-        assert_eq!(start.elapsed(), Duration::ZERO);
         drop(tracker);
         assert_rejections(
             &warnings,
             "the delivery task stopped",
-            "2 test metric events before admission: 0 wait expired, 0 cooling off, 0 admission closed, 2 delivery task stopped",
+            "1 test metric events before admission: 0 queue full, 0 cooling off, 0 admission closed, 1 delivery task stopped",
         );
     }
 

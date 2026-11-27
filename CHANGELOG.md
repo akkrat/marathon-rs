@@ -10,6 +10,12 @@ The section for a version becomes the text of its GitHub release, which carries 
   `socketIdleTimeout` before the device finishes replying, the error names the timeout instead of
   reporting a missing or invalid shell exit code. Timeout behavior is unchanged.
 
+### Analytics
+
+- A full remote analytics queue no longer delays test batches. It drops incoming metric events and logs the count.
+  Local results are unchanged (D105).
+- Graphite reuses its Carbon connection across test results and reconnects if the connection breaks (U284).
+
 ## 0.15.6
 
 This release counts a test as failed when it fails again after the total retry quota has run out, and removes two

@@ -1300,7 +1300,7 @@ fn public_notifications_allocate_distinct_occurrences_and_exhausted_tape_never_f
 }
 
 #[test]
-fn sustained_remote_queue_overload_waits_and_preserves_every_result_d86() {
+fn sustained_remote_queue_overload_drops_new_metrics_but_keeps_local_results_d105() {
     use marathon_core::time::ReplayDriver;
     use std::{cell::Cell, rc::Rc, time::Duration};
     use tokio::sync::{Notify, Semaphore};
@@ -1376,15 +1376,18 @@ fn sustained_remote_queue_overload_waits_and_preserves_every_result_d86() {
                 }
             }
 
-            let admitted = Rc::new(Cell::new(0));
-            let recorded = admitted.clone();
+            let submitted = Rc::new(Cell::new(0));
+            let recorded = submitted.clone();
+            let burst_tracker = tracker.clone();
+            let burst_pool = pool.clone();
+            let burst_device = device.clone();
             let burst = core.spawn(
                 core.job(JobKind::Ordinary, None),
                 Box::new(move |_| {
                     Box::pin(async move {
                         for i in 1001..1006 {
-                            tracker
-                                .test(&pool, &device, &result(&i.to_string(), TestStatus::Passed), true)
+                            burst_tracker
+                                .test(&burst_pool, &burst_device, &result(&i.to_string(), TestStatus::Passed), true)
                                 .await
                                 .unwrap();
                             recorded.set(recorded.get() + 1);
@@ -1394,26 +1397,28 @@ fn sustained_remote_queue_overload_waits_and_preserves_every_result_d86() {
                 }),
             );
             replay.drain_current().await.unwrap();
-            assert_eq!(admitted.get(), 0, "a full queue must wait");
-            for acknowledged in 1..=5 {
-                backend.allowed.add_permits(1);
-                replay.drain_current().await.unwrap();
-                assert_eq!(
-                    admitted.get(),
-                    acknowledged,
-                    "each delivered event frees one waiting caller"
-                );
-            }
+            assert_eq!(submitted.get(), 5, "the full queue must not suspend the producer");
             burst.join().await?;
+
+            backend.allowed.add_permits(1);
+            backend.started.notified().await;
+            tracker.test(&pool, &device, &result("1006", TestStatus::Passed), true).await.unwrap();
+            drop(tracker);
             backend.allowed.add_permits(1001);
             pipeline.reports().close().await?;
             drop(pipeline);
             assert_eq!(
                 *backend.sent.lock().unwrap(),
-                (0..1006).map(|i| i.to_string()).collect::<Vec<_>>(),
+                (0..=1000).chain([1006]).map(|i| i.to_string()).collect::<Vec<_>>(),
             );
-            assert_eq!(reports.lock().unwrap()[0].test_events().len(), 1006);
-            assert!(warnings.lock().unwrap().is_empty());
+            assert_eq!(reports.lock().unwrap()[0].test_events().len(), 1007);
+            assert_eq!(
+                *warnings.lock().unwrap(),
+                [
+                    (marathon_logging::Level::WARN, "The analytics backend is dropping test metric events because the queue is full".into()),
+                    (marathon_logging::Level::WARN, "The analytics backend dropped 5 test metric events before admission: 5 queue full, 0 cooling off, 0 admission closed, 0 delivery task stopped".into()),
+                ],
+            );
             Ok(())
         })
     })

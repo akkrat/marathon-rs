@@ -1,9 +1,10 @@
-//! D86 witnesses using the production report pipeline, scheduler and backend trackers.
+//! D86 and D105 witnesses using the production report pipeline, scheduler and backend trackers.
 mod support;
 
 use marathon_analytics::{
     graphite::{BasicGraphiteClient, DataSender, GraphiteTracker},
     influx::{BATCH_ACTIONS, InfluxClient, InfluxTracker},
+    influx2::{Influx2Client, Influx2Tracker},
 };
 use marathon_config::*;
 use marathon_core::{
@@ -23,30 +24,18 @@ use marathon_test_support::{
 use serde_json::Value;
 use std::{
     collections::BTreeSet,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::{Arc, Mutex},
     time::Duration,
 };
-use support::{FixedBackend, Mono, Peer, Reply, defaults, v1};
+use support::{FixedBackend, Mono, Peer, Reply, defaults, v1, v2};
 use tokio::sync::{Notify, watch};
 
 const WATCHDOG: Duration = Duration::from_secs(60);
 
 struct HeldCarbon {
     entered: Notify,
-    ended: Notify,
-    attempts: AtomicUsize,
     release: watch::Receiver<bool>,
     sent: Mutex<Vec<String>>,
-}
-
-struct SendEnded<'a>(&'a Notify);
-impl Drop for SendEnded<'_> {
-    fn drop(&mut self) {
-        self.0.notify_one();
-    }
 }
 
 impl DataSender for HeldCarbon {
@@ -60,8 +49,6 @@ impl DataSender for HeldCarbon {
         Box::pin(async move {
             // A small Carbon payload fits a loopback TCP buffer even if its peer never reads.
             // Hold the real tracker's send at the socket adapter boundary instead.
-            let _ended = SendEnded(&self.ended);
-            self.attempts.fetch_add(1, Ordering::Relaxed);
             self.entered.notify_one();
             let _ = self.release.clone().wait_for(|ready| *ready).await;
             self.sent.lock().unwrap().push(data);
@@ -77,13 +64,11 @@ struct Batches {
     results: i32,
     size: i32,
     starts_while_held: usize,
-    send_limit: Option<Duration>,
 }
 const SMALL_BATCHES: Batches = Batches {
     results: 2,
     size: 1,
     starts_while_held: 2,
-    send_limit: None,
 };
 
 fn run_batches<T: Send + 'static>(
@@ -143,11 +128,7 @@ fn run_batches<T: Send + 'static>(
             .await
             .map_err(|e| e.failure().clone())?;
             factory.configuration.configuration.analytics_configuration = configuration;
-            let mut limits = BackendLimits::default();
-            if let Some(send) = batches.send_limit {
-                limits.send = send;
-            }
-            factory.backend = Some(Arc::new(FixedBackend(tracker, limits)));
+            factory.backend = Some(Arc::new(FixedBackend(tracker, BackendLimits::default())));
             let built = factory.build(&core).await?;
             let job = core.job(JobKind::Ordinary, None);
             let run = core.spawn(
@@ -177,7 +158,7 @@ fn run_batches<T: Send + 'static>(
             );
             release(&evidence).await?;
             replay.drain_current().await.unwrap();
-            assert_eq!(started(), 2, "the next batch starts once the first wait ends");
+            assert_eq!(started(), 2, "releasing the backend does not change batch scheduling");
             replay.advance_to(500).await.unwrap();
             tokio::time::timeout(WATCHDOG, run.join()).await.unwrap()?;
             assert_eq!(run.state(), JobState::Completed(Completion::Success));
@@ -202,8 +183,6 @@ fn held_carbon() -> (Arc<HeldCarbon>, watch::Sender<bool>) {
     let (release, released) = watch::channel(false);
     let carbon = Arc::new(HeldCarbon {
         entered: Notify::new(),
-        ended: Notify::new(),
-        attempts: AtomicUsize::new(0),
         release: released,
         sent: Mutex::default(),
     });
@@ -260,34 +239,62 @@ fn a_held_carbon_send_cannot_hold_the_next_batch_d86() {
 }
 
 #[test]
-fn a_full_remote_queue_waits_for_one_stalled_send_then_cools_off_d86() {
-    let (carbon, release) = held_carbon();
-    let sender = carbon.clone();
-    // Each of the first two batches could fill the queue. The third proves the second releases
-    // during cool-off, while Carbon has yet to return a response.
+fn a_full_remote_queue_cannot_hold_the_next_batch_d105() {
     run_batches(
         Batches {
-            results: 2005,
+            results: 1003,
             size: 1002,
-            starts_while_held: 1,
-            send_limit: Some(Duration::from_secs(1)),
+            starts_while_held: 2,
         },
-        move |context| {
+        |context| {
             Box::pin(async move {
-                let (config, tracker) = carbon_tracker(context, sender.clone());
-                Ok((config, tracker, (sender, release)))
+                let (release, released) = watch::channel(false);
+                let peer = Peer::with_async_replies(move |request| {
+                    let path = request.path.split('?').next().unwrap().to_owned();
+                    let mut released = released.clone();
+                    async move {
+                        match path.as_str() {
+                            "/api/v2/orgs" => Reply::ok(r#"{"orgs":[{"name":"org","id":"id1"}]}"#),
+                            "/api/v2/buckets" => Reply::ok(r#"{"buckets":[{"name":"bucket"}]}"#),
+                            "/api/v2/write" => {
+                                let _ = released.wait_for(|ready| *ready).await;
+                                Reply {
+                                    status: 204,
+                                    body: String::new(),
+                                    headers: vec![],
+                                }
+                            }
+                            _ => panic!("unexpected InfluxDB request: {path}"),
+                        }
+                    }
+                })
+                .await?;
+                let config = v2(&peer.url);
+                let client = Influx2Client::connect(&config, false, context).await?;
+                let tracker: Arc<dyn TrackerInternal> = Arc::new(Influx2Tracker::new(client, false)?);
+                Ok((AnalyticsConfiguration::InfluxDb2(config), tracker, (peer, release)))
             })
         },
-        |(carbon, _)| {
+        |(peer, release)| {
             Box::pin(async move {
-                carbon.ended.notified().await;
+                peer.wait_requests(3).await;
+                assert_eq!(peer.requests.lock().unwrap().len(), 3);
+                release.send_replace(true);
                 Ok(())
             })
         },
-        |_| Box::pin(async { Ok(()) }),
+        |(peer, _)| {
+            Box::pin(async move {
+                let requests = peer.shutdown().await?;
+                let writes = requests
+                    .iter()
+                    .filter(|request| request.path.starts_with("/api/v2/write?"))
+                    .count();
+                assert!((1..=1002).contains(&writes), "{writes} writes");
+                Ok(())
+            })
+        },
     );
-    assert_eq!(carbon.attempts.load(Ordering::Relaxed), 1);
-    assert!(carbon.sent.lock().unwrap().is_empty());
 }
 
 #[test]

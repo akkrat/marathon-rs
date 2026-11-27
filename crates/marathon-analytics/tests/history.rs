@@ -69,12 +69,14 @@ async fn case(env: Env, name: &str) -> OperationResult<()> {
                     .filter(|r| r["protocol"] == "carbon")
                     .collect::<Vec<_>>();
                 let carbon = tokio::spawn(async move {
-                    for row in carbon_rows {
-                        let (mut stream, _) = io(listener.accept().await)?;
-                        let mut data = String::new();
-                        io(stream.read_to_string(&mut data).await)?;
-                        assert_eq!(data, row["body"]);
-                    }
+                    let (mut stream, _) = io(listener.accept().await)?;
+                    let mut data = String::new();
+                    io(stream.read_to_string(&mut data).await)?;
+                    let expected = carbon_rows
+                        .iter()
+                        .map(|row| row["body"].as_str().unwrap())
+                        .collect::<String>();
+                    assert_eq!(data, expected);
                     Ok::<_, OperationError>(())
                 });
                 let tracker = GraphiteTracker {
@@ -90,6 +92,7 @@ async fn case(env: Env, name: &str) -> OperationResult<()> {
                 for event in events() {
                     tracker.track_test(&event).await?;
                 }
+                drop(tracker);
                 carbon
                     .await
                     .map_err(|e| failure(FailureKind::Injected(InjectedKind::TestCarbon), &e.to_string()))??;

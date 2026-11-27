@@ -798,12 +798,10 @@ fn a_stalled_carbon_write_times_out() {
                 host: "127.0.0.1".into(),
                 port,
                 prefix: None,
-                sender: Arc::new(SocketSender {
-                    limits: CarbonLimits {
-                        connect: std::time::Duration::from_secs(60),
-                        write: std::time::Duration::from_millis(100),
-                    },
-                }),
+                sender: Arc::new(SocketSender::new(CarbonLimits {
+                    connect: std::time::Duration::from_secs(60),
+                    write: std::time::Duration::from_millis(100),
+                })),
                 cancellation: Signal::new(),
             };
             let send = client.send(GraphiteMetric {
@@ -858,12 +856,10 @@ fn a_carbon_that_never_accepts_times_out_on_connect() {
                 eprintln!("the accept queue didn't fill on this host; the connect limit wasn't exercised");
                 return Ok(());
             }
-            let sender = SocketSender {
-                limits: CarbonLimits {
-                    connect: std::time::Duration::from_millis(100),
-                    write: std::time::Duration::from_secs(60),
-                },
-            };
+            let sender = SocketSender::new(CarbonLimits {
+                connect: std::time::Duration::from_millis(100),
+                write: std::time::Duration::from_secs(60),
+            });
             // Unbounded, the OS's connect timeout takes over a minute, so this separates the two.
             let result = tokio::time::timeout(
                 std::time::Duration::from_secs(60),
@@ -1446,6 +1442,41 @@ fn abandoning_before_shutdown_stops_the_stalled_influx_writer_d86() {
                 .await
                 .expect("dropping the last client closes the stalled socket");
             server.abort();
+            Ok(())
+        })
+    });
+}
+
+#[test]
+fn carbon_sends_multiple_payloads_over_one_connection_u284() {
+    run(|_| {
+        Box::pin(async {
+            use tokio::{io::AsyncReadExt, net::TcpListener};
+            let listener = io(TcpListener::bind("127.0.0.1:0").await)?;
+            let port = io(listener.local_addr())?.port();
+            let client = BasicGraphiteClient {
+                host: "127.0.0.1".into(),
+                port,
+                prefix: None,
+                sender: Arc::new(SocketSender::default()),
+                cancellation: Signal::new(),
+            };
+            let expected = (0..8).map(|i| format!("metric {i} 0\n")).collect::<String>();
+            for i in 0..8 {
+                client
+                    .send(GraphiteMetric {
+                        metric_name: "metric".into(),
+                        metric_value: i.to_string(),
+                        timestamp: 0,
+                    })
+                    .await?;
+            }
+            drop(client);
+            let (mut peer, _) = io(listener.accept().await)?;
+            let mut received = String::new();
+            io(peer.read_to_string(&mut received).await)?;
+            assert_eq!(received, expected);
+            assert!(futures_util::poll!(Box::pin(listener.accept())).is_pending());
             Ok(())
         })
     });
