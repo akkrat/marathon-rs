@@ -206,6 +206,16 @@ sub drain_errors {
     }
 }
 
+# Only the controller that already has this exact proof can discard it. A not-started
+# receipt fences a delayed launch and an unconfirmed one is not proof at all.
+sub prune_proof {
+    my ($dir, $status) = @_;
+    return if -e "$dir.state" || -e "$dir.lock";
+    my @receipt = eval { read_state("$dir.receipt") };
+    return unless @receipt && $receipt[3] eq "done:$status";
+    unlink "$dir.stderr", "$dir.receipt";
+}
+
 sub control_stream {
     my ($root, $lease, $lock) = @_;
     my $buffer = '';
@@ -223,11 +233,13 @@ sub control_stream {
         flock($lock, LOCK_SH | LOCK_NB) or die "supervisor is retiring: $!";
         -f "$root/supervisor.pl" or die "supervisor retired";
         my @replies;
+        my @proved;
         while ($buffer =~ s/\A([^\n]*)\n//) {
             my $frame = $1;
-            $frame =~ /\A([1-9][0-9]{0,19}) ([a-f0-9]{32}):(renew-[0-9]{1,16}|status|[1-3])\z/
+            $frame =~ /\A([1-9][0-9]{0,19}) ([a-f0-9]{32}):(renew-[0-9]{1,16}|status|[1-3])((?: [a-f0-9]{32}:[0-9]{1,3}){0,64})\z/
                 or die "invalid control frame";
             my ($id, $token, $op) = ($1, $2, $3);
+            push @proved, split(' ', $4);
             my ($state, $recorder) = control("$root/$token", $op, $lease);
             if ($recorder && $op eq '1' && $state =~ /\A(?:running|recording):/) {
                 # INT for a recorder can return its completed receipt on the
@@ -240,7 +252,7 @@ sub control_stream {
                 push @replies, "$id $token $state\n";
             }
         }
-        length($buffer) < 256 or die "control frame too large";
+        length($buffer) < 2560 or die "control frame too large";
         for my $token (keys %waiting) {
             my ($state) = control("$root/$token", 'status', $lease);
             next if $state =~ /\A(?:running:|recording:|busy)/;
@@ -249,6 +261,16 @@ sub control_stream {
         }
         flock($lock, LOCK_UN) or die "unlock supervisor: $!";
         print @replies or die "write control reply: $!" if @replies;
+        if (@proved && flock($lock, LOCK_SH | LOCK_NB)) {
+            # The request has already been answered. Skip housekeeping if retire won the lock.
+            if (-f "$root/supervisor.pl") {
+                for (@proved) {
+                    my ($token, $status) = split /:/;
+                    prune_proof("$root/$token", $status);
+                }
+            }
+            flock($lock, LOCK_UN) or die "unlock supervisor: $!";
+        }
     }
 }
 

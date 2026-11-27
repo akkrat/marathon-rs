@@ -39,14 +39,31 @@ struct Worker {
     groups: Groups,
     silent: AtomicBool,
     stall_open: AtomicBool,
+    retire_gate: Option<Arc<RetireGate>>,
+}
+struct RetireGate {
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Semaphore,
+}
+impl RetireGate {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            entered: tokio::sync::Notify::new(),
+            release: tokio::sync::Semaphore::new(0),
+        })
+    }
 }
 impl Worker {
     fn new() -> Arc<Self> {
+        Self::with_retire_gate(None)
+    }
+    fn with_retire_gate(retire_gate: Option<Arc<RetireGate>>) -> Arc<Self> {
         Arc::new(Self {
             origin: Instant::now(),
             groups: Default::default(),
             silent: AtomicBool::new(false),
             stall_open: AtomicBool::new(false),
+            retire_gate,
         })
     }
     fn group(&self, name: &str) -> Group {
@@ -183,6 +200,10 @@ impl Handler for Worker {
                     Ok(Some(Action::output(&format!("{token} {reply}\n"), 0)))
                 }
                 ["/usr/bin/perl", PROGRAM, "retire", ROOT, _] => {
+                    if let Some(gate) = &self.retire_gate {
+                        gate.entered.notify_one();
+                        gate.release.acquire().await?.forget();
+                    }
                     Ok(Some(Action::output("MARATHON_D96_1 retired\n", 0)))
                 }
                 _ => Ok(None),
@@ -191,8 +212,8 @@ impl Handler for Worker {
     }
 }
 
-struct Proxy {
-    port: u16,
+pub(super) struct Proxy {
+    pub(super) port: u16,
     accept: JoinHandle<()>,
     blocked: Arc<AtomicBool>,
     links: Arc<Mutex<Vec<Link>>>,
@@ -202,7 +223,7 @@ struct Link {
     held: watch::Sender<bool>,
 }
 impl Proxy {
-    async fn start(worker: u16) -> Self {
+    pub(super) async fn start(worker: u16) -> Self {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let blocked = Arc::new(AtomicBool::new(false));
@@ -241,13 +262,13 @@ impl Proxy {
     fn block_new(&self) {
         self.blocked.store(true, Ordering::Release);
     }
-    fn cut(&self, connection: usize) {
+    pub(super) fn cut(&self, connection: usize) {
         self.links.lock().unwrap()[connection].task.abort();
     }
     fn hold(&self, connection: usize, value: bool) {
         self.links.lock().unwrap()[connection].held.send_replace(value);
     }
-    fn count(&self) -> usize {
+    pub(super) fn count(&self) -> usize {
         self.links.lock().unwrap().len()
     }
 }
@@ -381,7 +402,7 @@ async fn control_loss(reconnect: bool) {
     fake.worker.shutdown().await.unwrap();
 }
 
-async fn with_paused_time(test: impl Future<Output = ()>) {
+pub(super) async fn with_paused_time(test: impl Future<Output = ()>) {
     tokio::time::pause();
     // The loopback sockets still use real I/O. Only this test advances the timers.
     let (finished, waiting) = std::sync::mpsc::channel::<()>();
@@ -392,6 +413,127 @@ async fn with_paused_time(test: impl Future<Output = ()>) {
     }
     drop(finished);
     tokio::time::resume();
+}
+
+#[tokio::test]
+async fn abandoning_closes_control_while_its_retirement_is_held_u276() {
+    let gate = RetireGate::new();
+    let worker = Worker::with_retire_gate(Some(gate.clone()));
+    let fake = ssh::fake_with_handlers(ssh::script(vec![]), 2, |_| {}, vec![worker.clone()]).await;
+    let proxy = Proxy::start(fake.port()).await;
+    let (logging, events) = ssh::logging(false);
+    let executor = Arc::new(
+        ssh::factory(&logging)
+            .connect_worker("127.0.0.1", proxy.port, ssh::password(), None, false, Arc::default())
+            .await
+            .unwrap(),
+    );
+    let session = open_recorder(executor.clone()).await;
+    session.terminate().unwrap();
+    let result = super::support::watchdog(session.await_result(&context()))
+        .await
+        .unwrap();
+    assert_eq!(result.exit_code, Some(143));
+    super::support::watchdog(session.close()).await.unwrap();
+    let control = fake.events("supervisor_request").await[0]["connection"].clone();
+    assert_ne!(control, fake.events("connection").await[0]["connection"]);
+
+    proxy.cut(0);
+    super::support::watchdog(executor.connection_lost()).await;
+    let loss_lines = || {
+        ssh::lines(&events)
+            .into_iter()
+            .filter(|(_, _, message)| message.starts_with("Dying because"))
+            .count()
+    };
+    let before = loss_lines();
+    let mut closing = std::pin::pin!(executor.close());
+    tokio::select! {
+        _ = &mut closing => panic!("retired before the worker released its gate"),
+        () = super::support::watchdog(gate.entered.notified()) => {}
+    }
+    with_paused_time(async {
+        executor.abandon();
+        // No retire reply or timer advance can end the control transport. Abandon must do it.
+        while !fake
+            .events("connection_end")
+            .await
+            .iter()
+            .any(|row| row["connection"] == control)
+        {
+            io_tick().await;
+        }
+        assert_eq!(proxy.count(), 2);
+        assert_eq!(loss_lines(), before, "local abandon is not another wire loss");
+    })
+    .await;
+    fake.worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn retiring_a_large_root_has_more_time_than_one_control_exchange_u279() {
+    let gate = RetireGate::new();
+    let worker = Worker::with_retire_gate(Some(gate.clone()));
+    let fake = ssh::fake_with_handlers(ssh::script(vec![]), 2, |_| {}, vec![worker.clone()]).await;
+    let (logging, events) = ssh::logging(true);
+    let executor = ssh::factory(&logging)
+        .connect_worker("127.0.0.1", fake.port(), ssh::password(), None, false, Arc::default())
+        .await
+        .unwrap();
+    let session = open(&executor, "retiring").await;
+    finish(&worker, &fake, "retiring", session).await;
+    let mut closing = std::pin::pin!(executor.close());
+    with_paused_time(async {
+        tokio::select! {
+            _ = &mut closing => panic!("retired before the worker released its gate"),
+            _ = gate.entered.notified() => {}
+        }
+        tokio::time::advance(Duration::from_secs(8)).await;
+        gate.release.add_permits(1);
+    })
+    .await;
+    super::support::watchdog(closing).await.unwrap();
+    assert!(
+        !ssh::lines(&events)
+            .iter()
+            .any(|(_, _, message)| message.contains("could not be retired"))
+    );
+    fake.worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn the_next_control_request_carries_an_already_received_proof_u279() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let worker = Worker::new();
+    let fake = ssh::fake_with_handlers(ssh::script(vec![]), 3, |_| {}, vec![worker]).await;
+    let executor = Arc::new(executor_with_keep_alive(fake.port(), 0).await);
+    let first = open_recorder(executor.clone()).await;
+    let token = first.worker_report().unwrap().token;
+    first.terminate().unwrap();
+    let result = super::support::watchdog(first.await_result(&context())).await.unwrap();
+    assert_eq!(result.exit_code, Some(143));
+    first.close().await.unwrap();
+    assert!(
+        fake.events("supervisor_proofs").await.is_empty(),
+        "proofs do not send their own request"
+    );
+
+    let second = open_recorder(executor.clone()).await;
+    second.terminate().unwrap();
+    let result = super::support::watchdog(second.await_result(&context())).await.unwrap();
+    assert_eq!(result.exit_code, Some(143));
+    second.close().await.unwrap();
+    let proofs = fake.events("supervisor_proofs").await;
+    assert_eq!(proofs.len(), 1);
+    assert_eq!(
+        STANDARD
+            .decode(proofs[0]["detail"]["base64"].as_str().unwrap())
+            .unwrap(),
+        format!("{token}:143").as_bytes()
+    );
+    assert_eq!(fake.events("connection").await.len(), 2);
+    executor.close().await.unwrap();
+    fake.worker.shutdown().await.unwrap();
 }
 
 async fn io_tick() {

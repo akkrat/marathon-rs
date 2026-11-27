@@ -29,7 +29,9 @@ use tokio::{
 const TARGET: &str = "marathon_apple::cmd::remote::ssh::sshj::supervisor";
 const PROTOCOL: &str = "MARATHON_D96_1";
 const PROBE_TIMEOUT: WallDuration = WallDuration::from_secs(12);
+const MAX_PROBE_BACKOFF: WallDuration = WallDuration::from_secs(8);
 const CONTROL_TIMEOUT: WallDuration = WallDuration::from_secs(4);
+const RETIRE_TIMEOUT: WallDuration = WallDuration::from_secs(15);
 const REQUEST_TIMEOUT: WallDuration = WallDuration::from_secs(2 * CONTROL_TIMEOUT.as_secs());
 pub(super) const EXIT_PROOF_TIMEOUT: WallDuration = WallDuration::from_secs(24);
 const RECONNECT_DELAY: WallDuration = WallDuration::from_secs(1);
@@ -79,6 +81,31 @@ mod tests {
         reply.complete(Ok(None));
         assert!(retiring.as_mut().poll(&mut context).is_ready());
     }
+
+    #[test]
+    fn failed_bootstrap_backoff_is_per_connection_bounded_and_still_retries_u278() {
+        let mut first = Capability::Idle(None);
+        let mut now = Instant::now();
+        for seconds in [1, 2, 4, 8, 8] {
+            let Probe::Install(reply, delay) = first.probe(now) else {
+                panic!("retry was not admitted")
+            };
+            assert_eq!(delay, WallDuration::from_secs(seconds));
+            assert!(matches!(first.probe(now), Probe::Wait(current) if Arc::ptr_eq(&current, &reply)));
+            first.finish(now, delay, Err(protocol_error("fixture install failure")));
+            assert!(matches!(reply.completed(), Some(Err(_))));
+            assert!(matches!(first.probe(now), Probe::Backoff(at) if at == now + delay));
+            now += delay;
+        }
+        let mut fresh = Capability::Idle(None);
+        assert!(matches!(fresh.probe(now), Probe::Install(_, delay) if delay == WallDuration::from_secs(1)));
+        let Probe::Install(reply, delay) = first.probe(now) else {
+            panic!("recovery probe was not admitted")
+        };
+        first.finish(now, delay, Ok(None));
+        assert!(matches!(reply.completed(), Some(Ok(peer)) if peer.is_none()));
+        assert!(matches!(first.probe(now), Probe::Ready(None)));
+    }
 }
 
 pub type Warnings = Arc<Mutex<HashSet<(String, u16)>>>;
@@ -110,16 +137,61 @@ impl Timing {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 enum Capability {
-    #[default]
-    Unknown,
+    Idle(Option<ProbeRetry>),
     Probing(Arc<SharedDeferred<Option<Arc<Peer>>>>),
     Ready(Option<Arc<Peer>>),
+    Abandoned,
+}
+
+enum Probe {
+    Ready(Option<Arc<Peer>>),
+    Wait(Arc<SharedDeferred<Option<Arc<Peer>>>>),
+    Install(Arc<SharedDeferred<Option<Arc<Peer>>>>, WallDuration),
+    Backoff(Instant),
+    Closed,
+}
+
+impl Capability {
+    fn probe(&mut self, now: Instant) -> Probe {
+        match self {
+            Self::Ready(peer) => Probe::Ready(peer.clone()),
+            Self::Probing(reply) => Probe::Wait(reply.clone()),
+            Self::Idle(Some(retry)) if now < retry.at => Probe::Backoff(retry.at),
+            Self::Idle(retry) => {
+                let delay = retry.map_or(WallDuration::from_secs(1), |retry| {
+                    (retry.delay * 2).min(MAX_PROBE_BACKOFF)
+                });
+                let reply = SharedDeferred::new();
+                *self = Self::Probing(reply.clone());
+                Probe::Install(reply, delay)
+            }
+            Self::Abandoned => Probe::Closed,
+        }
+    }
+
+    fn finish(&mut self, now: Instant, delay: WallDuration, result: VendorResult<Option<Arc<Peer>>>) {
+        if let Self::Probing(reply) = self {
+            let reply = reply.clone();
+            *self = match &result {
+                Ok(peer) => Self::Ready(peer.clone()),
+                Err(_) => Self::Idle(Some(ProbeRetry { at: now + delay, delay })),
+            };
+            reply.complete(result);
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ProbeRetry {
+    at: Instant,
+    delay: WallDuration,
 }
 
 pub(super) struct Supervisor {
     capability: Mutex<Capability>,
+    stopping: watch::Sender<bool>,
     dial: ControlDial,
     worker: (String, u16),
     warnings: Warnings,
@@ -137,7 +209,8 @@ impl Supervisor {
         dial: ControlDial,
     ) -> Self {
         Self {
-            capability: Mutex::default(),
+            capability: Mutex::new(Capability::Idle(None)),
+            stopping: watch::channel(false).0,
             dial,
             worker,
             warnings,
@@ -191,11 +264,11 @@ impl Supervisor {
     }
 
     pub(super) async fn retire(&self) {
-        let capability = self
-            .capability
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone();
+        let capability = {
+            let capability = self.capability.lock().unwrap_or_else(|error| error.into_inner());
+            self.stopping.send_replace(true);
+            capability.clone()
+        };
         // The bootstrap can create its directory after its last caller stops waiting.
         let peer = match capability {
             Capability::Probing(reply) => match tokio::time::timeout(PROBE_TIMEOUT, reply.wait()).await {
@@ -203,10 +276,12 @@ impl Supervisor {
                 _ => None,
             },
             Capability::Ready(peer) => peer,
-            Capability::Unknown => None,
+            Capability::Idle(_) | Capability::Abandoned => None,
         };
         let Some(peer) = peer else { return };
-        let deadline = Instant::now() + CONTROL_TIMEOUT;
+        // Old or unacknowledged receipts can outlive the control stream. Give unlinking a large
+        // root more time than a token exchange, still within the caller's release limit.
+        let deadline = Instant::now() + RETIRE_TIMEOUT;
         let result = timeout_at(deadline, peer.retire(deadline)).await;
         if !matches!(result, Ok(Ok(()))) {
             let logger = self.logging.component(TARGET);
@@ -231,34 +306,53 @@ impl Supervisor {
         }
     }
 
-    async fn peer(self: &Arc<Self>, connection: &Arc<SshConnection>) -> VendorResult<Option<Arc<Peer>>> {
-        let (reply, launch) = {
+    pub(super) fn abandon(&self) {
+        let capability = {
             let mut capability = self.capability.lock().unwrap_or_else(|error| error.into_inner());
-            match &*capability {
-                Capability::Ready(peer) => return Ok(peer.clone()),
-                Capability::Probing(reply) => (reply.clone(), false),
-                Capability::Unknown => {
-                    let reply = SharedDeferred::new();
-                    *capability = Capability::Probing(reply.clone());
-                    (reply, true)
+            self.stopping.send_replace(true);
+            std::mem::replace(&mut *capability, Capability::Abandoned)
+        };
+        match capability {
+            Capability::Ready(Some(peer)) => peer.abandon_control(),
+            Capability::Probing(reply) => {
+                reply.complete(Err(protocol_error("Worker supervisor was abandoned")));
+            }
+            _ => {}
+        }
+    }
+
+    async fn peer(self: &Arc<Self>, connection: &Arc<SshConnection>) -> VendorResult<Option<Arc<Peer>>> {
+        let (reply, retry_delay) = loop {
+            let retry_at = {
+                let mut capability = self.capability.lock().unwrap_or_else(|error| error.into_inner());
+                if *self.stopping.borrow() {
+                    return Err(protocol_error("Worker supervisor is closing"));
                 }
+                match capability.probe(Instant::now()) {
+                    Probe::Ready(peer) => return Ok(peer),
+                    Probe::Wait(reply) => break (reply, None),
+                    Probe::Install(reply, delay) => break (reply, Some(delay)),
+                    Probe::Backoff(at) => at,
+                    Probe::Closed => return Err(protocol_error("Worker supervisor was abandoned")),
+                }
+            };
+            // No background probe is scheduled until a caller is still waiting at the retry time.
+            let mut stopping = self.stopping.subscribe();
+            tokio::select! {
+                _ = stopping.wait_for(|stopping| *stopping) => {},
+                _ = sleep_until(retry_at) => {},
             }
         };
-        if launch {
+        if let Some(delay) = retry_delay {
             // The attempt belongs to the connection. A caller abandoning its
             // wait cannot restart the probe for the other waiting commands.
             let supervisor = self.clone();
             let connection = connection.clone();
             let runtime = connection.runtime.clone();
-            let completed = reply.clone();
             runtime.spawn(Box::pin(async move {
                 let result = crate::cmd::retained_tasks::panic_as_error(supervisor.install(connection)).await;
                 let mut capability = supervisor.capability.lock().unwrap_or_else(|error| error.into_inner());
-                *capability = match &result {
-                    Ok(peer) => Capability::Ready(peer.clone()),
-                    Err(_) => Capability::Unknown,
-                };
-                completed.complete(result);
+                capability.finish(Instant::now(), delay, result);
                 Ok(())
             }));
         }
@@ -296,7 +390,8 @@ impl Supervisor {
         Ok(Some(Arc::new(Peer {
             data: connection,
             dial: self.dial.clone(),
-            control: tokio::sync::Mutex::default(),
+            dial_gate: tokio::sync::Mutex::default(),
+            control: Mutex::default(),
             root: root.to_owned(),
             timing: self.timing,
             logging: self.logging.clone(),
@@ -388,7 +483,9 @@ struct Control {
 struct Peer {
     data: Arc<SshConnection>,
     dial: ControlDial,
-    control: tokio::sync::Mutex<Control>,
+    // Serialize reconnects without holding the ownership lock across a dial or any other await.
+    dial_gate: tokio::sync::Mutex<()>,
+    control: Mutex<Control>,
     root: String,
     timing: Timing,
     logging: SshLogging,
@@ -398,9 +495,7 @@ struct Peer {
 
 impl Drop for Peer {
     fn drop(&mut self) {
-        if let Some(active) = self.control.get_mut().active.take() {
-            active.abandon();
-        }
+        self.abandon_control();
     }
 }
 
@@ -463,7 +558,10 @@ impl Peer {
             self.data.clone()
         } else {
             let (active, stream) = {
-                let mut control = self.control.lock().await;
+                // If reconnect already has a dial underway, retirement may use its result.
+                // Never start a fresh dial just for retirement.
+                let _dial = self.dial_gate.lock().await;
+                let mut control = self.control.lock().unwrap_or_else(|error| error.into_inner());
                 let active = control
                     .active
                     .clone()
@@ -497,30 +595,39 @@ impl Peer {
 
     async fn connection(&self) -> VendorResult<Arc<SshConnection>> {
         let deadline = Instant::now() + CONTROL_TIMEOUT;
-        let mut control = timeout_at(deadline, self.control.lock())
+        let _dial = timeout_at(deadline, self.dial_gate.lock())
             .await
             .map_err(|_| protocol_error("Worker supervisor reconnect is busy"))?;
-        if control.closed {
-            return Err(protocol_error("Worker supervisor control is closed"));
-        }
-        if let Some(active) = &control.active
-            && active.is_connected()
-        {
-            return Ok(active.clone());
-        }
-        if control.next_dial.is_some_and(|next| Instant::now() < next) {
-            return Err(protocol_error("Worker supervisor reconnect is waiting to retry"));
-        }
-        // One dial per shared connection. Its deadline also bounds callers
-        // waiting behind it. Keep the failed-attempt bound on cancellation.
-        let retry = control.retry_delay.unwrap_or(RECONNECT_DELAY);
-        control.next_dial = Some(deadline + retry);
-        control.retry_delay = Some((retry * 2).min(WallDuration::from_secs(60)));
+        let retry = {
+            let mut control = self.control.lock().unwrap_or_else(|error| error.into_inner());
+            if control.closed {
+                return Err(protocol_error("Worker supervisor control is closed"));
+            }
+            if let Some(active) = &control.active
+                && active.is_connected()
+            {
+                return Ok(active.clone());
+            }
+            if control.next_dial.is_some_and(|next| Instant::now() < next) {
+                return Err(protocol_error("Worker supervisor reconnect is waiting to retry"));
+            }
+            // Keep the failed-attempt bound if the caller drops the dial.
+            let retry = control.retry_delay.unwrap_or(RECONNECT_DELAY);
+            control.next_dial = Some(deadline + retry);
+            control.retry_delay = Some((retry * 2).min(WallDuration::from_secs(60)));
+            retry
+        };
         let connected = timeout_at(deadline, (self.dial)()).await;
+        let mut control = self.control.lock().unwrap_or_else(|error| error.into_inner());
         control.next_dial = Some(Instant::now() + retry);
         let active = connected
             .map_err(|_| protocol_error("Worker supervisor control connection timed out"))?
             .map_err(super::error::SshFailure::into_vendor)?;
+        if control.closed {
+            drop(control);
+            active.abandon();
+            return Err(protocol_error("Worker supervisor control is closed"));
+        }
         control.active = Some(active.clone());
         control.stream = None;
         Ok(active)
@@ -530,13 +637,38 @@ impl Peer {
     /// stayed open until the peer was dropped, which a task still holding the simulator could put off until exit.
     async fn close_control(&self) {
         let active = {
-            let mut control = self.control.lock().await;
+            let mut control = self.control.lock().unwrap_or_else(|error| error.into_inner());
             control.closed = true;
             control.stream = None;
-            control.active.take()
+            // Keep ownership visible to abandon while the graceful disconnect is in flight.
+            control.active.clone()
         };
         if let Some(active) = active {
             let _ = active.close().await;
+            self.control.lock().unwrap_or_else(|error| error.into_inner()).active = None;
+        }
+    }
+
+    fn abandon_control(&self) {
+        let (active, stream) = {
+            let mut control = self.control.lock().unwrap_or_else(|error| error.into_inner());
+            control.closed = true;
+            (control.active.take(), control.stream.take())
+        };
+        if let Some(active) = active {
+            active.abandon();
+        }
+        drop(stream);
+    }
+
+    fn acknowledge_proof(&self, token: &str, status: i32) {
+        let stream = self
+            .control
+            .try_lock()
+            .ok()
+            .and_then(|control| control.stream.as_ref()?.completed()?.ok());
+        if let Some(stream) = stream {
+            stream.acknowledge(token, status);
         }
     }
 
@@ -581,11 +713,12 @@ impl Peer {
     async fn stream(&self) -> VendorResult<(Arc<SshConnection>, Arc<ControlSession>)> {
         let active = self.connection().await?;
         let opening = {
-            let mut control = self.control.lock().await;
-            if !control
-                .active
-                .as_ref()
-                .is_some_and(|current| Arc::ptr_eq(current, &active))
+            let mut control = self.control.lock().unwrap_or_else(|error| error.into_inner());
+            if control.closed
+                || !control
+                    .active
+                    .as_ref()
+                    .is_some_and(|current| Arc::ptr_eq(current, &active))
             {
                 return Err(protocol_error("Worker supervisor control reconnected"));
             }
@@ -870,6 +1003,13 @@ impl Lease {
                 *current = Some(outcome);
                 true
             });
+            let status = match lease.proof.borrow().as_ref() {
+                Some(Ok(Proof::Done(status))) => Some(*status),
+                _ => None,
+            };
+            if let Some(status) = status {
+                lease.peer.acknowledge_proof(lease.token(), status);
+            }
             Ok(())
         }));
     }

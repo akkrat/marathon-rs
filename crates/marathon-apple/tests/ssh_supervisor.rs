@@ -65,6 +65,7 @@ struct ProbeReplies {
     first: Option<fake_worker::script::Action>,
     fallback: fake_worker::script::Action,
     attempts: std::sync::atomic::AtomicUsize,
+    first_started: tokio::sync::Notify,
 }
 impl fake_worker::router::Handler for ProbeReplies {
     fn name(&self) -> &str {
@@ -81,6 +82,7 @@ impl fake_worker::router::Handler for ProbeReplies {
             }
             let attempt = self.attempts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Ok(Some(if attempt == 0 {
+                self.first_started.notify_one();
                 self.first.as_ref().unwrap_or(&self.fallback).clone()
             } else {
                 self.fallback.clone()
@@ -112,6 +114,7 @@ async fn overlapping_commands_share_one_failed_worker_probe_d96() {
         )),
         fallback: Action::output("", 127),
         attempts: Default::default(),
+        first_started: Default::default(),
     });
     let fake = ssh::fake_with_handlers(ssh::script(vec![]), 3, |_| {}, vec![replies.clone()]).await;
     let (logger, _) = ssh::logging(false);
@@ -144,6 +147,81 @@ async fn overlapping_commands_share_one_failed_worker_probe_d96() {
     assert_eq!(replies.attempts.load(std::sync::atomic::Ordering::Relaxed), 1);
     assert!(!executor.worker_supervised().await.unwrap());
     assert_eq!(replies.attempts.load(std::sync::atomic::Ordering::Relaxed), 2);
+    executor.close().await.unwrap();
+    fake.worker.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_cancelled_execute_leaves_an_in_flight_probe_for_the_next_command_u277() {
+    use fake_worker::script::{Action, Chunk};
+    use marathon_core::{
+        error::{Cancellation, VendorError},
+        executor::shared::Signal,
+    };
+    use marathon_error::FailureKind;
+
+    const RELEASE: &str = "/tmp/marathon/probe-fixture-ready";
+    let probes = Arc::new(ProbeReplies {
+        first: Some(ssh::output(
+            vec![Chunk {
+                data: "fixture without the supervisor\n".into(),
+                wait_for_file: Some(RELEASE.into()),
+                ..Default::default()
+            }],
+            127,
+        )),
+        fallback: Action::Reject,
+        attempts: Default::default(),
+        first_started: Default::default(),
+    });
+    let fake = ssh::fake_with_handlers(
+        ssh::script(vec![ssh::exact("echo next", Action::output("next\n", 0))]),
+        2,
+        |_| {},
+        vec![probes.clone()],
+    )
+    .await;
+    let (logging, _) = ssh::logging(false);
+    let executor = ssh::factory(&logging)
+        .connect_worker("127.0.0.1", fake.port(), ssh::password(), None, false, Arc::default())
+        .await
+        .unwrap();
+    let signal = Signal::new();
+    let reason = Cancellation::Requested(marathon_apple::cmd::failure(
+        FailureKind::IllegalState,
+        "test cancellation",
+    ));
+    let context = marathon_core::vendor::VendorContext {
+        cancellation: signal.clone(),
+        ..context()
+    };
+
+    virtual_supervisor::with_paused_time(async {
+        let mut executing = std::pin::pin!(marathon_apple::cmd::exec_outcome::observe(
+            executor.execute(CommandRequest::new(["echo", "cancelled"], duration(10000)), context,)
+        ));
+        tokio::select! {
+            _ = &mut executing => panic!("execute returned before the bootstrap gate"),
+            _ = probes.first_started.notified() => {}
+        }
+        signal.cancel(reason.clone());
+        let (result, started_nothing) = executing.await;
+        assert!(matches!(result, Err(VendorError::Cancelled(actual)) if actual == reason));
+        assert!(started_nothing);
+        assert_eq!(fake.events("exec").await.len(), 1);
+        fake.worker.fs.write(RELEASE, vec![], 0o600).await.unwrap();
+    })
+    .await;
+
+    let result = executor
+        .critical_execute(
+            CommandRequest::new(["echo", "next"], duration(10000)),
+            support::context(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.stdout, ["next"]);
+    assert_eq!(probes.attempts.load(std::sync::atomic::Ordering::Relaxed), 1);
     executor.close().await.unwrap();
     fake.worker.shutdown().await.unwrap();
 }
@@ -182,6 +260,7 @@ async fn probe_fallback(first: Option<fake_worker::script::Action>, detail: &str
         first,
         fallback: ssh::output(vec![ssh::err_chunk(detail)], status),
         attempts: Default::default(),
+        first_started: Default::default(),
     });
     let fake = ssh::fake_with_handlers(
         ssh::script(vec![ssh::exact("echo fallback", Action::output("fallback\n", 0))]),
@@ -313,6 +392,75 @@ impl ControlStream {
         .await
         .map_err(std::io::Error::other)?
     }
+}
+
+#[tokio::test]
+async fn control_stream_prunes_only_acknowledged_terminal_proofs_u279() -> Result<(), Box<dyn std::error::Error>> {
+    use std::process::Stdio;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    if !Path::new("/usr/bin/perl").is_file() {
+        eprintln!("worker witness requires stock Perl");
+        return Ok(());
+    }
+    let (root, worker) = x111_root()?;
+    let tokens: Vec<_> = (0..7).map(|n| format!("{n:032x}")).collect();
+    let file = |n: usize, suffix: &str| root.path().join(format!("{}.{suffix}", tokens[n]));
+    for (n, status) in ["done:16", "done:16", "done:16", "unconfirmed", "not-started", "done:16"]
+        .into_iter()
+        .enumerate()
+    {
+        std::fs::write(file(n, "receipt"), format!("2 80000 1 {status}\n"))?;
+        std::fs::write(file(n, "stderr"), "diagnostic")?;
+    }
+    // The publication window can have both the receipt and the live files.
+    std::fs::write(file(5, "state"), "2 80000 1 -\n")?;
+    std::fs::write(file(5, "lock"), "")?;
+    let mut child = tokio::process::Command::new("/usr/bin/perl")
+        .arg(worker)
+        .arg("control-stream")
+        .arg(root.path())
+        .arg("60000")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| std::io::Error::other("worker stdin"))?;
+    let mut stdout = BufReader::new(
+        child
+            .stdout
+            .take()
+            .ok_or_else(|| std::io::Error::other("worker stdout"))?,
+    )
+    .lines();
+
+    support::watchdog(async {
+        let acknowledgements = [(0, 16), (1, 17), (3, 16), (4, 16), (5, 16)]
+            .map(|(n, status)| format!(" {}:{status}", tokens[n]))
+            .concat();
+        stdin
+            .write_all(format!("1 {}:status{acknowledgements}\n", tokens[6]).as_bytes())
+            .await?;
+        assert_eq!(stdout.next_line().await?, Some(format!("1 {} unknown", tokens[6])));
+        // This frame cannot be processed until the first read's housekeeping has run.
+        stdin.write_all(format!("2 {}:status\n", tokens[6]).as_bytes()).await?;
+        assert_eq!(stdout.next_line().await?, Some(format!("2 {} unknown", tokens[6])));
+        for suffix in ["receipt", "stderr"] {
+            assert!(!file(0, suffix).exists());
+            for n in 1..=5 {
+                assert!(file(n, suffix).exists(), "unexpected deletion of {n}.{suffix}");
+            }
+        }
+        assert_eq!(std::fs::read_to_string(file(5, "state"))?, "2 80000 1 -\n");
+        assert!(file(5, "lock").exists());
+        drop(stdin);
+        assert!(child.wait().await?.success());
+        Ok::<(), std::io::Error>(())
+    })
+    .await?;
+    Ok(())
 }
 
 #[tokio::test]
@@ -2077,7 +2225,7 @@ fn worker_commands_and_senders_stop_over_independent_real_ssh_d96() -> Result<()
     let mut path = std::ffi::OsString::from(fixture.path());
     path.push(":");
     path.push(std::env::var_os("PATH").unwrap_or_default());
-    // U269: the child abandons its worker connection, as a hard-killed run does, so nothing retires the supervisor
+    // U269: the child abandons its executor after checking data-path loss, so nothing retires the supervisor
     // roots its real worker creates. Each is recorded right after it is created; this guard retires them once the child has
     // exited, whatever the child's outcome, and on a panic here too.
     let mut roots = SupervisorRoots::new(fixture.path())?;
@@ -2421,6 +2569,7 @@ async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::err
     factory.connection_attempts = 1;
     factory.keep_alive_interval = duration(1000);
     factory.keep_alive_max_count = 1;
+    let relay = virtual_supervisor::Proxy::start(port).await;
     let executor = tokio::time::timeout(std::time::Duration::from_secs(6), async {
         loop {
             if let Some(status) = daemon.try_wait()? {
@@ -2429,7 +2578,7 @@ async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::err
             match factory
                 .connect_worker(
                     "127.0.0.1",
-                    port,
+                    relay.port,
                     SshAuthentication::PublicKey {
                         username: user.clone(),
                         key: key.clone(),
@@ -2446,6 +2595,7 @@ async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::err
         }
     })
     .await??;
+    let data = relay.count() - 1;
     assert!(
         executor
             .worker_supervised()
@@ -2632,8 +2782,10 @@ async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::err
         .map_err(|e| e.failure().to_string())?
         .ok_or("Missing worker PID")?;
     let pid = nix::unistd::Pid::from_raw(line.parse()?);
-    executor.abandon();
-    tokio::time::timeout(std::time::Duration::from_secs(4), async {
+    // A wire loss of only the data connection leaves the independent path available. Local executor abandonment
+    // closes both transports (U276); it is not a way to simulate this partition.
+    relay.cut(data);
+    tokio::time::timeout(std::time::Duration::from_secs(15), async {
         loop {
             if nix::sys::signal::kill(pid, None) == Err(nix::errno::Errno::ESRCH) {
                 break;
@@ -2642,6 +2794,7 @@ async fn real_worker_commands_and_senders_child() -> Result<(), Box<dyn std::err
         }
     })
     .await?;
+    executor.abandon();
     daemon.kill().await?;
     Ok(())
 }

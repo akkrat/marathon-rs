@@ -25,6 +25,12 @@ The section for a version becomes the text of its GitHub release, which carries 
 - Batch-level artifacts now use the correct extension, such as `.log` or `.mp4`, instead of repeating
   the batch ID. Extension-based globs can now find those files too (D104).
 
+### iOS and macOS
+
+- SSH worker cleanup closes the supervisor's control connection even when the release deadline expires.
+  Cancelling a command no longer waits for a supervisor probe, failed probes retry with backoff, and
+  busy workers can reclaim confirmed command receipts before shutdown (U276–U279).
+
 ## 0.15.6
 
 This release counts a test as failed when it fails again after the total retry quota has run out, and removes two

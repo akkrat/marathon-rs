@@ -38,6 +38,17 @@ pub struct Connected<C> {
     pub client: C,
 }
 
+/// The receiver can stop after the sender has handed off a connection but before polling it.
+struct PendingConnection(Option<SshCommandExecutor>);
+
+impl Drop for PendingConnection {
+    fn drop(&mut self) {
+        if let Some(executor) = &self.0 {
+            executor.connection().abandon();
+        }
+    }
+}
+
 impl SshjCommandExecutorFactory {
     /// russh runs on `runtime`; `clock` times sshj's 30 s replies and the keep-alive.
     pub fn new(logging: SshLogging, runtime: Arc<dyn VendorRuntime>, clock: Arc<dyn VendorClock>) -> Self {
@@ -80,13 +91,20 @@ impl SshjCommandExecutorFactory {
                 Err(error) => Err(error),
             };
             // A caller that stopped waiting (cancelled connect) leaves nobody to close the connection.
-            if let Err(Ok(executor)) = tx.send(result) {
+            if let Err(Ok(mut pending)) = tx.send(result.map(|executor| PendingConnection(Some(executor))))
+                && let Some(executor) = pending.0.take()
+            {
                 let _ = executor.connection().close().await;
             }
             Ok(())
         }));
-        rx.await
-            .unwrap_or_else(|e| Err(SshFailure::new(ILLEGAL_STATE_EXCEPTION, e.to_string())))
+        let mut pending = rx
+            .await
+            .map_err(|e| SshFailure::new(ILLEGAL_STATE_EXCEPTION, e.to_string()))??;
+        pending
+            .0
+            .take()
+            .ok_or_else(|| SshFailure::new(ILLEGAL_STATE_EXCEPTION, "Connection already delivered"))
     }
 
     /// Connect a production worker. Probe on the data connection before opening a control transport.

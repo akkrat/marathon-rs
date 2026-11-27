@@ -215,15 +215,15 @@ async fn execute(
     }
     let command = exec_string(&request);
     let lease = match supervisor {
-        Some(supervisor) => supervisor
-            .prepare(
+        Some(supervisor) => tokio::select! { biased;
+            reason = context.cancellation.cancelled() => return Err((VendorError::Cancelled(reason), true)),
+            lease = supervisor.prepare(
                 &connection,
                 &command,
                 request.detached_worker,
                 request.worker_subject.clone(),
-            )
-            .await
-            .map_err(|error| (error, true))?,
+            ) => lease.map_err(|error| (error, true))?,
+        },
         None => None,
     };
     let runtime = connection.runtime.clone();
@@ -564,5 +564,8 @@ impl CommandExecutor for SshCommandExecutor {
     }
     fn abandon(&self) {
         self.connection.abandon();
+        if let Some(supervisor) = &self.supervisor {
+            supervisor.abandon();
+        }
     }
 }

@@ -800,6 +800,11 @@ async fn run_supervisor_control(
                 .trim_end()
                 .split_once(' ')
                 .ok_or_else(|| anyhow::anyhow!("invalid control frame"))?;
+            let (operation, proofs) = operation.split_once(' ').unwrap_or((operation, ""));
+            if !proofs.is_empty() {
+                ctx.event("supervisor_proofs", transcript::bytes(proofs.as_bytes()))
+                    .await?;
+            }
             let request = Request::parse(format!("{wire} {operation}").as_bytes())?;
             ctx.event("supervisor_request", transcript::bytes(&request.raw)).await?;
             match ctx.shared.router.route(&request, &ctx.shared.fs).await?.plan {
@@ -816,7 +821,7 @@ async fn run_supervisor_control(
                 _ => anyhow::bail!("unsupported supervisor reply"),
             }
         }
-        ensure!(buffer.len() < 256, "supervisor request exceeded its limit");
+        ensure!(buffer.len() < 2560, "supervisor request exceeded its limit");
     }
     Ok(())
 }

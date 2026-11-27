@@ -4,7 +4,7 @@ use super::{Stream, protocol_error};
 use crate::cmd::remote::ssh::sshj::{channel::ExecChannel, client::SshConnection};
 use marathon_core::error::VendorResult;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     sync::{Arc, Mutex, Weak},
 };
 use tokio::{
@@ -13,6 +13,8 @@ use tokio::{
 };
 
 const MAX_FRAME: u64 = 32 * 1024;
+const PROOFS_PER_REQUEST: usize = 64;
+const MAX_PENDING_PROOFS: usize = 512;
 
 #[derive(Default)]
 struct Requests {
@@ -20,6 +22,7 @@ struct Requests {
     pending: HashMap<u64, oneshot::Sender<String>>,
     replies: u64,
     first_miss: Option<u64>,
+    acknowledged: VecDeque<(String, u8)>,
 }
 
 pub(super) struct ControlSession {
@@ -60,7 +63,7 @@ impl ControlSession {
 
     pub(super) fn request(self: &Arc<Self>, token: &str, operation: &str) -> VendorResult<Pending> {
         let (send, receive) = oneshot::channel();
-        let (id, replies) = {
+        let (id, replies, acknowledged) = {
             let mut requests = self.requests.lock().unwrap_or_else(|error| error.into_inner());
             if !self.is_open() {
                 return Err(protocol_error("Worker supervisor control stream is closed"));
@@ -71,7 +74,9 @@ impl ControlSession {
                 .ok_or_else(|| protocol_error("Control request IDs exhausted"))?;
             requests.next = id;
             requests.pending.insert(id, send);
-            (id, requests.replies)
+            let count = requests.acknowledged.len().min(PROOFS_PER_REQUEST);
+            let acknowledged = requests.acknowledged.drain(..count).collect::<Vec<_>>();
+            (id, requests.replies, acknowledged)
         };
         let request = Pending {
             session: self.clone(),
@@ -79,10 +84,27 @@ impl ControlSession {
             replies,
             receive,
         };
+        let mut wire = format!("{id} {token}:{operation}");
+        for (token, status) in acknowledged {
+            wire.push(' ');
+            wire.push_str(&token);
+            wire.push(':');
+            wire.push_str(&status.to_string());
+        }
+        wire.push('\n');
         self.channel
-            .write_data(format!("{id} {token}:{operation}\n").into_bytes())
+            .write_data(wire.into_bytes())
             .map_err(|error| error.into_vendor())?;
         Ok(request)
+    }
+
+    pub(super) fn acknowledge(&self, token: &str, status: i32) {
+        let Ok(status) = u8::try_from(status) else { return };
+        let mut requests = self.requests.lock().unwrap_or_else(|error| error.into_inner());
+        // Housekeeping must not open a session or grow an unbounded backlog on a quiet one.
+        if self.is_open() && requests.acknowledged.len() < MAX_PENDING_PROOFS {
+            requests.acknowledged.push_back((token.to_owned(), status));
+        }
     }
 
     fn close_stream(&self) {
