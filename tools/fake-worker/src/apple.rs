@@ -20,6 +20,38 @@ pub const DEVICE_TYPE: &str = "com.apple.CoreSimulator.SimDeviceType.iPhone-15-P
 pub const RUNTIME: &str = "com.apple.CoreSimulator.SimRuntime.iOS-27-1";
 const HOME: &str = "/Users/worker";
 const CONTROL: &str = "/tmp/marathon/.apple-world";
+const FRAME: &[u8] = include_bytes!("../../../fixtures/fake-worker/apple/media/screenshot.png");
+
+fn d100_capture(request: &Request) -> Option<&str> {
+    let args = request.argv.iter().map(String::as_str).collect::<Vec<_>>();
+    let [
+        "/bin/sh",
+        "-c",
+        script,
+        "marathon-screenshot",
+        file,
+        "25165824",
+        "xcrun",
+        "simctl",
+        "io",
+        id,
+        "screenshot",
+        "--type=png",
+        "--display=internal",
+        "--mask=black",
+    ] = args.as_slice()
+    else {
+        return None;
+    };
+    let token = file
+        .strip_prefix(&format!("/tmp/marathon/{id}/{id}.png.capture-"))?
+        .strip_suffix(".png")?;
+    (script.starts_with("umask 077; file=$1; limit=$2; shift 2; ")
+        && script.ends_with("exec /usr/bin/base64 <&3")
+        && token.len() == 32
+        && token.bytes().all(|b| b.is_ascii_hexdigit()))
+    .then_some(*id)
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -220,11 +252,17 @@ impl World {
         ))
     }
     fn reserve(&self, r: &Request) -> Result<Reservation> {
+        // Both protocols satisfy the same immutable world expectation.
+        let capture = d100_capture(r).map(|id| {
+            format!(
+                "xcrun simctl io {id} screenshot --type=png --display=internal --mask=black /tmp/marathon/{id}/{id}.png"
+            )
+        });
         let names = self
             .scenario
             .expectations
             .iter()
-            .filter(|e| e.matcher.matches(&r.text))
+            .filter(|e| e.matcher.matches(capture.as_deref().unwrap_or(&r.text)))
             .collect::<Vec<_>>();
         let mut state = self.state()?;
         for e in &names {
@@ -246,6 +284,9 @@ impl World {
     async fn answer(&self, r: &Request, fs: &VirtualFs) -> Result<Option<Action>> {
         if catalogue_deferral(&r.text)? {
             return Ok(Some(self.deferred(r)?));
+        }
+        if let Some(id) = d100_capture(r) {
+            return self.screenshot(id, None, fs).await.map(Some);
         }
         let a = r.argv.iter().map(String::as_str).collect::<Vec<_>>();
         let out = match a.as_slice() {
@@ -467,34 +508,7 @@ impl World {
                 "--display=internal",
                 "--mask=black",
                 path,
-            ] => {
-                ensure!(
-                    self.device(id)?.is_some_and(|d| d.state == "Booted"),
-                    "screenshot requires booted device"
-                );
-                fs.write(
-                    path,
-                    include_bytes!("../../../fixtures/fake-worker/apple/media/screenshot.png").to_vec(),
-                    0o600,
-                )
-                .await?;
-                fs.mkdir(CONTROL).await?;
-                // A second request proves Kotlin pulled and wrote the first frame.
-                // Suspend it until cancellation so the GIF has exactly one frame.
-                let seen = format!("{CONTROL}/{}screenshot-seen", device_prefix(id));
-                if fs.stat(&seen).await.is_ok() {
-                    fs.write(&device_barrier(id, &self.scenario.tests[0].method), vec![], 0o600)
-                        .await?;
-                    let mut action = ok("");
-                    if let Action::Output { hang, .. } = &mut action {
-                        *hang = true;
-                    }
-                    return Ok(Some(action));
-                } else {
-                    fs.write(&seen, vec![], 0o600).await?;
-                }
-                ok("")
-            }
+            ] => self.screenshot(id, Some(path), fs).await?,
             // The separate device-log wrapper is parsed as a background job by
             // the router. Only this complete nested redirect is accepted here.
             [
@@ -864,6 +878,48 @@ impl Drop for Reservation {
         }
     }
 }
+impl World {
+    async fn screenshot(&self, id: &str, legacy_path: Option<&str>, fs: &VirtualFs) -> Result<Action> {
+        ensure!(
+            self.scenario.media == Media::Screenshot && self.device(id)?.is_some_and(|d| d.state == "Booted"),
+            "screenshot requires a booted device in a screenshot scenario"
+        );
+        if let Some(path) = legacy_path {
+            fs.write(path, FRAME.to_vec(), 0o600).await?;
+        }
+        fs.mkdir(CONTROL).await?;
+        // The second request proves the recorder wrote its first frame. Hold it for the test's cancellation.
+        let seen = format!("{CONTROL}/{}screenshot-seen", device_prefix(id));
+        if fs.stat(&seen).await.is_ok() {
+            let barrier = device_barrier(id, &self.scenario.tests[0].method);
+            let mut action = ok("");
+            if let Action::Output { hang, .. } = &mut action {
+                *hang = true;
+            }
+            return if legacy_path.is_some() {
+                fs.write(&barrier, vec![], 0o600).await?;
+                Ok(action)
+            } else {
+                // Send the exec reply before unblocking xcodebuild's test-end event.
+                Ok(Action::Publish {
+                    output: Box::new(action),
+                    files: vec![],
+                    started: vec![file(&barrier, b"")],
+                    on_signal: None,
+                    normal_exit_on_signal: false,
+                    announce: None,
+                })
+            };
+        }
+        fs.write(&seen, vec![], 0o600).await?;
+        Ok(if legacy_path.is_some() {
+            ok("")
+        } else {
+            ok(&format!("{}\n", BASE64_STANDARD.encode(FRAME)))
+        })
+    }
+}
+
 impl Handler for World {
     fn name(&self) -> &str {
         "apple-world"

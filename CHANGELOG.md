@@ -30,6 +30,8 @@ The section for a version becomes the text of its GitHub release, which carries 
 - SSH worker cleanup closes the supervisor's control connection even when the release deadline expires.
   Cancelling a command no longer waits for a supervisor probe, failed probes retry with backoff, and
   busy workers can reclaim confirmed command receipts before shutdown (U276–U279).
+- Screenshot recording on remote iOS simulators no longer opens a new SSH login per frame (D100).
+  If you use a forced command that filters SSH execs, see the [migration note](docs/migration.md#ios-screenshot-streaming).
 
 ## 0.15.6
 

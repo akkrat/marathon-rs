@@ -934,19 +934,20 @@ class EvidenceTests(unittest.TestCase):
 class VendorEvidenceTests(unittest.TestCase):
     def test_d104_only_declared_batch_logs_have_a_historical_spelling(self):
         contract = DRIVER['contract']('ios-smoke')
-        record = e.load(ROOT / 'fixtures/differential/vendors/ios-smoke/jvm-v2/evidence.json')
+        directory = ROOT / 'fixtures/differential/vendors/ios-smoke/jvm-v2'
+        record = e.load(directory / 'evidence.json')
         rename, = [(path, e.d104_batch_log_path(path)) for path in contract['paths']
                    if e.d104_batch_log_path(path) != path]
         old, new = [e.expand(path, record['identities']) for path in rename]
-        historical = e.canonical_paths(record, contract, historical=True)
+        historical = e.canonical_paths(directory, record, contract, historical=True)
         self.assertEqual(historical[old], rename[1])
         row = next(row for row in record['entries'] if row['path'] == old)
         for wrong in (old, new + '.log', new.replace('.log', '.mp4')):
             row['path'] = wrong
             with self.subTest(wrong=wrong), self.assertRaisesRegex(e.Invalid, 'missing declared paths'):
-                e.canonical_paths(record, contract, historical=False)
+                e.canonical_paths(directory, record, contract, historical=False)
         row['path'] = new
-        self.assertEqual(e.canonical_paths(record, contract, historical=False)[new], rename[1])
+        self.assertEqual(e.canonical_paths(directory, record, contract, historical=False)[new], rename[1])
 
     def test_d104_only_the_declared_device_log_receive_destination_changes(self):
         import vendor_transport as t
@@ -1985,6 +1986,60 @@ class VendorEvidenceTests(unittest.TestCase):
                             console.normalize((timing+parsed+connected).encode(),v,'native','stdout'))
         self.assertNotEqual(console.normalize(b'first\nsecond\n',v,'native','stdout'),
                             console.normalize(b'second\nfirst\n',v,'native','stdout'))
+
+
+class ScreenshotStreamD100(unittest.TestCase):
+    @staticmethod
+    def sessions():
+        import shlex
+        import vendor_screenshot as shot
+        rows = {}
+        for channel in (1, 2):
+            wire = shlex.join(['/bin/sh', '-c', shot.SCRIPT, 'marathon-screenshot',
+                               shot.PATH + f'.capture-{channel:032x}.png', '25165824', *shot.SIMCTL])
+            rows[1, channel] = dict(wire=wire, stdin=b'', stderr=b'', end='completed',
+                                    exit=0 if channel == 1 else 143,
+                                    stdout=base64.b64encode(shot.FRAME.read_bytes()) + b'\n'
+                                    if channel == 1 else b'')
+        return rows
+
+    def test_only_the_two_expected_screenshot_execs_are_allowed_d100(self):
+        import vendor_screenshot as shot
+        signals = {(1, 1): [], (1, 2): ['TERM']}
+        rows = self.sessions()
+        shot.d100_streams(rows, signals)
+        self.assertEqual(rows, {})
+        for field, value, error in [
+            ('wire', self.sessions()[1, 1]['wire'].replace('25165824', '25165825'), 'wrapper'),
+            ('wire', self.sessions()[1, 2]['wire'], 'wrapper'),
+            ('stdout', b'YWJj\n', 'first screenshot'),
+            ('stderr', b'frame leaked', 'streams'),
+            ('exit', 37, 'first screenshot'),
+        ]:
+            with self.subTest(field=field, error=error):
+                rows = self.sessions()
+                rows[1, 1][field] = value
+                with self.assertRaisesRegex(e.Invalid, error):
+                    shot.d100_streams(rows, signals)
+        with self.assertRaisesRegex(e.Invalid, 'cancellation'):
+            shot.d100_streams(self.sessions(), {(1, 1): [], (1, 2): []})
+        rows = self.sessions()
+        rows[2, 3] = dict(wire=shot.RSYNC)
+        with self.assertRaisesRegex(e.Invalid, 'sender'):
+            shot.d100_streams(rows, signals)
+
+    def test_d100_leaves_other_payloads_and_artifacts_to_the_comparator(self):
+        import gzip
+        import vendor_screenshot as shot
+        golden = e.loads(gzip.decompress((ROOT/'fixtures/contract/native-v1/ios-screenshot.json.gz').read_bytes()))
+        report = next(name for name in golden if name.endswith('.gif'))
+        expected = golden[report]
+        golden['host-argv.jsonl']['content']['unrelated'] = [dict(argv=['rest'])]
+        shot.d100_prior_view(golden)
+        self.assertEqual(golden[report], expected)
+        self.assertEqual(golden['host-argv.jsonl']['content']['unrelated'], [dict(argv=['rest'])])
+        with self.assertRaisesRegex(e.Invalid, 'rsync process'):
+            shot.d100_check_host_argv(dict(unexpected=[dict(argv=['127.0.0.1:' + shot.PATH])]))
 
 
 if __name__ == '__main__':

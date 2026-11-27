@@ -2213,6 +2213,204 @@ async fn a_slow_control_exchange_keeps_its_transport_d96() {
 
 #[cfg(target_os = "macos")]
 #[test]
+fn frames_use_one_exec_each_on_the_existing_loopback_sshd_connection_d100() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = tempfile::tempdir()?;
+    let mut roots = SupervisorRoots::new(fixture.path())?;
+    let output = std::process::Command::new(std::env::current_exe()?)
+        .args(["--exact", "real_screenshot_frames_child", "--nocapture"])
+        .env("MRS_D100_LOOPBACK", fixture.path())
+        .output()?;
+    let retired = roots.retire();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let retired = retired?;
+    if !String::from_utf8_lossy(&output.stderr).contains("loopback witness requires") {
+        assert_eq!(retired.len(), 1);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn real_screenshot_frames_child() -> Result<(), Box<dyn std::error::Error>> {
+    use marathon_apple::{
+        bin::{
+            Tools,
+            xcrun::simctl::{SimctlService, service::IoService},
+        },
+        cmd::remote::ssh::sshj::SshAuthentication,
+    };
+    use marathon_config::vendor::{AppleTimeoutParameters, Display, Mask, ScreenshotType, apple_timeout_configuration};
+    use std::{
+        os::{fd::OwnedFd, unix::fs::PermissionsExt},
+        process::Stdio,
+    };
+    use tokio::{net::TcpListener, process::Command, sync::oneshot};
+
+    let Some(root) = std::env::var_os("MRS_D100_LOOPBACK") else {
+        return Ok(());
+    };
+    if !Path::new("/usr/sbin/sshd").is_file() || !Path::new("/usr/bin/perl").is_file() {
+        eprintln!("loopback witness requires stock sshd and Perl");
+        return Ok(());
+    }
+    let root = Path::new(&root);
+    let host = root.join("host");
+    let key = root.join("client");
+    for path in [&host, &key] {
+        let status = Command::new("/usr/bin/ssh-keygen")
+            .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+            .arg(path)
+            .status()
+            .await?;
+        assert!(status.success());
+    }
+    let write_exec = |file: &Path, body: &str| -> std::io::Result<()> {
+        std::fs::write(file, body)?;
+        std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o700))
+    };
+    let trace = root.join("trace");
+    let forced = root.join("forced");
+    write_exec(
+        &forced,
+        &format!(
+            "#!/bin/sh\nexport PATH='{}':\"$PATH\"\nprintf '%s\\t%s\\n' \"$SSH_CONNECTION\" \"$SSH_ORIGINAL_COMMAND\" >> '{}'\nexec /bin/sh -c \"$SSH_ORIGINAL_COMMAND\"\n",
+            root.display(),
+            trace.display(),
+        ),
+    )?;
+    write_exec(
+        &root.join("xcrun"),
+        "#!/bin/sh\n[ \"$1 $2 $3 $4\" = 'simctl io fixture screenshot' ] || exit 13\nfor f do :; done\nprintf 'loopback frame' > \"$f\"\n",
+    )?;
+    let authorized = root.join("authorized");
+    std::fs::write(
+        &authorized,
+        format!(
+            "restrict,command=\"{}\" {}",
+            forced.display(),
+            std::fs::read_to_string(key.with_extension("pub"))?,
+        ),
+    )?;
+    let config = root.join("sshd_config");
+    std::fs::write(
+        &config,
+        format!(
+            "HostKey {}\nAuthorizedKeysFile {}\nUsePAM no\nStrictModes no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nMaxSessions 2\n{}",
+            host.display(),
+            authorized.display(),
+            SupervisorRoots::sshd_environment(root),
+        ),
+    )?;
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+    let port = listener.local_addr()?.port();
+    let (stop, mut stopping) = oneshot::channel::<()>();
+    let sshd_log = root.join("sshd.log");
+    let server_log = sshd_log.clone();
+    let serve = tokio::spawn(async move {
+        let mut children = Vec::new();
+        loop {
+            tokio::select! { biased;
+                accepted = listener.accept() => {
+                    let socket = accepted?.0.into_std()?;
+                    socket.set_nonblocking(false)?;
+                    children.push(Command::new("/usr/sbin/sshd")
+                        .args(["-i", "-e", "-f"])
+                        .arg(&config)
+                        .stdin(Stdio::from(OwnedFd::from(socket.try_clone()?)))
+                        .stdout(Stdio::from(OwnedFd::from(socket)))
+                        .stderr(std::fs::OpenOptions::new().create(true).append(true).open(&server_log)?)
+                        .kill_on_drop(true)
+                        .spawn()?);
+                }
+                _ = &mut stopping => break,
+            }
+        }
+        for child in &mut children {
+            child.wait().await?;
+        }
+        Ok::<_, std::io::Error>(children.len())
+    });
+    let outcome = support::bounded(60, async {
+        let (logging, _) = ssh::logging(true);
+        let username = Command::new("/usr/bin/id").arg("-un").output().await?;
+        assert!(username.status.success());
+        let executor = Arc::new(
+            ssh::factory(&logging)
+                .connect_worker(
+                    "127.0.0.1",
+                    port,
+                    SshAuthentication::PublicKey {
+                        username: String::from_utf8(username.stdout)?.trim().to_owned(),
+                        key,
+                    },
+                    None,
+                    true,
+                    Arc::default(),
+                )
+                .await
+                .map_err(|error| error.into_vendor().failure().to_string())?,
+        );
+        let result = async {
+            assert!(
+                executor
+                    .worker_supervised()
+                    .await
+                    .map_err(|e| e.failure().to_string())?
+            );
+            let io = IoService::new(SimctlService::new(Tools {
+                executor: executor.clone(),
+                timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
+                runtime: Arc::new(support::Runtime),
+                logging,
+            }));
+            let destination = root.join("image with 'quotes'.png");
+            for _ in 0..2 {
+                let frame = io
+                    .screenshot_ssh(
+                        "fixture",
+                        destination.to_str().ok_or("fixture path is not UTF-8")?,
+                        ScreenshotType::Png,
+                        Display::Internal,
+                        Mask::Black,
+                        &context(),
+                    )
+                    .await
+                    .map_err(|e| e.failure().to_string())?;
+                assert_eq!(frame.as_deref(), Some(b"loopback frame".as_slice()));
+            }
+            assert!(!std::fs::read_dir(root)?.any(|entry| {
+                entry.is_ok_and(|entry| entry.file_name().to_string_lossy().starts_with("image with"))
+            }));
+            Ok::<_, Box<dyn std::error::Error>>(())
+        }
+        .await;
+        executor.close().await.map_err(|e| e.failure().to_string())?;
+        result
+    })
+    .await;
+    let _ = stop.send(());
+    let logins = support::bounded(60, serve).await??;
+    outcome.map_err(|error| format!("{error}\n{}", std::fs::read_to_string(sshd_log).unwrap_or_default()))?;
+    assert_eq!(logins, 1);
+    let commands = std::fs::read_to_string(trace)?;
+    assert_eq!(
+        commands
+            .lines()
+            .filter(|line| line.contains("marathon-screenshot"))
+            .count(),
+        2
+    );
+    assert_eq!(commands.lines().count(), 4, "bootstrap, two frames, and retirement");
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn worker_commands_and_senders_stop_over_independent_real_ssh_d96() -> Result<(), Box<dyn std::error::Error>> {
     use std::os::unix::fs::PermissionsExt;
     let fixture = tempfile::tempdir()?;

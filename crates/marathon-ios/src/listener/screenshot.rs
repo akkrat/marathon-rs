@@ -59,7 +59,17 @@ impl ScreenCapturerTestRunListener {
                 test.to_simple_safe_test_name('.').to_owned()
             ),
         );
+        let joining = std::time::Instant::now();
         self.c.cancel(&self.job).await?;
+        self.c.log(
+            &self.logger,
+            Level::DEBUG,
+            format!(
+                "Joined screenshot capture for {} in {} ms",
+                test.to_simple_safe_test_name('.').to_owned(),
+                joining.elapsed().as_millis()
+            ),
+        );
         let file = self.c.file(FileType::Screenshot, Some(test)).await?;
         if self.c.policy(failed) && self.capturer.captures_taken() > 0 {
             self.attachments.on_attachment(

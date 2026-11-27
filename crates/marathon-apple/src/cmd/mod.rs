@@ -99,6 +99,8 @@ impl CommandException {
 #[derive(Clone, Debug)]
 pub struct CommandRequest {
     pub(crate) detached_worker: bool,
+    /// Bounded, private SSH capture, not the line-listener path. Limits count wire bytes.
+    pub(crate) capture_limits: Option<(usize, usize)>,
     /// What a supervised worker process serves, for its diagnostics (U261): `simulator <udid>` for a recorder.
     pub(crate) worker_subject: Option<String>,
     pub command: Vec<String>,
@@ -112,6 +114,7 @@ impl CommandRequest {
     pub fn new(command: impl IntoIterator<Item = impl Into<String>>, timeout: Duration) -> Self {
         Self {
             detached_worker: false,
+            capture_limits: None,
             worker_subject: None,
             command: command.into_iter().map(Into::into).collect(),
             timeout,
@@ -191,30 +194,7 @@ pub trait CommandExecutor: Send + Sync {
                 session.await_result(&context).await
             }
             .await;
-            // Kotlin catches the two sshj classes and their subclasses (OpenFailException is a
-            // ConnectionException), in this order.
-            let class = |f: &Failure| f.kind.to_owned();
-            match result {
-                Ok(value) => Ok(Some(value)),
-                Err(VendorError::Other(ref f)) if is_instance(&class(f), CONNECTION_EXCEPTION) => {
-                    self.log_error_with(
-                        format!(
-                            "Unable to start a remote shell session [{}]",
-                            request.command.join(", ")
-                        ),
-                        f,
-                    );
-                    Ok(None)
-                }
-                Err(VendorError::Other(ref f)) if is_instance(&class(f), TRANSPORT_EXCEPTION) => {
-                    self.log_error_with(
-                        format!("Error starting a remote shell session [{}]", request.command.join(", ")),
-                        f,
-                    );
-                    Ok(None)
-                }
-                Err(error) => Err(error),
-            }
+            safe_shell_result(self, &request, result)
         })
     }
     fn safe_execute_nohup(
@@ -232,6 +212,30 @@ pub trait CommandExecutor: Send + Sync {
             ),
         ];
         self.safe_execute(request, context)
+    }
+}
+
+pub(crate) fn safe_shell_result<T>(
+    executor: &(impl CommandExecutor + ?Sized),
+    request: &CommandRequest,
+    result: VendorResult<T>,
+) -> VendorResult<Option<T>> {
+    // OpenFailException is also a ConnectionException. A caller's stop is not
+    // a shell failure, even when it interrupted the wait for the exec reply.
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(VendorError::Other(ref failure)) => {
+            let message = if is_instance(&failure.kind, CONNECTION_EXCEPTION) {
+                "Unable to start a remote shell session"
+            } else if is_instance(&failure.kind, TRANSPORT_EXCEPTION) {
+                "Error starting a remote shell session"
+            } else {
+                return result.map(Some);
+            };
+            executor.log_error_with(format!("{message} [{}]", request.command.join(", ")), failure);
+            Ok(None)
+        }
+        Err(error) => Err(error),
     }
 }
 

@@ -3,11 +3,15 @@
 use super::SimctlService;
 use crate::{
     bin::argv,
-    cmd::{CommandResult, CommandSession},
+    cmd::{CommandResult, CommandSession, blocking, millis, safe_shell_result},
     extensions::Durations,
 };
+use base64::{Engine, engine::general_purpose::STANDARD};
 use marathon_config::vendor::{Codec, Display, Mask, ScreenshotType};
-use marathon_core::{error::VendorResult, vendor::VendorContext};
+use marathon_core::{
+    error::{VendorError, VendorResult},
+    vendor::VendorContext,
+};
 use marathon_logging::{Component, Level};
 
 /// simctl's stderr when the simulator's video service refuses a recording (status 16, EBUSY), D98. Xcode 16 to 26.x
@@ -16,6 +20,31 @@ use marathon_logging::{Component, Level};
 /// `Host recording is already in progress` as the reason (U262). The one definition for the recorder's busy detection
 /// and the worker supervisor's restart hint.
 const RECORDING_BUSY_TEXT: [&str; 2] = ["Resource busy", "recording is already in progress"];
+
+const MAX_FRAME_BYTES: usize = 24 * 1024 * 1024;
+const MAX_BASE64_BYTES: usize = MAX_FRAME_BYTES.div_ceil(3) * 4;
+const FRAME_SCRIPT: &str = concat!(
+    "umask 077; file=$1; limit=$2; shift 2; ",
+    "trap '/bin/rm -f \"$file\"' EXIT; trap 'exit 143' TERM; trap 'exit 129' HUP; ",
+    "\"$@\" \"$file\" >/dev/null || exit $?; ",
+    "size=$(/usr/bin/wc -c < \"$file\") || exit $?; ",
+    "[ \"$size\" -le \"$limit\" ] || exit 65; ",
+    // Unlink before sending the frame, so a cancelled or stalled encoder
+    // never holds a pathname open on the worker.
+    "exec 3< \"$file\"; /bin/rm -f \"$file\" || exit $?; exec /usr/bin/base64 <&3"
+);
+
+fn quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn decode_frame(mut encoded: Vec<u8>) -> Option<Vec<u8>> {
+    encoded.retain(|byte| !matches!(byte, b'\r' | b'\n'));
+    if encoded.is_empty() || encoded.len() > MAX_BASE64_BYTES {
+        return None;
+    }
+    STANDARD.decode(encoded).ok()
+}
 
 /// Whether a recorder's stderr carries simctl's busy refusal.
 pub fn reports_recording_busy(stderr: &str) -> bool {
@@ -42,15 +71,8 @@ impl IoService {
         mask: Mask,
         context: &VendorContext,
     ) -> VendorResult<bool> {
-        let args = vec![
-            "io".to_owned(),
-            udid.to_owned(),
-            "screenshot".to_owned(),
-            format!("--type={}", kind.value()),
-            format!("--display={}", display.value()),
-            format!("--mask={}", mask.value()),
-            destination.to_owned(),
-        ];
+        let mut args = Self::screenshot_args(udid, kind, display, mask);
+        args.push(destination.to_owned());
         let timeout = self.service.timeouts().screenshot;
         let result = self.service.safe_execute(timeout, args, context).await?;
         if result.as_ref().is_some_and(CommandResult::successful) {
@@ -70,6 +92,83 @@ impl IoService {
             None,
         );
         Ok(false)
+    }
+    /// D100: capture and stream one frame privately on the worker's existing SSH connection.
+    pub async fn screenshot_ssh(
+        &self,
+        udid: &str,
+        destination: &str,
+        kind: ScreenshotType,
+        display: Display,
+        mask: Mask,
+        context: &VendorContext,
+    ) -> VendorResult<Option<Vec<u8>>> {
+        let file = format!("{destination}.capture-{:032x}.{}", rand::random::<u128>(), kind.value());
+        let mut command = vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            quote(FRAME_SCRIPT),
+            "marathon-screenshot".into(),
+            quote(&file),
+            MAX_FRAME_BYTES.to_string(),
+        ];
+        command.extend(
+            SimctlService::command(Self::screenshot_args(udid, kind, display, mask))
+                .iter()
+                .map(|arg| quote(arg)),
+        );
+        let tools = &self.service.tools;
+        // The timeout covers open, exec reply and both streams, not just
+        // process exit (which can precede its final bytes).
+        let mut request = tools.request(command, Durations::INFINITE);
+        request.capture_limits = Some((MAX_BASE64_BYTES + MAX_BASE64_BYTES / 16, 64 * 1024));
+        let timeout = millis(self.service.timeouts().screenshot)?;
+        let mut frame = None;
+        let output = &mut frame;
+        let completed = context
+            .clock
+            .with_timeout_or_null(
+                context.cancellation.clone(),
+                timeout,
+                Box::new(move |cancellation| {
+                    Box::pin(async move {
+                        let context = VendorContext {
+                            cancellation,
+                            ..context.clone()
+                        };
+                        let capture = async {
+                            tools
+                                .executor
+                                .execute(request.clone(), context.clone())
+                                .await?
+                                .await_capture()
+                                .await
+                        }
+                        .await;
+                        if let Some(Some(bytes)) = safe_shell_result(tools.executor.as_ref(), &request, capture)? {
+                            // Never include either stream in an error or in debug output.
+                            *output = tokio::select! { biased;
+                                reason = context.cancellation.cancelled() => return Err(VendorError::Cancelled(reason)),
+                                decoded = blocking(tools.runtime.as_ref(), move || Ok(decode_frame(bytes))) => decoded?,
+                            };
+                        }
+                        Ok(())
+                    })
+                }),
+            )
+            .await?;
+        Ok(completed.and(frame))
+    }
+
+    fn screenshot_args(udid: &str, kind: ScreenshotType, display: Display, mask: Mask) -> Vec<String> {
+        vec![
+            "io".to_owned(),
+            udid.to_owned(),
+            "screenshot".to_owned(),
+            format!("--type={}", kind.value()),
+            format!("--display={}", display.value()),
+            format!("--mask={}", mask.value()),
+        ]
     }
     pub async fn record_video(
         &self,
@@ -124,5 +223,45 @@ impl IoService {
             "--force",
             remote_path,
         ])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Command;
+
+    #[test]
+    fn decode_a_nonempty_base64_frame_d100() {
+        assert_eq!(decode_frame(b"YQ==\r\n".to_vec()), Some(b"a".to_vec()));
+        assert_eq!(decode_frame(b"\r\n".to_vec()), None);
+        assert_eq!(decode_frame(b"YW&j".to_vec()), None);
+        assert_eq!(decode_frame(vec![b'A'; MAX_BASE64_BYTES + 1]), None);
+    }
+
+    #[test]
+    fn worker_frame_keeps_simctl_status_and_removes_the_temporary_file_d100() -> std::io::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let file = directory.path().join("a 'quoted' file.png");
+        let run = |limit: &str, body: &str| {
+            Command::new("/bin/sh")
+                .args(["-c", FRAME_SCRIPT, "marathon-screenshot"])
+                .arg(&file)
+                .args([limit, "/bin/sh", "-c", body, "xcrun"])
+                .output()
+        };
+        let result = run("3", "printf abc > \"$1\"; echo not-a-frame; exit 37")?;
+        assert_eq!(result.status.code(), Some(37));
+        assert!(result.stdout.is_empty());
+        assert!(!file.exists());
+        let oversize = run("2", "printf abc > \"$1\"")?;
+        assert_eq!(oversize.status.code(), Some(65));
+        assert!(oversize.stdout.is_empty());
+        assert!(!file.exists());
+        let success = run("3", "printf abc > \"$1\"; echo not-a-frame")?;
+        assert!(success.status.success());
+        assert_eq!(decode_frame(success.stdout), Some(b"abc".to_vec()));
+        assert!(!file.exists());
+        Ok(())
     }
 }

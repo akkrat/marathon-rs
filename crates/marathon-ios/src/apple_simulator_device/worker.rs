@@ -34,7 +34,32 @@ pub(super) async fn blocking<T: Send + 'static>(
 fn io_error(error: std::io::Error) -> VendorError {
     VendorError::Other(failure(FailureKind::Io, error.to_string()))
 }
+fn decode_screenshot(bytes: &[u8]) -> VendorResult<Option<RgbaFrame>> {
+    match image::load_from_memory(bytes) {
+        Ok(image) => Ok(Some(image.to_rgba8())),
+        Err(image::ImageError::Unsupported(_)) => Ok(None),
+        Err(error) => Err(VendorError::Other(failure(
+            FailureKind::Report(ReportKind::ImageIo),
+            error.to_string(),
+        ))),
+    }
+}
 impl AppleSimulatorDevice {
+    async fn remote_screenshot_bytes(&self, context: &VendorContext) -> VendorResult<Option<Vec<u8>>> {
+        let cfg = &self
+            .services
+            .vendor
+            .screen_record_configuration
+            .screenshot_configuration;
+        let path = self.remote.remote_screenshot(&self.udid, cfg.screenshot_type);
+        self.bin
+            .xcrun
+            .simctl
+            .io
+            .screenshot_ssh(&self.udid, &path, cfg.screenshot_type, cfg.display, cfg.mask, context)
+            .await
+    }
+
     pub(crate) async fn worker_supervised(&self) -> VendorResult<bool> {
         self.executor.worker_supervised().await
     }
@@ -549,6 +574,17 @@ impl AppleDevice for AppleSimulatorDevice {
     }
     fn get_screenshot<'a>(&'a self, _: Duration, dst: &'a Path, context: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
+            if matches!(self.transport, Transport::Ssh { .. }) {
+                let Some(bytes) = self.remote_screenshot_bytes(context).await? else {
+                    return Ok(false);
+                };
+                let dst = dst.to_owned();
+                return blocking(self.services.runtime.as_ref(), move || {
+                    std::fs::write(dst, bytes).map_err(io_error)?;
+                    Ok(true)
+                })
+                .await;
+            }
             let cfg = &self
                 .services
                 .vendor
@@ -600,6 +636,19 @@ impl Screenshottable for AppleSimulatorDevice {
         cancellation: Arc<dyn CancellationSignal>,
     ) -> VendorFuture<'a, Option<RgbaFrame>> {
         Box::pin(async move {
+            let context = VendorContext {
+                cancellation,
+                ..self.services.context.clone()
+            };
+            if matches!(self.transport, Transport::Ssh { .. }) {
+                let Some(bytes) = self.remote_screenshot_bytes(&context).await? else {
+                    return Ok(None);
+                };
+                return tokio::select! { biased;
+                    reason = context.cancellation.cancelled() => Err(VendorError::Cancelled(reason)),
+                    image = blocking(self.services.runtime.as_ref(), move || decode_screenshot(&bytes)) => image,
+                };
+            }
             let extension = format!(
                 ".{}",
                 self.services
@@ -613,23 +662,12 @@ impl Screenshottable for AppleSimulatorDevice {
                 tempfile::Builder::new().suffix(&extension).tempfile().map_err(io_error)
             })
             .await?;
-            let context = VendorContext {
-                cancellation,
-                ..self.services.context.clone()
-            };
             let result = self.get_screenshot(timeout, file.path(), &context).await;
             blocking(self.services.runtime.as_ref(), move || {
                 let image = match result {
-                    Ok(true) => std::fs::read(file.path()).map_err(io_error).and_then(|bytes| {
-                        match image::load_from_memory(&bytes) {
-                            Ok(image) => Ok(Some(image.to_rgba8())),
-                            Err(image::ImageError::Unsupported(_)) => Ok(None),
-                            Err(error) => Err(VendorError::Other(failure(
-                                FailureKind::Report(ReportKind::ImageIo),
-                                error.to_string(),
-                            ))),
-                        }
-                    }),
+                    Ok(true) => std::fs::read(file.path())
+                        .map_err(io_error)
+                        .and_then(|bytes| decode_screenshot(&bytes)),
                     Ok(false) => Ok(None),
                     Err(error) => Err(error),
                 };

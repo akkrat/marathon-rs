@@ -118,6 +118,7 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 | use SSH passwords for Apple transfers ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)) | From 0.15.0, OpenSSH 8.4 or newer uses askpass, which keeps rsync and its SSH client together in a private process group that marathon owns. An older or unrecognized SSH client uses `sshpass`, and marathon logs one warning per run that its cleanup then covers fewer processes. | Older or unrecognized SSH clients still need `sshpass`. |
 | filter SSH exec or rsync senders on Apple workers ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)) | D96 is new in 0.15.0. Stock `/usr/bin/perl` with its core modules is optional and recommended. A successful pull verifies the sender through rsync's own status. The independent control connection keeps one exec open and can retry token requests on a spare command session. | Allow bootstrap, supervised requests, token controls and supervisor retirement. Allow `control-stream` with stdin intact. Use `exec` to run the original supervised command so a wrapper failure arrives as an SSH signal. |
 | filter iOS video commands on the worker ([D96](deviations.md#d96--the-controller-owns-its-local-process-groups)) | A supervised recorder detaches and releases its SSH session after launch. Token control sends INT to finalize it and can escalate to TERM and KILL. `timeoutConfiguration.video` bounds the open. | Allow the supervisor bootstrap, detached launcher and token controls. Without Perl, allow the legacy `nohup` launcher, pidfile commands and PID-based stop. OpenSSH rejects channel signals for forced commands and subsystems. |
+| filter iOS screenshot commands on the worker ([D100](deviations.md#d100--stream-ios-screenshots-over-the-existing-ssh-connection)) | A screenshot frame is captured and streamed on the existing SSH connection. No screenshot rsync sender is launched. | Allow the bounded screenshot shell wrapper. [See below](#ios-screenshot-streaming). |
 | have a forced command or wrapper on an iOS or macOS worker ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails), [D32](deviations.md#d32--xcodebuild-on-a-worker-runs-unbuffered)) | xcodebuild is sent as `env NSUnbufferedIO=YES xcrun xcodebuild …`. Sends and pulls carry `--timeout=300` ([D43](deviations.md#d43--an-rsync-receive-has-a-limit-on-progress)). On a host with rsync 3 the worker's `rsync --server` gets it too, and so does a wrapper set with `RSYNC4J_RSYNC`. | Match `env NSUnbufferedIO=YES xcrun xcodebuild` at the start of `SSH_ORIGINAL_COMMAND`, keep `env` on the worker's `PATH`, and accept the new flag. |
 | run iOS 16 or 17 simulators on a slow host or link ([D38](deviations.md#d38--a-failed-readiness-probe-means-not-running)) | On runtimes 16 and 17 a readiness probe still returns about 20 MB, and a failed or timed-out probe now means "not running". It must arrive within `shell` (30 s by default). From runtime 18 on the probe is about 100 KB ([D46](deviations.md#d46--the-readiness-probe-is-launchctl-print-userforeground-from-runtime-18)). | Raise `shell` on 16 and 17. The time a simulator can then spend is in [D38](deviations.md#d38--a-failed-readiness-probe-means-not-running). |
 | have a forced command or filter on an iOS worker that allows the readiness probe ([D46](deviations.md#d46--the-readiness-probe-is-launchctl-print-userforeground-from-runtime-18)) | On iOS 18 and later the probe is `xcrun simctl spawn <udid> launchctl print user/foreground`, where it was `… launchctl dumpstate user/foreground/com.apple.SpringBoard`. Runtimes 16 and 17 still send `dumpstate`. | Allow the new command too. A filter that refuses it makes every probe fail, and the simulator leaves the run after its setups (D38). |
@@ -151,7 +152,7 @@ already existed for about two seconds; a stalled console can now hold exit for
 up to 60 seconds. A wrapper needing a hard stop then must use SIGKILL.
 
 The D68–D81 notes apply to 0.14.0. The D82–D88 and D90–D97 notes apply when moving from 0.14.0 to 0.15.0 (D89 was not
-used), the D98 note when moving from 0.15.0 to 0.15.1, and the D99 note when moving from 0.15.5 to the next release.
+used), D98 when moving from 0.15.0 to 0.15.1, D99 when moving from 0.15.5 to 0.15.6, and D100 after 0.15.6.
 All of these notes also apply when migrating from Kotlin. D71 is
 in the table above, and so are D85, D86, D87 and D96.
 
@@ -303,6 +304,16 @@ no configuration change. With `retryStrategy: fixed-quota`, a failure that meets
 being left out with `Expected to run … more, but no terminal events received`. The tests that run, the retries and the
 exit status are otherwise unchanged; only a retry that D69 gives back after the quota has run out can now let one more
 failure be retried.
+
+### iOS screenshot streaming
+
+[D100](deviations.md#d100--stream-ios-screenshots-over-the-existing-ssh-connection) needs no Marathonfile changes.
+If you filter `SSH_ORIGINAL_COMMAND`, allow the `/bin/sh -c … marathon-screenshot` command and its positional arguments.
+It wraps `xcrun simctl io <udid> screenshot` with a per-frame file in that simulator's storage directory and
+runs `/usr/bin/wc`, `/bin/rm` and `/usr/bin/base64`. With the supervisor the same command is the payload of a D96
+`run` exec, not a detached recorder or rsync sender. Keep stdout unmodified and use `exec` in the forced command.
+Without the optional supervisor the data connection runs the wrapper directly. Video and xcresult transfers
+still require their existing allowlist entries.
 
 [D102](deviations.md#d102--stop-android-video-once-and-check-recorder-artifacts) changes Android recorder stopping
 and delivery. No configuration changes are needed. Android sends one INT and only uses KILL if it cannot

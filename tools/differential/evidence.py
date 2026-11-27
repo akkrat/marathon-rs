@@ -212,11 +212,17 @@ def parser_compares_by_role(row, record, contract, directory):
     return record['implementation'] == 'native' and sha(payload(directory, row, record)) == sha(PARSER_STAND_IN)
 
 
-def bindings(record, contract):
+def d100_stream(directory, record, contract):
+    return (contract.get('vendor') == 'ios-screenshot' and record['implementation'] == 'native'
+            and not may_withhold(directory, record))
+
+
+def bindings(record, contract, streaming=False):
     values = record['identities']
-    require(set(values) == set(contract['roles']), 'identity role inventory differs')
+    roles = {name: kind for name, kind in contract['roles'].items() if not streaming or name != 'temp_screenshot'}
+    require(set(values) == set(roles), 'identity role inventory differs')
     seen = set()
-    for role, kind in contract['roles'].items():
+    for role, kind in roles.items():
         value = values[role]
         require(isinstance(value, str) and value and '{' not in value and '}' not in value, f'invalid role: {role}')
         require((kind, value) not in seen, f'identity collision: {role}')
@@ -240,15 +246,23 @@ def d104_batch_log_path(template):
     return match[1] + '.log' if match else template
 
 
-def canonical_paths(record, contract, historical):
-    values = bindings(record, contract)
+def canonical_paths(directory, record, contract, historical):
+    streaming = d100_stream(directory, record, contract)
+    values = bindings(record, contract, streaming)
+    legacy = None
+    if streaming:
+        import vendor_screenshot
+        legacy = vendor_screenshot.LEGACY_FILE
     mapping = {}
     for template in contract['paths']:
+        if template == legacy:
+            continue
         current = d104_batch_log_path(template) if contract.get('scenario') == 'vendor' else template
         raw = expand(template if historical else current, values)
         require(raw not in mapping, 'path normalization collision')
         mapping[raw] = current
     actual = {row['path'] for row in record['entries']}
+    require(legacy not in actual, 'D100 left a legacy screenshot on the worker')
     require(set(mapping) <= actual, f'missing declared paths: {sorted(set(mapping) - actual)}')
     if contract.get('scenario') == 'vendor':
         import vendors
@@ -336,7 +350,7 @@ def validate(directory, contract):
             and record['outcome']['joined'] is True and record['outcome']['unused'] == []
             and record['outcome']['unmatched'] == [], 'failed cleanup/tape/command completion')
     require(isinstance(record['entries'], list) and record['entries'], 'empty manifest')
-    paths = canonical_paths(record, contract, may_withhold(directory, record))
+    paths = canonical_paths(directory, record, contract, may_withhold(directory, record))
     names, digests = set(), set()
     for row in record['entries']:
         name = relative(row['path'])
@@ -674,7 +688,8 @@ def native_content(name, data):
 def normalized(directory, contract, native=False):
     record = validate(directory, contract)
     historical = may_withhold(directory, record)
-    paths = canonical_paths(record, contract, historical)
+    paths = canonical_paths(directory, record, contract, historical)
+    streaming = d100_stream(directory, record, contract)
     files = {}
     rules = contract['normalization']
     used = set()
@@ -715,11 +730,11 @@ def normalized(directory, contract, native=False):
                         data, record['identities'], historical,
                         d97_native_staging=record['implementation'] == 'native',
                         d96_worker=not historical,
-                        d104_historical=contract['paths'] if historical else ())
+                        d104_historical=contract['paths'] if historical else (), d100_stream=streaming)
                 elif contract['transport'] == 'ssh':
                     content = vendor_transport.ssh(
                         data,contract['vendor'],historical,d96_recorder_transport=True,
-                        d96_worker_transport=not historical)
+                        d96_worker_transport=not historical, d100_stream=streaming)
                 else:
                     content = vendor_transport.adb(data, historical,
                                                    d85_native_setup=record['implementation'] == 'native')
@@ -905,6 +920,10 @@ def compare(expected, actual, contract, mismatch=None):
     left = right = None
     try:
         left, right = normalized(expected, contract), normalized(actual, contract)
+        if contract.get('vendor') == 'ios-screenshot':
+            import vendor_screenshot
+            if vendor_screenshot.LEGACY_FILE in left and vendor_screenshot.LEGACY_FILE not in right:
+                vendor_screenshot.d100_prior_view(left)
         differences = [name for name in sorted(set(left) | set(right)) if left.get(name) != right.get(name)]
         details = []
         for name in differences[:20]:

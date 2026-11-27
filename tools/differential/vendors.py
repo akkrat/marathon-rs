@@ -241,7 +241,7 @@ def raw_capture(name, implementation, work, binaries, command):
     return work
 
 
-def identities(name, raw):
+def identities(name, raw, implementation=None):
     port = (e.load(raw / 'ready.json')['endpoint'].rsplit(':',1)[1] if apple(name) else (raw / 'port').read_text().strip())
     serial = ('AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE@fixture@127.0.0.1:' + port if apple(name) else '127.0.0.1:' + port + ':emulator-5554')
     safe = serial.replace(':','-').replace('@','-')
@@ -251,7 +251,7 @@ def identities(name, raw):
         e.require(len(files) == count and any(p.stem == safe and e.load(p)['serialNumber'] == serial for p in files),
                   'device identity differs from explicit scenario role')
     values = dict(sandbox=str(raw),port=port,serial=serial,safe_serial=safe)
-    if CASES[name]['base'] in ('macos-smoke','ios-screenshot'):
+    if CASES[name]['base'] == 'macos-smoke' or (name == 'ios-screenshot' and implementation != 'native'):
         rows = [e.loads(line) for line in (raw/'host-argv.jsonl').read_bytes().splitlines()]
         roots = []
         for row in rows:
@@ -346,7 +346,8 @@ def pack(name, implementation, raw, contract, destination, provenance):
     else:
         facts['stdin_payloads'] = {str(p.relative_to(ROOT)):e.sha(p.read_bytes()) for p in
             [ROOT/'fixtures/vendor-android/apk'/apk for apk in ['app-debug.apk','app-debug-androidTest.apk']]}
-    return e.write_record(destination,contract,implementation,trees,artifacts,outcome,facts,identities(name,raw),compressed=True)
+    return e.write_record(destination,contract,implementation,trees,artifacts,outcome,facts,
+                          identities(name,raw,implementation),compressed=True)
 
 
 
@@ -368,14 +369,17 @@ def validate_record(directory, contract, record):
     import vendor_transport as t
     if apple(contract['vendor']):
         live = not e.may_withhold(directory, record)
+        d100_stream = e.d100_stream(directory, record, contract)
         senders = set()
-        t.ssh(artifact('transcript.jsonl'), contract['vendor'], d96_worker_transport=live, sender_tokens=senders)
+        t.ssh(artifact('transcript.jsonl'), contract['vendor'], d96_worker_transport=live, sender_tokens=senders,
+              d100_stream=d100_stream)
         if not live:
             e.require(t.redact_parser_transfer(artifact('transcript.jsonl')) == artifact('transcript.jsonl'),
                       'third-party library bytes in the transcript of a recorded run')
         else:
             t.check_new_native_transfer(artifact('transcript.jsonl'))
-        t.host_argv(artifact('host-argv.jsonl'), record['identities'], d96_worker=live, sender_tokens=senders)
+        t.host_argv(artifact('host-argv.jsonl'), record['identities'], d96_worker=live, sender_tokens=senders,
+                    d100_stream=d100_stream)
         state = e.loads(artifact('state.json'))
         e.require(not state['deferred'] and all(s['state'] == 'finished' for s in state['sessions']),
                   'unfinished Apple world state')

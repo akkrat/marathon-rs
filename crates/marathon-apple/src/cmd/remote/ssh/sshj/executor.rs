@@ -1,13 +1,16 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/remote/ssh/sshj/SshjCommandExecutor.kt
 
-use super::channel::{ExecChannel, Stream};
+use super::channel::{ChannelReader, ExecChannel, Stream};
 use super::client::{SshConnection, SshFuture};
 use super::config::{PerformanceDefaultConfig, SshLogging};
 use super::error::{IO_EXCEPTION, SshFailure};
 use super::host::SshCommandHost;
 use super::session::session_control;
 use super::supervisor::{ControlDial, Proof, Supervisor, Warnings, WorkerRsync};
-use crate::cmd::{BaseCommand, CommandExecutor, CommandHost, CommandRequest, CommandSession, failure, millis};
+use crate::cmd::{
+    BaseCommand, CommandExecutor, CommandHost, CommandRequest, CommandSession, base_command::CaptureOutput, failure,
+    millis,
+};
 use crate::extensions::{
     poll_backoff::PollBackoff,
     reader::{OutputActivity, produce_lines},
@@ -24,7 +27,7 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
-use tokio::sync::oneshot;
+use tokio::{io::AsyncReadExt, sync::oneshot};
 
 pub struct SshCommandExecutor {
     pub ssh_host: SshCommandHost,
@@ -214,6 +217,7 @@ async fn execute(
         return Err((VendorError::Cancelled(reason), true));
     }
     let command = exec_string(&request);
+    let capture = request.capture_limits.is_some();
     let lease = match supervisor {
         Some(supervisor) => tokio::select! { biased;
             reason = context.cancellation.cancelled() => return Err((VendorError::Cancelled(reason), true)),
@@ -238,7 +242,11 @@ async fn execute(
     // (or its device's command gate, which the context carries) may have stopped meanwhile: then the channel is closed
     // and no exec is sent, which starts nothing.
     if let Some(reason) = context.cancellation.reason() {
-        let _ = channel.close().await;
+        if capture {
+            channel.request_close();
+        } else {
+            let _ = channel.close().await;
+        }
         return Err((VendorError::Cancelled(reason), true));
     }
     if let Some(lease) = &lease {
@@ -253,7 +261,7 @@ async fn execute(
     );
     // D93 (round 9): the writer looks at the context (the caller's, with its device's gate) once more as it writes the exec.
     if let Err(error) = channel
-        .exec_gated(command, Some(context.cancellation.clone()), admission)
+        .exec_gated(command, Some(context.cancellation.clone()), admission, capture)
         .await
     {
         if let Some(reason) = channel.exec_withheld() {
@@ -273,22 +281,40 @@ async fn execute(
         cancellation: base.scope.clone(),
         ..context.clone()
     };
-    for (stream, output) in [
-        (Stream::Stdout, base.stdout.clone()),
-        (Stream::Stderr, base.stderr.clone()),
-    ] {
-        let reader = channel.reader(stream);
-        let readable = channel.clone();
-        let last = last_output.clone();
-        let reader_context = own_context.clone();
-        let idle_timeout = request.idle_timeout;
-        base.scope.track(runtime.spawn(Box::pin(async move {
-            produce_lines(reader, output, last, idle_timeout, reader_context, async move {
-                readable.read_ended().await;
-            })
-            .await
-        })));
-    }
+    let capture = if let Some((out_limit, err_limit)) = request.capture_limits {
+        base.stdout.close(None);
+        base.stderr.close(None);
+        let stdout = channel.reader(Stream::Stdout);
+        let stderr = channel.reader(Stream::Stderr);
+        Some(CaptureOutput {
+            cancellation: context.cancellation,
+            read: Box::pin(async move {
+                let (bytes, _) = tokio::try_join!(
+                    read_capture(stdout, out_limit, true),
+                    read_capture(stderr, err_limit, false)
+                )?;
+                Ok(bytes)
+            }),
+        })
+    } else {
+        for (stream, output) in [
+            (Stream::Stdout, base.stdout.clone()),
+            (Stream::Stderr, base.stderr.clone()),
+        ] {
+            let reader = channel.reader(stream);
+            let readable = channel.clone();
+            let last = last_output.clone();
+            let reader_context = own_context.clone();
+            let idle_timeout = request.idle_timeout;
+            base.scope.track(runtime.spawn(Box::pin(async move {
+                produce_lines(reader, output, last, idle_timeout, reader_context, async move {
+                    readable.read_ended().await;
+                })
+                .await
+            })));
+        }
+        None
+    };
     let closing = Arc::new(AtomicBool::new(false));
     base.scope.track(runtime.spawn(Box::pin(exit_code(
         channel.clone(),
@@ -311,10 +337,38 @@ async fn execute(
     let control = session_control(channel, base.scope.clone(), closing);
     let session = CommandSession::new(base, control)
         .with_interrupt(move || interrupt.signal(Sig::INT).map_err(SshFailure::into_vendor));
+    let session = if let Some(capture) = capture {
+        session.with_capture(capture)
+    } else {
+        session
+    };
     Ok(match report {
         Some(report) => session.with_worker_report(report),
         None => session,
     })
+}
+
+async fn read_capture(mut reader: ChannelReader, mut remaining: usize, keep: bool) -> VendorResult<Vec<u8>> {
+    let mut chunk = [0; 16_384];
+    let mut bytes = Vec::new();
+    let mut reads = 0;
+    loop {
+        let count = reader.read(&mut chunk).await.map_err(crate::cmd::io_error)?;
+        if count == 0 {
+            return Ok(bytes);
+        }
+        remaining = remaining
+            .checked_sub(count)
+            .ok_or_else(|| VendorError::Other(failure(FailureKind::Io, "SSH capture exceeded its output limit")))?;
+        if keep {
+            bytes.extend_from_slice(&chunk[..count]);
+        }
+        reads += 1;
+        if reads == 32 {
+            tokio::task::yield_now().await;
+            reads = 0;
+        }
+    }
 }
 
 async fn supervised_exit(channel: &ExecChannel) -> ExitWait {

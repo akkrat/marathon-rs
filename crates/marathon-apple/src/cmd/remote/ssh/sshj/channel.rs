@@ -285,17 +285,18 @@ impl ExecChannel {
     /// closes the channel the request was sent on, so that it does not hold a `MaxSessions` slot. U154 does the same for
     /// a request with no reply, with Kotlin's expiry still the error, and one line that names the command.
     pub async fn exec(&self, command: String) -> Result<(), SshFailure> {
-        self.exec_gated(command, None, None).await
+        self.exec_gated(command, None, None, false).await
     }
     /// D93 (rounds 9, 10): the exec request is written only if `gate` has not closed and `admission` admits it at the
     /// moment the writer hands it to the transport; the admission registers it with its device in the same step, so a
     /// request the transport sends later (russh holds outbound requests during a key exchange) is the device's live work.
     /// Otherwise the channel is closed instead, nothing is started, and [`ExecChannel::exec_withheld`] says why.
-    pub async fn exec_gated(
+    pub(super) async fn exec_gated(
         &self,
         command: String,
         gate: Option<Arc<dyn marathon_core::runtime::CancellationSignal>>,
         admission: Option<Arc<crate::cmd::device_commands::CommandAdmission>>,
+        capture: bool,
     ) -> Result<(), SshFailure> {
         if let Some(admission) = &admission {
             let _ = self.signal_finish.set(admission.signal_finish.clone());
@@ -341,7 +342,7 @@ impl ExecChannel {
         // A device may stop while its exec reply is missing. On supervised workers
         // the token can be ended on the independent connection, even before exec arrives.
         let stopped = async {
-            if let Some(gate) = gate.filter(|_| worker_lease.is_some()) {
+            if let Some(gate) = gate.filter(|_| capture || worker_lease.is_some()) {
                 return gate.cancelled().await;
             }
             std::future::pending().await
@@ -354,6 +355,9 @@ impl ExecChannel {
             reply = replying => reply,
             reason = stopped => {
                 self.update(|s| s.exec_stopped = Some(reason));
+                if capture && worker_lease.is_none() {
+                    let _ = self.signal(Sig::TERM);
+                }
                 self.request_close();
                 return Err(SshFailure::connection(DisconnectReason::Unknown, "Stopped while waiting for exec reply"));
             }
@@ -377,13 +381,21 @@ impl ExecChannel {
                 ));
                 // No TERM ahead of the CLOSE: on a peer that resumes, sshd takes both in one go and its `killpg` beats the new
                 // process's `setsid`, so the signal is lost (2 of 30 got through, x21 findings).
-                self.close_failed_exec().await;
+                if capture {
+                    self.request_close();
+                } else {
+                    self.close_failed_exec().await;
+                }
                 return Err(SshFailure::timeout_expired(CONNECTION_EXCEPTION, TIMEOUT_TEXT));
             }
         };
         self.shared.loggers.woke_to(&promise, &error);
         if rejected {
-            self.close_failed_exec().await;
+            if capture {
+                self.request_close();
+            } else {
+                self.close_failed_exec().await;
+            }
         }
         Err(error)
     }

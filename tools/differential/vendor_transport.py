@@ -369,7 +369,8 @@ def d96_worker_sessions(sessions, signals, fallback_connections=None):
     return {(root, lease, token) for token, (_, _, root, lease, mode) in commands.items() if mode == 'rsync'}
 
 
-def ssh(data, name=None, before_d32=False, *, d96_recorder_transport=False, d96_worker_transport=False, sender_tokens=None):
+def ssh(data, name=None, before_d32=False, *, d96_recorder_transport=False, d96_worker_transport=False,
+        sender_tokens=None, d100_stream=False):
     rows = records(data)
     if before_d32:
         rows = with_d46_probe(rows)
@@ -415,6 +416,9 @@ def ssh(data, name=None, before_d32=False, *, d96_recorder_transport=False, d96_
               'SSH control/inventory connection roles differ')
     e.require(len(set(transfers)) == len(transfers) and not set(transfers)&(control|inventory),
               'SSH transfer connection role collision')
+    if d100_stream:
+        import vendor_screenshot
+        vendor_screenshot.d100_streams(sessions, signals)
     if name == 'ios-media' and d96_recorder_transport:
         removed, lanes['recorder'] = d96_recorder(sessions, signals, before_d32 or control <= fallback_connections)
         sessions = {key: value for key, value in sessions.items() if key not in removed}
@@ -532,7 +536,8 @@ def d104_device_log_destination(args, declared_paths):
                 return
 
 
-def host_argv(data, values, before_d31=False, d97_native_staging=False, *, d96_worker=False, sender_tokens=None, d104_historical=()):
+def host_argv(data, values, before_d31=False, d97_native_staging=False, *, d96_worker=False, sender_tokens=None,
+              d104_historical=(), d100_stream=False):
     lanes, wrapped = defaultdict(list), defaultdict(set)
     def sender(program, argv):
         identity = _d96_sender(argv)
@@ -592,6 +597,9 @@ def host_argv(data, values, before_d31=False, d97_native_staging=False, *, d96_w
     if sender_tokens is not None:
         e.require(wrapped['rsync'] == wrapped['ssh'] == sender_tokens,
                   'D96 worker sender lacks a matching host invocation')
+    if d100_stream:
+        import vendor_screenshot
+        vendor_screenshot.d100_check_host_argv(lanes)
     return dict(lanes)
 
 

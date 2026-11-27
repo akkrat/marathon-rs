@@ -1201,8 +1201,10 @@ Native builds, on iOS and macOS:
   that such a child still holds, and up to 20 s more where `ps` is slow. The send returns as cancelled and logs nothing;
   its caller reports the cancellation as before.
 - **A receive is never ended by its caller's cancellation.** Every receive collects an artifact, and its callers are
-  cancelled around it on purpose: a screenshot's capture at the end of every test, iOS's artifact queue 300 s after the run,
-  before a 60 s grace for what is still being pulled. A pull runs to its end then, as in Kotlin.
+  cancelled around it on purpose: historically the screenshot capture at the end of every test, and iOS's artifact queue
+  300 s after the run before a 60 s grace for what is still being pulled. A pull runs to its end then, as in Kotlin.
+  [D100](#d100--stream-ios-screenshots-over-the-existing-ssh-connection) replaces the remote screenshot rsync receive
+  with a cancellable command. Other receives keep this rule.
 - **Any transfer ends when its device's own connection is lost**, the same way. That is the connection the provider
   watches, so it is the loss that the provider already acts on (D36, D44): keep-alive's, or the worker closing it. A send
   fails with `SSH connection failure: Lost the connection to <worker> during a transfer`, caused by the loss, which is not a
@@ -3391,6 +3393,26 @@ unedited: the queue replay leaves out the C5 recording as it does D69's (its nat
 
 **Migration action:** none. A dashboard that compared the summary's passed and failed counts with the number of tests
 could see the difference close.
+
+## D100 — Stream iOS screenshots over the existing SSH connection
+
+**Approved 2026-11-27 (project owner's decision).** On SSH simulators, 0.15.6 captured each frame with
+`xcrun simctl io … screenshot` over the existing connection, then opened a separate OpenSSH login to run
+rsync. The rsync sender created another worker supervisor token. Under D54 a test ending during the receive
+waited for it. The two-simulator baseline confirms both the extra login and a material transfer cost. See
+[x118 findings](wp/x118-findings.md) for the measurements.
+
+Marathon now captures and streams a frame in one supervised SSH exec on the device's data connection. The command
+captures into a private file with a unique name under the same simulator directory, preserves simctl's exit status,
+opens and unlinks the file before streaming it as base64, and removes the file on a normal failure or TERM.
+The whole exchange uses `timeoutConfiguration.screenshot`. It skips a failed, expired, incomplete or oversized
+frame rather than passing partial bytes to the image decoder. A frame may be at most 24 MiB before encoding.
+Neither stream reaches command line listeners or SSH debug output. Stopping a capture discards the in-flight frame
+without waiting for a separate transfer or for the worker receipt, which is still tracked by D93 on a supervised worker.
+
+Local simulator capture, the GIF format and naming, the attachment policy, and rsync delivery of xcresults, videos
+and other artifacts are unchanged. The last frame can differ from prior releases if a test ends in the middle of
+a capture. The [worker command migration note](migration.md#ios-screenshot-streaming) describes the allowlist change.
 
 ## D102 — Stop Android video once and check recorder artifacts
 

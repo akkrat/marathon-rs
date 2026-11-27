@@ -254,7 +254,31 @@ pub struct CommandSession {
     worker: Option<WorkerReport>,
     close_task: Arc<Mutex<CloseSlot>>,
     fixed_result: Option<CommandResult>,
+    capture: Mutex<Option<CaptureOutput>>,
 }
+
+pub(crate) struct CaptureOutput {
+    pub(crate) read: VendorFuture<'static, Vec<u8>>,
+    pub(crate) cancellation: Arc<dyn CancellationSignal>,
+}
+
+struct CaptureSession(Option<CommandSession>);
+
+impl Drop for CaptureSession {
+    fn drop(&mut self) {
+        if let Some(session) = self.0.take() {
+            // The frame's waiter need not wait for a worker receipt. D93 still owns the command
+            // until the worker proves that it ended.
+            session.base.scope.cancel(cancelled("Stopped collecting SSH capture"));
+            let runtime = session.base.runtime.clone();
+            runtime.spawn(Box::pin(async move {
+                let _ = session.close().await;
+                Ok(())
+            }));
+        }
+    }
+}
+
 impl CommandSession {
     pub fn new(base: BaseCommand, control: SessionControl) -> Self {
         Self {
@@ -264,6 +288,7 @@ impl CommandSession {
             worker: None,
             close_task: Arc::new(Mutex::new(CloseSlot::default())),
             fixed_result: None,
+            capture: Mutex::new(None),
         }
     }
     /// Finished Kotlin test session: closed streams, repeatable await, inert controls.
@@ -321,6 +346,36 @@ impl CommandSession {
             return Ok(result.clone());
         }
         self.base.await_result(context).await
+    }
+    pub(crate) fn with_capture(mut self, capture: CaptureOutput) -> Self {
+        self.capture = Mutex::new(Some(capture));
+        self
+    }
+    pub(crate) async fn await_capture(mut self) -> VendorResult<Option<Vec<u8>>> {
+        let capture = self
+            .capture
+            .get_mut()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .take()
+            .ok_or_else(|| {
+                VendorError::Other(failure(
+                    FailureKind::IllegalState,
+                    "SSH capture requires private command output",
+                ))
+            })?;
+        let exit = self.base.exit_code.clone();
+        let mut guard = CaptureSession(Some(self));
+        let result = tokio::select! { biased;
+            reason = capture.cancellation.cancelled() => Err(VendorError::Cancelled(reason)),
+            result = async {
+                let (bytes, status) = tokio::try_join!(capture.read, exit.wait())?;
+                Ok((status == Some(0)).then_some(bytes))
+            } => result,
+        };
+        if result.is_ok() {
+            guard.0.take();
+        }
+        result
     }
     pub async fn drain(&self, context: &VendorContext) -> VendorResult<()> {
         self.base.drain(context).await

@@ -60,7 +60,8 @@ for name,spec in vendors.CASES.items():
         'crates/marathon-cli/examples/differential_cli.rs','tools/differential/evidence.py','tools/differential/run',
         'tools/differential/vendors.py','tools/differential/vendor_reports.py',
         'tools/fake-worker/src/apple.rs','crates/marathon-adb/src/server/world.rs',
-        'tools/differential/vendor_console.py','tools/differential/vendor_transport.py','tools/differential/gif_frames.py']
+        'tools/differential/vendor_console.py','tools/differential/vendor_transport.py','tools/differential/vendor_screenshot.py',
+        'tools/differential/gif_frames.py']
     if 'execution' in spec:
         source_inputs.append(spec['execution'])
     if vendors.apple(name):
