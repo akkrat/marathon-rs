@@ -3403,10 +3403,12 @@ It sent INT, slept 300 ms and repeated up to five times. When a second lookup fo
 normal recorder exit in the published 0.15.6 build. ADB's complete-transfer receipt also did not imply that the
 received bytes made up a movie, and the screenshot listener could attach a GIF with no frames.
 
-Android now looks up the exact recorder name once (`ps -A`, or `ps` before API 26), sends one INT and checks that PID's
-`/proc` entry, immediately and every 75 ms while present, within a 1.5 s budget for the whole stop. It does not repeat
-the signal or pull the current chunk if its exit could not be confirmed. Earlier chunks whose recording commands
-finished are still eligible to pull. Below API 34, a recorder that finishes its time-limited command still rolls into
+Android looks up the exact recorder name once (`ps -A`, or `ps` before API 26), using the header's PID position and
+the last field on both process-listing formats. It sends one INT and checks that PID's `/proc` entry immediately and
+every 75 ms while present. The test-end stop has a 1.5 s budget: up to 1.25 s for lookup, INT and polling, and up to
+250 ms for one KILL and further polling if a known PID has not been confirmed gone. This includes a host shell
+timeout during the first poll phase. If exit remains unconfirmed after KILL, Android logs a WARN with the PID and
+does not pull the current chunk. Earlier chunks whose recording commands finished are still eligible to pull. Below API 34, a recorder that finishes its time-limited command still rolls into
 another chunk. If the host recording command itself times out rather than exiting, it does not launch an overlapping
 chunk. The stop remains in the instrumentation event handler. Confirmed stops no longer log the missing-recorder
 warning. Device loss and disposal retain their D70 and D92 cleanup paths.

@@ -7,9 +7,10 @@
   no process. On API 36 the grep did not match itself, but all six published-build stops still logged the missing-process
   warning after a normal exit. The old fake probe recorded the separate wrong-PID case. The new stop admits no new
   chunks after taking the recorder-state lock, finds the exact process name once using the device's `ps` form, sends
-  INT once, and checks that PID's `/proc` entry every 75 ms within a 1.5 s budget. An empty lookup is not proof that an
-  in-flight launch never reached the device. An unconfirmed last chunk is not pulled or deleted, but earlier chunks
-  with command completion can still be delivered. Multiple matching processes do not provide an exit receipt.
+  INT once, and checks that PID's `/proc` entry every 75 ms within a 1.5 s budget, including the recovery added in
+  review round 1. An empty lookup does not prove that an in-flight launch never reached the device. An unconfirmed
+  last chunk is not pulled or deleted, but earlier chunks with command completion can still be delivered. Multiple
+  matching processes do not provide an exit receipt.
   There was no escalation in the old code. Below API 34 normal shell exits still roll to the next chunk, but a host
   recording-command timeout is not a shell exit and no longer rolls into another recording. No parser queue or
   provider teardown deadline was changed. D92 can still clean up an unconfirmed recording on the cleanup connection,
@@ -69,9 +70,45 @@ both lookup forms, chunked recording, delayed exit, missing PID, bounded stop, D
 and Android logging targets. PID lookup is scoped to one ADB-managed device, not to a second independent recorder
 client on the same device. PID reuse during a stop or nonstandard process-listing formats were not exercised.
 
+## Review round 1
+
+- **R-x119-3 (fixed).** Android 7.1 toolbox prints an unlabelled state between PC and NAME. With WCHAN present, the
+  former parser read the state as the name, skipped INT, logged a missing-recorder warning and withheld the video.
+  The parser now takes PID by its header position and matches the final field exactly. The healthy-stop witness
+  uses the [API 25 toolbox source's layout](https://github.com/aosp-mirror/platform_system_core/blob/android-7.1.2_r39/toolbox/ps.c#L184)
+  with populated WCHAN and a near-name decoy, and a separate real API 36 toybox recorder row captured on an owned
+  local emulator. The capture AVD was stopped and deleted. The normal lookup, INT and exit-probe sequence is
+  unchanged, so the previous full emulator comparison was not repeated.
+- **R-x119-2 (fixed, narrowed).** The old stop let an unconfirmed PID survive the end of the test. The fix sends one
+  KILL to the already identified PID if exit is still unconfirmed after the graceful phase, including when the host
+  shell probe timed out. Lookup, INT and polling have 1.25 s, leaving at most 250 ms for KILL and its own polling
+  within the original 1.5 s stop budget. Only confirmed exit or an existing shell exit receipt can unlock the
+  current chunk, which must still pass movie validation. If force-stop cannot confirm exit, the listener emits
+  one WARN naming the PID and does not fetch or remove that chunk. D92 disposal keeps its independent best-effort
+  INT on the cleanup connection. No cross-test or batch ownership was added.
+
+The gated fake ADB tests prove no sync request occurs before exit. Ignoring INT exercises recovery and confirmed
+delivery, and a host probe timeout exercises KILL followed by bounded, unconfirmed exit and no delivery. A
+third case keeps answering alive even after KILL. The four recorder witnesses each passed 50 runs plus one under
+CPU load. In a scratch copy of `77e417aa` with only the witness changes, all four failed: the legacy lookup
+returned before probing, the timed-out probe ended without KILL, and the two persistent-PID cases saw no KILL.
+The modern row is a positive control. No golden files changed. Formatting, Android Clippy, the plan graph, and
+the three CLI differential and production-runner tests passed. The Android suite passed all 328 tests,
+including 42 artifact tests and all 40 reconnect tests. The reconnect suite took about 250 s.
+
 ## Incidental bugs
 
 The local Android crate sweep stalled in the reconnect suite, whose test configuration disables both recorders.
 The isolated D85 reprovision case also did not finish on the clean base within a 35 s guard. The suite was stopped
 locally; it does not provide a clean gate result. The Android artifact suite and D70 test-end and D92 cleanup
 witnesses passed. No worker fault was injected.
+
+- **R-x119-1 (deferred).** The reviewer gated the real video listener in the PID probe after instrumentation
+  reported `one` passed, then withdrew the device. The snapshot marked both `one` and the unstarted `two` as
+  uncompleted. The recorder ran before result accounting in 0.15.6 too, and the existing D70 witness gates a
+  listener after accounting. The new stop sequence does not increase the worst-case exposure: 0.15.6 could
+  sleep for five 300 ms intervals on top of up to ten shell commands, while x119 caps the stop at 1.5 s including
+  the final KILL phase. The sampled healthy stops were shorter. No listener was reordered.
+- **R-x119-4 (deferred).** The reviewer seeded the current screenshot report path with a valid earlier GIF,
+  then reproduced its deletion by ending a capture with zero frames. Two tests whose escaped or truncated
+  names collide can share that path. The capture staging and cleanup are unchanged in this round.

@@ -66,7 +66,7 @@ fn shell(script: &mut Value, command: &str, stdout: &str) {
         .push(json!({"exact":command,"stdout":stdout}));
 }
 const PS_HEADER: &str = "USER PID PPID NAME\n";
-const PS_OUTPUT: &str = "USER PID PPID NAME\nshell 123 1 screenrecord\nshell 456 1 grep screenrecord\n";
+const PS_OUTPUT: &str = "USER PID PPID NAME\nshell 123 1 screenrecord\nshell 456 1 screenrecord-helper\n";
 const PID_PROBE: &str = "if [ -d /proc/123 ]; then echo alive; else echo gone; fi";
 const VIDEO_REMOTE: &str = "/sdcard/pkg.clazz-method-batch-0.mp4";
 
@@ -1328,18 +1328,110 @@ fn factory_produces_all_attachments_before_results_complete() {
 }
 #[test]
 fn d102_stop_signals_the_recorder_once_and_waits_before_pull_without_warning() {
-    run(configuration(), |mut runtime, context| {
+    // API 25 toolbox ps prints a state between PC and NAME, without a column label.
+    const TOOLBOX_PS: &str = concat!(
+        "USER      PID   PPID  VSIZE  RSS   WCHAN      PC        NAME\n",
+        "shell     123   54    43028  7088     futex_ 00000000 S /system/bin/screenrecord\n",
+        "shell     456   54    43028  7088     futex_ 00000000 S /system/bin/screenrecord-helper\n",
+    );
+    // Header and recorder row from an API 36 emulator running ps -A.
+    const TOYBOX_PS: &str = concat!(
+        "USER           PID  PPID        VSZ    RSS WCHAN            ADDR S NAME\n",
+        "shell         1919  1917     619312   4608 0                   0 R screenrecord\n",
+    );
+    for (api, ps, listing, pid, remote) in [
+        (25, "ps", TOOLBOX_PS, 123, VIDEO_REMOTE),
+        (36, "ps -A", TOYBOX_PS, 1919, "/sdcard/pkg.clazz-method-batch.mp4"),
+    ] {
+        run_with_stopped_clock(configuration(), move |mut runtime, context| {
+            Box::pin(async move {
+                let logs = log_lines(&mut runtime);
+                let mut script = base_script(api, vec![]);
+                let probe = format!("if [ -d /proc/{pid} ]; then echo alive; else echo gone; fi");
+                let rules = script["shell"].as_array_mut().unwrap();
+                rules.extend([
+                    json!({"prefix":"screenrecord ","hang":true}),
+                    json!({"exact":probe,"output":[{"gate":"recorder-exited"},{"stdout":"gone"}],"times":1}),
+                ]);
+                let interrupt = format!("kill -2 {pid}");
+                shell(&mut script, ps, listing);
+                shell(&mut script, &interrupt, "");
+                let remove = format!("rm {remote}");
+                shell(&mut script, &remove, "");
+                script["devices"][0]["files"] =
+                    json!([{"path":remote,"file":fixture("fake-adb/android-artifacts/sample.mp4")}]);
+                let server = server(script).await;
+                let device = device(&server, runtime);
+                device.setup(context.clone()).await?;
+                let listener = Arc::new(ScreenRecorderTestBatchListener::new(
+                    artifacts(&device),
+                    ScreenRecordingPolicy::OnAny,
+                ));
+                let collected = collector(listener.clone());
+                listener.on_event_in(&start(), context.clone()).await?;
+                started(&server, "shell:screenrecord", 1).await;
+                let event = end();
+                let mut ended = listener.on_event_in(&event, context);
+                tokio::select! {
+                    result = &mut ended => panic!("test end before recorder exit: {result:?}"),
+                    () = started(&server, &probe, 1) => {}
+                }
+                assert!(!request_services(&server).contains(&"sync:".into()));
+                assert!(collected.get(&test()).is_none());
+                server.open_gate("recorder-exited");
+                ended.await?;
+                assert_eq!(
+                    commands(&server)[SETUP_COMMANDS.len() + 1..],
+                    [ps, &interrupt, &probe, &remove]
+                );
+                assert_eq!(collected.get(&test()).unwrap().len(), 1);
+                assert!(
+                    !logs
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .any(|(_, level, _)| *level == marathon_logging::Level::WARN)
+                );
+                finish(server, device).await;
+                Ok(())
+            })
+        });
+    }
+}
+
+#[test]
+fn d102_ignored_int_forces_exit_and_does_not_pull_before_confirmation() {
+    d102_force_stop(false);
+}
+
+#[test]
+fn d102_probe_host_timeout_forces_stop_and_withholds_unconfirmed_video() {
+    d102_force_stop(true);
+}
+
+fn d102_force_stop(host_timeout: bool) {
+    let mut c = configuration();
+    if host_timeout {
+        android(&mut c).timeout_configuration.shell = jcompat::jtime::Duration::of_seconds(1);
+    }
+    run_with_driven_clock(c, move |mut runtime, context, clock| {
         Box::pin(async move {
             let logs = log_lines(&mut runtime);
-            let mut script = base_script(25, vec![]);
-            let rules = script["shell"].as_array_mut().unwrap();
-            rules.extend([
+            let mut script = base_script(33, vec![]);
+            script["shell"].as_array_mut().unwrap().extend([
                 json!({"prefix":"screenrecord ","hang":true}),
-                json!({"exact":PID_PROBE,"stdout":"alive","times":1}),
-                json!({"exact":PID_PROBE,"output":[{"gate":"recorder-exited"},{"stdout":"gone"}],"times":1}),
+                json!({"exact":"ps -A","stdout":PS_OUTPUT,"times":1}),
+                if host_timeout {
+                    json!({"exact":PID_PROBE,"hang":true,"times":1})
+                } else {
+                    json!({"exact":PID_PROBE,"stdout":"alive","times":1})
+                },
+                // The device will not report exit until KILL was sent (or at all in the timeout case).
+                json!({"exact":PID_PROBE,"output":[{"gate":"recorder-exited"},{"stdout":"gone"}]}),
             ]);
-            shell(&mut script, "ps", PS_OUTPUT);
+            shell(&mut script, "ps -A", PS_HEADER); // D92's later cleanup, if needed.
             shell(&mut script, "kill -2 123", "");
+            shell(&mut script, "kill -9 123", "");
             shell(&mut script, &format!("rm {VIDEO_REMOTE}"), "");
             script["devices"][0]["files"] =
                 json!([{"path":VIDEO_REMOTE,"file":fixture("fake-adb/android-artifacts/sample.mp4")}]);
@@ -1356,26 +1448,51 @@ fn d102_stop_signals_the_recorder_once_and_waits_before_pull_without_warning() {
             let event = end();
             let mut ended = listener.on_event_in(&event, context);
             tokio::select! {
-                result = &mut ended => panic!("test end before recorder exit: {result:?}"),
-                () = started(&server, PID_PROBE, 2) => {}
+                result = &mut ended => panic!("test end before first PID probe: {result:?}"),
+                () = started(&server, PID_PROBE, 1) => {}
+            }
+            tokio::select! {
+                result = &mut ended => panic!("test end without attempting KILL: {result:?}"),
+                () = async {
+                    clock.advance_to(if host_timeout { 1_000 } else { 1_250 }).await;
+                    until(|| commands(&server).windows(2).any(|pair| pair == ["kill -9 123", PID_PROBE])).await;
+                } => {}
             }
             assert!(!request_services(&server).contains(&"sync:".into()));
             assert!(collected.get(&test()).is_none());
-            server.open_gate("recorder-exited");
-            ended.await?;
+            if host_timeout {
+                // The recovery probe is still blocked when its 250 ms budget runs out.
+                let (result, ()) = tokio::join!(&mut ended, clock.advance_to(1_250));
+                result?;
+                assert!(collected.get(&test()).is_none());
+                assert!(!request_services(&server).contains(&"sync:".into()));
+                assert!(!commands(&server).iter().any(|cmd| cmd.starts_with("rm ")));
+            } else {
+                server.open_gate("recorder-exited");
+                ended.await?;
+                assert_eq!(collected.get(&test()).unwrap().len(), 1);
+            }
             let commands = commands(&server);
-            assert_eq!(
-                commands[SETUP_COMMANDS.len() + 1..],
-                ["ps", "kill -2 123", PID_PROBE, PID_PROBE, &format!("rm {VIDEO_REMOTE}")]
-            );
-            assert_eq!(collected.get(&test()).unwrap().len(), 1);
-            assert!(
-                !logs
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .any(|(_, level, _)| *level == marathon_logging::Level::WARN)
-            );
+            for command in ["ps -A", "kill -2 123", "kill -9 123"] {
+                assert_eq!(commands.iter().filter(|cmd| *cmd == command).count(), 1);
+            }
+            let warnings = logs
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(target, level, _)| {
+                    target == "marathon_android::artifact_listeners::video" && *level == marathon_logging::Level::WARN
+                })
+                .map(|(_, _, message)| message.clone())
+                .collect::<Vec<_>>();
+            if host_timeout {
+                assert_eq!(
+                    warnings,
+                    ["Could not confirm screen recorder PID 123 exited after KILL"]
+                );
+            } else {
+                assert!(warnings.is_empty(), "{warnings:?}");
+            }
             finish(server, device).await;
             Ok(())
         })
@@ -1402,6 +1519,7 @@ fn d102_missing_or_unconfirmed_pid_does_not_pull_the_pending_recording() {
                         .push(json!({"exact":"ps -A","stdout":PS_OUTPUT,"times":1}));
                     shell(&mut script, "ps -A", PS_HEADER); // D92's later cleanup.
                     shell(&mut script, "kill -2 123", "");
+                    shell(&mut script, "kill -9 123", "");
                     shell(&mut script, PID_PROBE, "alive");
                 }
                 let server = server(script).await;
@@ -1416,7 +1534,7 @@ fn d102_missing_or_unconfirmed_pid_does_not_pull_the_pending_recording() {
                 started(&server, "shell:screenrecord", 1).await;
                 checked(
                     tokio::time::timeout(
-                        std::time::Duration::from_secs(15),
+                        std::time::Duration::from_secs(60),
                         listener.on_event_in(&end(), context),
                     )
                     .await,
@@ -1430,13 +1548,25 @@ fn d102_missing_or_unconfirmed_pid_does_not_pull_the_pending_recording() {
                     usize::from(!missing)
                 );
                 assert_eq!(
+                    commands.iter().filter(|cmd| *cmd == "kill -9 123").count(),
+                    usize::from(!missing)
+                );
+                let expected = if missing {
+                    "No screen recorder was found to stop"
+                } else {
+                    "Could not confirm screen recorder PID 123 exited after KILL"
+                };
+                assert_eq!(
                     logs.lock()
                         .unwrap()
                         .iter()
-                        .filter(|(_, level, message)| *level == marathon_logging::Level::WARN
-                            && message == "No screen recorder was found to stop")
-                        .count(),
-                    usize::from(missing)
+                        .filter(|(target, level, _)| {
+                            target == "marathon_android::artifact_listeners::video"
+                                && *level == marathon_logging::Level::WARN
+                        })
+                        .map(|(_, _, message)| message.as_str())
+                        .collect::<Vec<_>>(),
+                    [expected]
                 );
                 finish(server, device).await;
                 Ok(())

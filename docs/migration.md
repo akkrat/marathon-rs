@@ -305,8 +305,9 @@ exit status are otherwise unchanged; only a retry that D69 gives back after the 
 failure be retried.
 
 [D102](deviations.md#d102--stop-android-video-once-and-check-recorder-artifacts) changes Android recorder stopping
-and delivery. No configuration changes are needed. Empty or unfinished Android movies and GIFs without a finished
-capture are not included in new reports.
+and delivery. No configuration changes are needed. Android sends one INT and only uses KILL if it cannot
+confirm that a known recorder exited. Unconfirmed or invalid movies and GIFs without a finished capture are not
+included in new reports.
 
 [D105](deviations.md#d105--a-full-remote-metrics-queue-does-not-delay-tests) is new after 0.15.6. Full remote analytics
 queues now drop incoming metric events instead of delaying a batch. No configuration change is needed. Check for

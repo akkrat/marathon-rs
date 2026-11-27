@@ -9,21 +9,24 @@ use marathon_logging::Level;
 use std::path::PathBuf;
 
 const POLL_MILLIS: i64 = 75;
+// Reserve part of D102's stop budget for one last signal and exit check.
 const STOP_MILLIS: i64 = 1_500;
+const FORCE_STOP_MILLIS: i64 = 250;
 
-/// A process name, not an argument of grep (N33). Both toolbox and toybox put the PID and name
-/// in columns named PID and NAME, but the intervening columns differ.
+/// Match the process name itself (N33). Toolbox can leave WCHAN empty and prints an
+/// unlabelled state before NAME. Both toolbox and toybox put the name last.
 fn recorder_pid(output: &str) -> Result<Option<u32>, ()> {
     let mut lines = output.lines();
     let header: Vec<_> = lines.next().ok_or(())?.split_whitespace().collect();
     let pid_column = header.iter().position(|column| *column == "PID").ok_or(())?;
-    let name_column = header.iter().position(|column| *column == "NAME").ok_or(())?;
-    let remaining = name_column.checked_sub(pid_column + 1).ok_or(())?;
+    if header.last() != Some(&"NAME") {
+        return Err(());
+    }
     let mut recorder = None;
     for line in lines {
         let mut columns = line.split_whitespace();
         let pid = columns.nth(pid_column);
-        let name = columns.nth(remaining);
+        let name = columns.next_back();
         if matches!(name, Some("screenrecord" | "/system/bin/screenrecord")) {
             let pid = pid
                 .and_then(|value| value.parse::<u32>().ok())
@@ -51,69 +54,109 @@ pub(crate) async fn stop_screen_record_for_cleanup(device: &AndroidDevice, conte
 async fn stop_screen_record(device: &AndroidDevice, context: VendorContext, cleanup: bool) -> VendorResult<Stop> {
     let target = module_path!();
     device.log_named(target, Level::DEBUG, "Stopping screen recorder", None);
-    let result = timed(&context, STOP_MILLIS, |signal| {
+    let shell = async |command: &str, context: VendorContext| {
+        if cleanup {
+            device.cleanup_shell(command, context).await
+        } else {
+            device
+                .safe_execute_shell_command(command, "Screen recorder stop command failed", context)
+                .await
+        }
+    };
+    let signal_and_wait = async |pid: u32, signal, context: VendorContext| {
+        // The recorder can exit before the signal arrives. Only the PID probe proves exit.
+        shell(&format!("kill -{signal} {pid}"), context.clone()).await?;
+        let probe = format!("if [ -d /proc/{pid} ]; then echo alive; else echo gone; fi");
+        loop {
+            // The shell can see screenrecord's /proc entry until the process is reaped.
+            match shell(&probe, context.clone())
+                .await?
+                .filter(|reply| reply.exit_code == 0)
+            {
+                Some(reply) if reply.output.to_owned().trim() == "gone" => return Ok(Stop::Exited),
+                Some(reply) if reply.output.to_owned().trim() == "alive" => {}
+                _ => return Ok(Stop::Unconfirmed),
+            }
+            context.clock.delay(POLL_MILLIS, context.cancellation.clone()).await?;
+        }
+    };
+    let mut pid = None;
+    let known_pid = &mut pid;
+    // D92 disposal keeps its original best-effort INT on the cleanup connection.
+    let graceful_millis = if cleanup {
+        STOP_MILLIS
+    } else {
+        STOP_MILLIS - FORCE_STOP_MILLIS
+    };
+    let result = timed(&context, graceful_millis, |signal| {
         let context = VendorContext {
             cancellation: signal,
             ..context.clone()
         };
         Box::pin(async move {
-            let shell = async |command: &str| {
-                if cleanup {
-                    device.cleanup_shell(command, context.clone()).await
-                } else {
-                    device
-                        .safe_execute_shell_command(command, "Screen recorder stop command failed", context.clone())
-                        .await
-                }
-            };
             let ps = if device.api_level() >= 26 { "ps -A" } else { "ps" };
-            let Some(reply) = shell(ps).await?.filter(|reply| reply.exit_code == 0) else {
+            let Some(reply) = shell(ps, context.clone()).await?.filter(|reply| reply.exit_code == 0) else {
                 return Ok(Stop::Unconfirmed);
             };
             let Ok(pid) = recorder_pid(&reply.output.to_owned()) else {
                 return Ok(Stop::Unconfirmed);
             };
+            *known_pid = pid;
             let Some(pid) = pid else {
                 return Ok(Stop::Missing);
             };
-            // The recorder may have exited on its own between ps and INT. Only the PID probe proves exit.
             device.log_named(
                 target,
                 Level::TRACE,
                 &format!("Sending INT to screen recorder PID {pid}"),
                 None,
             );
-            shell(&format!("kill -2 {pid}")).await?;
-            let probe = format!("if [ -d /proc/{pid} ]; then echo alive; else echo gone; fi");
-            loop {
-                // Screenrecord runs as the adb shell user. /proc/<pid> is visible until the process
-                // has exited (and been reaped), not just until it has handled SIGINT.
-                match shell(&probe).await?.filter(|reply| reply.exit_code == 0) {
-                    Some(reply) if reply.output.to_owned().trim() == "gone" => return Ok(Stop::Exited),
-                    Some(reply) if reply.output.to_owned().trim() == "alive" => {}
-                    _ => return Ok(Stop::Unconfirmed),
-                }
-                context.clock.delay(POLL_MILLIS, context.cancellation.clone()).await?;
-            }
+            signal_and_wait(pid, 2, context).await
         })
     })
     .await;
-    let stopped = match result {
-        Ok(stopped) => stopped.unwrap_or(Stop::Unconfirmed),
+    let (stopped, error) = match result {
+        Ok(stopped) => (stopped.unwrap_or(Stop::Unconfirmed), None),
         Err(error @ VendorError::Cancelled(_)) => return Err(error),
-        Err(error) => {
-            device.log_named(
-                target,
-                Level::ERROR,
-                "Could not confirm screen recorder exit",
-                Some(error.failure()),
-            );
-            return Ok(Stop::Unconfirmed);
-        }
+        Err(error) => (Stop::Unconfirmed, Some(error)),
     };
+    if stopped == Stop::Unconfirmed
+        && !cleanup
+        && let Some(pid) = pid
+    {
+        if let Some(reason) = context.cancellation.reason() {
+            return Err(VendorError::Cancelled(reason));
+        }
+        let force = timed(&context, FORCE_STOP_MILLIS, |signal| {
+            let context = VendorContext {
+                cancellation: signal,
+                ..context.clone()
+            };
+            Box::pin(signal_and_wait(pid, 9, context))
+        })
+        .await;
+        let cause = match force {
+            Ok(Some(Stop::Exited)) => return Ok(Stop::Exited),
+            Ok(_) => None,
+            Err(error @ VendorError::Cancelled(_)) => return Err(error),
+            Err(error) => Some(error),
+        };
+        device.log_named(
+            target,
+            Level::WARN,
+            &format!("Could not confirm screen recorder PID {pid} exited after KILL"),
+            cause.as_ref().or(error.as_ref()).map(VendorError::failure),
+        );
+        return Ok(Stop::Unconfirmed);
+    }
     match stopped {
         Stop::Missing => device.log_named(target, Level::WARN, "No screen recorder was found to stop", None),
-        Stop::Unconfirmed => device.log_named(target, Level::ERROR, "Could not confirm screen recorder exit", None),
+        Stop::Unconfirmed => device.log_named(
+            target,
+            Level::ERROR,
+            "Could not confirm screen recorder exit",
+            error.as_ref().map(VendorError::failure),
+        ),
         _ => {}
     }
     Ok(stopped)
