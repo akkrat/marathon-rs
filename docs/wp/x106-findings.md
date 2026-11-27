@@ -274,5 +274,7 @@ None.
   date ("row no longer found, was ported" for `CodeCoverageTargetsTest` and `SkipCopyingDerivedDataTest` rows), on
   main `7362d27c` as well: `CodeCoverageTargetsTest.kt` is absent from that checkout, and the
   `SkipCopyingDerivedDataTest` case those rows name is not found in its file. Not changed here.
+  (x117: not a bug. The check was run against the baseline checkout; `scripts/check.sh` runs the generators against
+  the release source named in `docs/release-source.sha`, and against that tree the matrix is up to date.)
 - The x105 perf doc says the Allure reporter awaits `create_file` and `write` separately per result; it makes one
   blocking job per result (plus one per attachment for the empty check).

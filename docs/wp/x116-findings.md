@@ -42,3 +42,21 @@ The owner approved the final 0.15.6 on the same day and asked to move the integr
 so no 0.15.6-rc.1 was tagged: the `## 0.15.6-rc.1` section becomes `## 0.15.6` (no rc stub, since no candidate was
 published), its Evidence says the farm run had not happened before the release, and `README.md` names 0.15.6 as the
 current release. The farm check is the integration MRs' full pipelines with 0.15.6.
+
+## After the release: farm runs of 0.15.6 (x117)
+
+On 2026-11-24 and 25 four private CI projects ran their full merge-request pipelines on 0.15.6: three iOS projects
+with remote simulators (one of them with the screenshot recorder, the job where U270 and U271 were seen) and one
+Android project. Their results were compared test for test with the same projects' JVM runs on the same base.
+
+- **Results:** the same per-test outcomes as the JVM. The few differences were tests that left quarantine that day or
+  tests that the JVM nightly of the same night failed too; none came from a marathon error.
+- **U270:** 0 `Dying because` lines at exit in every job, against 35 to 39 per run with 0.15.5 in the screenshot-recorder
+  job, whose uploaded report fell back to the JVM's size (about 33 MB, against 62 to 303 MB with 0.15.5).
+- **U271:** a run of the screenshot-recorder job with its full log kept had no `Unable to start a remote shell session`
+  ERROR line, against 6 and 2 in two runs of 0.15.5-rc.1.
+- **D99:** one project's run used up its total retry quota and logged no `Expected to run … more` line; a JVM nightly
+  of another project lost one test to C5 the same night.
+- **Configuration:** one project's quarantine Marathonfiles had no finite `uncompletedTestRetryQuota`, which marathon-rs
+  refuses (D47); the project added the setting before switching.
+
