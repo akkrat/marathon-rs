@@ -225,7 +225,7 @@ fn short_type_name(name: &str) -> &str {
 /// D51: when to leave a backend alone so it can recover from slow failures.
 #[derive(Clone, Copy)]
 pub struct BackendLimits {
-    /// Limit per send or admission wait, and the total drain and close allowance.
+    /// Limit per send and for the total shutdown drain and close. Admission does not wait for capacity.
     pub send: Duration,
     pub slow_failure: Duration,
     pub cool_off: Duration,

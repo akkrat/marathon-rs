@@ -61,6 +61,27 @@ except one probe that still expected D86 backpressure. After updating that probe
 The CLI configuration and vendor differential suites passed. Workspace-wide and remote gates are left to the
 orchestrator. No production analytics services or physical devices were used.
 
+## Review round 1
+
+- **U284 (P1).** On 888ac26e, the graceful-close witness confirmed EOF through the kernel
+  without giving Tokio's current-thread reactor an opportunity to publish readability.
+  The next send returned success but Carbon had no replacement connection. The writer now
+  peeks directly on the nonblocking socket before reuse. EOF, unexpected data and errors
+  other than WouldBlock discard the cached connection. A FIN arriving after the probe may
+  still race the write and lose the payload. That is the accepted D51 case of a peer going
+  away during a send with no application acknowledgement. Write and connect budgets and
+  the no-replay rule for partial writes are unchanged. The witness verifies one exact
+  payload on one replacement connection and passed 50 repeated runs plus one with four
+  CPU load workers.
+- **Admission documentation (P3).** Verified that admission uses a non-waiting reservation.
+  The lifecycle design and backend limit comment now describe immediate rejection on a full
+  queue, a per-send limit and a separate shared shutdown deadline for draining and closing.
+
+Formatting and Clippy for analytics and core passed. Analytics, core and CLI
+passed 1,126 tests with eight ignored, including configuration replay and the
+vendor differential. The vendor differential initially stopped on a stale YAML
+helper and passed after rebuilding it. Workspace and remote gates were not run.
+
 ## Incidental bugs
 
 None found in scope.
