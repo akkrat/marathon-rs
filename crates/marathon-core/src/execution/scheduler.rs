@@ -628,7 +628,7 @@ impl Inner {
         // before any actor's cancel reaches it.
         let devices: Vec<StoppingDevice> = devices
             .into_iter()
-            .map(|(child, device)| StoppingDevice::begin(&self.parts.core, child, device, false))
+            .map(|(child, device)| StoppingDevice::begin(&self.parts.core, child, device, None))
             .collect();
         for child in &children {
             child.cancel(reason.clone());

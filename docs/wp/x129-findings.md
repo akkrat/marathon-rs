@@ -71,3 +71,33 @@ paths, not the wall-clock savings on a particular emulator or worker.
 ## Incidental bugs
 
 U291 is the wait for redundant parallel attempts after every test in a pool is decided. Fixed by D107.
+
+## Review round 1
+
+1. **Android tracking.** A sealed device can still be listed and ready. D41 offered it a grace and D22
+   offered it restoration, and a cancelled probe could escape the per-server loop to the run's supervision.
+   The provider now excludes stopping devices from grace, outage restoration and replacement. A probe already in
+   flight releases its wait without publishing a server error if the device has stopped. A two-model-pool fake ADB
+   run waits for one pool's stop to finish, then sends its stopped device offline and back while the other pool runs.
+2. **iOS artifacts.** An earlier listener can abort the composite's finalizers, stranding a protected xcresult even
+   under `pullingPolicy: Never`. The seal now identifies the exact discarded batch, unprotects its source and stops
+   an admitted pull for that source. Undelivered callbacks do not report it. A scoped command pass lets earlier
+   queued bundles finish their own remote cleanup. Those commands remain subject to disposal and quarantine,
+   and their receipts are checked at disposal rather than waited on by the pool's earlier stop.
+3. **Unconfirmed iOS work.** The original PoolStop exception incorrectly left a simulator reusable when its
+   cleanup was unconfirmed. The decision now quarantines the lease and retires the simulator before releasing
+   the waiters. A failure while confirming also goes through the existing cancellation path. Confirmed stops
+   do not retire the simulator.
+4. **iOS disposal.** A pool stop is not run end. A later disposal with no provider deadline does not run the D98
+   busy-video shutdown. Configured lifecycle and any run-end busy-video shutdown use the same disposal deadline,
+   apart from any tighter provider or signal deadline.
+5. **Queue cutoff and records.** Added U291 and a gated witness that holds the deciding outcome's tracker call
+   while a second outcome reaches the queue mailbox. That result is in raw and analytics exactly once, while a
+   third, still-running copy is stopped. The reviewed implementation already preserved it. Closing the queue
+   right after announcing the decision in scratch loses the second result and fails the witness.
+
+The Android witness and all five new iOS witnesses fail on the reviewed commit `2416086b`. The Android failure
+reports the stopped device's cancellation as the cause of the run ending. The iOS failures cover undelivered
+bundle diagnostics, a held pull, refused remote cleanup, missing quarantine and a mid-run shutdown. The queue
+ablation fails at the recorded serials, with only the deciding device present. No repository fixtures changed.
+The main witness and all seven new witnesses passed 50/50 each and 1/1 each with 18 competing CPU workers.

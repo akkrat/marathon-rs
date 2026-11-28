@@ -199,6 +199,7 @@ struct Run {
     provider: Arc<marathon_test_support::stub_provider::StubDeviceProvider>,
     trace: Record,
     result: Rc<RefCell<Option<VendorResult<bool>>>>,
+    tracker_gate: Option<TrackerGate>,
 }
 impl Run {
     async fn connect(&self, serial: &str, pool: &str, hold_cleanup: bool) -> Attempt {
@@ -252,6 +253,7 @@ struct Options {
     probability: bool,
     separate_pools: bool,
     ignore_failures: bool,
+    hold_decider: bool,
 }
 impl Default for Options {
     fn default() -> Self {
@@ -262,6 +264,7 @@ impl Default for Options {
             probability: false,
             separate_pools: false,
             ignore_failures: false,
+            hold_decider: false,
         }
     }
 }
@@ -293,7 +296,9 @@ fn run(options: Options, exercise: Exercise) -> Output {
             time_limit: epoch,
         }
     } else {
-        FlakinessStrategyConfiguration::Fixed { count: 1 }
+        FlakinessStrategyConfiguration::Fixed {
+            count: if options.hold_decider { 2 } else { 1 },
+        }
     };
     let defaults = Defaults {
         success_rate: 0.0,
@@ -321,6 +326,10 @@ fn run(options: Options, exercise: Exercise) -> Output {
         .collect();
     let trace = Record::default();
     factory.backend = Some(Arc::new(Backend(trace.clone())));
+    let tracker_gate = options.hold_decider.then(TrackerGate::default);
+    if let Some(gate) = &tracker_gate {
+        factory.tracker_probe = Some(Arc::new(gate.clone()));
+    }
     let observed = trace.clone();
     let lines = CoreExecutor::run_virtual_with_watchdog(Duration::from_secs(60), move |core, replay| {
         Box::pin(async move {
@@ -350,6 +359,7 @@ fn run(options: Options, exercise: Exercise) -> Output {
                 provider: built.provider.clone(),
                 trace: observed,
                 result,
+                tracker_gate,
             };
             exercise(&harness).await;
             assert!(
@@ -615,4 +625,59 @@ fn only_the_decided_pool_stops_its_copy_d107() {
     );
     assert_eq!(output.trace.lock().unwrap().seals, ["a-held"]);
     assert_eq!(output.raw().len(), 2);
+}
+
+#[derive(Clone, Default)]
+struct TrackerGate {
+    entered: Gate<()>,
+    release: Gate<()>,
+}
+impl TrackerInternalAdapter for TrackerGate {
+    fn test<'a>(&'a self, event: &'a TestEvent) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            if event.device.serial_number == "decider" {
+                self.entered.complete(Ok(()));
+                self.release.wait().await?;
+            }
+            Ok(())
+        })
+    }
+}
+
+#[test]
+fn an_outcome_waiting_in_the_queue_at_the_stop_cut_counts_once_d107() {
+    let output = run(
+        Options {
+            hold_decider: true,
+            ..Options::default()
+        },
+        |run| {
+            Box::pin(async move {
+                let deciding = run.connect("decider", "omni", false).await;
+                let committed = run.connect("committed", "omni", false).await;
+                let _outstanding = run.connect("outstanding", "omni", false).await;
+                run.release(&deciding, TestStatus::Passed).await;
+                let gate = run.tracker_gate.as_ref().unwrap();
+                assert!(gate.entered.completed().is_some());
+                // The pool can forward this result, but the queue is still delivering
+                // the deciding outcome and cannot take another mailbox message yet.
+                run.release(&committed, TestStatus::Passed).await;
+                assert!(run.trace.lock().unwrap().metrics.is_empty());
+                assert_eq!(run.result(), None);
+                gate.release.complete(Ok(()));
+                run.replay.drain_current().await.unwrap();
+                assert!(run.stopped("outstanding"));
+                assert!(!run.stopped("committed"));
+                assert_eq!(run.result(), Some(true));
+            })
+        },
+    );
+    let raw = output.raw();
+    assert_eq!(
+        raw.iter()
+            .map(|row| row["deviceSerial"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["decider", "committed"]
+    );
+    assert_eq!(output.trace.lock().unwrap().metrics.len(), 2);
 }

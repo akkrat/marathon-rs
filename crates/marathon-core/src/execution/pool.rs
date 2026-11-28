@@ -411,7 +411,7 @@ impl DevicePoolActor {
                     &self.core,
                     actor.actor.job(),
                     actor.device.clone(),
-                    true,
+                    Some(&assignment.batch),
                 ));
             }
         }

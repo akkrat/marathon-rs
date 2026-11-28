@@ -132,10 +132,20 @@ impl SealCause {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GatePass {
+    General,
+    ArtifactCleanup,
+}
+impl GatePass {
+    fn admits(pass: Option<Self>, cause: SealCause) -> bool {
+        pass == Some(Self::General) || (pass == Some(Self::ArtifactCleanup) && cause == SealCause::PoolStop)
+    }
+}
 tokio::task_local! {
     /// D93: work that passes a sealed device's gate: its own on-dispose lifecycle, and the batch it ran when it was
     /// sealed (its cleanup and result collection, which the seal's receipt waits for).
-    static GATE_PASS: ();
+    static GATE_PASS: GatePass;
     /// D93 (round 10): the admission of the command the current task is executing through its device, read by the
     /// executor in the caller's task and carried to where the command is handed to its transport.
     static ADMISSION: Arc<CommandAdmission>;
@@ -153,7 +163,7 @@ pub struct CommandAdmission {
     gate: Weak<DeviceCommands>,
     pub(crate) signal_finish: Arc<marathon_core::signal_finish::SignalDeadline>,
     /// The caller held a pass (the lifecycle, the registered batch) when it asked.
-    pass: bool,
+    pass: Option<GatePass>,
 }
 impl CommandAdmission {
     /// Admits the command, registering it with the device (the receipt the executor ends once the command has ended), or
@@ -167,27 +177,40 @@ impl CommandAdmission {
         if let Some(why) = gate.revoked.lock().unwrap_or_else(|e| e.into_inner()).clone() {
             return Err(gate_cancellation(cause.refusal(why).failure().clone()));
         }
+        let artifact = self.pass == Some(GatePass::ArtifactCleanup);
+        // Hold this guard through handover so disposal can take a final look
+        // after closing artifact admission.
+        let pulls_closed = artifact.then(|| gate.pulls_closed.lock().unwrap_or_else(|e| e.into_inner()));
+        if let Some(why) = pulls_closed.as_ref().and_then(|closed| closed.as_ref()) {
+            return Err(gate_cancellation(why.clone()));
+        }
         if let Some((cause, why)) = sealed.as_ref()
-            && !self.pass
+            && !GatePass::admits(self.pass, *cause)
         {
             return Err(gate_cancellation(cause.refusal(why.clone()).failure().clone()));
         }
         let receipt = super::TransferReceipt::new();
         let mut handed = gate.handed.lock().unwrap_or_else(|e| e.into_inner());
-        handed.retain(|r| r.ended() != Some(super::TransferCleanup::Confirmed));
-        handed.push(receipt.clone());
+        handed.retain(|(r, _)| r.ended() != Some(super::TransferCleanup::Confirmed));
+        handed.push((receipt.clone(), artifact));
         Ok(Some(receipt))
     }
 }
 /// D93: runs `body` as the device's on-dispose lifecycle, whose commands pass the sealed gate (not a revoked one).
 pub async fn as_lifecycle<T>(body: impl Future<Output = T>) -> T {
-    GATE_PASS.scope((), body).await
+    GATE_PASS.scope(GatePass::General, body).await
 }
 /// D93: runs `body` as a batch registered on the device, whose own commands pass the gate once the device is sealed, so
 /// that its cleanup and results are not cut off. Work it spawns (a session's producer, a listener's task) runs in tasks
 /// of its own and does not pass: a session sealed before it opens never opens.
 pub async fn as_registered_batch<T>(body: impl Future<Output = T>) -> T {
-    GATE_PASS.scope((), body).await
+    GATE_PASS.scope(GatePass::General, body).await
+}
+
+/// D107: queued xcresult cleanup is allowed after a pool stop, but not
+/// after disposal or quarantine. Its receipt belongs to the artifact drain.
+pub(crate) async fn as_artifact_cleanup<T>(body: impl Future<Output = T>) -> T {
+    GATE_PASS.scope(GatePass::ArtifactCleanup, body).await
 }
 
 /// What the device's provider does to the lease when the device is quarantined: its connection factory's quarantine.
@@ -203,7 +226,7 @@ pub struct DeviceCommands {
     /// The provider's quarantine for the lease, and whether it has been applied.
     quarantine: Mutex<(Option<LeaseQuarantine>, bool)>,
     /// D93 (round 10): the commands handed to the transport and not confirmed to have ended (`CommandAdmission`).
-    handed: Mutex<Vec<Arc<super::TransferReceipt>>>,
+    handed: Mutex<Vec<(Arc<super::TransferReceipt>, bool)>>,
     /// D93 (round 10): closed by the disposal as it takes its look at the device's pulls, whatever the seal's cause.
     pulls_closed: Mutex<Option<Failure>>,
     signal_finish: Arc<marathon_core::signal_finish::SignalDeadline>,
@@ -238,14 +261,19 @@ impl DeviceCommands {
     /// D93 (round 8): why a command of this device is refused now, if it is: revoked (a quarantine) or sealed, unless the
     /// current task holds a pass (the lifecycle, the registered batch) and the commands are not revoked. Built by the
     /// seal's cause.
-    fn command_refusal(&self) -> Option<VendorError> {
+    fn command_refusal(&self, pass: Option<GatePass>) -> Option<VendorError> {
         let sealed = self.sealed();
         let cause = sealed.as_ref().map_or(SealCause::Disposal, |(cause, _)| *cause);
         if let Some(why) = self.revoked.lock().unwrap_or_else(|e| e.into_inner()).clone() {
             return Some(cause.refusal(why));
         }
+        if pass == Some(GatePass::ArtifactCleanup)
+            && let Some(why) = self.pulls_closed.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        {
+            return Some(cause.refusal(why));
+        }
         match sealed {
-            Some((cause, why)) if GATE_PASS.try_with(|_| ()).is_err() => Some(cause.refusal(why)),
+            Some((cause, why)) if !GatePass::admits(pass, cause) => Some(cause.refusal(why)),
             _ => None,
         }
     }
@@ -266,11 +294,16 @@ impl DeviceCommands {
     /// executor gets, so that it can look at the gate again at the last moment before it sends a command (after its
     /// channel is accepted, inside its spawn). The cancellation it reports for the gate is recognised by
     /// [`Self::gate_cancellation`].
-    fn command_signal(&self, parent: Arc<dyn CancellationSignal>) -> Arc<dyn CancellationSignal> {
+    fn command_signal(
+        &self,
+        parent: Arc<dyn CancellationSignal>,
+        pass: Option<GatePass>,
+    ) -> Arc<dyn CancellationSignal> {
         Arc::new(GateSignal {
             gate: self.me.clone(),
             parent,
             pulls: false,
+            pass,
         })
     }
     /// D93 (round 8): a signal cancelled once this device's pulls are refused, for a receive's stop.
@@ -279,6 +312,7 @@ impl DeviceCommands {
             gate: self.me.clone(),
             parent: Arc::new(super::SessionScope::default()),
             pulls: true,
+            pass: None,
         })
     }
     /// D93 (round 8): whether `reason` is this device's gate refusing, rather than its caller's own cancellation.
@@ -293,13 +327,21 @@ impl DeviceCommands {
     /// D93 (round 10): the commands this device handed to its transport that are not confirmed to have ended: still
     /// running, or ended without that being confirmed. The device's verdict waits for them.
     pub fn handed_commands(&self) -> Vec<Arc<super::TransferReceipt>> {
+        let pool_stop = self.sealed().is_some_and(|(cause, _)| cause == SealCause::PoolStop);
+        self.receipts(|artifact| !artifact || !pool_stop)
+    }
+    fn receipts(&self, include: impl Fn(bool) -> bool) -> Vec<Arc<super::TransferReceipt>> {
         self.handed
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .iter()
-            .filter(|r| r.ended() != Some(super::TransferCleanup::Confirmed))
-            .cloned()
+            .filter(|(r, artifact)| include(*artifact) && r.ended() != Some(super::TransferCleanup::Confirmed))
+            .map(|(r, _)| r.clone())
             .collect()
+    }
+    /// Called at disposal, after closing admission, for commands excluded from the early pool receipt.
+    pub fn artifact_cleanup_left(&self) -> Vec<String> {
+        Self::commands_left(self.receipts(|artifact| artifact))
     }
     /// D93 (round 10): closes the device's pulls with `why`, whatever its seal's cause: the disposal calls it under the
     /// lock its pulls register under, in the same step as it takes its look at them, so that a pull is either in that
@@ -338,8 +380,11 @@ impl DeviceCommands {
     }
     /// D93 (round 10): what keeps the device's handed commands from being confirmed ended, for its verdict.
     pub fn handed_left(&self) -> Vec<String> {
-        self.handed_commands()
-            .iter()
+        Self::commands_left(self.handed_commands())
+    }
+    fn commands_left(receipts: Vec<Arc<super::TransferReceipt>>) -> Vec<String> {
+        receipts
+            .into_iter()
             .filter_map(|c| match c.ended() {
                 None => Some("a command it handed to the worker has not ended".to_owned()),
                 Some(super::TransferCleanup::Unconfirmed(why)) => Some(format!(
@@ -424,22 +469,23 @@ impl CommandExecutor for DeviceCommands {
     fn execute(&self, request: CommandRequest, context: VendorContext) -> VendorFuture<'_, CommandSession> {
         // D93 (round 8): refused at once if the gate is closed; otherwise the executor gets a context that carries the gate,
         // and looks at it again at the last moment before it sends the command.
-        if let Some(refusal) = self.command_refusal() {
+        let pass = GATE_PASS.try_with(|pass| *pass).ok();
+        if let Some(refusal) = self.command_refusal(pass) {
             super::exec_outcome::record(true);
             return Box::pin(async move { Err(refusal) });
         }
-        let gated = if GATE_PASS.try_with(|_| ()).is_ok() {
+        let gated = if pass == Some(GatePass::General) {
             context
         } else {
             VendorContext {
-                cancellation: self.command_signal(context.cancellation.clone()),
+                cancellation: self.command_signal(context.cancellation.clone(), pass),
                 ..context
             }
         };
         let admission = Arc::new(CommandAdmission {
             gate: self.me.clone(),
             signal_finish: self.signal_finish.clone(),
-            pass: GATE_PASS.try_with(|_| ()).is_ok(),
+            pass,
         });
         let executing = self.lease.execute(request, gated);
         Box::pin(async move {
@@ -450,7 +496,7 @@ impl CommandExecutor for DeviceCommands {
                     // U271: the SSH executor also returns the gate's cancellation for an exec it sent whose reply had
                     // not come, and reports that it may have started; that verdict is kept.
                     super::exec_outcome::record(reported.unwrap_or(true));
-                    Err(self.command_refusal().unwrap_or(VendorError::Cancelled(reason)))
+                    Err(self.command_refusal(pass).unwrap_or(VendorError::Cancelled(reason)))
                 }
                 other => {
                     if let Some(started_nothing) = reported {
@@ -485,6 +531,7 @@ struct GateSignal {
     gate: Weak<DeviceCommands>,
     parent: Arc<dyn CancellationSignal>,
     pulls: bool,
+    pass: Option<GatePass>,
 }
 impl GateSignal {
     fn closed(&self) -> Option<Cancellation> {
@@ -492,7 +539,7 @@ impl GateSignal {
         let why = if self.pulls {
             gate.pull_refusal()?
         } else {
-            gate.command_refusal()?.failure().clone()
+            gate.command_refusal(self.pass)?.failure().clone()
         };
         Some(gate_cancellation(why))
     }

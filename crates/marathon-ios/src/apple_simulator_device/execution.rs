@@ -44,6 +44,7 @@ pub(super) struct Shutdown {
     recordings: Vec<Arc<super::recording::Recording>>,
 }
 pub(super) struct BatchJob {
+    batch: BatchRef,
     signal: Arc<Signal>,
     done: Arc<SharedDeferred<()>>,
     outcome: Mutex<Option<Result<(), RunError>>>,
@@ -78,6 +79,7 @@ impl AppleSimulatorDevice {
         context: &VendorContext,
     ) -> VendorResult<()> {
         let job = Arc::new(BatchJob {
+            batch: batch.clone(),
             signal: Signal::new(),
             done: SharedDeferred::new(),
             outcome: Mutex::new(None),
@@ -237,7 +239,7 @@ impl AppleSimulatorDevice {
         // A timeout or transport outcome can race the seal. Once the pool has stopped
         // the batch, cleanup still needs its receipt, but this is not a device failure.
         if self.pool_stopped() {
-            self.finish_work().await;
+            self.join_cancelled(job, context).await?;
             return Err(VendorError::Cancelled(marathon_core::executor::shared::requested(
                 "All tests in the pool are decided",
             )));
@@ -340,9 +342,7 @@ impl AppleSimulatorDevice {
     async fn join_cancelled(&self, job: &Arc<BatchJob>, context: &VendorContext) -> VendorResult<()> {
         let sealed = self.state().shutdown.clone();
         if let Some(shutdown) = sealed {
-            if let Termination::Unconfirmed(_) = self.finish_work().await
-                && shutdown.cause != SealCause::PoolStop
-            {
+            if let Termination::Unconfirmed(_) = self.finish_work().await {
                 self.retire();
             }
             // An error while deciding is this call's error too, as the window's wait's was before D93.
@@ -403,11 +403,34 @@ impl AppleSimulatorDevice {
             state.pulls.limit_to(shutdown.window.deadline);
         }
     }
-    pub(super) fn seal_for_decided_pool(&self) {
+    pub(super) fn seal_for_decided_pool(&self, batch: Option<&BatchRef>) {
         let mut state = self.state();
+        if state.shutdown.is_some() {
+            return;
+        }
+        state.discarded_batch = batch
+            .cloned()
+            .or_else(|| state.running.as_ref().map(|job| job.batch.clone()));
         // Leave pulls from earlier, reported batches on the provider's normal artifact
         // budget. The receipt still stops the session and recorder of this batch.
         self.seal_locked(&mut state, SealCause::PoolStop, None);
+        let discarded = state.discarded_batch.as_ref().map(|batch| {
+            let source = self.remote.remote_xcresult_file(batch);
+            let pull = state.bundle_pulls.get(&source).and_then(std::sync::Weak::upgrade);
+            (batch.id.clone(), source, pull)
+        });
+        drop(state);
+        if let Some((id, source, pull)) = discarded {
+            if let Some(pull) = pull {
+                pull.stop(marathon_apple::cmd::cancelled("Redundant batch stopped"), None);
+            }
+            self.services.artifacts.release(&self.serial, &source);
+            self.log(
+                Level::DEBUG,
+                format!("Discarding xcresult bundle for stopped batch {id}"),
+                None,
+            );
+        }
     }
     pub(super) fn pool_stopped(&self) -> bool {
         self.state()
@@ -473,9 +496,19 @@ impl AppleSimulatorDevice {
     async fn decide(&self, shutdown: Arc<Shutdown>) {
         match panic_as_error(self.await_receipt(&shutdown)).await {
             Ok(verdict) => {
+                if let Termination::Unconfirmed(left) = &verdict
+                    && shutdown.cause == SealCause::PoolStop
+                {
+                    self.quarantine_unconfirmed(left);
+                }
                 shutdown.window.decide(verdict);
             }
-            Err(error) => shutdown.window.fail(error),
+            Err(error) => {
+                if shutdown.cause == SealCause::PoolStop {
+                    self.quarantine_unconfirmed(&[marathon_apple::cmd::device_commands::failure_text(error.failure())]);
+                }
+                shutdown.window.fail(error);
+            }
         }
     }
     /// Waits for the receipt until the window's end, forcing in its reserve what has not ended; then what has not.
@@ -739,25 +772,29 @@ impl AppleSimulatorDevice {
     /// D93: the on-dispose lifecycle of a simulator whose work was confirmed to have ended. After the run's stop, within
     /// what is left of its window, and at least its force reserve (5 s of 70), within any provider deadline.
     /// Outside a run stop the lifecycle shares the original device window. An unconfirmed command quarantines the lease.
-    async fn run_on_dispose(&self, shutdown: &Shutdown) -> VendorResult<VendorResult<()>> {
-        let configured = self.run_configured_on_dispose(shutdown).await?;
-        self.shut_down_busy_video(shutdown).await;
+    async fn run_on_dispose(
+        &self,
+        shutdown: &Shutdown,
+        pool_deadline: Option<i64>,
+        mid_run: bool,
+    ) -> VendorResult<VendorResult<()>> {
+        let configured = self.run_configured_on_dispose(shutdown, pool_deadline).await?;
+        if !mid_run && shutdown.cause != SealCause::Disposal {
+            let (now, deadline) = self.on_dispose_deadline(shutdown, false, pool_deadline);
+            self.shut_down_busy_video_by(now, deadline).await;
+        }
         Ok(configured)
     }
     /// D93: the window's end for the on-dispose lifecycle, on the vendor clock, and now. `floor`: a run-stopped device's
     /// lifecycle keeps at least the force reserve; D98's extra shutdown never does.
-    fn on_dispose_deadline(&self, shutdown: &Shutdown, floor: bool) -> (i64, i64) {
+    fn on_dispose_deadline(&self, shutdown: &Shutdown, floor: bool, pool_deadline: Option<i64>) -> (i64, i64) {
         let clock = self.services.context.clock.clone();
         let reserve =
             marathon_apple::cmd::device_commands::force_reserve_millis(self.services.timeouts.cancelled_batch_millis);
         let now = clock.now_millis();
         // A pool may have finished long before the provider gets here. Its early
         // receipt bounded the batch, not this run-end lifecycle.
-        let left = if shutdown.cause == SealCause::PoolStop {
-            self.services.timeouts.cancelled_batch_millis
-        } else {
-            shutdown.window.deadline.saturating_sub(now)
-        };
+        let left = pool_deadline.unwrap_or(shutdown.window.deadline).saturating_sub(now);
         let left = if shutdown.by_run_stop && floor {
             left.max(reserve)
         } else {
@@ -769,7 +806,11 @@ impl AppleSimulatorDevice {
             .limit(now.saturating_add(left), |finish| finish.devices);
         (now, deadline)
     }
-    async fn run_configured_on_dispose(&self, shutdown: &Shutdown) -> VendorResult<VendorResult<()>> {
+    async fn run_configured_on_dispose(
+        &self,
+        shutdown: &Shutdown,
+        pool_deadline: Option<i64>,
+    ) -> VendorResult<VendorResult<()>> {
         let actions = &self.services.vendor.lifecycle_configuration.on_dispose;
         if actions.is_empty() || !self.connected() {
             return Ok(Ok(()));
@@ -787,7 +828,7 @@ impl AppleSimulatorDevice {
             )
         };
         let clock = self.services.context.clock.clone();
-        let (now, deadline) = self.on_dispose_deadline(shutdown, true);
+        let (now, deadline) = self.on_dispose_deadline(shutdown, true, pool_deadline);
         if deadline <= now {
             lifecycle_cut(self, "had no time left to run");
             return Ok(Ok(()));
@@ -836,20 +877,6 @@ impl AppleSimulatorDevice {
         }
         Ok(Ok(()))
     }
-    /// D98: at the run's end, a simulator whose video service was left busy, which records nothing until it restarts, is
-    /// shut down so that the next run's preparation, which boots every simulator it uses, starts it clean. Not at a
-    /// recovery or replacement disposal (owner's decision: no mid-run cold boot), not when the configured lifecycle
-    /// already shuts it down or erases it, and not on a quarantined simulator. It runs in the window less the force
-    /// reserve, starting only with the shorter of its timeout and twice the reserve left, under its own cancellation that
-    /// ends there, leaving the lease release that reserve; a cut or a failure is one line and changes nothing else: no
-    /// quarantine, no later disposal.
-    async fn shut_down_busy_video(&self, shutdown: &Shutdown) {
-        if shutdown.cause == SealCause::Disposal {
-            return;
-        }
-        let (now, deadline) = self.on_dispose_deadline(shutdown, false);
-        self.shut_down_busy_video_by(now, deadline).await;
-    }
     /// D98 (x102): the run's end for a simulator whose current device object was disposed of during the run (its
     /// recovery failed, or it was lost too often), which therefore had no run-end disposal of its own. The provider's
     /// termination calls it for that object after its disposal and before its lease's release, within the termination's
@@ -857,7 +884,10 @@ impl AppleSimulatorDevice {
     pub(crate) async fn shut_down_busy_video_after_disposal(&self) {
         let (mid_run, provider_deadline) = {
             let state = self.state();
-            let mid_run = state.shutdown.as_ref().is_some_and(|s| s.cause == SealCause::Disposal);
+            let mid_run = state
+                .shutdown
+                .as_ref()
+                .is_some_and(|s| matches!(s.cause, SealCause::Disposal | SealCause::PoolStop));
             (mid_run, state.provider_deadline)
         };
         let Some(provider_deadline) = provider_deadline.filter(|_| mid_run && self.disposed()) else {
@@ -867,8 +897,9 @@ impl AppleSimulatorDevice {
         let deadline = self.signal_finish.limit(provider_deadline, |finish| finish.devices);
         self.shut_down_busy_video_by(now, deadline).await;
     }
-    /// D98: the shutdown itself, by `deadline` (the window's end on the vendor clock), at most once per simulator and run
-    /// whichever of its device objects asks (x102).
+    /// D98: at run end, shut down a busy-video simulator so the next run boots it clean.
+    /// Leave the force reserve to lease release. A cut or failure does not quarantine it.
+    /// At most once per simulator and run, whichever of its device objects asks (x102).
     async fn shut_down_busy_video_by(&self, now: i64, deadline: i64) {
         let configured = &self.services.vendor.lifecycle_configuration.on_dispose;
         if configured
@@ -1106,6 +1137,16 @@ impl AppleSimulatorDevice {
         if owner {
             let device = self.this()?;
             let done = started.clone();
+            // The earlier work receipt and the disposal are separate, but all
+            // steps of this disposal share one deadline.
+            let pool_deadline = (shutdown.cause == SealCause::PoolStop).then(|| {
+                self.services
+                    .context
+                    .clock
+                    .now_millis()
+                    .saturating_add(self.services.timeouts.cancelled_batch_millis)
+            });
+            let mid_run = pool_deadline.is_some() && provider_deadline.is_none();
             // Disposal is protected and separately owned even if an async adapter is dropped.
             self.retained.spawn(self.services.runtime.as_ref(), async move {
                 // D84: a panic is published to every caller too; the device is then as disposed as the panic left it.
@@ -1132,15 +1173,18 @@ impl AppleSimulatorDevice {
                         )
                         .await;
                     }
-                    let pulls_left = marathon_apple::cmd::device_commands::settle_pulls(
+                    let mut pulls_left = marathon_apple::cmd::device_commands::settle_pulls(
                         &pulls,
                         &device.serial,
-                        shutdown.cause.stops_pulls(),
+                        shutdown.cause.stops_pulls() && !mid_run,
                     );
+                    if shutdown.cause == SealCause::PoolStop {
+                        pulls_left.extend(device.commands.artifact_cleanup_left());
+                    }
                     match verdict {
                         Termination::Confirmed if device.quarantined() => {}
                         Termination::Confirmed if pulls_left.is_empty() => {
-                            return device.run_on_dispose(&shutdown).await;
+                            return device.run_on_dispose(&shutdown, pool_deadline, mid_run).await;
                         }
                         Termination::Confirmed => device.quarantine_unconfirmed(&pulls_left),
                         Termination::Unconfirmed(left) => device.quarantine_unconfirmed(&left),

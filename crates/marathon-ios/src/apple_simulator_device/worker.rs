@@ -367,6 +367,13 @@ impl AppleSimulatorDevice {
     }
 }
 impl AppleDevice for AppleSimulatorDevice {
+    fn discard_result_bundle(&self, batch: &BatchRef) -> bool {
+        self.state()
+            .discarded_batch
+            .as_ref()
+            .is_some_and(|discarded| Arc::ptr_eq(discarded, batch))
+    }
+
     fn execute_test_request<'a>(
         &'a self,
         request: marathon_apple::test::TestRequest,
@@ -502,11 +509,30 @@ impl AppleDevice for AppleSimulatorDevice {
     }
     fn pull_bundle<'a>(&'a self, src: &'a str, dst: &'a Path, _: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
+            let receipt = {
+                let mut state = self.state();
+                if state
+                    .discarded_batch
+                    .as_ref()
+                    .is_some_and(|batch| self.remote.remote_xcresult_file(batch) == src)
+                {
+                    return Ok(false);
+                }
+                let receipt = state.pulls.register(self.services.context.clock.clone());
+                state
+                    .bundle_pulls
+                    .retain(|_, pull| pull.upgrade().is_some_and(|pull| pull.ended().is_none()));
+                state.bundle_pulls.insert(src.to_owned(), Arc::downgrade(&receipt));
+                receipt
+            };
+            let stop = marathon_apple::cmd::receive_stop_gated(self.executor.as_ref(), self.commands.pull_signal())
+                .on_worker(self.executor.clone())
+                .owned_by(receipt);
             let received = self
                 .measurement()
                 .measure_delivery(
                     jcompat::file_manager::file_path(dst.to_string_lossy().as_ref()),
-                    self.bridge.receive_bundle(src, dst, self.receive_stop()),
+                    self.bridge.receive_bundle(src, dst, stop),
                     true,
                 )
                 .await;

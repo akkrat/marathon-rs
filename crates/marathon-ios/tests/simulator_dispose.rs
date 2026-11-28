@@ -2063,3 +2063,39 @@ async fn an_rsync_pull_refused_by_its_admission_after_a_removal_is_undelivered_d
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_pool_stop_quarantines_unconfirmed_work_before_provider_disposal_d107() -> TestResult {
+    let h = harness(300)?;
+    let (d, _) = prepared(&h).await?;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    d.on_lease_quarantine(Arc::new(move |_| {
+        observed.fetch_add(1, Ordering::SeqCst);
+    }));
+    let gate = PermissionGate::attach(&h);
+    let signal = Signal::new();
+    let batch = spawn_batch(
+        &h,
+        d.clone(),
+        VendorContext {
+            cancellation: signal.clone(),
+            ..h.services.context.clone()
+        },
+    );
+    gate.entered.wait().await.unwrap();
+    d.seal_for_pool_stop();
+    signal.cancel(cancelled("pool decided"));
+    assert!(matches!(batch.await?.0, Err(VendorError::Cancelled(_))));
+    assert!(!gate.finished.load(Ordering::SeqCst));
+    assert!(!d.disposed());
+    assert!(d.retired(), "the unconfirmed batch can still be alive on the worker");
+    assert!(d.quarantined());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    gate.release.complete(Ok(()));
+    d.dispose().await.unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(gate.lifecycle.load(Ordering::SeqCst), 0);
+    h.finish(&[d]).await;
+    Ok(())
+}

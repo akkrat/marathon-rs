@@ -88,6 +88,10 @@ pub trait Device: Send + Sync {
     fn seal_for_pool_stop(&self) {
         self.seal_for_stop();
     }
+    /// Identify the discarded batch even if the vendor finished just before the core took the stop cut.
+    fn seal_for_pool_batch_stop(&self, _batch: &BatchRef) {
+        self.seal_for_pool_stop();
+    }
     fn seal_for_signal(&self, _finish: crate::signal_finish::SignalFinish) {
         self.seal_for_stop();
     }

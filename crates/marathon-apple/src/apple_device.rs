@@ -10,6 +10,7 @@ use jcompat::jtime::Duration;
 use marathon_config::devices::Transport;
 use marathon_core::{
     listener::LogProducer,
+    model::BatchRef,
     runtime::VendorFuture,
     screenshot::Screenshottable,
     vendor::{Device, VendorContext},
@@ -85,6 +86,10 @@ pub trait AppleDevice: Device + Screenshottable + LogProducer {
     /// Publish this bundle under its final report name.
     fn pull_bundle<'a>(&'a self, src: &'a str, dst: &'a Path, context: &'a VendorContext) -> VendorFuture<'a, bool> {
         self.pull_folder(src, dst, context)
+    }
+    /// D107: only the batch the pool discarded, not older bundles queued on this device.
+    fn discard_result_bundle(&self, _batch: &BatchRef) -> bool {
+        false
     }
 
     fn push_shared<'a>(&'a self, src: &'a Path, dst: &'a str, context: &'a VendorContext) -> VendorFuture<'a, bool>;

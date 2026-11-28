@@ -11,6 +11,7 @@ pub use state::{DeviceAction, DeviceEvent, DeviceState, Running};
 use crate::{
     error::VendorError,
     executor::{CoreExecutor, Signal, bridge::call_vendor},
+    model::BatchRef,
     runtime::JobRef,
     vendor::DeviceRef,
 };
@@ -22,9 +23,9 @@ pub(super) struct StoppingDevice {
 }
 impl StoppingDevice {
     /// Start vendor cleanup before the caller cancels the actor (D92, D93).
-    pub fn begin(core: &CoreExecutor, job: JobRef, device: DeviceRef, pool_stop: bool) -> Self {
-        if pool_stop {
-            device.0.seal_for_pool_stop();
+    pub fn begin(core: &CoreExecutor, job: JobRef, device: DeviceRef, discarded: Option<&BatchRef>) -> Self {
+        if let Some(batch) = discarded {
+            device.0.seal_for_pool_batch_stop(batch);
         } else {
             device.0.seal_for_stop();
         }

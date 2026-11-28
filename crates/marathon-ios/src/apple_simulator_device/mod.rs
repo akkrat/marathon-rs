@@ -134,11 +134,13 @@ struct State {
     /// D93 (round 9): pulls from this simulator (artifact jobs, results), registered as its sends are: one still running at
     /// its disposal keeps the on-dispose lifecycle and the release of its lease from running beside it.
     pulls: marathon_apple::cmd::DevicePulls,
+    bundle_pulls: std::collections::HashMap<String, Weak<marathon_apple::cmd::TransferReceipt>>,
     /// D87: the preparation that has not ended in a ready simulator.
     episode: Option<PreparationEpisode>,
     /// D93: the simulator is stopping, sealed by the run's stop or by its first disposal, whichever came first: when, on
     /// the vendor clock, its work is to have ended. Every wait for that work ends there; no new work starts.
     shutdown: Option<Arc<execution::Shutdown>>,
+    discarded_batch: Option<BatchRef>,
     provider_deadline: Option<i64>,
     /// D93: its disposal could not confirm that its work had ended: its lease is quarantined, not released.
     quarantined: bool,
@@ -264,9 +266,11 @@ impl AppleSimulatorDevice {
             preparations: Vec::new(),
             transfers: Vec::new(),
             pulls: Default::default(),
+            bundle_pulls: Default::default(),
             provider_deadline: None,
             episode: None,
             shutdown: None,
+            discarded_batch: None,
             quarantined: false,
             last_session: None,
             sessions: Vec::new(),
@@ -433,9 +437,7 @@ impl Device for AppleSimulatorDevice {
     /// D93: within what is left of the window the run's stop sealed (`seal_for_stop`), not a window of its own.
     fn join_cancelled_work(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
-            if let marathon_apple::cmd::Termination::Unconfirmed(_) = self.finish_work().await
-                && !self.pool_stopped()
-            {
+            if let marathon_apple::cmd::Termination::Unconfirmed(_) = self.finish_work().await {
                 self.retire();
             }
             Ok(())
@@ -445,7 +447,10 @@ impl Device for AppleSimulatorDevice {
         self.seal_for_run_stop();
     }
     fn seal_for_pool_stop(&self) {
-        self.seal_for_decided_pool();
+        self.seal_for_decided_pool(None);
+    }
+    fn seal_for_pool_batch_stop(&self, batch: &BatchRef) {
+        self.seal_for_decided_pool(Some(batch));
     }
     fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
         self.signal_seal(finish);

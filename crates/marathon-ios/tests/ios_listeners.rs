@@ -2317,3 +2317,18 @@ async fn a_movie_at_a_report_path_near_the_platform_limit_is_still_delivered_u26
     assert!(source.exists());
     Ok(())
 }
+
+#[tokio::test(start_paused = true)]
+async fn removing_a_pool_stopped_busy_simulator_does_not_shut_it_down_mid_run_d107() -> TestResult {
+    use marathon_core::vendor::Device;
+    let (h, d) = simulator_with_video_off(|v| v.timeout_configuration.shutdown = support::duration(100)).await?;
+    h.worker.commands.lock().unwrap().clear();
+    d.seal_for_pool_stop();
+    d.join_cancelled_work().await.map_err(|e| format!("{e:?}"))?;
+    d.dispose_and_join().await.map_err(|e| format!("{e:?}"))?;
+    assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 0);
+    assert!(end_of_run_lines(&h).is_empty());
+    assert!(!d.quarantined());
+    h.finish(&[d]).await;
+    Ok(())
+}

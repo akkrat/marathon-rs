@@ -87,6 +87,15 @@ impl Bundle {
     fn processor(&self) -> Option<Arc<ArtifactProcessor>> {
         self.processor.as_ref().and_then(Weak::upgrade)
     }
+    fn discarded(&self) -> bool {
+        if !self.device.discard_result_bundle(&self.batch) {
+            return false;
+        }
+        if let Some(processor) = self.processor() {
+            processor.release(&self.owner(), self.remote());
+        }
+        true
+    }
     fn callback(self: &Arc<Self>) -> Undelivered {
         let this = self.clone();
         Arc::new(move |reason| {
@@ -113,20 +122,31 @@ impl Bundle {
         }
     }
     async fn process(&self, pull: bool, context: VendorContext) -> VendorResult<()> {
+        if self.discarded() {
+            return Ok(());
+        }
         if pull {
-            if !self.deliver(&context).await? {
-                return Ok(());
+            match self.deliver(&context).await {
+                Ok(true) => {}
+                Ok(false) => return Ok(()),
+                Err(VendorError::Cancelled(_)) if self.discarded() => return Ok(()),
+                Err(error) => return Err(error),
             }
             if let Some(processor) = self.processor() {
                 processor.release(&self.owner(), self.remote());
             }
         }
-        if self.configuration.remote_clean {
+        if self.configuration.remote_clean && !self.discarded() {
             let start = self.now("apple.ResultBundleRunListener.processBundle")?;
-            self.device
+            let remove = self
+                .device
                 .remote_file_manager()
-                .remove_remote_path(self.remote(), &context)
-                .await?;
+                .remove_remote_path(self.remote(), &context);
+            if self.processor.is_some() {
+                crate::cmd::device_commands::as_artifact_cleanup(remove).await?;
+            } else {
+                remove.await?;
+            }
             let elapsed = self
                 .now("apple.ResultBundleRunListener.processBundle")?
                 .wrapping_sub(start)
@@ -200,7 +220,7 @@ impl Bundle {
         }
     }
     fn undelivered(&self, reason: &str) {
-        if self.delivered.load(Ordering::Acquire) {
+        if self.delivered.load(Ordering::Acquire) || self.discarded() {
             return;
         }
         let mut diagnostic = String::from("xcresult bundle of batch ");
@@ -235,6 +255,9 @@ fn io_failure(error: std::io::Error, path: &str) -> VendorError {
 impl AppleTestRunListener for ResultBundleRunListener {
     fn before_test_run(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
+            if self.inner.discarded() {
+                return Ok(());
+            }
             if let Some(processor) = &self.processor {
                 processor
                     .protect(
@@ -243,6 +266,8 @@ impl AppleTestRunListener for ResultBundleRunListener {
                         self.inner.callback(),
                     )
                     .map_err(VendorError::Other)?;
+                // The seal can come between the first check and registration.
+                self.inner.discarded();
             }
             Ok(())
         })
@@ -261,6 +286,9 @@ impl AppleTestRunListener for ResultBundleRunListener {
     }
     fn after_test_run(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
+            if self.inner.discarded() {
+                return Ok(());
+            }
             let pull = self.inner.pull_needed();
             if !pull && let Some(processor) = &self.processor {
                 processor.release(&self.inner.owner(), self.inner.remote());

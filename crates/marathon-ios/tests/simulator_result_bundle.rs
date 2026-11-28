@@ -437,3 +437,148 @@ async fn review_healthy_artifact_pull_keeps_existing_shutdown_grace() -> TestRes
     h.finish(&[d]).await;
     Ok(())
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_pool_stopped_bundle_is_not_reported_as_undelivered_d107() -> TestResult {
+    let mut h = Harness::new(|v| v.xcresult.pulling_policy = PullingPolicy::Never)?;
+    let finalizing = SharedDeferred::new();
+    h.services.listeners = Arc::new(Factory {
+        file: "test.log".into(),
+        fail_finalizer: true,
+        cancel_finalizer: true,
+        finalizing: finalizing.clone(),
+    });
+    let bridge = Arc::new(BundleBridge::default());
+    let (d, _) = device(&h, bridge.clone()).await?;
+    let batch = spawn_batch(&h, d.clone(), h.services.context.clone());
+    finalizing.wait().await.unwrap();
+    assert_eq!(h.services.artifacts.kept_sources("a@local").len(), 1);
+    d.seal_for_pool_stop();
+    assert!(matches!(
+        batch.await?.0,
+        Err(marathon_core::error::VendorError::Cancelled(_))
+    ));
+    d.join_cancelled_work().await.unwrap();
+    assert!(!d.retired());
+    assert!(!d.quarantined());
+    let diagnostics = h
+        .services
+        .artifacts
+        .close_and_join(1000, 1000, &h.services.context)
+        .await
+        .unwrap();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert!(h.services.artifacts.kept_sources("a@local").is_empty());
+    assert_eq!(bridge.pulls.load(Ordering::SeqCst), 0);
+    h.finish(&[d]).await;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_earlier_bundles_remote_cleanup_survives_pool_stop_d107() -> TestResult {
+    let h = Harness::new(|v| {
+        v.xcresult.pulling_policy = PullingPolicy::Always;
+        v.xcresult.remote_clean = true;
+    })?;
+    let bridge = Arc::new(BundleBridge::default());
+    let release = SharedDeferred::new();
+    *bridge.gate.lock().unwrap() = Some(release.clone());
+    let (d, _) = device(&h, bridge.clone()).await?;
+    record_cleanup(&h, bridge.trace.clone());
+    assert!(run(&h, &d).await.0.is_ok());
+    bridge.entered.wait().await.unwrap();
+    d.seal_for_pool_stop();
+    d.join_cancelled_work().await.unwrap();
+    // The earlier bundle is still on the artifact budget, not the pool's stop receipt.
+    release.complete(Ok(()));
+    let diagnostics = h
+        .services
+        .artifacts
+        .close_and_join(1000, 1000, &h.services.context)
+        .await
+        .unwrap();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert_eq!(result_folders(h.dir.path()).len(), 1);
+    assert_eq!(
+        bridge
+            .trace
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|s| s.starts_with("rm -rf "))
+            .count(),
+        1
+    );
+    assert!(h.logs.lock().unwrap().iter().all(|(_, level, message, _)| {
+        *level != marathon_logging::Level::ERROR || !message.starts_with("Unable to remove path")
+    }));
+    h.finish(&[d]).await;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_pool_stop_cancels_its_already_admitted_bundle_pull_d107() -> TestResult {
+    use marathon_apple::listener::AppleTestRunListener;
+    use std::time::Duration;
+
+    let mut h = Harness::new(|v| v.xcresult.pulling_policy = PullingPolicy::Always)?;
+    let finalizing = SharedDeferred::new();
+    h.services.listeners = Arc::new(Factory {
+        file: "test.log".into(),
+        fail_finalizer: true,
+        cancel_finalizer: true,
+        finalizing: finalizing.clone(),
+    });
+    let bridge = Arc::new(BundleBridge::default());
+    let release = SharedDeferred::new();
+    *bridge.gate.lock().unwrap() = Some(release.clone());
+    let (d, _) = device(&h, bridge.clone()).await?;
+    let batch = Arc::new(TestBatch {
+        id: "outstanding".into(),
+        tests: tests(),
+    });
+    let pool = DevicePoolId { name: "pool".into() };
+    let run = {
+        let (d, batch, pool) = (d.clone(), batch.clone(), pool.clone());
+        let config = h.services.configuration.clone();
+        let context = h.services.context.clone();
+        tokio::spawn(async move { d.execute(config, pool, batch, SharedDeferred::new(), context).await })
+    };
+    finalizing.wait().await.unwrap();
+    // Model admission winning the race with the stop while the batch actor
+    // still owns this exact batch. The transfer remains blocked in the bridge.
+    let listener = ResultBundleRunListener::new(
+        d.clone(),
+        h.services.vendor.xcresult.clone(),
+        pool,
+        batch,
+        h.services.files.clone(),
+        Some(h.services.artifacts.clone()),
+        h.services.context.clone(),
+        h.services.logging.clone(),
+    );
+    listener.after_test_run().await.unwrap();
+    bridge.entered.wait().await.unwrap();
+    d.seal_for_pool_stop();
+    assert!(matches!(
+        run.await?,
+        Err(marathon_core::error::VendorError::Cancelled(_))
+    ));
+    let ended = tokio::time::timeout(
+        Duration::from_secs(60),
+        h.services.artifacts.await_owner("a@local", &h.services.context),
+    )
+    .await;
+    release.complete(Ok(()));
+    assert!(matches!(ended, Ok(Ok(()))), "discarded pull kept waiting: {ended:?}");
+    assert!(result_folders(h.dir.path()).is_empty());
+    let diagnostics = h
+        .services
+        .artifacts
+        .close_and_join(1000, 1000, &h.services.context)
+        .await
+        .unwrap();
+    assert!(diagnostics.is_empty());
+    h.finish(&[d]).await;
+    Ok(())
+}
