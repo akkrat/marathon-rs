@@ -256,6 +256,18 @@ async fn start_wire_worker_with(
     h: &Harness,
     late_open: Option<fake_worker::script::LateOpen>,
 ) -> TestResult<(WireWorker, World)> {
+    start_wire_worker_with_faults(
+        h,
+        Faults {
+            hold_withheld_session_slots: true,
+            late_open,
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+async fn start_wire_worker_with_faults(h: &Harness, faults: Faults) -> TestResult<(WireWorker, World)> {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
     let mut scenario: Scenario = serde_json::from_slice(&std::fs::read(
         fixtures.join("fake-worker/apple/ios-smoke/script/world.json"),
@@ -292,11 +304,7 @@ async fn start_wire_worker_with(
             action,
         })
         .collect(),
-        faults: Faults {
-            hold_withheld_session_slots: true,
-            late_open,
-            ..Default::default()
-        },
+        faults,
         ..Default::default()
     };
     let transcript = h.dir.path().join("ssh.jsonl");
@@ -331,6 +339,130 @@ async fn finish_healthy(session: CommandSession) -> VendorResult<()> {
     session.terminate()?;
     assert_eq!(watchdog(session.await_result(&context())).await?.exit_code, Some(143));
     session.close().await
+}
+
+#[tokio::test]
+async fn disposal_waits_for_an_earlier_bundle_cleanup_close_d107() -> TestResult {
+    use marathon_apple::{
+        apple_device::AppleDevice,
+        listener::{AppleTestRunListener, ResultBundleRunListener},
+    };
+    use marathon_config::vendor::PullingPolicy;
+    use marathon_core::{
+        model::{DevicePoolId, TestBatch},
+        vendor::Device,
+    };
+    use simulator_support::artifacts::BundleBridge;
+
+    watchdog(async {
+        let mut h = Harness::new(|v| {
+            v.lifecycle_configuration.on_dispose = vec![LifecycleAction::Shutdown];
+            v.xcresult.pulling_policy = PullingPolicy::Never;
+            v.xcresult.remote_clean = true;
+        })?;
+        h.services.timeouts.cancelled_batch_millis = 60_000;
+        let gate = "/tmp/marathon/allow-artifact-close";
+        let (wire, world) = start_wire_worker_with_faults(
+            &h,
+            Faults {
+                close_gate: Some(fake_worker::script::CloseGate {
+                    matcher: Matcher::Pattern("rm -rf *.xcresult*".into()),
+                    file: gate.into(),
+                }),
+                ..Default::default()
+            },
+        )
+        .await?;
+        let transport = Transport::Ssh {
+            addr: "127.0.0.1".into(),
+            port: i32::from(wire.worker.ready.endpoint.port()),
+            authentication: Some(SshAuthentication::Password {
+                username: "fixture".into(),
+                password: "fake-password".into(),
+            }),
+            check_reachability: false,
+        };
+        let factory = ConnectionFactory::new(
+            false,
+            h.services.vendor.ssh.clone(),
+            h.services.vendor.rsync.clone(),
+            duration(60_000),
+            h.services.runtime.clone(),
+            h.clock.clone(),
+            h.services.logging.clone(),
+        )
+        .map_err(|e| describe(e.into_vendor()))?;
+        let executor = factory
+            .connect_worker(transport.clone(), context())
+            .await
+            .map_err(ConnectionError::into_vendor)
+            .map_err(describe)?;
+        let udid = fake_worker::apple::UDID;
+        let (device, commands) = h
+            .device_on_bridge_with_commands(
+                executor.clone(),
+                udid,
+                Arc::new(WorkerProvisioningContext::new(transport, h.clock.clone())),
+                Arc::new(BundleBridge::default()),
+            )
+            .await?;
+        device
+            .execute_worker_command(
+                vec!["xcrun".into(), "simctl".into(), "boot".into(), udid.into()],
+                &h.services.context,
+            )
+            .await
+            .map_err(describe)?;
+        let listener = ResultBundleRunListener::new(
+            device.clone(),
+            h.services.vendor.xcresult.clone(),
+            DevicePoolId { name: "pool".into() },
+            Arc::new(TestBatch {
+                id: "reported".into(),
+                tests: tests(),
+            }),
+            h.services.files.clone(),
+            Some(h.services.artifacts.clone()),
+            h.services.context.clone(),
+            h.services.logging.clone(),
+        );
+        listener.after_test_run().await.unwrap();
+        wire.wait_for("close_gated", |_| true).await?;
+        device.seal_for_pool_stop();
+        device.join_cancelled_work().await.unwrap();
+        // The worker has finished rm, but its unsupervised SSH receipt needs the still-gated CLOSE.
+        assert!(!commands.artifact_cleanup_left().is_empty(), "logs={:?}", h.logs.lock().unwrap());
+        assert!(!device.quarantined(), "logs={:?}", h.logs.lock().unwrap());
+        let dispose = device.dispose_and_join();
+        tokio::pin!(dispose);
+        let pull_admission = commands.pull_signal();
+        tokio::select! { biased;
+            result = &mut dispose => panic!("disposal ended before peer CLOSE: {result:?}; logs={:?}", h.logs.lock().unwrap()),
+            _ = pull_admission.cancelled() => {}
+        }
+        assert!(!device.quarantined());
+        wire.worker
+            .fs
+            .write(gate, vec![], 0o600)
+            .await
+            .map_err(|e| e.to_string())?;
+        dispose.await.unwrap();
+        assert!(!device.quarantined());
+        h.services
+            .artifacts
+            .await_owner(device.serial(), &h.services.context)
+            .await
+            .unwrap();
+        assert_eq!(
+            world.final_state(&wire.worker.fs).await.map_err(|e| e.to_string())?["devices"][udid]["state"],
+            "Shutdown"
+        );
+        h.finish(std::slice::from_ref(&device)).await;
+        executor.close().await.map_err(describe)?;
+        wire.worker.shutdown().await.map_err(|e| e.to_string())?;
+        Ok(())
+    })
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

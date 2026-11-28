@@ -528,6 +528,15 @@ impl russh::server::Handler for Connection {
             transport: self.stop.clone(),
             handle: s.handle(),
             withhold: self.shared.config.script.faults.withhold_close,
+            close_gate: self
+                .shared
+                .config
+                .script
+                .faults
+                .close_gate
+                .as_ref()
+                .filter(|gate| gate.matcher.matches(&String::from_utf8_lossy(data)))
+                .map(|gate| gate.file.clone()),
         };
         self.channel_stops.insert(ch, ctx.stop.clone());
         let withheld = self.withheld.clone();
@@ -636,6 +645,7 @@ struct Context {
     transport: CancellationToken,
     handle: russh::server::Handle,
     withhold: bool,
+    close_gate: Option<String>,
 }
 impl Context {
     async fn event(&self, event: &str, detail: Value) -> Result<()> {
@@ -887,6 +897,14 @@ async fn finish(
         ctx.event("server_eof", json!({})).await?;
     }
     if !close_first && !ctx.withhold {
+        if let Some(file) = &ctx.close_gate {
+            ctx.event("close_gated", json!({})).await?;
+            tokio::select! {
+                biased;
+                _ = ctx.stop.cancelled() => return Ok(()),
+                ready = ctx.shared.fs.wait_for_file(file) => ready?,
+            }
+        }
         out.close().await?;
         ctx.event("server_close", json!({})).await?;
     }

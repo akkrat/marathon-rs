@@ -298,13 +298,24 @@ impl Harness {
         cycle: Arc<WorkerProvisioningContext>,
         bridge: marathon_apple::device::connection_factory::Bridge,
     ) -> TestResult<Arc<AppleSimulatorDevice>> {
+        self.device_on_bridge_with_commands(executor, udid, cycle, bridge)
+            .await
+            .map(|(device, _)| device)
+    }
+    pub async fn device_on_bridge_with_commands(
+        &self,
+        executor: Executor,
+        udid: &str,
+        cycle: Arc<WorkerProvisioningContext>,
+        bridge: marathon_apple::device::connection_factory::Bridge,
+    ) -> TestResult<(Arc<AppleSimulatorDevice>, Arc<marathon_apple::cmd::DeviceCommands>)> {
         let commands = marathon_apple::cmd::DeviceCommands::new(executor.clone());
         let bin = self.binary(commands.clone());
         let record = cycle.simulator(udid, &bin, false, &self.services.context).await?;
         let built = AppleSimulatorConstructor(self.services.clone()).construct(SimulatorConstruction {
             transport: Transport::Local,
             executor,
-            commands,
+            commands: commands.clone(),
             bridge,
             bin,
             record: record.clone(),
@@ -317,7 +328,7 @@ impl Harness {
             .setup(&record, cycle, self.services.context.clone())
             .await
             .map_err(|e| e.failure().to_string().to_owned())?;
-        Ok(built.handle)
+        Ok((built.handle, commands))
     }
     pub fn factory(&self) -> Arc<SimulatorFactory<Arc<AppleSimulatorDevice>>> {
         let services = self.services.clone();

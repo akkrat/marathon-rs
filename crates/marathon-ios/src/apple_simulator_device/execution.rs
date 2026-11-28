@@ -38,6 +38,7 @@ pub(super) struct Shutdown {
     batches: Vec<Arc<BatchJob>>,
     preparations: Vec<Arc<prepare::PreparationJob>>,
     transfers: Vec<Arc<marathon_apple::cmd::TransferReceipt>>,
+    discarded_pull: Option<Arc<marathon_apple::cmd::TransferReceipt>>,
     /// The xcodebuild sessions registered and not confirmed to have ended when it was sealed: one still running (a
     /// batch's, a parse's) and one whose exec or close could not be confirmed. No session registers after the seal.
     sessions: Vec<Arc<marathon_apple::xcodebuild_session::XcodebuildSession>>,
@@ -405,25 +406,29 @@ impl AppleSimulatorDevice {
     }
     pub(super) fn seal_for_decided_pool(&self, batch: Option<&BatchRef>) {
         let mut state = self.state();
-        if state.shutdown.is_some() {
+        if state.discarded_batch.is_some() {
             return;
         }
         state.discarded_batch = batch
             .cloned()
             .or_else(|| state.running.as_ref().map(|job| job.batch.clone()));
-        // Leave pulls from earlier, reported batches on the provider's normal artifact
-        // budget. The receipt still stops the session and recorder of this batch.
-        self.seal_locked(&mut state, SealCause::PoolStop, None);
         let discarded = state.discarded_batch.as_ref().map(|batch| {
             let source = self.remote.remote_xcresult_file(batch);
-            let pull = state.bundle_pulls.get(&source).and_then(std::sync::Weak::upgrade);
-            (batch.id.clone(), source, pull)
+            (batch.id.clone(), source)
         });
+        let shutdown = self.seal_locked(&mut state, SealCause::PoolStop, None);
+        // An earlier seal keeps its own receipt, but does not undo the pool's discard.
+        if let Some((_, source)) = &discarded
+            && shutdown.cause != SealCause::PoolStop
+            && let Some(pull) = state.bundle_pulls.get(source).and_then(std::sync::Weak::upgrade)
+        {
+            pull.stop(
+                marathon_apple::cmd::cancelled("Redundant batch stopped"),
+                Some(shutdown.window.deadline),
+            );
+        }
         drop(state);
-        if let Some((id, source, pull)) = discarded {
-            if let Some(pull) = pull {
-                pull.stop(marathon_apple::cmd::cancelled("Redundant batch stopped"), None);
-            }
+        if let Some((id, source)) = discarded {
             self.services.artifacts.release(&self.serial, &source);
             self.log(
                 Level::DEBUG,
@@ -463,6 +468,13 @@ impl AppleSimulatorDevice {
                 .filter(|t| t.ended() != Some(TransferCleanup::Confirmed))
                 .cloned()
                 .collect(),
+            // Earlier, reported bundles stay on the provider's artifact budget.
+            discarded_pull: state
+                .discarded_batch
+                .as_ref()
+                .filter(|_| cause == SealCause::PoolStop)
+                .and_then(|batch| state.bundle_pulls.get(&self.remote.remote_xcresult_file(batch)))
+                .and_then(std::sync::Weak::upgrade),
             sessions: state
                 .sessions
                 .iter()
@@ -574,6 +586,11 @@ impl AppleSimulatorDevice {
                 Some(TransferCleanup::Confirmed) => {}
             }
         }
+        left.extend(marathon_apple::cmd::device_commands::settle_pulls(
+            shutdown.discarded_pull.as_slice(),
+            &self.serial,
+            false,
+        ));
         for session in &shutdown.sessions {
             match session.ended() {
                 None => left.push("an xcodebuild session has not ended".to_owned()),
@@ -628,6 +645,15 @@ impl AppleSimulatorDevice {
                 ),
             );
         }
+        if let Some(pull) = &shutdown.discarded_pull {
+            pull.stop(
+                marathon_apple::cmd::cancelled("Redundant batch stopped"),
+                Some(
+                    self.signal_finish
+                        .limit(shutdown.window.deadline, |finish| finish.receipts),
+                ),
+            );
+        }
         // A session registered before the seal that has not begun to open never will.
         for session in &shutdown.sessions {
             session.refuse_unopened(shutdown.cause.refusal(disposed().failure().clone()));
@@ -658,7 +684,11 @@ impl AppleSimulatorDevice {
         let ended = || {
             receipt.batches.iter().all(|b| b.done.completed().is_some())
                 && receipt.preparations.iter().all(|p| p.done.completed().is_some())
-                && receipt.transfers.iter().all(|t| t.ended().is_some())
+                && receipt
+                    .transfers
+                    .iter()
+                    .chain(&receipt.discarded_pull)
+                    .all(|t| t.ended().is_some())
                 && receipt.sessions.iter().all(|s| s.ended().is_some())
                 && receipt.recordings.iter().all(|r| r.ended().is_some())
                 && self.commands.handed_ended()
@@ -677,7 +707,12 @@ impl AppleSimulatorDevice {
             .map(|b| b.done.clone())
             .chain(receipt.preparations.iter().map(|p| p.done.clone()))
             .collect();
-        let sends = receipt.transfers.clone();
+        let transfers: Vec<_> = receipt
+            .transfers
+            .iter()
+            .chain(&receipt.discarded_pull)
+            .cloned()
+            .collect();
         let sessions = receipt.sessions.clone();
         let recordings = receipt.recordings.clone();
         let commands = self.commands.clone();
@@ -695,9 +730,9 @@ impl AppleSimulatorDevice {
                             _ => {}
                         }
                     }
-                    for send in sends {
-                        if let Err(VendorError::Cancelled(reason)) = send.wait_in(signal.clone()).await
-                            && send.ended().is_none()
+                    for transfer in transfers {
+                        if let Err(VendorError::Cancelled(reason)) = transfer.wait_in(signal.clone()).await
+                            && transfer.ended().is_none()
                         {
                             return Err(VendorError::Cancelled(reason));
                         }
@@ -1166,7 +1201,7 @@ impl AppleSimulatorDevice {
                         state.pulls.snapshot()
                     };
                     if let Some(finish) = device.signal_finish.current() {
-                        marathon_apple::cmd::device_commands::wait_for_pulls(
+                        marathon_apple::cmd::device_commands::wait_for_receipts(
                             &pulls,
                             device.services.context.clock.as_ref(),
                             finish.receipts,
@@ -1178,7 +1213,17 @@ impl AppleSimulatorDevice {
                         &device.serial,
                         shutdown.cause.stops_pulls() && !mid_run,
                     );
-                    if shutdown.cause == SealCause::PoolStop {
+                    if shutdown.cause == SealCause::PoolStop && matches!(verdict, Termination::Confirmed)
+                        && !device.quarantined() && pulls_left.is_empty()
+                    {
+                        // The artifact caller may be done before its transport publishes the receipt.
+                        let (_, deadline) = device.on_dispose_deadline(&shutdown, false, pool_deadline);
+                        let clock = device.services.context.clock.as_ref();
+                        let cleanup = device.commands.artifact_cleanup_receipts();
+                        tokio::select! { biased;
+                            () = marathon_apple::cmd::device_commands::wait_for_receipts(&cleanup, clock, deadline) => {}
+                            _ = device.signal_finish.wait_for_signal(clock, |finish| finish.receipts) => {}
+                        }
                         pulls_left.extend(device.commands.artifact_cleanup_left());
                     }
                     match verdict {

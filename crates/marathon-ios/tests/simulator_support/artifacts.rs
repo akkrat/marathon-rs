@@ -20,6 +20,8 @@ use std::path::Path;
 pub struct BundleBridge {
     pub gate: Mutex<Option<Arc<SharedDeferred<()>>>>,
     pub entered: Arc<SharedDeferred<()>>,
+    pub stopping: Arc<SharedDeferred<()>>,
+    pub cleanup_gate: Mutex<Option<Arc<SharedDeferred<()>>>>,
     pub mode: AtomicUsize,
     pub pulls: AtomicUsize,
     pub trace: Arc<Mutex<Vec<String>>>,
@@ -64,7 +66,14 @@ impl BundleBridge {
             tokio::select! {
                 biased;
                 stopped = stop.stopped() => match stopped {
-                    TransferStopped::Cancelled(reason) => Err(VendorError::Cancelled(reason)),
+                    TransferStopped::Cancelled(reason) => {
+                        self.stopping.complete(Ok(()));
+                        let cleanup = self.cleanup_gate.lock().unwrap().clone();
+                        if let Some(cleanup) = cleanup {
+                            cleanup.wait().await?;
+                        }
+                        Err(VendorError::Cancelled(reason))
+                    }
                     TransferStopped::Lost(_) => Ok(false),
                 },
                 pulled = self.copy(src, folder) => pulled,

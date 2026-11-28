@@ -208,7 +208,7 @@ pub async fn as_registered_batch<T>(body: impl Future<Output = T>) -> T {
 }
 
 /// D107: queued xcresult cleanup is allowed after a pool stop, but not
-/// after disposal or quarantine. Its receipt belongs to the artifact drain.
+/// after disposal or quarantine. Disposal waits for its receipt, not the earlier pool stop.
 pub(crate) async fn as_artifact_cleanup<T>(body: impl Future<Output = T>) -> T {
     GATE_PASS.scope(GatePass::ArtifactCleanup, body).await
 }
@@ -340,8 +340,11 @@ impl DeviceCommands {
             .collect()
     }
     /// Called at disposal, after closing admission, for commands excluded from the early pool receipt.
+    pub fn artifact_cleanup_receipts(&self) -> Vec<Arc<super::TransferReceipt>> {
+        self.receipts(|artifact| artifact)
+    }
     pub fn artifact_cleanup_left(&self) -> Vec<String> {
-        Self::commands_left(self.receipts(|artifact| artifact))
+        Self::commands_left(self.artifact_cleanup_receipts())
     }
     /// D93 (round 10): closes the device's pulls with `why`, whatever its seal's cause: the disposal calls it under the
     /// lock its pulls register under, in the same step as it takes its look at them, so that a pull is either in that
@@ -576,19 +579,15 @@ impl CancellationSignal for GateSignal {
     }
 }
 
-/// D93 (round 9): a disposal's look at the pulls registered with its device, before its on-dispose lifecycle or the
-/// release of its lease. Returns why the device's end is not confirmed: a pull still running, or one whose cleanup after
-/// a stop was not confirmed (now or earlier in the run). Empty: the lifecycle and the release may run. When `stop`, a pull
-/// still running is stopped and so ends on D91's path for a stopped transfer, within its 40 s bound (killed and reaped, or
-/// unconfirmed); it is not waited for, since the device is quarantined either way.
-pub async fn wait_for_pulls(
-    pulls: &[Arc<super::TransferReceipt>],
+/// Wait no longer than the given deadline for the device's registered work to end.
+pub async fn wait_for_receipts(
+    receipts: &[Arc<super::TransferReceipt>],
     clock: &dyn marathon_core::runtime::VendorClock,
     deadline: i64,
 ) {
     let all = async {
-        for pull in pulls {
-            let _ = pull.wait_in(marathon_core::executor::shared::Signal::new()).await;
+        for receipt in receipts {
+            let _ = receipt.wait_in(marathon_core::executor::shared::Signal::new()).await;
         }
     };
     tokio::select! { biased;
@@ -597,6 +596,8 @@ pub async fn wait_for_pulls(
     }
 }
 
+/// D93 (round 9): report pulls that still prevent the on-dispose lifecycle and lease release. When `stop`, stop a
+/// live pull without waiting for D91 cleanup, since the device is quarantined either way.
 pub fn settle_pulls(pulls: &[Arc<super::TransferReceipt>], serial: &str, stop: bool) -> Vec<String> {
     pulls
         .iter()

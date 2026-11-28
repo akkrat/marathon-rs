@@ -909,7 +909,7 @@ impl MacosDevice {
                         (execution.pulls.snapshot(), cause)
                     };
                     if let Some(finish) = device.signal_finish.current() {
-                        marathon_apple::cmd::device_commands::wait_for_pulls(
+                        marathon_apple::cmd::device_commands::wait_for_receipts(
                             &pulls,
                             device.options.dependencies.clock.as_ref(),
                             finish.receipts,

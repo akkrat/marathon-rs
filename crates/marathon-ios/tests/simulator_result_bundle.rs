@@ -5,8 +5,8 @@ use marathon_apple::{
     apple_device::AppleDevice,
     apple_device_test_runner::AppleDeviceTestRunner,
     listener::{
-        CompositeTestRunListener, ResultBundleRunListener, TestResultsListener, TestResultsListenerConfig,
-        TestRunListenerAdapter,
+        AppleTestRunListener, CompositeTestRunListener, ResultBundleRunListener, TestResultsListener,
+        TestResultsListenerConfig, TestRunListenerAdapter,
     },
     model::AppleTestBundle,
 };
@@ -475,6 +475,44 @@ async fn a_pool_stopped_bundle_is_not_reported_as_undelivered_d107() -> TestResu
 }
 
 #[tokio::test(start_paused = true)]
+async fn disposal_sealing_first_does_not_undo_the_pool_bundle_discard_d107() -> TestResult {
+    let h = Harness::new(|v| v.xcresult.pulling_policy = PullingPolicy::Never)?;
+    let (d, _) = device(&h, Arc::new(BundleBridge::default())).await?;
+    let batch = Arc::new(TestBatch {
+        id: "outstanding".into(),
+        tests: tests(),
+    });
+    let listener = ResultBundleRunListener::new(
+        d.clone(),
+        h.services.vendor.xcresult.clone(),
+        DevicePoolId { name: "pool".into() },
+        batch.clone(),
+        h.services.files.clone(),
+        Some(h.services.artifacts.clone()),
+        h.services.context.clone(),
+        h.services.logging.clone(),
+    );
+    listener.before_test_run().await.unwrap();
+    assert_eq!(h.services.artifacts.kept_sources("a@local").len(), 1);
+    let dispose = d.dispose_and_join();
+    tokio::pin!(dispose);
+    assert!(futures_util::poll!(dispose.as_mut()).is_pending());
+    // Provider removal has sealed the device, but the pool still owns this exact batch.
+    d.seal_for_pool_batch_stop(&batch);
+    assert!(h.services.artifacts.kept_sources("a@local").is_empty());
+    dispose.await.unwrap();
+    let diagnostics = h
+        .services
+        .artifacts
+        .close_and_join(1000, 1000, &h.services.context)
+        .await
+        .unwrap();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
 async fn an_earlier_bundles_remote_cleanup_survives_pool_stop_d107() -> TestResult {
     let h = Harness::new(|v| {
         v.xcresult.pulling_policy = PullingPolicy::Always;
@@ -517,8 +555,7 @@ async fn an_earlier_bundles_remote_cleanup_survives_pool_stop_d107() -> TestResu
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_pool_stop_cancels_its_already_admitted_bundle_pull_d107() -> TestResult {
-    use marathon_apple::listener::AppleTestRunListener;
+async fn a_pool_stop_bounds_cleanup_of_its_already_admitted_bundle_pull_d107() -> TestResult {
     use std::time::Duration;
 
     let mut h = Harness::new(|v| v.xcresult.pulling_policy = PullingPolicy::Always)?;
@@ -532,6 +569,8 @@ async fn a_pool_stop_cancels_its_already_admitted_bundle_pull_d107() -> TestResu
     let bridge = Arc::new(BundleBridge::default());
     let release = SharedDeferred::new();
     *bridge.gate.lock().unwrap() = Some(release.clone());
+    let cleanup = SharedDeferred::new();
+    *bridge.cleanup_gate.lock().unwrap() = Some(cleanup.clone());
     let (d, _) = device(&h, bridge.clone()).await?;
     let batch = Arc::new(TestBatch {
         id: "outstanding".into(),
@@ -560,6 +599,13 @@ async fn a_pool_stop_cancels_its_already_admitted_bundle_pull_d107() -> TestResu
     listener.after_test_run().await.unwrap();
     bridge.entered.wait().await.unwrap();
     d.seal_for_pool_stop();
+    bridge.stopping.wait().await.unwrap();
+    d.join_cancelled_work().await.unwrap();
+    // Cleanup did not finish inside the pool's window. This must be known now, not at provider disposal.
+    assert!(d.quarantined());
+    assert!(d.retired());
+    assert!(!d.disposed());
+    cleanup.complete(Ok(()));
     assert!(matches!(
         run.await?,
         Err(marathon_core::error::VendorError::Cancelled(_))

@@ -131,6 +131,8 @@ pub struct Chunk {
 #[serde(default, deny_unknown_fields)]
 pub struct Faults {
     pub withhold_close: bool,
+    /// For a matching command, send its exit and EOF normally but wait for the file before sending CLOSE.
+    pub close_gate: Option<CloseGate>,
     /// A withheld CLOSE keeps the session's capacity slot until the transport ends.
     pub hold_withheld_session_slots: bool,
     pub keepalive: Keepalive,
@@ -143,6 +145,12 @@ pub struct Faults {
     pub after_auth: Option<Disconnect>,
     pub during_exec: Option<Disconnect>,
     pub no_common_kex: bool,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloseGate {
+    pub matcher: Matcher,
+    pub file: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

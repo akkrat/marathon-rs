@@ -519,9 +519,10 @@ impl AppleDevice for AppleSimulatorDevice {
                     return Ok(false);
                 }
                 let receipt = state.pulls.register(self.services.context.clock.clone());
-                state
-                    .bundle_pulls
-                    .retain(|_, pull| pull.upgrade().is_some_and(|pull| pull.ended().is_none()));
+                state.bundle_pulls.retain(|_, pull| {
+                    pull.upgrade()
+                        .is_some_and(|pull| pull.ended() != Some(marathon_apple::cmd::TransferCleanup::Confirmed))
+                });
                 state.bundle_pulls.insert(src.to_owned(), Arc::downgrade(&receipt));
                 receipt
             };
