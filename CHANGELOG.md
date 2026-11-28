@@ -83,7 +83,7 @@ is as in [0.15.6](CHANGELOG.md#0156).
 - **SSH worker cleanup (x121).** A two-simulator iOS video comparison delivered all six readable movies and
   result bundles in both builds, with matching outcomes and no leftover supervisor roots. Loopback, stock
   OpenSSH and Perl witnesses covered abandonment, cancellation, backoff and receipt cleanup. Real-worker
-  signal, data-loss and large-fleet scenarios were not exercised. [Findings](docs/wp/x121-findings.md)
+  signal, connection-outage and large-fleet scenarios were not exercised. [Findings](docs/wp/x121-findings.md)
 - **iOS device logs (x125).** In three paired runs on two remote simulators, median log receive fell from
   1.169 to 0.705 s and the median between-batch gap fell from 1.836 to 1.369 s. In a separate same-file transfer,
   SSH received about 88% fewer bytes with identical file digests. Fake-worker tests checked the controller
@@ -94,14 +94,14 @@ is as in [0.15.6](CHANGELOG.md#0156).
   one connection. A loopback InfluxDB test held a write response while the next batch started and all 1,003 local
   results were reported. No fresh device run was made for D104 and no production metrics backend was used for
   the analytics tests. [Report findings](docs/wp/x123-findings.md), [Analytics findings](docs/wp/x124-findings.md)
-- CI runs the repository gate on macOS and Linux. Both passed on the integrated release code before the
-  documentation-only changes.
+- CI runs the repository gate on macOS and Linux; it passes on the code of this release. A test-only race in
+  the Apple shared-transfer witnesses, seen once in Linux CI, was fixed without changing product code (U288).
 - Not exercised before this release: a private CI farm run, and macOS UI tests on a real worker.
 
 ### Known limits
 
-- An SSH connection still opening at process exit can still log `Dying because - Broken transport` (U270).
-  A release deadline now abandons both established transports locally (U276).
+- An SSH connection still being opened or released at process exit can still log `Dying because - Broken transport`
+  (U270). When a lease's release deadline expires, marathon now abandons both established transports locally (U276).
 - Remote iOS captures discard in-flight frames at test end and skip frames over 24 MiB before base64 encoding.
   A hard KILL before the capture unlinks its temporary file can leave it until the next preparation (D100).
 - An opt-in remote iOS device log still costs one rsync SSH login and its batch still waits for the receive.
@@ -156,7 +156,7 @@ is as in [0.15.6](CHANGELOG.md#0156).
 - When an Android device is lost during a batch with `isCodeCoverageEnabled: true`, the batch's coverage is logged as
   missing at ERROR, although its tests run again and their new batch's coverage is pulled. The exit code is unchanged
   (D81). Its cleanup is no longer also logged as failed (D97).
-- An Android capture with no frames can delete an earlier valid GIF if the two test names escape or truncate to
+- An Android screenshot capture with no frames can delete an earlier valid GIF if the two test names escape or truncate to
   the same report path (U287).
 - When adb cannot confirm a stopping Android device's cleanup, the device can keep an instrumentation process, a screen
   recording or trace and its files, a reverse port forward or D85's marker (D92).
@@ -185,8 +185,8 @@ is as in [0.15.6](CHANGELOG.md#0156).
   100 ms (the old loop's status wait was capped at 25 ms once the command was running), and at an expiry or KILL
   cutoff an exit status already visible at its exit check wins (x111).
 - On iOS and Android the movie check validates top-level boxes, not decodability. A test too short to leave a
-  complete movie may have no video (U267, D102). On iOS, a video that was not delivered is logged at ERROR.
-  Android withholds the current chunk if recorder exit cannot be confirmed, though earlier completed chunks
+  complete movie may have no video (U267, D102). On both platforms, a video that fails the check or delivery is
+  logged at ERROR (`Video … was not delivered`). Android also withholds the current chunk if recorder exit cannot be confirmed, though earlier completed chunks
   can still be delivered.
 - A D88 monitor failure that ends Android device tracking has not been provoked on a real device; it is covered only by
   tests with fake adb.

@@ -15,7 +15,12 @@
   U162 were not run on Android devices, and D105 and U284 were not tested against production backends.
 - Confirmed the macOS and Linux gates passed on integrated code at `46273fc7`. The delta to `a3b07d4f` is docs
   only. At the CI check during this WP, that later commit's Linux gate was red, its macOS gate was still running,
-  and its musl package check had passed. The notes refer to the passing code run, not to CI on the final tag commit.
+  and its musl package check had passed. That red Linux run was a test-only race in the Apple shared-transfer
+  witnesses (U288), fixed on this branch in `69d85657`; the notes claim the gate on the code of this release, which
+  the orchestrator checks on the final commit before the tag.
+- Review round 1 (an independent reviewer): five findings, all taken. The CI line now states U288; the U270 limit
+  keeps "or released", because a release already in flight at exit is still not joined; the movie limit says both
+  platforms log an undelivered video at ERROR; two wording fixes (connection outage, Android screenshot capture).
 
 ## Corrections and migration scope
 
