@@ -202,6 +202,7 @@ struct Inner {
     cleanup_client: AndroidDebugBridgeClient,
     remote_cleanup_limit: Option<Arc<tokio::sync::Semaphore>>,
     work: DeviceWork,
+    pool_stopped: AtomicBool,
     screenrecord_active: AtomicBool,
     perfetto_active: AtomicBool,
     peer_id: PeerId,
@@ -279,6 +280,7 @@ impl AndroidDevice {
                 reference: Mutex::default(),
                 bounded_client: client.without_idle_limit(),
                 work: DeviceWork::new(client.socket_factory().clone()),
+                pool_stopped: AtomicBool::new(false),
                 server_client,
                 client,
                 cleanup_client,
@@ -468,6 +470,9 @@ impl AndroidDevice {
     }
     pub(crate) fn stopping(&self) -> bool {
         self.inner.work.is_sealed()
+    }
+    pub(crate) fn pool_stopped(&self) -> bool {
+        self.inner.pool_stopped.load(Ordering::Acquire)
     }
     pub(crate) fn ensure_running(&self) -> VendorResult<()> {
         self.inner.work.ensure_running()
@@ -1820,6 +1825,10 @@ impl Device for AndroidDevice {
         ))
     }
     fn seal_for_stop(&self) {
+        self.seal();
+    }
+    fn seal_for_pool_stop(&self) {
+        self.inner.pool_stopped.store(true, Ordering::Release);
         self.seal();
     }
     fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {

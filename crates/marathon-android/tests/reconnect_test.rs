@@ -2753,11 +2753,19 @@ fn an_offline_blip_after_one_pool_stops_preserves_the_other_pool_d107() {
                 checked(handle.set_device_state("emulator-5554", "offline"));
                 // Let tracking take the offline list before the device returns. The old
                 // provider opens a D41 grace for the sealed device, the fixed one lets it go.
-                while !recording.lines().iter().any(|line| {
-                    matches!(line, Line::Log {message, ..}
-                    if message.starts_with("Device emulator-5554 is in state ")
-                    || message == "Device emulator-5554 changed state to DISCONNECTED")
-                }) {
+                loop {
+                    let lines = recording.lines();
+                    assert!(
+                        !lines.iter().any(|line| matches!(line, Line::Log { message, .. }
+                            if message.starts_with("Device emulator-5554 is in state "))),
+                        "tracking opened D41 grace for the pool-stopped device"
+                    );
+                    if lines.iter().any(|line| {
+                        matches!(line, Line::Log { message, .. }
+                        if message == "Device emulator-5554 changed state to DISCONNECTED")
+                    }) {
+                        break;
+                    }
                     tokio::time::sleep(Duration::from_millis(5)).await;
                 }
                 checked(handle.set_device_state("emulator-5554", "device"));
