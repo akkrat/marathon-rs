@@ -10,7 +10,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
-use support::{Runtime, ssh};
+use support::{InlineBlocking, Runtime, ssh};
 fn transfers() -> SharedTransfers {
     SharedTransfers::new(Arc::new(Runtime), ssh::logging(true).0)
 }
@@ -213,7 +213,9 @@ async fn behind(
     first: VendorError,
     other_destination: &'static str,
 ) -> (Result<bool, VendorError>, Result<bool, VendorError>, usize) {
-    let t = Arc::new(transfers());
+    // Each caller resolves its source path on a blocking thread before it reaches the destination's lock (U288); run
+    // that inline, so the yields below order both waiters behind the head send instead of racing a thread pool.
+    let t = Arc::new(SharedTransfers::new(Arc::new(InlineBlocking), ssh::logging(true).0));
     let count = Arc::new(AtomicUsize::new(0));
     let (entered, entered_rx) = tokio::sync::oneshot::channel::<()>();
     let (release, release_rx) = tokio::sync::oneshot::channel::<()>();

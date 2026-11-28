@@ -66,6 +66,21 @@ impl VendorRuntime for Runtime {
         task
     }
 }
+/// Runs blocking bodies inline on the calling task, so a test on a single-threaded runtime orders every step of a
+/// caller by its own yields. Only for bodies that finish at once, such as resolving a path against the working directory.
+#[derive(Default)]
+pub struct InlineBlocking;
+impl VendorRuntime for InlineBlocking {
+    fn spawn_cancellable(&self, body: VendorTaskBody) -> Arc<dyn VendorTask> {
+        Runtime.spawn_cancellable(body)
+    }
+    fn spawn(&self, body: VendorFuture<'static, ()>) -> Arc<dyn VendorTask> {
+        Runtime.spawn(body)
+    }
+    fn spawn_blocking(&self, body: Box<dyn FnOnce() -> VendorResult<()> + Send>) -> Arc<dyn VendorTask> {
+        Arc::new(Task(watch::channel(Some(body())).0))
+    }
+}
 pub struct Clock {
     start: tokio::time::Instant,
     gated_delay: Option<(i64, Arc<Notify>)>,
