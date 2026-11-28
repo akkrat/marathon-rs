@@ -526,7 +526,7 @@ def d97_staging_destination(args):
 
 def d104_device_log_destination(args, declared_paths):
     # Only a device.log receive can use this controller-side destination.
-    if len(args) < 2 or not re.fullmatch(D97_WORKER_PATH + r'device\.log', args[-2]):
+    if len(args) < 2 or not re.fullmatch(D97_DEVICE_LOG_SOURCE, args[-2]):
         return
     for path in declared_paths:
         if path.startswith('reports/device-logs/'):

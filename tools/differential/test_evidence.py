@@ -1438,21 +1438,28 @@ class VendorEvidenceTests(unittest.TestCase):
     def test_d106_requires_ssh_compression_only_for_the_native_device_log_pull(self):
         import vendor_transport as t
         values = dict(sandbox='/sandbox', safe_serial='serial', port='1')
+        batch = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
         source = '/tmp/marathon/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE/device.log'
         dest = '/sandbox/in/report/device-logs/pool/serial/'
-        stage = dest + '.marathon-artifact-A0b1C2/batch.log'
+        stage = dest + '.marathon-artifact-A0b1C2/' + batch + '.log'
         remote = ['127.0.0.1', '/usr/bin/rsync', '--server', '--sender', '-r', '.', source]
         host = ['-F', '/dev/null', '-p', '1']
         rsh = "ssh -o 'StrictHostKeyChecking no' -F /dev/null -p 1 "
         compressed = rsh.replace('/dev/null ', '/dev/null -C ')
 
-        def normalized(shell, ssh, src=source, dst=stage, capture=True, sender=remote):
+        def normalized(shell, ssh, src=source, dst=stage, capture=True, sender=remote, historical=()):
             rows = [dict(event='host_argv', program='rsync', argv=['--rsh', shell, '127.0.0.1:' + src, dst]),
                     dict(event='host_argv', program='ssh', argv=ssh + sender)]
             data = b''.join(json.dumps(row).encode() + b'\n' for row in rows)
-            return t.host_argv(data, values, d97_native_staging=capture, d106_compression=capture)
+            return t.host_argv(data, values, d97_native_staging=capture, d106_compression=capture,
+                               d104_historical=historical)
 
-        old = normalized(rsh, host, dst=dest + 'batch.log', capture=False)
+        # The historical destination and the new staged, compressed pull
+        # must meet at the same lane without rewriting the native suffix.
+        declared = (f'reports/device-logs/pool/{{safe_serial}}/{batch}.{batch}',)
+        legacy = dest + f'{batch}.{batch}'
+        old = normalized(rsh, host, dst=legacy, capture=False, historical=declared)
+        self.assertNotEqual(old, normalized(rsh, host, dst=legacy, capture=False))
         new = ['-F', '/dev/null', '-C', '-p', '1']
         self.assertEqual(old, normalized(compressed, new))
         for bad_rsh in (rsh, compressed + '-C ', rsh + '-C '):
@@ -1469,7 +1476,7 @@ class VendorEvidenceTests(unittest.TestCase):
         self.assertNotEqual(normalized(rsh, host, src=other, sender=other_sender),
                             normalized(compressed, new, src=other, sender=other_sender))
         # Keep changes to the legacy record visible.
-        self.assertNotEqual(old, normalized(compressed, new, dst=dest + 'batch.log', capture=False))
+        self.assertNotEqual(old, normalized(compressed, new, dst=legacy, capture=False, historical=declared))
 
     def test_d31_d43_an_older_record_that_already_has_the_flag_is_refused(self):
         with self.assertRaisesRegex(e.Invalid,'D31 flag'):
