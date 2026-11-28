@@ -12,7 +12,8 @@ use marathon_android::{
     listeners::*,
 };
 use marathon_config::{ScreenRecordingPolicy, vendor::*};
-use marathon_core::{artifacts::AttachmentCollector, listener::*, model::*, vendor::*};
+use marathon_core::{artifacts::AttachmentCollector, error::Failure, listener::*, model::*, vendor::*};
+use marathon_logging::Level;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -76,15 +77,15 @@ fn recorder_stop(script: &mut Value, ps: &str) {
     shell(script, PID_PROBE, "gone");
 }
 
-type ArtifactLog = Arc<std::sync::Mutex<Vec<(String, marathon_logging::Level, String)>>>;
+type ArtifactLog = Arc<std::sync::Mutex<Vec<(String, Level, String, Option<Failure>)>>>;
 
 fn log_lines(runtime: &mut Arc<marathon_android::services::AndroidRuntime>) -> ArtifactLog {
     let lines = Arc::new(std::sync::Mutex::new(vec![]));
     let sink = lines.clone();
-    Arc::get_mut(runtime).unwrap().log = Arc::new(move |logger, level, message, _| {
+    Arc::get_mut(runtime).unwrap().log = Arc::new(move |logger, level, message, failure| {
         sink.lock()
             .unwrap()
-            .push((logger.target().to_owned(), level, message.to_owned()));
+            .push((logger.target().to_owned(), level, message.to_owned(), failure.cloned()));
     });
     lines
 }
@@ -1390,7 +1391,7 @@ fn d102_stop_signals_the_recorder_once_and_waits_before_pull_without_warning() {
                         .lock()
                         .unwrap()
                         .iter()
-                        .any(|(_, level, _)| *level == marathon_logging::Level::WARN)
+                        .any(|(_, level, _, _)| *level == Level::WARN)
                 );
                 finish(server, device).await;
                 Ok(())
@@ -1401,16 +1402,29 @@ fn d102_stop_signals_the_recorder_once_and_waits_before_pull_without_warning() {
 
 #[test]
 fn d102_ignored_int_forces_exit_and_does_not_pull_before_confirmation() {
-    d102_force_stop(false);
+    force_stop(GracefulStop::IgnoredInt);
 }
 
 #[test]
 fn d102_probe_host_timeout_forces_stop_and_withholds_unconfirmed_video() {
-    d102_force_stop(true);
+    force_stop(GracefulStop::ShellTimeout);
 }
 
-fn d102_force_stop(host_timeout: bool) {
+#[test]
+fn graceful_recorder_stop_timeout_logs_debug_and_delivers_video_after_kill_u290() {
+    force_stop(GracefulStop::StopTimeout);
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GracefulStop {
+    IgnoredInt,
+    ShellTimeout,
+    StopTimeout,
+}
+
+fn force_stop(graceful: GracefulStop) {
     let mut c = configuration();
+    let host_timeout = graceful == GracefulStop::ShellTimeout;
     if host_timeout {
         android(&mut c).timeout_configuration.shell = jcompat::jtime::Duration::of_seconds(1);
     }
@@ -1421,10 +1435,13 @@ fn d102_force_stop(host_timeout: bool) {
             script["shell"].as_array_mut().unwrap().extend([
                 json!({"prefix":"screenrecord ","hang":true}),
                 json!({"exact":"ps -A","stdout":PS_OUTPUT,"times":1}),
-                if host_timeout {
-                    json!({"exact":PID_PROBE,"hang":true,"times":1})
-                } else {
-                    json!({"exact":PID_PROBE,"stdout":"alive","times":1})
+                match graceful {
+                    GracefulStop::IgnoredInt => json!({"exact":PID_PROBE,"stdout":"alive","times":1}),
+                    GracefulStop::ShellTimeout => json!({"exact":PID_PROBE,"hang":true,"times":1}),
+                    GracefulStop::StopTimeout => {
+                        // Hold the in-flight probe until the outer stop deadline fires, not the shell's own timeout.
+                        json!({"exact":PID_PROBE,"output":[{"gate":"graceful-probe-stalled"},{"stdout":"alive"}],"times":1})
+                    }
                 },
                 // The device will not report exit until KILL was sent (or at all in the timeout case).
                 json!({"exact":PID_PROBE,"output":[{"gate":"recorder-exited"},{"stdout":"gone"}]}),
@@ -1469,8 +1486,41 @@ fn d102_force_stop(host_timeout: bool) {
                 assert!(!commands(&server).iter().any(|cmd| cmd.starts_with("rm ")));
             } else {
                 server.open_gate("recorder-exited");
-                ended.await?;
-                assert_eq!(collected.get(&test()).unwrap().len(), 1);
+                checked(tokio::time::timeout(std::time::Duration::from_secs(60), ended).await)?;
+                let attachments = collected.get(&test()).unwrap();
+                assert_eq!(attachments.len(), 1);
+                if graceful == GracefulStop::StopTimeout {
+                    assert_eq!(attachments[0].kind, AttachmentType::Video);
+                    assert_eq!(
+                        checked(tokio::fs::read(&attachments[0].file).await),
+                        checked(tokio::fs::read(fixture("fake-adb/android-artifacts/sample.mp4")).await)
+                    );
+                    let logs = logs.lock().unwrap();
+                    assert!(
+                        !logs.iter().any(|(target, level, message, _)| {
+                            *level == Level::ERROR
+                                && (message == "Screen recorder stop command failed"
+                                    || target == "marathon_android::artifact_listeners::video")
+                        }),
+                        "recorder stop logged an ERROR: {logs:?}"
+                    );
+                    let stop_failures = logs
+                        .iter()
+                        .filter(|(_, _, message, _)| message == "Screen recorder stop command failed")
+                        .map(|(target, level, _, failure)| (target.as_str(), *level, failure.as_ref()))
+                        .collect::<Vec<_>>();
+                    assert_eq!(
+                        stop_failures,
+                        [(
+                            "marathon_android::device",
+                            Level::DEBUG,
+                            Some(&Failure::from_kind(
+                                FailureKind::TimeoutCancelled,
+                                Some("Timed out waiting for 1250 ms".into())
+                            ))
+                        )]
+                    );
+                }
             }
             let commands = commands(&server);
             for command in ["ps -A", "kill -2 123", "kill -9 123"] {
@@ -1480,10 +1530,10 @@ fn d102_force_stop(host_timeout: bool) {
                 .lock()
                 .unwrap()
                 .iter()
-                .filter(|(target, level, _)| {
-                    target == "marathon_android::artifact_listeners::video" && *level == marathon_logging::Level::WARN
+                .filter(|(target, level, _, _)| {
+                    target == "marathon_android::artifact_listeners::video" && *level == Level::WARN
                 })
-                .map(|(_, _, message)| message.clone())
+                .map(|(_, _, message, _)| message.clone())
                 .collect::<Vec<_>>();
             if host_timeout {
                 assert_eq!(
@@ -1501,7 +1551,21 @@ fn d102_force_stop(host_timeout: bool) {
 
 #[test]
 fn d102_missing_or_unconfirmed_pid_does_not_pull_the_pending_recording() {
-    for missing in [true, false] {
+    for (listing, has_pid, level, expected) in [
+        (PS_HEADER, false, Level::WARN, "No screen recorder was found to stop"),
+        (
+            "invalid ps output",
+            false,
+            Level::ERROR,
+            "Could not confirm screen recorder exit",
+        ),
+        (
+            PS_OUTPUT,
+            true,
+            Level::WARN,
+            "Could not confirm screen recorder PID 123 exited after KILL",
+        ),
+    ] {
         run(configuration(), move |mut runtime, context| {
             Box::pin(async move {
                 let logs = log_lines(&mut runtime);
@@ -1510,14 +1574,12 @@ fn d102_missing_or_unconfirmed_pid_does_not_pull_the_pending_recording() {
                     .as_array_mut()
                     .unwrap()
                     .push(json!({"prefix":"screenrecord ","hang":true}));
-                if missing {
-                    shell(&mut script, "ps -A", PS_HEADER);
-                } else {
-                    script["shell"]
-                        .as_array_mut()
-                        .unwrap()
-                        .push(json!({"exact":"ps -A","stdout":PS_OUTPUT,"times":1}));
-                    shell(&mut script, "ps -A", PS_HEADER); // D92's later cleanup.
+                script["shell"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"exact":"ps -A","stdout":listing,"times":1}));
+                shell(&mut script, "ps -A", PS_HEADER); // D92's later cleanup.
+                if has_pid {
                     shell(&mut script, "kill -2 123", "");
                     shell(&mut script, "kill -9 123", "");
                     shell(&mut script, PID_PROBE, "alive");
@@ -1545,28 +1607,23 @@ fn d102_missing_or_unconfirmed_pid_does_not_pull_the_pending_recording() {
                 assert_eq!(commands.iter().filter(|cmd| *cmd == "ps -A").count(), 1);
                 assert_eq!(
                     commands.iter().filter(|cmd| *cmd == "kill -2 123").count(),
-                    usize::from(!missing)
+                    usize::from(has_pid)
                 );
                 assert_eq!(
                     commands.iter().filter(|cmd| *cmd == "kill -9 123").count(),
-                    usize::from(!missing)
+                    usize::from(has_pid)
                 );
-                let expected = if missing {
-                    "No screen recorder was found to stop"
-                } else {
-                    "Could not confirm screen recorder PID 123 exited after KILL"
-                };
                 assert_eq!(
                     logs.lock()
                         .unwrap()
                         .iter()
-                        .filter(|(target, level, _)| {
+                        .filter(|(target, severity, _, _)| {
                             target == "marathon_android::artifact_listeners::video"
-                                && *level == marathon_logging::Level::WARN
+                                && matches!(*severity, Level::WARN | Level::ERROR)
                         })
-                        .map(|(_, _, message)| message.as_str())
+                        .map(|(_, severity, message, _)| (*severity, message.as_str()))
                         .collect::<Vec<_>>(),
-                    [expected]
+                    [(level, expected)]
                 );
                 finish(server, device).await;
                 Ok(())
@@ -1635,8 +1692,8 @@ fn android_movies_publish_only_after_validating_the_staged_bytes_u273() {
                     .lock()
                     .unwrap()
                     .iter()
-                    .filter(|(_, _, line)| line.contains("was not delivered"))
-                    .map(|(_, _, line)| line.clone())
+                    .filter(|(_, _, line, _)| line.contains("was not delivered"))
+                    .map(|(_, _, line, _)| line.clone())
                     .collect::<Vec<_>>();
                 assert_eq!(diagnostics, [format!("Video {VIDEO_REMOTE} was not delivered: {why}")]);
                 finish(server, device).await;
@@ -1700,12 +1757,12 @@ fn screenshot_listeners_log_on_their_android_targets_u275() {
                 .lock()
                 .unwrap()
                 .iter()
-                .filter(|(_, _, message)| {
+                .filter(|(_, _, message, _)| {
                     message.starts_with("Starting recording for ")
                         || message.starts_with("Finished recording for ")
                         || message.starts_with("Unable to decode image format")
                 })
-                .map(|(target, _, _)| target.clone())
+                .map(|(target, _, _, _)| target.clone())
                 .collect::<Vec<_>>();
             assert_eq!(
                 lines,

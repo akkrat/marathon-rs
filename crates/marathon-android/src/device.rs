@@ -717,7 +717,7 @@ impl AndroidDevice {
             .bounded_request(ShellCommandRequest::new(command), context.cancellation)
             .await
             .map(Into::into);
-        self.shell_catch(result.map(Some), error_message)
+        self.shell_catch(result.map(Some), error_message, Level::ERROR)
     }
     pub async fn safe_execute_shell_command(
         &self,
@@ -725,8 +725,23 @@ impl AndroidDevice {
         error_message: &str,
         context: VendorContext,
     ) -> VendorResult<Option<ShellCommandResult>> {
-        self.timed_shell(self.bounded_client(), command, error_message, context)
+        self.timed_shell(self.bounded_client(), command, error_message, Level::ERROR, context)
             .await
+    }
+    pub(crate) async fn recorder_stop_shell(
+        &self,
+        command: &str,
+        context: VendorContext,
+    ) -> VendorResult<Option<ShellCommandResult>> {
+        // A command can hit the stop deadline and still be followed by a confirmed exit.
+        self.timed_shell(
+            self.bounded_client(),
+            command,
+            "Screen recorder stop command failed",
+            Level::DEBUG,
+            context,
+        )
+        .await
     }
     pub(crate) async fn cleanup_shell(
         &self,
@@ -737,6 +752,7 @@ impl AndroidDevice {
             &self.inner.cleanup_client,
             command,
             "Android cleanup command failed",
+            Level::ERROR,
             context,
         )
         .await
@@ -746,6 +762,7 @@ impl AndroidDevice {
         client: &AndroidDebugBridgeClient,
         command: &str,
         error_message: &str,
+        failure_level: Level,
         context: VendorContext,
     ) -> VendorResult<Option<ShellCommandResult>> {
         let result = timed(&context, millis(self.timeouts().shell)?, |s| {
@@ -758,17 +775,18 @@ impl AndroidDevice {
             }))
         })
         .await;
-        self.shell_catch(result, error_message)
+        self.shell_catch(result, error_message, failure_level)
     }
     fn shell_catch(
         &self,
         result: VendorResult<Option<ShellCommandResult>>,
         message: &str,
+        failure_level: Level,
     ) -> VendorResult<Option<ShellCommandResult>> {
         match result {
             Err(e @ VendorError::Cancelled(_)) if self.stopping() => Err(e),
             Err(e) if e.failure().kind != FailureKind::Adb(AdbKind::TransportClosed) => {
-                self.log(Level::ERROR, message, Some(e.failure()));
+                self.log(failure_level, message, Some(e.failure()));
                 Ok(None)
             }
             other => other,

@@ -23,6 +23,8 @@ is as in [0.15.6](CHANGELOG.md#0156).
 - Android looks up the screen recorder once, sends INT once and checks for exit. It no longer logs the old
   missing-recorder warning on a confirmed stop. If a known PID has not been confirmed gone, it reserves up to
   250 ms for one KILL and a final check within the 1.5 s stop budget (D102, x119).
+- A graceful recorder stop that runs out of time logs the command failure at DEBUG. If the fallback cannot
+  confirm exit, Android still reports the unconfirmed stop (U290).
 - Android checks MP4 structure before publishing per-test or batch-failure video and withholds the current chunk
   if recorder exit is unconfirmed. It only attaches a GIF with at least one frame and a successfully finished
   capture (D102, U273, U274, x119).

@@ -58,9 +58,7 @@ async fn stop_screen_record(device: &AndroidDevice, context: VendorContext, clea
         if cleanup {
             device.cleanup_shell(command, context).await
         } else {
-            device
-                .safe_execute_shell_command(command, "Screen recorder stop command failed", context)
-                .await
+            device.recorder_stop_shell(command, context).await
         }
     };
     let signal_and_wait = async |pid: u32, signal, context: VendorContext| {
