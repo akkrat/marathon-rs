@@ -99,7 +99,16 @@ is as in [0.15.6](CHANGELOG.md#0156).
 - CI runs the repository gate on macOS and Linux; it passes on the code of this release. Two test-only races,
   in the Apple shared-transfer witnesses and a Graphite reconnect witness, were fixed without changing product code
   (U288, U289).
-- Not exercised before this release: a private CI farm run, and macOS UI tests on a real worker.
+- Private CI farm runs of this release's code, built before U290, covered the UI-test jobs of four projects and
+  were compared with each job's recent runs on 0.15.6. iOS ran on remote macOS workers over SSH, in pools of up to
+  80 simulators, and Android on multi-device emulator pools. Final test outcomes matched 0.15.6, apart from tests
+  that fail on 0.15.6 too. Wall times were within or below each job's 0.15.6 range. In one iOS job that records
+  screenshots, the median gap between batches on a simulator fell from 5.2–5.4 s to 3.9 s. Screenshot GIFs, videos
+  and result bundles were delivered as on 0.15.6; the 40 GIFs and 12 MP4s checked were non-empty. No run logged
+  `Expected to run … more`, `Dying because` or `Stopped while waiting for exec reply`, no device was retired (D103),
+  and no CI script was affected by the renamed batch-level files (D104). The Android runs logged a false ERROR when a
+  graceful recorder stop ran out of time. U290 fixed it after these runs and is covered by tests only.
+- Not exercised before this release: macOS UI tests on a real worker.
 
 ### Known limits
 
