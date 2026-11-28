@@ -328,14 +328,13 @@ mod tests {
                 .send_data("127.0.0.1", port, "after 2 0\n".into(), signal)
                 .await?;
             sender.close();
+            // The client's connect can finish before the listener's kernel queue holds the connection, so a single
+            // nonblocking accept here could miss it (U289); wait for it, bounded only as a hang guard.
+            let (mut second, _) = timeout(Duration::from_secs(10), listener.accept())
+                .await
+                .map_err(|_| graphite_error("no replacement Carbon connection after successful second send".into()))?
+                .map_err(write_error)?;
             let listener = listener.into_std().map_err(write_error)?;
-            let (second, _) = listener.accept().map_err(|error| {
-                graphite_error(format!(
-                    "no replacement Carbon connection after successful second send: {error}"
-                ))
-            })?;
-            second.set_nonblocking(true).map_err(write_error)?;
-            let mut second = TcpStream::from_std(second).map_err(write_error)?;
             let mut after = String::new();
             second.read_to_string(&mut after).await.map_err(write_error)?;
             assert_eq!(after, "after 2 0\n");

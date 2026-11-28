@@ -94,8 +94,9 @@ is as in [0.15.6](CHANGELOG.md#0156).
   one connection. A loopback InfluxDB test held a write response while the next batch started and all 1,003 local
   results were reported. No fresh device run was made for D104 and no production metrics backend was used for
   the analytics tests. [Report findings](docs/wp/x123-findings.md), [Analytics findings](docs/wp/x124-findings.md)
-- CI runs the repository gate on macOS and Linux; it passes on the code of this release. A test-only race in
-  the Apple shared-transfer witnesses, seen once in Linux CI, was fixed without changing product code (U288).
+- CI runs the repository gate on macOS and Linux; it passes on the code of this release. Two test-only races,
+  in the Apple shared-transfer witnesses and a Graphite reconnect witness, were fixed without changing product code
+  (U288, U289).
 - Not exercised before this release: a private CI farm run, and macOS UI tests on a real worker.
 
 ### Known limits
