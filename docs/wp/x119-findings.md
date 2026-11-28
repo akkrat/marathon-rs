@@ -14,7 +14,8 @@
   There was no escalation in the old code. Below API 34 normal shell exits still roll to the next chunk, but a host
   recording-command timeout is not a shell exit and no longer rolls into another recording. No parser queue or
   provider teardown deadline was changed. D92 can still clean up an unconfirmed recording on the cleanup connection,
-  and D70 still counts the ending test when device loss prevents its attachment.
+  and D70 still applies after result accounting. A withdrawal while the recorder stops before accounting can
+  instead mark the ending test uncompleted (U286, below).
 - **B (U273).** ADB STAT, DONE and writer completion can all agree on zero bytes or on an unfinished movie. Moved the
   U267 parser to `marathon-core` and kept the iOS module alias. Android uses the checker on the closed D97 stage, on a
   blocking worker, before rename. Rejection preserves an existing destination and the device copy and emits one

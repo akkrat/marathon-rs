@@ -2,43 +2,219 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
-## Unreleased
+## 0.15.7
+
+This release cuts waits and unnecessary SSH logins during test runs. Remote iOS screenshots use the existing SSH
+connection, Android stops its screen recorder sooner and can retire a repeatedly failing device while its peers
+make progress, and a full analytics queue no longer holds up batches. SSH worker cleanup is more reliable, remote
+iOS device logs request compression, and batch artifacts use their type's suffix.
+
+Check scripts that match batch artifact names, including extension globs intended to match only per-test files.
+If you filter SSH commands on iOS workers, allow the new screenshot wrapper. If you wrap the controller's SSH
+client for device-log transfers, pass through `-C`. When analytics history looks sparse, check the rejection
+summary and use local reports for complete test counts. No Marathonfile changes are required. Everything else
+is as in [0.15.6](CHANGELOG.md#0156).
 
 ### Android
 
-- **ADB property reads name the idle timeout (U162, x122).** If the socket closes because of
-  `socketIdleTimeout` before the device finishes replying, the error names the timeout instead of
-  reporting a missing or invalid shell exit code. Timeout behavior is unchanged.
-- Android waits for the screen recorder to exit without repeating INT or logging the routine stop warning.
-  It tries one force-stop if exit could not be confirmed (D102).
-- Android reports no longer include empty or unfinished videos or GIF captures with no completed frames (U273, U274).
-- Android screenshot diagnostics now use Android log targets (U275).
-- **Android can retire a device that keeps failing batches while its peers finish tests (D103).** Each of the three
-  strikes requires another device in the same pool to complete a new batch with a test pass or failure. A pool
-  without such progress, including a single-device pool, cannot retire a device this way. Reported instrumentation outcomes, setup
-  and listener timeouts, and connection losses do not count. A passed or failed test resets the device's streak, and
-  normal retry quotas still apply.
+- **ADB property reads name the idle timeout (U162, x122).** If the shell-v1 connection hits
+  `socketIdleTimeout` and the property reply cannot be parsed, the error names the timeout instead of
+  reporting a missing or invalid exit-code delimiter. Timeout and failure handling are unchanged.
+- Android looks up the screen recorder once, sends INT once and checks for exit. It no longer logs the old
+  missing-recorder warning on a confirmed stop. If a known PID has not been confirmed gone, it reserves up to
+  250 ms for one KILL and a final check within the 1.5 s stop budget (D102, x119).
+- Android checks MP4 structure before publishing per-test or batch-failure video and withholds the current chunk
+  if recorder exit is unconfirmed. It only attaches a GIF with at least one frame and a successfully finished
+  capture (D102, U273, U274, x119).
+- Android screenshot diagnostics now use Android log targets (U275, x119).
+- **Android can retire a device after three eligible failed or zero-progress batches (D103, x120).** Each strike
+  needs another device in the same pool to complete a batch with a test pass or failure since the first eligible
+  batch began or the last strike. Eligible cases are a timeout waiting for instrumentation output or an
+  unexplained nonzero shell-v2 exit before a named test. Reported instrumentation outcomes, setup and listener
+  timeouts, and connection losses do not count. A passed or failed test resets the device's streak. The retired
+  device takes no more batches while it merely remains listed. Normal retry quotas apply, but which device retries
+  a test, the result, and the run's exit status can change.
 
 ### Analytics
 
-- A full remote analytics queue no longer delays test batches. It drops incoming metric events and logs the count.
-  Local results are unchanged (D105).
-- Graphite reuses its Carbon connection across test results and reconnects if the connection breaks (U284).
+- A full remote analytics queue rejects the incoming metric event immediately without starting cool-off.
+  Queued events keep their order, the first rejection warns, and shutdown reports counts by cause.
+  Local results are unchanged (D105, x124).
+- Graphite reuses its Carbon connection across test results and reconnects when it detects a stale connection.
+  It does not replay partial writes (U284, x124).
 
 ### Reports
 
-- Batch-level artifacts now use the correct extension, such as `.log` or `.mp4`, instead of repeating
-  the batch ID. Extension-based globs can now find those files too (D104).
+- Batch-level artifacts use `<batchId>[-<id>].<suffix>[-<chunk>]`, with a suffix such as `.log` or `.mp4`
+  instead of repeating the batch ID. Per-test and per-device names are unchanged. Extension globs can now
+  include batch files (D104, x123). See the [migration guide](docs/migration.md#changes-that-need-action).
 
 ### iOS and macOS
 
-- SSH worker cleanup closes the supervisor's control connection even when the release deadline expires.
-  Cancelling a command no longer waits for a supervisor probe, failed probes retry with backoff, and
-  busy workers can reclaim confirmed command receipts before shutdown (U276–U279).
-- Screenshot recording on remote iOS simulators no longer opens a new SSH login per frame (D100).
-  If you use a forced command that filters SSH execs, see the [migration note](docs/migration.md#ios-screenshot-streaming).
-- Device logs from remote iOS simulators transfer with SSH compression when available, reducing the time between
-  batches with `deviceLog: true`. Report files and worker allowlists are unchanged (D106).
+- SSH worker cleanup abandons the supervisor's control connection as well as the data connection if the
+  release deadline expires. A cancelled command caller no longer waits for the shared supervisor probe,
+  failed probes back off before retrying, and later control requests can acknowledge completed command
+  receipts so the worker can reclaim them before shutdown (U276–U279, x121).
+- A remote iOS screenshot is captured and streamed in one exec on the existing data connection. Ending a capture
+  discards an in-flight frame without waiting for its worker receipt. Local capture and other artifact transfers
+  are unchanged by D100 (x118). See the [SSH forced-command migration note](docs/migration.md#ios-screenshot-streaming).
+- For `deviceLog: true` on remote iOS simulators, OpenSSH requests compression on the log's rsync receive only.
+  The batch still waits for delivery. Compression does not change the published bytes or the worker allowlist,
+  and D104 separately changes the report suffix (D106, x125). See the [SSH wrapper note](docs/migration.md#ios-device-log-compression).
+
+### Evidence
+
+- **Android recorder (x119).** On an API 36 emulator, median stop-to-delivery time fell from 662 to 242 ms and
+  from 658 to 132 ms in two pairs against 0.15.6. The same three tests passed in all six video and screenshot
+  runs and every published MP4 and GIF decoded at least one frame. Whole-run time varied in both directions.
+  Fake adb covered the legacy process listing, forced and unconfirmed stops, and invalid or empty captures.
+  Those failure cases, an adb outage during recording and older Android versions were not exercised on a real device.
+  [Findings](docs/wp/x119-findings.md)
+- **Android batch retirement and ADB diagnostics (x120, x122).** Gated fake-adb runs verified retirement after
+  three fresh peer completions, ordinary requeue and retries, and no retirement in a single-device run. The
+  idle-error witness distinguishes an idle close from actual EOF and from a complete reply followed by idleness.
+  Neither change was exercised on a real Android device or emulator. Earlier farm logs establish the batch-failure
+  scenario, not the fix. [Retirement findings](docs/wp/x120-findings.md), [ADB findings](docs/wp/x122-findings.md)
+- **iOS screenshots (x118).** In three paired runs on two remote simulators, screenshot logins fell from 19–23
+  per run to zero. The new build's capture join took at most 2 ms across 18 test ends. Every run delivered six
+  decodable GIFs and six readable xcresult bundles with the same outcomes. Whole-run timings showed no clear
+  improvement. Loopback and fake-worker tests covered the forced command, cancellation and output limits.
+  Large fleets, very large real frames and worker CPU savings were not measured. [Findings](docs/wp/x118-findings.md)
+- **SSH worker cleanup (x121).** A two-simulator iOS video comparison delivered all six readable movies and
+  result bundles in both builds, with matching outcomes and no leftover supervisor roots. Loopback, stock
+  OpenSSH and Perl witnesses covered abandonment, cancellation, backoff and receipt cleanup. Real-worker
+  signal, data-loss and large-fleet scenarios were not exercised. [Findings](docs/wp/x121-findings.md)
+- **iOS device logs (x125).** In three paired runs on two remote simulators, median log receive fell from
+  1.169 to 0.705 s and the median between-batch gap fell from 1.836 to 1.369 s. In a separate same-file transfer,
+  SSH received about 88% fewer bytes with identical file digests. Fake-worker tests checked the controller
+  option, worker command and published bytes, and kept receive errors at the same batch boundary. The real runs
+  did not measure compression at farm scale or on fast LANs. [Findings](docs/wp/x125-findings.md)
+- **Reports and analytics (x123, x124).** D104 moved nine files across eight fake-vendor scenario views with no
+  payload changes and passed the retained iOS comparison. A loopback Carbon server received eight payloads on
+  one connection. A loopback InfluxDB test held a write response while the next batch started and all 1,003 local
+  results were reported. No fresh device run was made for D104 and no production metrics backend was used for
+  the analytics tests. [Report findings](docs/wp/x123-findings.md), [Analytics findings](docs/wp/x124-findings.md)
+- CI runs the repository gate on macOS and Linux. Both passed on the integrated release code before the
+  documentation-only changes.
+- Not exercised before this release: a private CI farm run, and macOS UI tests on a real worker.
+
+### Known limits
+
+- An SSH connection still opening at process exit can still log `Dying because - Broken transport` (U270).
+  A release deadline now abandons both established transports locally (U276).
+- Remote iOS captures discard in-flight frames at test end and skip frames over 24 MiB before base64 encoding.
+  A hard KILL before the capture unlinks its temporary file can leave it until the next preparation (D100).
+- An opt-in remote iOS device log still costs one rsync SSH login and its batch still waits for the receive.
+  Compression savings depend on the link and worker (D106).
+- There is no Windows, Intel Mac, Linux on ARM or universal build. The macOS binary requests macOS 11.0 or later; versions
+  older than the build and test hosts are not tested.
+- The macOS binary is ad-hoc signed and not notarised; see the note on quarantine in the
+  [migration guide](docs/migration.md#install-the-native-entry-point).
+- The static Linux binary is checked at release time with `version` and `--help` in an Alpine container; 0.15.0-rc.1's
+  static Linux binary ran on real emulators and on a CI farm. musl's resolver asks DNS directly, so an adb host given as a name that only the system's own name service knows,
+  such as a `.local` name, is not found; use `localhost` or an address.
+- The `xctest` test parser needs a `libxctest-parser` library that you supply (D20). The differential suites run it with a
+  stand-in file, so what the library itself does is not covered by them. The archives do not contain it, and this project's
+  licence does not cover it.
+- The real macOS UI XCTest scenario on macOS 27 remains unverified and is outside the real-host evidence of this and
+  earlier releases ([U103](docs/found-bugs.md)).
+- No isolated shadow or canary results are recorded in this repository. Trial it in a disposable environment and keep your
+  JVM distribution for [rollback](docs/migration.md#trial-and-rollback).
+- An Android device that restarted during an adb outage is set up again when its boot ID changed or its preparation
+  marker is confirmed missing or different (D85). A restart that keeps both, such as a shared-kernel container restart
+  that keeps `/data/local/tmp`, a snapshot rollback that keeps the boot ID when the marker's creation could not be
+  confirmed (the boot ID alone is then checked), and a device with no readable evidence of a reset are not detected;
+  unless D103 applies, such a device can repeat failing batches until `uncompletedTestRetryQuota` runs out (D22).
+- On a worker without usable stock Perl, a cancelled run whose SSH server ignores signals (OpenSSH does for forced
+  commands) can leave xcodebuild running there; a close that needed KILL logs a warning naming the command, also with
+  `debug: false` (D30, U183). With Perl, the worker's supervisor ends the command's group when its lease runs out
+  without a renewal: 79 s by default from admission or the last successful renewal, extended once by a renewal already
+  in flight. For a launched recorder still running, a 2 s timer starts when the supervisor first sees a stop request or
+  an expired lease; after it, TERM is sent if escalation was requested or the lease expired, and KILL needs a hard
+  stop or an expired lease and at least 1 s since TERM. A frozen worker does so only once it runs again (D96).
+- Xcode's shared service hosts, such as `DTServiceHub`, that xcodebuild starts in groups of their own can outlive a run,
+  locally and on a worker. That is on purpose: other Xcode sessions use them (D96).
+- A failed readiness probe costs a simulator about 9 to 12 minutes with the defaults while another simulator keeps the
+  pool alive, and at most the preparation deadline plus one boot attempt, about 14.5 minutes (D87 scenario estimates).
+  On the last device the run ends 180 s (D48's wait) after the simulator left the pool, or after a test result it
+  reports later, with "remaining tests will not run": about 9 to 11 minutes after its first boot, or about 3 minutes
+  after a loss if the probe starts failing at a re-setup (D38).
+- A failed xcodebuild close retires its simulator; its disposal is then unconfirmed, so it gets no on-dispose lifecycle
+  and its connection stays open and out of use until the run ends (D93), and a pool whose last device it was waits (D48),
+  then ends (D30).
+- An Android device that left its pool after D49's limit but not adb's list returns only if the list changes, so a pool
+  waiting for it uses up D48's wait for nothing. After a failed preparation it gets one more setup (D85), and after that
+  the same holds (D48).
+- Two adb outages in a row, the second before a device's restoring after the first has finished, can make D48's wait
+  for that device count from the later outage ([x83 findings](docs/wp/x83-findings.md#incidental-bugs)).
+- Android device loss after result accounting can leave the test's result intact but omit capture or profiling
+  files (D70). If the device is withdrawn during the video stop before accounting, an instrumentation-reported
+  pass can still be marked uncompleted along with the next unstarted test (U286).
+- D103 cannot retire a device in a single-device pool or a pool without fresh peer progress. The strikes are not
+  proof of a device fault. Failing batches can still consume retry quota before retirement or when D103 does not
+  apply (D82, D103).
+- When an Android device is lost during a batch with `isCodeCoverageEnabled: true`, the batch's coverage is logged as
+  missing at ERROR, although its tests run again and their new batch's coverage is pulled. The exit code is unchanged
+  (D81). Its cleanup is no longer also logged as failed (D97).
+- An Android capture with no frames can delete an earlier valid GIF if the two test names escape or truncate to
+  the same report path (U287).
+- When adb cannot confirm a stopping Android device's cleanup, the device can keep an instrumentation process, a screen
+  recording or trace and its files, a reverse port forward or D85's marker (D92).
+- On a worker without usable Perl, the legacy recorder can still leave a simulator's video service busy when it is
+  stopped before recording has started, as in 0.15.0 (D98 does not change it). A recorder that has not confirmed its
+  start by its INT cutoff gets TERM there and can still leave the service busy; if `simctl` never prints its start
+  line on stderr, a stop of a recorder still running waits until that cutoff, and its video can be lost (D98).
+- Marathon's end-of-run shutdown of a busy simulator is one bounded attempt, and it is not made after a signal, with
+  too little release time left, when the simulator's work was not confirmed to have ended or it was quarantined, when
+  it left the devices file or the run did not hold its lease, or when the on-dispose lifecycle shuts it down or erases
+  it (even if that lifecycle step fails). If the video service is still busy afterwards, restart the simulator
+  (`xcrun simctl shutdown <udid>`, then `xcrun simctl boot <udid>`) before it records again (D98).
+- Marathon recognises a busy video service by simctl's English text (`Resource busy`, or `A recording is already in
+  progress`, which Xcode 26.6 words `Host recording is already in progress`) with status 16; a localized message
+  without either phrase is not recognised, and the run then reports each lost video, as 0.15.0 did (D98).
+- If a signal arrives during the end-of-run shutdown of a busy simulator, the lease release after it can have no time
+  left; it is still bounded by D97's finish. A replacement simulator whose registration failed after it joined the
+  provider (D74) is not shut down at the end of the run (D98).
+- With video on, a test that ends while its recorder still waits for marathon's previous recording on its simulator
+  has no video, and with `screenRecordingPolicy: ON_ANY` it logs one error that its video `was not delivered: the
+  recording did not start`, as such tests did in 0.15.2 (x106). If marathon cannot confirm a recorder's launch or
+  exit, it warns once and records no further video on that simulator until it is set up again (D98, x106).
+- On a worker without usable Perl, the legacy recorder has no start confirmation, stderr or exit status, so its
+  failures are not reported in the recorder warning above (x106).
+- If the SSH worker supervisor resumes after a cutoff and waits using an earlier clock reading, that wait is capped at
+  100 ms (the old loop's status wait was capped at 25 ms once the command was running), and at an expiry or KILL
+  cutoff an exit status already visible at its exit check wins (x111).
+- On iOS and Android the movie check validates top-level boxes, not decodability. A test too short to leave a
+  complete movie may have no video (U267, D102). On iOS, a video that was not delivered is logged at ERROR.
+  Android withholds the current chunk if recorder exit cannot be confirmed, though earlier completed chunks
+  can still be delivered.
+- A D88 monitor failure that ends Android device tracking has not been provoked on a real device; it is covered only by
+  tests with fake adb.
+- Password and askpass authentication, D90's connection rotation, network partitions and delayed control replies
+  were not exercised on a real worker.
+- The legacy `sshpass` fallback can fail to authenticate an rsync pull. This reproduced in an ordinary shell
+  against a loopback SSH daemon, and no runtime retry was added (U173). Its SSH process runs in a session of
+  its own, so cleanup can miss a process that outlives its parent between listings (D91, D96).
+- A process marathon has spawned but not yet registered is outside the reaper's view, and a full reaper table (4,096
+  entries) fails the launch. After an abrupt loss of both connections to a worker, the supervisor's private directory and
+  its small receipts can remain under the worker's `/tmp` (D96). A bootstrap that creates a root but never
+  identifies it in a reply can also leave that root behind (U278). Idle control streams rely on retirement to
+  reclaim their receipts (U279).
+- A quarantined worker connection stays open until the end of the run, where it is closed (U270), and with
+  `shareWorkerConnection` it keeps one of the worker's two connection slots until then (D90, D93).
+- On a filesystem that rejects rename flags, publishing a bundle checks that the destination is absent and then renames,
+  so another writer can win in between, and replacing an existing tree can leave its path absent for a moment; if a
+  failed publication also fails to restore the earlier tree, that tree is kept in a named `.marathon-artifact-*`
+  backup. A filesystem call already under way cannot be cut by a deadline (D97).
+- A Graphite backend that cannot be set up still fails the run, where an InfluxDB one falls back to no history (D71).
+- Remote metric drops can thin history for later runs. Slow send failures still trigger cool-off, drain and close
+  still share 30 s, and a Carbon peer that disconnects during a write can still lose that payload (D51, D105, U284).
+- A JUnit3 `TestCase` method that also carries `@Test` is still listed twice, by both discovery rules, as in Kotlin (D75).
+- A remote parse cut after other text, before its first status atom, can't be told from output that is not the
+  instrumentation protocol: it gives no tests for that bundle and is not retried. With several bundles the run goes on
+  without them (D25).
+- Apple event/line scheduling can move a boundary line between per-test and batch logs (A20). The Phase 8 differential
+  harness gates that interleaving; production retains it ([WP 8.12](docs/wp/8.12-test-changes.md#differential-only-eventline-gates)).
 
 ## 0.15.6
 
