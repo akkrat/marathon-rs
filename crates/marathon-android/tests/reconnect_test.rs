@@ -2591,3 +2591,226 @@ fn three_peer_supported_strikes_hand_retries_to_the_healthy_android_device_d103(
 fn a_single_android_device_is_not_retired_after_three_failed_batches_d103() {
     run_pool_d103(false);
 }
+
+struct PoolStopBatches {
+    arrivals: tokio::sync::mpsc::UnboundedSender<BatchGate>,
+    stopped: Arc<marathon_core::executor::SharedDeferred<()>>,
+}
+impl AndroidBatchExecutor for PoolStopBatches {
+    fn execute<'a>(
+        &'a self,
+        device: &'a AndroidDevice,
+        _: Arc<marathon_config::Configuration>,
+        _: DevicePoolId,
+        batch: BatchRef,
+        result: Arc<Deferred<TestBatchResults>>,
+        context: VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            let (release, wait) = tokio::sync::oneshot::channel();
+            self.arrivals.send((device.adb_serial().to_owned(), release)).unwrap();
+            tokio::select! { biased;
+                reason = context.cancellation.cancelled() => {
+                    if device.adb_serial() == "emulator-5554" {
+                        self.stopped.complete(Ok(()));
+                    }
+                    return Err(VendorError::Cancelled(reason));
+                }
+                next = wait => next.map_err(|_| VendorError::Cancelled(marathon_core::executor::shared::requested("batch witness ended")))?,
+            }
+            let info = device.info();
+            result.complete(Ok(TestBatchResults {
+                device: device.reference(),
+                finished: batch
+                    .tests
+                    .iter()
+                    .map(|test| TestResult {
+                        device: info.clone(),
+                        test: test.clone(),
+                        test_batch_id: batch.id.clone(),
+                        status: TestStatus::Passed,
+                        start_time: 1000,
+                        end_time: 2000,
+                        stacktrace: None,
+                        attachments: vec![],
+                    })
+                    .collect(),
+                failed: vec![],
+                uncompleted: vec![],
+            }));
+            Ok(())
+        })
+    }
+}
+
+#[test]
+fn an_offline_blip_after_one_pool_stops_preserves_the_other_pool_d107() {
+    use marathon_config::schema::{FlakinessStrategyConfiguration, PoolingStrategyConfiguration};
+    use marathon_core::{executor::SharedDeferred, vendor::TestParser};
+    use marathon_test_support::{factory::StubTestParser, scenario};
+
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (mut script, _, _) = load("same-server");
+    // This witness gates batches itself. The inherited scenario holds the
+    // second device's first log clear until that request times out.
+    script["devices"][1]["shell"] = json!([]);
+    let mut sibling = script["devices"][1].clone();
+    sibling["serial"] = json!("emulator-5558");
+    sibling["getprop"]["ro.product.model"] = json!("separate model");
+    sibling["getprop"]["ro.boot.serialno"] = json!("TESTDEVICE3");
+    script["devices"].as_array_mut().unwrap().push(sibling);
+    let server_runtime = checked(tokio::runtime::Builder::new_multi_thread().enable_all().build());
+    let mut server = Arc::new(server_runtime.block_on(support::server(script)));
+    let handle = server.clone();
+    let output = checked(tempfile::tempdir());
+    let base = PathBuf::from("/");
+    let context = BindingContext {
+        profile: Profile::Marathonfile,
+        marathonfile: base.join("Marathonfile"),
+        marathonfile_dir: base.clone(),
+        process_dir: base.clone(),
+        environment: vec![],
+        now: jcompat::jtime::instant_of(0, 0).unwrap(),
+        analytics_tracking: false,
+        bugsnag_reporting: false,
+    };
+    let options = Options {
+        quota: Some(0),
+        batch_size: Some(1),
+        device_initialization_timeout_millis: Some(60_000),
+        ..Options::default()
+    };
+    let mut configuration = checked(
+        MarathonConfigurationLoader.parse_sync(&marathonfile(&[server.port()], output.path(), &options), &context),
+    );
+    configuration.pooling_strategy = PoolingStrategyConfiguration::Model;
+    configuration.flakiness_strategy = FlakinessStrategyConfiguration::Fixed { count: 1 };
+    let (passed, log) = checked(CoreExecutor::run(move |core| {
+        Box::pin(async move {
+            let logging = Arc::new(Mutex::new(LogSettings::default()));
+            let recording = RecordingConsole::new(logging.clone());
+            let hooks = RuntimeHooks::live();
+            let barriers = hooks.barriers();
+            let (gates, mut arrivals) = tokio::sync::mpsc::unbounded_channel();
+            let stopped = SharedDeferred::new();
+            let executor = Arc::new(PoolStopBatches {
+                arrivals: gates,
+                stopped: stopped.clone(),
+            });
+            let inputs = RunInputs {
+                configuration: Arc::new(configuration),
+                logging,
+                console: recording.clone(),
+                stderr: Arc::new(|_| {}),
+                cwd: base,
+                environment: vec![],
+                system_information: vec![],
+                vendor: Box::new(move |deps| {
+                    Box::pin(async move {
+                        let mut services = create_services_with_executor(deps, executor).await?;
+                        services.parser = Some(TestParser::Local(Arc::new(StubTestParser(vec![scenario::test(
+                            "test", "Steps", "one",
+                        )]))));
+                        services.bundle_identifier = None;
+                        Ok(services)
+                    })
+                }),
+                metrics: Box::new(|_, _| MetricsBackends {
+                    setup: Arc::new(NoMetricsSetup),
+                    backend: None,
+                }),
+                analytics: None,
+                extra_reporters: Box::new(marathon_core::construction::standard_reporters),
+                hooks,
+                barriers,
+                timer: None,
+                wall: Arc::new(host_millis),
+                exit: None,
+                signal_trigger: None,
+                signal_hooks: Default::default(),
+                live_output: true,
+            };
+            let marathon = construct(core.clone(), inputs).await.map_err(OperationError::Failed)?;
+            let drive = async {
+                let arrive = |gate: Option<BatchGate>, expected| {
+                    let (serial, release) = gate.expect("device began a batch");
+                    assert_eq!(serial, expected);
+                    release
+                };
+                let _held = arrive(arrivals.recv().await, "emulator-5554");
+                checked(handle.connect_device("emulator-5558"));
+                let sibling = arrive(arrivals.recv().await, "emulator-5558");
+                checked(handle.connect_device("emulator-5556"));
+                checked(arrive(arrivals.recv().await, "emulator-5556").send(()));
+                stopped.wait().await.unwrap();
+                support::logcat_streams(&[(&handle, 3)]).await;
+                while !recording.lines().iter().any(|line| {
+                    matches!(line, Line::Log {message, ..}
+                    if message.ends_with(": onQueueTerminated"))
+                }) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                checked(handle.set_device_state("emulator-5554", "offline"));
+                // Let tracking take the offline list before the device returns. The old
+                // provider opens a D41 grace for the sealed device, the fixed one lets it go.
+                while !recording.lines().iter().any(|line| {
+                    matches!(line, Line::Log {message, ..}
+                    if message.starts_with("Device emulator-5554 is in state ")
+                    || message == "Device emulator-5554 changed state to DISCONNECTED")
+                }) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                checked(handle.set_device_state("emulator-5554", "device"));
+                while handle
+                    .transcript()
+                    .iter()
+                    .filter(|record| {
+                        record["type"] == "shell"
+                            && record["serial"] == "emulator-5554"
+                            && record["command"] == "logcat -v long"
+                    })
+                    .count()
+                    < 2
+                {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                checked(sibling.send(()));
+            };
+            let passed = tokio::time::timeout(Duration::from_secs(60), async {
+                    let run = marathon.run(ExecutionCommand::Run);
+                    tokio::pin!(run);
+                    tokio::select! {
+                        biased;
+                        passed = &mut run => passed,
+                        () = drive => run.await,
+                    }
+                })
+                .await
+                .unwrap_or_else(|_| {
+                    let stage: Vec<_> = recording.lines().into_iter().filter(|line| matches!(line, Line::Log {message, ..}
+                        if message.contains("changed state") || message.contains("stopped") || message.contains("executeBatch") || message.contains("error"))).collect();
+                    panic!("pool-stop witness timed out: {stage:?}");
+                })?;
+            Ok((passed, recording.lines()))
+        })
+    }));
+    checked(server_runtime.block_on(Arc::get_mut(&mut server).expect("run joined").shutdown()));
+    assert!(passed, "{:#?}", log.iter().filter(|line| matches!(line, Line::Log {message, ..} if message.contains("returned") || message.contains(" failed") || message.contains("stopped") || message.contains("terminated") || message.contains("reconnect") || message.contains("tracked") || message.contains("back"))).collect::<Vec<_>>());
+    let raw: Value = checked(serde_json::from_slice(&checked(std::fs::read(
+        output.path().join("test_result/raw.json"),
+    ))));
+    assert_eq!(raw.as_array().unwrap().len(), 2, "{raw}");
+    let errors: Vec<_> = log
+        .iter()
+        .filter(|line| {
+            matches!(
+                line,
+                Line::Log {
+                    level: marathon_logging::Level::ERROR,
+                    ..
+                }
+            )
+        })
+        .collect();
+    assert!(errors.is_empty(), "{errors:#?}");
+}

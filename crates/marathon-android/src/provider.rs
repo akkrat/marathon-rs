@@ -327,8 +327,10 @@ impl AdamDeviceProvider {
                         let key = (server_name(&client), serial.clone());
                         let retried = lock(&self.inner.devices)
                             .get(&key)
-                            // D103: a still-listed retired instance is not eligible for D85's replacement.
-                            .filter(|p| p.device.is_same(&device) && !p.device.is_disconnected())
+                            // D103 and D107: a still-listed retired or stopping instance is not eligible for replacement.
+                            .filter(|p| {
+                                p.device.is_same(&device) && !p.device.is_disconnected() && !p.device.stopping()
+                            })
                             .map(|p| p.retried_prepare);
                         let Some(retried) = retried else {
                             if let Some(replaced) = replaced {
@@ -853,7 +855,7 @@ impl AdamDeviceProvider {
         let provided = |serial: &str| {
             lock(&self.inner.devices)
                 .get(&(server.clone(), serial.to_owned()))
-                .filter(|p| *lock(&p.ready) && !p.device.is_disconnected())
+                .filter(|p| *lock(&p.ready) && !p.device.is_disconnected() && !p.device.stopping())
                 .map(|p| p.device.clone())
         };
         let (returned, gone) = blips.update(&devices);
@@ -947,7 +949,9 @@ impl AdamDeviceProvider {
             return Ok(());
         }
         let tracker = self.inner.trackers.tracker(client);
-        if device.is_disconnected() {
+        // A pool can seal the device while a probe is already in flight. Its
+        // cancelled request is not a failure of this server's tracker.
+        if device.is_disconnected() || device.stopping() {
             kind.release_wait(&tracker, &serial);
             return Ok(());
         }
@@ -1044,7 +1048,10 @@ impl AdamDeviceProvider {
             )?;
         }
         handled(tx, context.cancellation.clone()).await?;
-        let restoring: Vec<AndroidDevice> = resumed.into_iter().filter(|d| d.info().healthy).collect();
+        let restoring: Vec<AndroidDevice> = resumed
+            .into_iter()
+            .filter(|d| !d.stopping() && d.info().healthy)
+            .collect();
         let serials: Vec<String> = restoring.iter().map(|d| d.adb_serial().to_owned()).collect();
         self.inner.trackers.tracker(client).server_back_restoring(&serials);
         for device in restoring {
