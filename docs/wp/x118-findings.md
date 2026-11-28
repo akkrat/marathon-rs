@@ -110,3 +110,10 @@ were not injected on the real worker.
 
 Free disk space fell below the work package's 20 GB threshold after Clippy. The broader Cargo test build and
 scratch counterexample build were not run. This round changes tests and documentation only.
+
+## Integrated gate follow-up
+
+The catalogue test failed on x118 alone as well as on the integrated stack. It booted its simulator in the
+video scenario, which does not serve the catalogue's file-writing screenshot command. The screenshot row now
+uses a booted simulator in the screenshot scenario on both transports, invokes the production file-writing
+wrapper and checks the written fixture bytes. The D100 streaming model and the recorded catalogue stay unchanged.

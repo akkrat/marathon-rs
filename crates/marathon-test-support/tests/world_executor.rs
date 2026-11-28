@@ -17,7 +17,7 @@ use marathon_apple::{
     model::Sdk,
     test::TestRequest,
 };
-use marathon_config::vendor::{AppleTimeoutParameters, apple_timeout_configuration};
+use marathon_config::vendor::{AppleTimeoutParameters, Display, Mask, ScreenshotType, apple_timeout_configuration};
 use marathon_core::error::VendorResult;
 use marathon_test_support::apple::{
     WorldExecutor,
@@ -421,6 +421,14 @@ async fn wrapper(id: &str, argv: &[String], e: Arc<dyn CommandExecutor>) -> Resu
             // The form is the probe of runtimes 16 and 17; D46 gives 18 and later `print user/foreground`.
             v(env.xcrun.simctl.simulator.is_running(UDID, "17.5", &c).await)?;
         }
+        "screenshot-png" => {
+            assert!(v(env
+                .xcrun
+                .simctl
+                .io
+                .screenshot(UDID, &argv[8], ScreenshotType::Png, Display::Internal, Mask::Black, &c)
+                .await)?);
+        }
         "xcode-version" => {
             v(env.xcrun.xcodebuild.get_version(&c).await)?;
         }
@@ -553,6 +561,11 @@ async fn generated_catalogue_matches_the_ssh_executor_and_production_wrappers() 
         let (_dir, _, e) = world_executor(scenario("ios-media")?, Script::default()).await?;
         let e = Arc::new(e);
         let (_sshdir, w, ssh) = ssh_worker(World::new(scenario("ios-media")?)?).await?;
+        // The file-writing screenshot form is still used locally. Its fake frame comes from the screenshot
+        // scenario, separate from the video scenario used for recordVideo.
+        let (_shotdir, _, shot) = world_executor(scenario("ios-screenshot")?, Script::default()).await?;
+        let shot = Arc::new(shot);
+        let (_shot_sshdir, shot_worker, shot_ssh) = ssh_worker(World::new(scenario("ios-screenshot")?)?).await?;
         let catalogue: serde_json::Value = serde_json::from_str(include_str!(
             "../../../fixtures/fake-worker/apple/command-catalogue.json"
         ))?;
@@ -580,6 +593,11 @@ async fn generated_catalogue_matches_the_ssh_executor_and_production_wrappers() 
             ) {
                 continue;
             }
+            let (e, w, ssh) = if id == "screenshot-png" {
+                (&shot, &shot_worker, &shot_ssh)
+            } else {
+                (&e, &w, &ssh)
+            };
             seed(e.fs()).await?;
             seed(&w.fs).await?;
             if id == "transcode-h264" {
@@ -612,6 +630,14 @@ async fn generated_catalogue_matches_the_ssh_executor_and_production_wrappers() 
                 .await
                 .map_err(|err| anyhow::anyhow!("{id} SSH: {err:#}"))?;
             assert_eq!(a, b, "{id}");
+            if id == "screenshot-png" {
+                for fs in [e.fs(), &w.fs] {
+                    assert_eq!(
+                        fs.read(&argv[8]).await?,
+                        include_bytes!("../../../fixtures/fake-worker/apple/media/screenshot.png"),
+                    );
+                }
+            }
             exercised.push(id);
         }
         ensure!(
@@ -622,6 +648,10 @@ async fn generated_catalogue_matches_the_ssh_executor_and_production_wrappers() 
         v(e.close().await)?;
         v(ssh.close().await)?;
         w.shutdown().await?;
+        v(shot.close().await)?;
+        v(shot_ssh.close().await)?;
+        shot_worker.shutdown().await?;
+        assert!(shot.processes().active().await.is_empty());
         assert!(e.processes().active().await.is_empty());
         Ok(())
     })
