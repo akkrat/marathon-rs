@@ -1,7 +1,7 @@
 # Approved differences from Kotlin marathon
 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) is
-canonical. This guide covers D1–D106 (D73, D89 and D101 were reserved and not used). Implementation availability
+canonical. This guide covers D1–D107 (D73, D89 and D101 were reserved and not used). Implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
 shipped differences. D55–D67 ship in 0.13.0. D55–D65 remove JVM artefacts under
@@ -3525,3 +3525,16 @@ The batch still waits for the receive and handles its result as before. A failed
 but a receive error such as an illegal state can remove the simulator from the pool in that batch. Deferring the
 receive to the result-bundle queue would change that behavior. See [x125 findings](wp/x125-findings.md) for the
 measurements and [the migration note](migration.md#ios-device-log-compression) for SSH wrappers.
+
+## D107 — Stop redundant batches after a pool is decided
+
+**Approved 2026-11-28 (project owner's decision).** With fast execution, a pool stops batches still outstanding
+when its queue is empty and every test of its shard has reached a terminal state. This includes a deciding pass
+in `ANY_SUCCESS` and a deciding failure in `ALL_SUCCESS`. Outcomes already sent by the device actor still count.
+No other pool is stopped, and `fast: false` keeps its existing behavior.
+
+The vendor's orderly stop cleans up each stopped batch. It is not a device failure or retry, and no result, artifact
+reference or metric for the stopped attempt enters the reports or analytics. The log names each stopped batch's
+device and tests, then gives a count for the pool. Report formats, final verdicts and exit status are unchanged.
+
+See [the migration note](migration.md#redundant-parallel-attempts) and [WP x129 findings](wp/x129-findings.md).

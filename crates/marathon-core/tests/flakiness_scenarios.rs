@@ -445,9 +445,10 @@ fn d83_copies_of_different_tests_interleave_so_fast_drops_more_of_them() {
         wave,
         ["step1", "step2", "step3", "step1", "step2", "step3", "step1", "step2"]
     );
-    // Only step3's copies taken before its fast run on serial-6 passed still run.
+    // Only step3 can still be dispatched while serial-6's deciding pass is pending.
     assert_eq!(&executed[8..], [["step3"], ["step3"], ["step3"]]);
-    assert_eq!(results, 11);
+    // D107: serial-6's pass stops six in-flight copies, which used to count as attempts.
+    assert_eq!(results, 5);
     // Without `fast` every copy runs: which copies exist did not change.
     let (executed, results) = copies_on_eight_devices(false);
     assert_eq!((executed.len(), results), (15, 15));

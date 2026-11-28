@@ -2,6 +2,12 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
+## Unreleased
+
+- With fast execution, a pool stops redundant batches once its queue is empty and every test has a final
+  verdict. Stopped attempts do not appear in reports or analytics, so jobs with parallel copies can finish
+  sooner and show fewer raw attempts. Final results and exit status are unchanged (D107).
+
 ## 0.15.7
 
 This release cuts waits and unnecessary SSH logins during test runs. Remote iOS screenshots use the existing SSH

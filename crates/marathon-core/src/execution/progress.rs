@@ -240,6 +240,12 @@ impl PoolProgressAccumulator {
     pub fn is_terminal(&self, test: &Test) -> bool {
         self.state(test).is_some_and(TestState::terminal)
     }
+    /// D107 uses the actual verdicts, not the fast shadow state used for reporting (D77).
+    pub(crate) fn can_stop_redundant_batches(&self) -> bool {
+        // An exhausted incomplete-attempt quota can make a state terminal even without
+        // fast. Stabilization runs still keep all their attempts.
+        self.strategy.fast && !self.tests.is_empty() && self.tests.iter().all(|(_, data)| data.state.state().terminal())
+    }
     fn data(&self, name: &str) -> Option<&TestExecutionData> {
         self.index.get(name).map(|&at| &self.tests[at].1)
     }

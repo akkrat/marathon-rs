@@ -94,6 +94,9 @@ pub enum SealCause {
     /// The run is stopping (the Scheduler's stop, a failure, the owner's cancel, a signal): a refusal is a cancellation,
     /// orderly, with no retry and no change to the run's outcome.
     RunStop,
+    /// D107: all tests in this pool are decided, but other pools may still be running. The work
+    /// receipt starts now. The provider retains its normal deadline for releasing the lease.
+    PoolStop,
     /// The device is disposed of outside a run's stop (removed from the devices file, recovered, replaced): a refusal is a
     /// device loss, so discovery takes another device (D53) and a batch is retried as for a lost device.
     Disposal,
@@ -106,7 +109,7 @@ impl SealCause {
     /// The one place a refusal is built (round 8): every admission, gate, session, send and pull refusal uses it.
     pub fn refusal(self, why: Failure) -> VendorError {
         match self {
-            Self::RunStop | Self::Termination => VendorError::Cancelled(Cancellation::Requested(why)),
+            Self::RunStop | Self::PoolStop | Self::Termination => VendorError::Cancelled(Cancellation::Requested(why)),
             // As a batch on a disposed device is lost: a device loss whose cause is why.
             Self::Disposal => {
                 let mut lost = failure(FailureKind::DeviceLost, why.to_string());

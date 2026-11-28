@@ -84,6 +84,10 @@ pub trait Device: Send + Sync {
     /// admits no new work: the cancelled call, `join_cancelled_work` and the device's disposal all end within what is
     /// left of it, rather than each with a window of its own. Idempotent.
     fn seal_for_stop(&self) {}
+    /// D107: as at run stop, but the provider and other pools can outlive this device's work window.
+    fn seal_for_pool_stop(&self) {
+        self.seal_for_stop();
+    }
     fn seal_for_signal(&self, _finish: crate::signal_finish::SignalFinish) {
         self.seal_for_stop();
     }

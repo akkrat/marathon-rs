@@ -138,6 +138,7 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 | cancel runs with SIGINT, SIGTERM or SIGHUP, or take a run's reports as a sign that it finished ([D52](deviations.md#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit)) | Whatever `debug` says, a cancelled run attempts to write its reports if the output directory is ready and starts provider cleanup. It hands off to exit by 24 s, with up to 1 s more for console output, and exits with 130, 143 or 129; reports or cleanup can remain unfinished. A second signal exits at once. | Allow 25 s before killing it, and read the exit code to tell whether a run finished. [See below](#cancelling-a-run). |
 | look up batch-level artifacts by name or glob by extension ([D104](deviations.md#d104--batch-level-artifacts-use-their-type-suffix)) | Batch files use their type's suffix, such as `.log` or `.mp4`, rather than repeating the batch ID. | Update lookups from `<batchId>.<batchId>` to `<batchId>.<suffix>`. If a glob is meant to find only per-test files, filter out batch-level files. |
 | wrap the SSH client for iOS device-log transfers ([D106](deviations.md#d106--compress-ios-device-logs-over-ssh)) | The rsync remote shell requests SSH compression for device-log receives only. | Accept `-C` in a controller-side SSH wrapper. Worker forced commands and allowlists need no change. [See below](#ios-device-log-compression). |
+| count attempts from jobs that run parallel copies ([D107](deviations.md#d107--stop-redundant-batches-after-a-pool-is-decided)) | With fast execution, a decided pool no longer waits for redundant batches. Stopped attempts are not results. | Expect fewer raw attempts and potentially fewer failed attempts. Final test results and exit codes are unchanged. [See below](#redundant-parallel-attempts). |
 
 These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D22, D23, D26, D28–D30, D34, D36, D37, D40, D42, D45, D49,
 D51, D53, D54, D64–D66, D68–D70, D74–D77, D79–D84, D88, D90–D95, D97, D98, D99, D102 and D103. D65 can include a previously missed late pool,
@@ -342,6 +343,14 @@ queues now drop incoming metric events instead of delaying a batch. No configura
 The controller adds `-C` to the OpenSSH invocation used by rsync to receive a simulator's `device.log`. A wrapper
 that checks controller-side SSH arguments must pass it through. Compression is negotiated with the worker, and
 the worker receives the same rsync sender command either way.
+
+### Redundant parallel attempts
+
+[D107](deviations.md#d107--stop-redundant-batches-after-a-pool-is-decided) needs no configuration change.
+With fast execution, a pool with an empty queue stops its remaining batches once every test in that pool has a final
+verdict. Stopped attempts do not count toward raw totals or failed attempts, do not appear in reports or analytics,
+and do not consume retry quotas. Final verdicts, `ignoreFailures` and exit codes are unchanged. Stabilization jobs
+using `fast: false` keep their previous attempt behavior.
 
 ### iOS recorder warnings
 

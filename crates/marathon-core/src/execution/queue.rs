@@ -260,6 +260,7 @@ pub struct QueueActor {
     /// Places of the retries in the active batch of each device, by serial number, queued again if the batch is rejected
     active_retries: HashMap<String, Vec<(Test, Place)>>,
     terminated: bool,
+    decided_sent: bool,
     actor: Option<Weak<dyn Actor<QueueMessage>>>,
 
     #[cfg(feature = "test-support")]
@@ -404,6 +405,7 @@ impl QueueActor {
             retry_workers: IndexMap::new(),
             active_retries: HashMap::new(),
             terminated: false,
+            decided_sent: false,
             actor: None,
             #[cfg(feature = "test-support")]
             observer: prepared.observer,
@@ -665,6 +667,12 @@ impl QueueActor {
             self.on_terminate();
             Ok(())
         } else {
+            if !self.decided_sent && self.progress.lock().await.can_stop_redundant_batches() {
+                // The pool arbitrates against outcomes already sent by devices, then
+                // drains those outcomes through us. Nothing can reopen a terminal test.
+                self.decided_sent = true;
+                self.send_pool(FromQueue::AllTestsDecided).await?;
+            }
             Ok(())
         }
     }
@@ -776,7 +784,7 @@ impl QueueActor {
     ) {
         if action == Some(TestAction::Complete) {
             // Test has reached final state. No need to run any of the other retries
-            // This doesn't do anything with retries currently in progress
+            // D107 stops running copies only at the pool-wide boundary in on_batch_released.
             let old_size = self.queue.len() as i32;
             self.queue.remove_all(std::slice::from_ref(&result.test));
             self.retry_workers.shift_remove(&result.test);

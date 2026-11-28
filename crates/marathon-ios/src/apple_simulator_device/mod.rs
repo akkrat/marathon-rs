@@ -433,7 +433,9 @@ impl Device for AppleSimulatorDevice {
     /// D93: within what is left of the window the run's stop sealed (`seal_for_stop`), not a window of its own.
     fn join_cancelled_work(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
-            if let marathon_apple::cmd::Termination::Unconfirmed(_) = self.finish_work().await {
+            if let marathon_apple::cmd::Termination::Unconfirmed(_) = self.finish_work().await
+                && !self.pool_stopped()
+            {
                 self.retire();
             }
             Ok(())
@@ -441,6 +443,9 @@ impl Device for AppleSimulatorDevice {
     }
     fn seal_for_stop(&self) {
         self.seal_for_run_stop();
+    }
+    fn seal_for_pool_stop(&self) {
+        self.seal_for_decided_pool();
     }
     fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
         self.signal_seal(finish);

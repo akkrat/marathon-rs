@@ -10,7 +10,7 @@ use crate::{
         shared::{failure, race},
     },
     logging::LogQueue,
-    model::{BatchRef, DevicePoolId, TestBatchResults},
+    model::{BatchRef, DevicePoolId, TestBatch, TestBatchResults},
     runtime::*,
     state_machine::{StateMachine, Transition, dont_transition, transition_to},
     time::{ReplayBarriers, ReplayHooks, SchedulerClock},
@@ -38,6 +38,24 @@ pub struct DeviceActorRef {
     shared: Weak<Shared>,
 }
 impl DeviceActorRef {
+    /// D107: the actor sends outcomes synchronously on core. Preserve an outcome
+    /// already sent even if the pool has not seen it yet.
+    pub(crate) fn discard_redundant(&self, batch: &BatchRef, reason: &Cancellation) -> bool {
+        let Some(shared) = self.shared.upgrade() else {
+            return false;
+        };
+        if matches!(shared.machine.borrow().state(), DeviceState::Terminated)
+            || shared.last_accounted.borrow().ptr_eq(&Arc::downgrade(batch))
+        {
+            return false;
+        }
+        shared.discard_redundant.set(true);
+        if let DeviceState::Running(running) = shared.machine.borrow().state() {
+            running.result.cancel(reason.clone());
+        }
+        true
+    }
+
     pub(crate) fn diagnostic_state(&self) -> &'static str {
         if matches!(self.actor.job().state(), JobState::Completed(_)) {
             return "terminated";
@@ -146,6 +164,8 @@ struct Shared {
     state_since: Cell<std::time::Instant>,
     initialize_job: RefCell<Option<JobRef>>,
     execute_job: RefCell<Option<JobRef>>,
+    last_accounted: RefCell<std::sync::Weak<TestBatch>>,
+    discard_redundant: Cell<bool>,
     terminated_notified: Cell<bool>,
     /// The owner context from `started`: side effects launch siblings under the
     /// actor job, never under the task that happens to run the transition.
@@ -192,6 +212,8 @@ impl DeviceActor {
             state_since: Cell::new(std::time::Instant::now()),
             initialize_job: RefCell::new(None),
             execute_job: RefCell::new(None),
+            last_accounted: RefCell::new(std::sync::Weak::new()),
+            discard_redundant: Cell::new(false),
             terminated_notified: Cell::new(false),
             owner: RefCell::new(None),
             actor: RefCell::new(None),
@@ -390,6 +412,10 @@ impl Shared {
     /// completion won, synchronously, so neither Terminated nor a later IsReady
     /// can overtake it (`DeviceActor.kt:131–152`).
     fn account_for(&self, execution: &Running, reason: String, leaving: bool) {
+        if self.discard_redundant.get() {
+            return;
+        }
+        *self.last_accounted.borrow_mut() = Arc::downgrade(&execution.test_batch);
         // D70: a device leaving with a batch it never started, as one held while its adb server was away, gives it back
         // uncharged. Only a leaving device: one that stays and keeps failing before it starts would loop on its batch.
         if leaving && execution.result.completed().is_none() && self.device.0.withdraw_unstarted(&execution.test_batch)
@@ -601,6 +627,9 @@ impl Shared {
                     Box::pin(async move { device.execute(configuration, pool_id, batch, cell, vendor).await })
                 })
                 .await;
+            if shared.discard_redundant.get() {
+                return Ok(());
+            }
             // The catch order of DeviceActor.kt:190–207, over what the vendor returned.
             match outcome {
                 Ok(()) => shared.transition(DeviceEvent::Complete),

@@ -9,6 +9,7 @@ use crate::{
     error::*,
     execution::{
         DevicePoolMessage, FromScheduler,
+        device::StoppingDevice,
         pool::{DevicePool, DevicePoolActor, PoolParts},
         progress::{PoolProgressAccumulator, ProgressServices},
         queue::{QueueActor, QueueMessage, SharedProgress},
@@ -101,8 +102,6 @@ pub struct SchedulerParts {
     pub context: TaskContext,
     pub cancellation: RunCancellation,
 }
-
-type StoppingDevice = (JobRef, DeviceRef, Option<JobRef>);
 
 #[derive(Clone)]
 pub struct Scheduler {
@@ -629,20 +628,7 @@ impl Inner {
         // before any actor's cancel reaches it.
         let devices: Vec<StoppingDevice> = devices
             .into_iter()
-            .map(|(child, device)| {
-                device.0.seal_for_stop();
-                let cleanup = device.0.begin_stop().map(|cleanup| {
-                    let vendor = self.parts.core.vendor();
-                    self.parts.core.spawn_cleanup(Box::new(move |_| {
-                        Box::pin(async move {
-                            crate::executor::bridge::call_vendor(vendor.as_ref(), Signal::new(), move |_| cleanup)
-                                .await
-                                .map_err(vendor_to_operation)
-                        })
-                    }))
-                });
-                (child, device, cleanup)
-            })
+            .map(|(child, device)| StoppingDevice::begin(&self.parts.core, child, device, false))
             .collect();
         for child in &children {
             child.cancel(reason.clone());
@@ -673,25 +659,11 @@ impl Inner {
         let clock = self.parts.core.clock();
         let timer = self.parts.core.job(JobKind::Ordinary, None);
         // D93: all devices together, so that one device's wait does not delay the stop of another's work.
-        let joins = devices.into_iter().map(|(job, device, cleanup)| {
+        let joins = devices.into_iter().map(|device| {
             let (clock, timer) = (clock.clone(), timer.clone());
             async move {
-                // The device's cancelled call, then its vendor cleanup (D92) or what the vendor keeps running after it
-                // (R3-2: an Apple preparation; D93: the Apple device's one receipt), within the device's one bound.
-                let vendor = self.parts.core.vendor();
-                let held = device.0.clone();
-                let ended = async move {
-                    let _ = job.join().await;
-                    if let Some(cleanup) = cleanup {
-                        let _ = cleanup.join().await;
-                    } else {
-                        let _ = crate::executor::bridge::call_vendor(vendor.as_ref(), Signal::new(), move |_| {
-                            Box::pin(async move { held.join_cancelled_work().await })
-                        })
-                        .await;
-                    }
-                };
-                match device.0.cancellation_cleanup_millis() {
+                let ended = device.join(&self.parts.core);
+                match device.device.0.cancellation_cleanup_millis() {
                     None => ended.await,
                     Some(bound) => {
                         let limit = bound.saturating_add(STOP_MARGIN_MILLIS);
@@ -701,7 +673,7 @@ impl Inner {
                             Level::ERROR,
                             format!(
                                 "Device {} did not stop within {} ms of the run's stop; finishing the run without it",
-                                device.0.info().serial_number,
+                                device.device.0.info().serial_number,
                                 limit
                             ),
                             None,

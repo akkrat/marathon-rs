@@ -12,6 +12,8 @@ pub enum DevicePoolMessage {
     FromQueue(FromQueue),
     /// D48: the wait with this number for a device to return has run out.
     ReturnWaitOver(u64),
+    /// D107: all outcomes already sent when the redundant batches were stopped have been forwarded.
+    FinishDecided,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FromScheduler {
@@ -64,6 +66,8 @@ pub enum FromQueue {
     },
     NoBatch(DeviceInfo),
     Terminated,
+    /// D107: no queued work, and every verdict in the pool is terminal.
+    AllTestsDecided,
     ExecuteBatch(DeviceInfo, BatchRef),
     OutcomeProcessed(DeviceInfo),
 }
@@ -75,7 +79,7 @@ impl PartialEq for FromQueue {
                 a.len() == b.len() && a.iter().all(|worker| b.contains(worker))
             }
             (Self::NoBatch(a), Self::NoBatch(b)) | (Self::OutcomeProcessed(a), Self::OutcomeProcessed(b)) => a == b,
-            (Self::Terminated, Self::Terminated) => true,
+            (Self::Terminated, Self::Terminated) | (Self::AllTestsDecided, Self::AllTestsDecided) => true,
             (Self::ExecuteBatch(a, x), Self::ExecuteBatch(b, y)) => a == b && x == y,
             _ => false,
         }

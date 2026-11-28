@@ -234,6 +234,14 @@ impl AppleSimulatorDevice {
         results: &Arc<Deferred<TestBatchResults>>,
         context: &VendorContext,
     ) -> VendorResult<()> {
+        // A timeout or transport outcome can race the seal. Once the pool has stopped
+        // the batch, cleanup still needs its receipt, but this is not a device failure.
+        if self.pool_stopped() {
+            self.finish_work().await;
+            return Err(VendorError::Cancelled(marathon_core::executor::shared::requested(
+                "All tests in the pool are decided",
+            )));
+        }
         let completed = results.completed();
         let progress = completed
             .as_ref()
@@ -270,7 +278,7 @@ impl AppleSimulatorDevice {
             // D93 (round 7): on a sealed simulator only the seal's cause says what the cancelled batch is.
             let cause = self.state().shutdown.as_ref().map(|s| s.cause);
             // A disposal outside a stop keeps the existing rule for a cancelled call: its caller's own cancel came first.
-            if cause == Some(SealCause::RunStop) {
+            if matches!(cause, Some(SealCause::RunStop | SealCause::PoolStop)) {
                 return Err(error.into_vendor());
             }
             if context.cancellation.reason().is_none() {
@@ -332,7 +340,9 @@ impl AppleSimulatorDevice {
     async fn join_cancelled(&self, job: &Arc<BatchJob>, context: &VendorContext) -> VendorResult<()> {
         let sealed = self.state().shutdown.clone();
         if let Some(shutdown) = sealed {
-            if let Termination::Unconfirmed(_) = self.finish_work().await {
+            if let Termination::Unconfirmed(_) = self.finish_work().await
+                && shutdown.cause != SealCause::PoolStop
+            {
                 self.retire();
             }
             // An error while deciding is this call's error too, as the window's wait's was before D93.
@@ -392,6 +402,18 @@ impl AppleSimulatorDevice {
         if self.signal_finish.current().is_none() {
             state.pulls.limit_to(shutdown.window.deadline);
         }
+    }
+    pub(super) fn seal_for_decided_pool(&self) {
+        let mut state = self.state();
+        // Leave pulls from earlier, reported batches on the provider's normal artifact
+        // budget. The receipt still stops the session and recorder of this batch.
+        self.seal_locked(&mut state, SealCause::PoolStop, None);
+    }
+    pub(super) fn pool_stopped(&self) -> bool {
+        self.state()
+            .shutdown
+            .as_ref()
+            .is_some_and(|s| s.cause == SealCause::PoolStop)
     }
     /// D93 (round 7): records the seal with its cause, closes the device's command gate in the same critical section, and
     /// stops at once what the device registered before it (`stop_all`): nothing registered before the seal starts after it.
@@ -729,7 +751,13 @@ impl AppleSimulatorDevice {
         let reserve =
             marathon_apple::cmd::device_commands::force_reserve_millis(self.services.timeouts.cancelled_batch_millis);
         let now = clock.now_millis();
-        let left = shutdown.window.deadline.saturating_sub(now);
+        // A pool may have finished long before the provider gets here. Its early
+        // receipt bounded the batch, not this run-end lifecycle.
+        let left = if shutdown.cause == SealCause::PoolStop {
+            self.services.timeouts.cancelled_batch_millis
+        } else {
+            shutdown.window.deadline.saturating_sub(now)
+        };
         let left = if shutdown.by_run_stop && floor {
             left.max(reserve)
         } else {

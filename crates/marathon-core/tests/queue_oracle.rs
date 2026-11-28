@@ -58,6 +58,7 @@ fn reply(message: &FromQueue, last: &mut HashMap<String, BatchRef>) -> Value {
             ])
         }
         FromQueue::OutcomeProcessed(device) => json!(["OutcomeProcessed", device.serial_number.to_owned()]),
+        FromQueue::AllTestsDecided => json!(["AllTestsDecided"]),
     }
 }
 
@@ -309,6 +310,12 @@ const NATIVE_VARIANTS: &str = r#"[
 fn native_expected(row: Value) -> Value {
     let mut row = native_order(row);
     d77_finals(&mut row);
+    if row["case"].as_str().unwrap().starts_with("K4:") {
+        // D107: the first pass decides the only test, but the second batch is still out.
+        // The queue-only probe does not act on the notification and subsequently injects a rejection.
+        assert_eq!(row["steps"][2]["replies"], json!([]));
+        row["steps"][2]["replies"] = json!([["AllTestsDecided"]]);
+    }
     row
 }
 

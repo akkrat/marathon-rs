@@ -15,7 +15,7 @@ use crate::error::*;
 use crate::{
     execution::{
         DevicePoolMessage, FromDevice, FromQueue, FromScheduler,
-        device::{DeviceActor, DeviceActorRef, DeviceEvent},
+        device::{DeviceActor, DeviceActorRef, DeviceEvent, StoppingDevice},
         queue::{PreparedQueue, QueueActor, QueueHandle, QueueMessage, RequestBatch, SharedProgress},
     },
     executor::{CoreExecutor, RuntimeActor, shared::*},
@@ -181,6 +181,8 @@ pub struct DevicePoolActor {
     /// D48: the limit ran out with no live device. The pool takes no new device, and ends once those still cleaning up
     /// have reported Terminated, so that their outcomes count.
     ending: bool,
+    /// D107: after the stop cut, only outcomes sent before it may reach the queue.
+    decided: Option<Vec<StoppingDevice>>,
 
     #[cfg(any(test, feature = "test-support"))]
     device_observer: Option<DeviceObserver>,
@@ -306,6 +308,7 @@ impl DevicePoolActor {
             departed: None,
             returning: Vec::new(),
             ending: false,
+            decided: None,
             #[cfg(any(test, feature = "test-support"))]
             device_observer: observer,
         };
@@ -345,6 +348,9 @@ impl DevicePoolActor {
             self.handle_draining(message);
             return Ok(());
         }
+        if self.decided.is_some() {
+            return self.handle_decided(message, task).await;
+        }
         match message {
             DevicePoolMessage::FromScheduler(FromScheduler::Drain(barrier)) => {
                 barrier.0.complete(Ok(()));
@@ -372,10 +378,82 @@ impl DevicePoolActor {
             }
             DevicePoolMessage::FromQueue(FromQueue::NoBatch(device)) => self.park_device(&device),
             DevicePoolMessage::FromQueue(FromQueue::Terminated) => self.on_queue_terminated(task).await?,
+            DevicePoolMessage::FromQueue(FromQueue::AllTestsDecided) => self.stop_redundant_batches(),
             DevicePoolMessage::FromQueue(FromQueue::ExecuteBatch(device, batch)) => self.execute_batch(device, batch),
             DevicePoolMessage::FromQueue(FromQueue::OutcomeProcessed(device)) => self.outcome_processed(&device),
             DevicePoolMessage::ReturnWaitOver(number) => self.return_wait_over(number, task).await?,
+            DevicePoolMessage::FinishDecided => {}
         }
+        Ok(())
+    }
+
+    fn stop_redundant_batches(&mut self) {
+        let reason = requested("All tests in the pool are decided");
+        let mut stopping = Vec::new();
+        for actor in self.diagnostics.borrow().iter() {
+            let serial = serial(&actor.device);
+            let Some(assignment) = self.assignments.get(&serial).filter(|a| a.device == actor.device) else {
+                continue;
+            };
+            if actor.discard_redundant(&assignment.batch, &reason) {
+                let tests = assignment
+                    .batch
+                    .tests
+                    .iter()
+                    .map(|test| test.to_test_name('.', '#'))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                self.log(
+                    Level::INFO,
+                    format!("Stopping redundant batch on {serial} in pool {}: {tests}", self.pool()),
+                );
+                stopping.push(StoppingDevice::begin(
+                    &self.core,
+                    actor.actor.job(),
+                    actor.device.clone(),
+                    true,
+                ));
+            }
+        }
+        self.log(
+            Level::INFO,
+            format!("Pool {} stopped {} redundant batches", self.pool(), stopping.len()),
+        );
+        for device in &stopping {
+            device.job.cancel(reason.clone());
+        }
+        self.decided = Some(stopping);
+        // Outcome sends are synchronous on core, and stopped actors suppress them.
+        // The marker therefore follows every outcome we still owe to the queue.
+        if let Some(pool) = self.myself.as_ref().and_then(Weak::upgrade) {
+            let _ = pool.try_send(DevicePoolMessage::FinishDecided);
+        }
+    }
+
+    async fn handle_decided(&mut self, message: DevicePoolMessage, task: &TaskContext) -> OperationResult<()> {
+        let outcome = match message {
+            DevicePoolMessage::FromDevice(FromDevice::CompletedTestBatch(device, results)) => {
+                QueueMessage::Completed(device.0.info(), results)
+            }
+            DevicePoolMessage::FromDevice(FromDevice::ReturnTestBatch(device, batch, reason)) => {
+                QueueMessage::ReturnBatch(device.0.info(), batch, reason)
+            }
+            DevicePoolMessage::FromDevice(FromDevice::RejectTestBatch(device, batch)) => {
+                QueueMessage::RejectBatch(device.0.info(), batch)
+            }
+            DevicePoolMessage::FinishDecided => {
+                if let Some(devices) = &self.decided {
+                    let joined = futures_util::future::join_all(devices.iter().map(|device| device.join(&self.core)));
+                    let _ = race(self.draining.wait(), joined).await;
+                }
+                if self.draining.completed().is_none() {
+                    self.on_queue_terminated(task).await?;
+                }
+                return Ok(());
+            }
+            _ => return Ok(()),
+        };
+        self.send_to_queue(outcome);
         Ok(())
     }
 

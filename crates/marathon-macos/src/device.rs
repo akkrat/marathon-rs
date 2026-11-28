@@ -1182,6 +1182,10 @@ impl Device for MacosDevice {
             execution.pulls.limit_to(shutdown.window.deadline);
         }
     }
+    fn seal_for_pool_stop(&self) {
+        let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
+        self.seal_locked(&mut execution, SealCause::PoolStop);
+    }
     fn seal_for_signal(&self, finish: marathon_core::signal_finish::SignalFinish) {
         self.signal_finish.set(finish);
         self.device_commands.limit_commands_for_signal(finish);
@@ -1317,13 +1321,20 @@ impl Device for MacosDevice {
                 running.result.complete(outcome);
                 Ok(())
             });
-            match job.result.wait_in(context.cancellation.clone()).await {
+            let outcome = job.result.wait_in(context.cancellation.clone()).await;
+            if self.seal_cause() == Some(SealCause::PoolStop) {
+                self.finish_work().await;
+                return Err(VendorError::Cancelled(marathon_core::executor::shared::requested(
+                    "All tests in the pool are decided",
+                )));
+            }
+            match outcome {
                 Ok(_) => Ok(()),
                 Err(VendorError::Cancelled(reason)) => {
                     self.join_cancelled(&job).await?;
                     // D93 (round 7): on a sealed Mac only the seal's cause says what the cancelled batch is.
                     // A disposal outside a stop keeps the existing rule: its caller's own cancel came first.
-                    if self.seal_cause() == Some(SealCause::RunStop) {
+                    if matches!(self.seal_cause(), Some(SealCause::RunStop | SealCause::PoolStop)) {
                         return Err(VendorError::Cancelled(reason));
                     }
                     if context.cancellation.reason().is_none() {
