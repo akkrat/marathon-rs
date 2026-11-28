@@ -2379,3 +2379,215 @@ fn a_monitor_panic_before_the_scheduler_is_the_runs_cause_d88() {
     };
     assert_eq!(error.failure().message.as_deref(), Some(TRACKER_PROBE), "{error:?}");
 }
+
+/// Run the real pool on a stopped clock until it announces that it is waiting. Then either supply a device, or
+/// prove that the wait ends at D48's ordinary deadline, not when the failing device gives back its third batch.
+type BatchGate = (String, tokio::sync::oneshot::Sender<()>);
+
+struct GatedBatches {
+    runner: AndroidRunnerExecutor,
+    gates: tokio::sync::mpsc::UnboundedSender<BatchGate>,
+    release_rest: Arc<AtomicBool>,
+}
+
+impl AndroidBatchExecutor for GatedBatches {
+    fn execute<'a>(
+        &'a self,
+        device: &'a AndroidDevice,
+        configuration: Arc<marathon_config::Configuration>,
+        pool: DevicePoolId,
+        batch: BatchRef,
+        result: Arc<Deferred<TestBatchResults>>,
+        context: VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            if !self.release_rest.load(Ordering::Acquire) {
+                let (release, wait) = tokio::sync::oneshot::channel();
+                if self.gates.send((device.adb_serial().to_owned(), release)).is_ok() {
+                    let _ = wait.await;
+                }
+            }
+            self.runner
+                .execute(device, configuration, pool, batch, result, context)
+                .await
+        })
+    }
+}
+
+fn run_pool_d103(with_peer: bool) {
+    const BAD: &str = "emulator-5554";
+    const GOOD: &str = "emulator-5556";
+
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (mut script, _, _) = load("same-server");
+    let rules = script["shell"].as_array_mut().unwrap();
+    if !with_peer {
+        let one = rules
+            .iter()
+            .find(|rule| {
+                rule["regex"]
+                    .as_str()
+                    .is_some_and(|pattern| pattern.contains("T00#test"))
+            })
+            .unwrap()["stdout"]
+            .clone();
+        rules
+            .iter_mut()
+            .find(|rule| {
+                rule["regex"]
+                    .as_str()
+                    .is_some_and(|pattern| pattern.contains("-e log true"))
+            })
+            .unwrap()["stdout"] = one;
+    }
+    script["devices"][0]["shell"] = json!([{"regex": "^am instrument.* -e class ", "exit_code": 1}]);
+    script["devices"][1]["shell"] = json!([]);
+
+    let runtime = checked(tokio::runtime::Builder::new_multi_thread().enable_all().build());
+    let mut server = Arc::new(runtime.block_on(support::server(script)));
+    let handle = server.clone();
+    let output = checked(tempfile::tempdir());
+    let base = PathBuf::from("/");
+    let context = BindingContext {
+        profile: Profile::Marathonfile,
+        marathonfile: base.join("Marathonfile"),
+        marathonfile_dir: base.clone(),
+        process_dir: base.clone(),
+        environment: vec![],
+        now: jcompat::jtime::instant_of(0, 0).unwrap(),
+        analytics_tracking: false,
+        bugsnag_reporting: false,
+    };
+    let options = Options {
+        quota: Some(5),
+        batch_size: Some(1),
+        device_initialization_timeout_millis: Some(60_000),
+        ..Options::default()
+    };
+    let configuration = checked(
+        MarathonConfigurationLoader.parse_sync(&marathonfile(&[server.port()], output.path(), &options), &context),
+    );
+
+    let (passed, log) = checked(CoreExecutor::run(move |core| {
+        Box::pin(async move {
+            let logging = Arc::new(Mutex::new(LogSettings::default()));
+            let recording = RecordingConsole::new(logging.clone());
+            let hooks = RuntimeHooks::live();
+            let barriers = hooks.barriers();
+            let (gates, mut arrivals) = tokio::sync::mpsc::unbounded_channel();
+            let release_rest = Arc::new(AtomicBool::new(!with_peer));
+            let executor = Arc::new(GatedBatches {
+                runner: AndroidRunnerExecutor::default(),
+                gates,
+                release_rest: release_rest.clone(),
+            });
+            let inputs = RunInputs {
+                configuration: Arc::new(configuration),
+                logging,
+                console: recording.clone(),
+                stderr: Arc::new(|_| {}),
+                cwd: base,
+                environment: vec![],
+                system_information: vec![],
+                vendor: Box::new(move |deps| {
+                    Box::pin(async move { create_services_with_executor(deps, executor).await })
+                }),
+                metrics: Box::new(|_, _| MetricsBackends {
+                    setup: Arc::new(NoMetricsSetup),
+                    backend: None,
+                }),
+                analytics: None,
+                extra_reporters: Box::new(marathon_core::construction::standard_reporters),
+                hooks,
+                barriers,
+                timer: None,
+                wall: Arc::new(host_millis),
+                exit: None,
+                signal_trigger: None,
+                signal_hooks: Default::default(),
+                live_output: true,
+            };
+            let marathon = construct(core.clone(), inputs).await.map_err(OperationError::Failed)?;
+            let drive = async {
+                if !with_peer {
+                    return;
+                }
+                let arrive = |gate: Option<BatchGate>, expected| {
+                    let (serial, release) = gate.expect("device began a batch");
+                    assert_eq!(serial, expected);
+                    release
+                };
+                let mut bad = arrive(arrivals.recv().await, BAD);
+                checked(handle.connect_device(GOOD));
+                let mut good = arrive(arrivals.recv().await, GOOD);
+                for strike in 1..=3 {
+                    checked(good.send(()));
+                    // The peer cannot take its next batch until the real runner and policy have finished the last.
+                    good = arrive(arrivals.recv().await, GOOD);
+                    if strike == 3 {
+                        release_rest.store(true, Ordering::Release);
+                        checked(bad.send(()));
+                        checked(good.send(()));
+                        return;
+                    }
+                    checked(bad.send(()));
+                    bad = arrive(arrivals.recv().await, BAD);
+                }
+            };
+            let (passed, ()) = checked(
+                tokio::time::timeout(Duration::from_secs(60), async {
+                    tokio::join!(marathon.run(ExecutionCommand::Run), drive)
+                })
+                .await,
+            );
+            Ok((passed?, recording.lines()))
+        })
+    }));
+    assert_eq!(passed, with_peer);
+    assert_eq!(
+        log.iter().any(|line| matches!(line, Line::Log {message, ..} if
+            message.contains("reached 3 batch strikes without progress")
+            || message.contains("in 3 batches in a row; disconnecting it"))),
+        with_peer
+    );
+    assert!(
+        !log.iter()
+            .any(|line| matches!(line, Line::Log { message, .. } if message.contains("no device left, waiting up to")))
+    );
+    let actual = |serial: &str| {
+        server
+            .transcript()
+            .iter()
+            .filter(|r| r["type"] == "shell" && r["serial"] == serial)
+            .filter_map(|r| {
+                r["command"]
+                    .as_str()?
+                    .split_once(" -e class ")
+                    .map(|(_, test)| test.to_owned())
+            })
+            .collect::<Vec<_>>()
+    };
+    let bad = actual(BAD);
+    let good = actual(GOOD);
+    if with_peer {
+        assert_eq!(bad.len(), 3);
+        assert_eq!(good.len(), 20);
+        for test in bad {
+            assert_eq!(good.iter().filter(|candidate| **candidate == test).count(), 1, "{test}");
+        }
+    } else {
+        assert_eq!(bad.len(), 6);
+        assert!(good.is_empty());
+    }
+    checked(runtime.block_on(Arc::get_mut(&mut server).expect("run joined").shutdown()));
+}
+
+#[test]
+fn three_peer_supported_strikes_hand_retries_to_the_healthy_android_device_d103() {
+    run_pool_d103(true);
+}
+
+#[test]
+fn a_single_android_device_is_not_retired_after_three_failed_batches_d103() {
+    run_pool_d103(false);
+}

@@ -1,13 +1,14 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AdamAndroidDevice.kt,
 //! BaseAndroidDevice.kt, AndroidDevice.kt and adam/LogcatManager.kt.
 use crate::{
+    batch_health::{BatchStreak, PeerId, PeerProgress, PoolProgress},
     cleanup::{self, ChildSignal, DeviceWork, Work},
     models::*,
     remote_file_manager::RemoteFileManager,
     requests::*,
     services::AndroidRuntime,
     support::*,
-    tracker::{DeviceStateTracker, is_passing},
+    tracker::{ConnectionEpoch, DeviceStateTracker, is_passing},
     version::AndroidVersion,
 };
 use marathon_adb::client::{
@@ -35,6 +36,7 @@ use marathon_error::{AdbKind, AndroidKind, FailureKind};
 use marathon_logging::{Component, Level};
 use std::{
     collections::HashMap,
+    net::SocketAddr,
     sync::{
         Arc, Mutex, OnceLock, Weak,
         atomic::{AtomicBool, AtomicI64, Ordering},
@@ -61,6 +63,20 @@ struct BatchRecord {
     /// Weak for the same reason: the listener holds the device and the result.
     results: Option<Weak<dyn crate::listeners::AndroidTestRunListener>>,
     stage: Stage,
+    evidence: BatchEvidence,
+}
+#[derive(Clone, Copy)]
+pub(crate) enum BatchEvidence {
+    None,
+    /// A command failure or output wait expired, not necessarily because of this device.
+    Candidate,
+    /// A reported outcome or an ambiguous failure in any instrumentation rules out a batch strike.
+    Excluded,
+}
+struct BatchStart {
+    pool: Arc<PoolProgress>,
+    progress: u64,
+    connection: Option<ConnectionEpoch>,
 }
 enum Stage {
     /// No instrumentation of it has been submitted.
@@ -188,7 +204,7 @@ struct Inner {
     work: DeviceWork,
     screenrecord_active: AtomicBool,
     perfetto_active: AtomicBool,
-    adb_serial: String,
+    peer_id: PeerId,
     runtime: Arc<AndroidRuntime>,
     tracker: Arc<DeviceStateTracker>,
     logger: Component,
@@ -209,6 +225,8 @@ struct Inner {
     prepare_failed_at: OnceLock<i64>,
     /// D70.
     batch: Mutex<Option<BatchRecord>>,
+    peer_progress: Arc<PeerProgress>,
+    batch_streak: Mutex<BatchStreak>,
     /// D87: when this device's preparation must end, on the run's vendor clock; `i64::MAX` for none.
     preparation_deadline: AtomicI64,
     /// D87: the deadline above was taken over from the instance this one replaces (D85), and the actor keeps it.
@@ -239,18 +257,23 @@ impl AndroidDevice {
         tracker: Arc<DeviceStateTracker>,
         runtime: Arc<AndroidRuntime>,
     ) -> Self {
-        Self::with_remote_cleanup_limit(client, adb_serial, tracker, runtime, None)
+        Self::with_provider_state(client, adb_serial, tracker, runtime, None, Arc::default())
     }
-    pub(crate) fn with_remote_cleanup_limit(
+    pub(crate) fn with_provider_state(
         server_client: AndroidDebugBridgeClient,
         adb_serial: String,
         tracker: Arc<DeviceStateTracker>,
         runtime: Arc<AndroidRuntime>,
         remote_cleanup_limit: Option<Arc<tokio::sync::Semaphore>>,
+        peer_progress: Arc<PeerProgress>,
     ) -> Self {
         let logger = runtime.component("marathon_android::device");
         let cleanup_client = server_client.scoped().without_idle_limit();
         let client = server_client.scoped();
+        let peer_id = PeerId(
+            SocketAddr::new(server_client.host(), server_client.port()),
+            adb_serial.into(),
+        );
         Self {
             inner: Arc::new(Inner {
                 reference: Mutex::default(),
@@ -262,7 +285,7 @@ impl AndroidDevice {
                 remote_cleanup_limit,
                 screenrecord_active: AtomicBool::new(false),
                 perfetto_active: AtomicBool::new(false),
-                adb_serial,
+                peer_id,
                 runtime,
                 tracker,
                 logger,
@@ -292,6 +315,8 @@ impl AndroidDevice {
                 return_wait_used: AtomicI64::new(0),
                 prepare_failed_at: OnceLock::new(),
                 batch: Mutex::default(),
+                peer_progress,
+                batch_streak: Mutex::default(),
                 preparation_deadline: AtomicI64::new(i64::MAX),
                 preparation_continued: AtomicBool::new(false),
                 run_as_refused: Mutex::default(),
@@ -334,8 +359,8 @@ impl AndroidDevice {
     pub(crate) fn prepare_failed_at(&self) -> Option<i64> {
         self.inner.prepare_failed_at.get().copied()
     }
-    /// D24: the provider has dropped this device object.
-    fn is_disconnected(&self) -> bool {
+    /// D24: this instance cannot be used again, regardless of adb's list.
+    pub(crate) fn is_disconnected(&self) -> bool {
         self.inner.lost.load(Ordering::Acquire)
     }
     fn is_live(&self) -> bool {
@@ -385,7 +410,7 @@ impl AndroidDevice {
         &self.inner.bounded_client
     }
     pub fn adb_serial(&self) -> &str {
-        &self.inner.adb_serial
+        &self.inner.peer_id.1
     }
     pub fn runtime(&self) -> &Arc<AndroidRuntime> {
         &self.inner.runtime
@@ -1169,18 +1194,89 @@ impl AndroidDevice {
             result: Arc::downgrade(result),
             results: None,
             stage: Stage::Unstarted,
+            evidence: BatchEvidence::None,
         });
         true
     }
-    fn end_batch(&self, batch: &BatchRef) {
-        if let Some(r) = lock(&self.inner.batch).as_mut()
-            && Arc::ptr_eq(&r.batch, batch)
+    fn end_batch(&self, batch: &BatchRef) -> Option<BatchEvidence> {
+        let mut record = lock(&self.inner.batch);
+        let r = record
+            .as_mut()
+            .filter(|r| Arc::ptr_eq(&r.batch, batch) && !matches!(r.stage, Stage::Withdrawn))?;
+        r.results = None;
+        r.stage = Stage::Done;
+        Some(r.evidence)
+    }
+    pub(crate) fn note_batch_evidence(&self, batch: &BatchRef, evidence: BatchEvidence) {
+        if let Some(r) = lock(&self.inner.batch)
+            .as_mut()
+            .filter(|r| Arc::ptr_eq(&r.batch, batch) && !matches!(r.stage, Stage::Withdrawn | Stage::Done))
+            && (!matches!(evidence, BatchEvidence::Candidate) || matches!(r.stage, Stage::Started))
+            && !matches!(r.evidence, BatchEvidence::Excluded)
         {
-            r.results = None;
-            if !matches!(r.stage, Stage::Withdrawn) {
-                r.stage = Stage::Done;
-            }
+            r.evidence = evidence;
         }
+    }
+    fn batch_loss(
+        &self,
+        outcome: &VendorResult<()>,
+        result: &Deferred<TestBatchResults>,
+        evidence: BatchEvidence,
+        start: &BatchStart,
+        signal: &dyn CancellationSignal,
+    ) -> Option<VendorError> {
+        if matches!(outcome, Err(VendorError::Cancelled(_) | VendorError::LeavePool { .. }))
+            || signal.reason().is_some()
+            || self.is_disconnected()
+            || self.stopping()
+        {
+            return None;
+        }
+        match result.completed() {
+            Some(Ok(results)) => {
+                let terminal = results.finished.iter().chain(&results.failed);
+                if terminal
+                    .clone()
+                    .any(|test| matches!(test.status, TestStatus::Passed | TestStatus::Failure))
+                {
+                    lock(&self.inner.batch_streak).reset();
+                    start.pool.completed(&self.inner.peer_id);
+                    return None;
+                }
+                // Valid skips alone are not evidence against the device, even if output then stalls.
+                if results.uncompleted.is_empty() && terminal.count() != 0 {
+                    return None;
+                }
+            }
+            Some(Err(_)) => return None, // The core already sealed this result.
+            _ => {}
+        }
+        let epoch = start.connection?;
+        let tracker = &self.inner.tracker;
+        let serial = self.adb_serial();
+        // D49 and other transport errors take their own path, not the batch strike path.
+        if outcome.is_err() || !matches!(evidence, BatchEvidence::Candidate) {
+            return None;
+        }
+        let count = tracker.on_unchanged_connection(serial, epoch, || {
+            if signal.reason().is_some() || self.stopping() || !self.is_live() {
+                return None;
+            }
+            let count = lock(&self.inner.batch_streak).strike(&start.pool, &self.inner.peer_id, start.progress)?;
+            self.mark_disconnected();
+            self.seal();
+            Some(count)
+        })?;
+        // The pool can finish the batch immediately. The provider retains the same cleanup task if adb
+        // later drops this instance, and waits for it before setting up its replacement on that serial.
+        self.start_cleanup(true);
+        let reason = format!(
+            "Device {} reached {count} batch strikes without progress while peers made progress; disconnecting it",
+            self.serial_number()
+        );
+        self.log(Level::WARN, &reason, None);
+        // The device actor keeps the batch's result (including incompletes) before terminating.
+        Some(VendorError::DeviceLost(failure(FailureKind::DeviceLost, reason)))
     }
     /// U197: `listener` gives `batch`'s results, so a device that leaves once the batch has started can end it with what
     /// ran, as one waiting at the gate does. Called once, before the batch's first submission, by whoever owns the
@@ -1602,6 +1698,12 @@ impl Device for AndroidDevice {
                     device.pass_gate(signal.clone()).await?;
                     device.ensure_not_withdrawn(&batch)?;
                     let blips = device.inner.tracker.blips(device.adb_serial());
+                    let pool_progress = device.inner.peer_progress.for_pool(pool.clone());
+                    let start = BatchStart {
+                        progress: pool_progress.snapshot(),
+                        pool: pool_progress,
+                        connection: device.inner.tracker.connection_epoch(device.adb_serial()),
+                    };
                     let context = VendorContext {
                         cancellation: signal.clone(),
                         ..context
@@ -1609,9 +1711,16 @@ impl Device for AndroidDevice {
                     let outcome = device
                         .runtime()
                         .executor
-                        .execute(&device, configuration, pool, batch.clone(), result, context.clone())
+                        .execute(
+                            &device,
+                            configuration,
+                            pool,
+                            batch.clone(),
+                            result.clone(),
+                            context.clone(),
+                        )
                         .await;
-                    device.end_batch(&batch);
+                    let evidence = device.end_batch(&batch);
                     // D41: the actor asks for the next batch as this returns, and a batch given to a device that does
                     // not come back goes back to the queue charged to its tests, which never ran. So it waits here. An
                     // actor terminated meanwhile accounts for this batch as usual.
@@ -1621,6 +1730,11 @@ impl Device for AndroidDevice {
                             Ok(())
                         })
                         .await?;
+                    }
+                    if let Some(evidence) = evidence
+                        && let Some(loss) = device.batch_loss(&outcome, &result, evidence, &start, signal.as_ref())
+                    {
+                        return Err(loss);
                     }
                     match outcome {
                         // D22, D41: the device outlives a lost adb server or a brief `offline`, so only its batch
@@ -1749,6 +1863,7 @@ impl Device for AndroidDevice {
                         result: Weak::new(),
                         results: None,
                         stage: Stage::Withdrawn,
+                        evidence: BatchEvidence::None,
                     });
                     return true;
                 }

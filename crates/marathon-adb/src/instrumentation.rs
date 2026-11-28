@@ -171,6 +171,20 @@ impl InstrumentationResponseTransformer {
         }
     }
 
+    /// A terminal report from instrumentation (including an explicit refusal from `am`), not a
+    /// result that `transform` synthesizes from the output when the shell closes.
+    pub(crate) fn reported_outcome(&self) -> bool {
+        self.session_ended || (self.start_refused && !self.test_started)
+    }
+
+    pub(crate) fn no_test_or_outcome_reported(&self) -> bool {
+        !self.test_started && !self.reported_outcome() && !self.has_final_code_line()
+    }
+
+    fn has_final_code_line(&self) -> bool {
+        whole_code_line(self.buffer.rsplit(['\n', '\r']).next().unwrap_or_default())
+    }
+
     /// D25: whether the output stopped before the instrumentation's end, which `transform` cannot say: it calls such a
     /// stream failed only if it lacks tests, and fine otherwise (N38). `am instrument -r` ends every instrumentation
     /// that ran, crashed or not, with `INSTRUMENTATION_CODE`, last of all, so a stream without one was cut off.
@@ -186,8 +200,7 @@ impl InstrumentationResponseTransformer {
     /// only whole: `INSTRUMENTATION_CODE: <int>`. The word alone, or with no number yet, is a cut inside that line, and a
     /// runner that omits `numtests` would otherwise pass its partial list.
     pub fn ended_without_result(&self) -> bool {
-        let last_line = self.buffer.rsplit(['\n', '\r']).next().unwrap_or_default();
-        if self.session_ended || (self.start_refused && !self.test_started) || whole_code_line(last_line) {
+        if self.reported_outcome() || self.has_final_code_line() {
             return false;
         }
         let blank = self.buffer.chars().all(|c| matches!(c, ' ' | '\t' | '\n' | '\r'));

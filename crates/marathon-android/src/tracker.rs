@@ -34,6 +34,8 @@ pub(crate) fn is_passing(state: DeviceState) -> bool {
 struct Gate {
     /// D22: false while this tracker's adb server is away.
     server: bool,
+    /// An outage that has already cleared can still explain a failed batch.
+    outages: u64,
     /// D41: the serials in their grace period.
     held: Vec<String>,
     /// D41: how many grace periods each serial has had in this run.
@@ -53,6 +55,18 @@ impl Gate {
     fn closed_for(&self, serial: &str) -> bool {
         !self.server || self.held.iter().any(|held| held == serial) || self.restoring.contains_key(serial)
     }
+
+    fn connection_epoch(&self, serial: &str) -> Option<ConnectionEpoch> {
+        (!self.closed_for(serial)).then(|| ConnectionEpoch {
+            outages: self.outages,
+            blips: self.blips.get(serial).copied().unwrap_or(0),
+        })
+    }
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ConnectionEpoch {
+    outages: u64,
+    blips: u32,
 }
 pub struct DeviceStateTracker {
     devices: Mutex<Vec<(String, DeviceState)>>,
@@ -67,6 +81,7 @@ impl Default for DeviceStateTracker {
             prepare_failed: tokio::sync::Notify::new(),
             gate: tokio::sync::watch::Sender::new(Gate {
                 server: true,
+                outages: 0,
                 held: vec![],
                 blips: HashMap::new(),
                 server_away_since: None,
@@ -84,6 +99,7 @@ impl DeviceStateTracker {
     pub(crate) fn server_lost(&self, now: i64) {
         self.gate.send_modify(|gate| {
             gate.server = false;
+            gate.outages += 1;
             gate.server_away_since = Some(now);
             for (serial, since) in &gate.held_since {
                 gate.held_before_outage.entry(serial.clone()).or_insert(*since);
@@ -119,6 +135,23 @@ impl DeviceStateTracker {
     }
     pub(crate) fn is_server_available(&self) -> bool {
         self.gate.borrow().server
+    }
+    pub(crate) fn connection_epoch(&self, serial: &str) -> Option<ConnectionEpoch> {
+        self.gate.borrow().connection_epoch(serial)
+    }
+    /// Do not charge a batch strike if the tracker saw an outage or grace period during the batch.
+    pub(crate) fn on_unchanged_connection<T>(
+        &self,
+        serial: &str,
+        epoch: ConnectionEpoch,
+        action: impl FnOnce() -> Option<T>,
+    ) -> Option<T> {
+        let gate = self.gate.borrow();
+        if gate.connection_epoch(serial) == Some(epoch) {
+            action()
+        } else {
+            None
+        }
     }
     /// D41: a grace period starts for this serial. One that went offline again while its last grace's hold is still on
     /// (its recovery is running) has been unavailable throughout, so it keeps that hold and its start (D48).

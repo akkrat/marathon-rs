@@ -103,6 +103,13 @@ impl InstrumentOptions {
         result
     }
 }
+/// Separate a nonzero shell exit from reported instrumentation results and ambiguous stream ends.
+pub enum InstrumentationOutcome {
+    Reported,
+    NonzeroExitBeforeTest,
+    Unclassified,
+}
+
 #[derive(Clone, Debug)]
 pub struct TestRunnerRequest {
     pub test_package: String,
@@ -120,6 +127,7 @@ pub struct TestRunnerRequest {
     transformer: InstrumentationResponseTransformer,
     exit_code: Option<i32>,
     ended_without_result: bool,
+    shell_ended: bool,
 }
 impl TestRunnerRequest {
     pub fn new(test_package: String, instrument_options: InstrumentOptions, supported_features: Vec<Feature>) -> Self {
@@ -139,6 +147,7 @@ impl TestRunnerRequest {
             transformer: InstrumentationResponseTransformer::new(),
             exit_code: None,
             ended_without_result: false,
+            shell_ended: false,
         }
     }
     pub fn command(&self) -> String {
@@ -181,6 +190,21 @@ impl TestRunnerRequest {
     pub fn ended_without_result(&self) -> bool {
         self.ended_without_result
     }
+    /// A final report can arrive before the shell ends. Report the shell's outcome as soon as it closes,
+    /// even if D25 still has synthesized events to deliver.
+    pub fn outcome(&self) -> Option<InstrumentationOutcome> {
+        if self.transformer.reported_outcome() {
+            Some(InstrumentationOutcome::Reported)
+        } else if !self.shell_ended {
+            None
+        } else if self.exit_code.is_some_and(|code| code != 0) && self.transformer.no_test_or_outcome_reported() {
+            // A nonzero shell-v2 exit is a command failure, not necessarily a device failure. A missing
+            // exit frame, or EOF on shell v1, cannot tell a command exit from a socket cut.
+            Some(InstrumentationOutcome::NonzeroExitBeforeTest)
+        } else {
+            Some(InstrumentationOutcome::Unclassified)
+        }
+    }
     /// The exit code the shell reported; a v1 shell and a dropped connection report none.
     pub fn exit_code(&self) -> Option<i32> {
         self.exit_code
@@ -217,6 +241,7 @@ impl FallibleAsyncCompatShellCommandRequest for TestRunnerRequest {
             .map(Option::flatten)
     }
     async fn close(&mut self, send: &mut VecDeque<Self::Item>) {
+        self.shell_ended = true;
         self.ended_without_result = self.transformer.ended_without_result();
         if !self.ended_without_result {
             send.extend(self.transformer.transform());

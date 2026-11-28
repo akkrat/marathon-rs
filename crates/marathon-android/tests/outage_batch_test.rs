@@ -880,3 +880,584 @@ fn a_test_ending_when_the_batch_is_lost_counts_without_later_attachments_u197() 
     );
     assert_eq!(sent, 1);
 }
+
+fn d103_script() -> serde_json::Value {
+    let mut script = base_script(27, vec!["shell_v2"]);
+    script["devices"][0]["getprop"]["sys.boot_completed"] = json!("1");
+    script["shell"].as_array_mut().unwrap().extend([
+        json!({"regex": "^am instrument.* -e class pkg.Clazz#launch ", "exit_code": 1}),
+        json!({"regex": "^am instrument.* -e class pkg.Clazz#passed ", "stdout": completes("passed")}),
+        json!({
+            "regex": "^am instrument.* -e class pkg.Clazz#failed ",
+            "stdout": completes("failed").replace(
+                "INSTRUMENTATION_STATUS_CODE: 0",
+                "INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: expected\nINSTRUMENTATION_STATUS_CODE: -2")
+        }),
+        json!({"regex": "^am instrument.* -e class pkg.Clazz#held ", "exit_code": 1}),
+    ]);
+    script
+}
+
+fn d103_peers_script() -> serde_json::Value {
+    let mut script = d103_script();
+    let mut peer = script["devices"][0].clone();
+    peer["serial"] = json!("emulator-5556");
+    script["devices"].as_array_mut().unwrap().push(peer);
+    script
+}
+
+fn d103_batch(
+    device: &DeviceRef,
+    runtime: &AndroidRuntime,
+    context: &VendorContext,
+    method: &str,
+) -> (
+    tokio::task::JoinHandle<VendorResult<()>>,
+    Arc<Deferred<TestBatchResults>>,
+) {
+    d103_batch_in_pool(device, runtime, context, method, "pool")
+}
+
+fn d103_batch_in_pool(
+    device: &DeviceRef,
+    runtime: &AndroidRuntime,
+    context: &VendorContext,
+    method: &str,
+    pool: &str,
+) -> (
+    tokio::task::JoinHandle<VendorResult<()>>,
+    Arc<Deferred<TestBatchResults>>,
+) {
+    let test = test(method);
+    runtime.identifier.put(&test, &runtime.bundles[0]);
+    let cell = SharedDeferred::new();
+    let (device, configuration, batch, result, context, pool) = (
+        device.clone(),
+        runtime.dependencies.configuration.clone(),
+        batch(method, vec![test]),
+        cell.clone(),
+        context.clone(),
+        DevicePoolId { name: pool.into() },
+    );
+    let running = tokio::spawn(async move { device.0.execute(configuration, pool, batch, result, context).await });
+    (running, cell)
+}
+
+async fn d103_progress(device: &DeviceRef, runtime: &AndroidRuntime, context: &VendorContext, method: &str) {
+    let (run, cell) = d103_batch(device, runtime, context, method);
+    checked(outcome(run).await);
+    let result = checked(cell.completed().expect("batch result"));
+    assert_eq!(
+        (result.finished.len(), result.failed.len()),
+        if method == "passed" { (1, 0) } else { (0, 1) }
+    );
+}
+
+async fn d103_incomplete(device: &DeviceRef, runtime: &AndroidRuntime, context: &VendorContext, method: &str) {
+    let (run, cell) = d103_batch(device, runtime, context, method);
+    let ran = outcome(run).await;
+    assert!(
+        ran.is_ok(),
+        "uncompleted {method} batch must not retire the device: {ran:?}"
+    );
+    assert_eq!(
+        names(&checked(cell.completed().expect("batch result")).uncompleted),
+        [method]
+    );
+}
+
+#[test]
+fn only_fresh_progress_in_the_same_pool_can_support_each_strike_d103() {
+    run_with_stopped_clock(runner_configuration(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(d103_peers_script()).await;
+            let provider = AdamDeviceProvider::new(runtime_with(
+                &runtime,
+                &[server.port()],
+                Arc::new(AndroidRunnerExecutor::default()),
+            ))?;
+            provider.initialize(context.clone()).await?;
+            let device = connected(&provider).await;
+            let peer = connected(&provider).await;
+            // The streak has not started, so none of these completions are evidence for it.
+            for _ in 0..3 {
+                d103_progress(&peer, &runtime, &context, "passed").await;
+            }
+            for _ in 0..4 {
+                d103_incomplete(&device, &runtime, &context, "launch").await;
+            }
+            // Another pool's progress cannot justify a strike, even after the streak starts.
+            for _ in 0..4 {
+                let (run, cell) = d103_batch_in_pool(&peer, &runtime, &context, "passed", "other");
+                outcome(run).await?;
+                assert_eq!(checked(cell.completed().expect("other pool result")).finished.len(), 1);
+                d103_incomplete(&device, &runtime, &context, "launch").await;
+            }
+            for _ in 0..2 {
+                // Consume each burst once, regardless of the number of completions in it.
+                for _ in 0..3 {
+                    d103_progress(&peer, &runtime, &context, "passed").await;
+                }
+                for _ in 0..4 {
+                    d103_incomplete(&device, &runtime, &context, "launch").await;
+                }
+            }
+            d103_progress(&peer, &runtime, &context, "passed").await;
+            assert!(matches!(
+                outcome(d103_batch(&device, &runtime, &context, "launch").0).await,
+                Err(VendorError::DeviceLost(_))
+            ));
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
+#[test]
+fn a_pass_or_failure_resets_the_android_zero_progress_streak_d103() {
+    run_with_stopped_clock(runner_configuration(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(d103_peers_script()).await;
+            let provider = AdamDeviceProvider::new(runtime_with(
+                &runtime,
+                &[server.port()],
+                Arc::new(AndroidRunnerExecutor::default()),
+            ))?;
+            provider.initialize(context.clone()).await?;
+            let device = connected(&provider).await;
+            let peer = connected(&provider).await;
+            for progress in ["passed", "failed"] {
+                d103_incomplete(&device, &runtime, &context, "launch").await; // Open the streak.
+                for _ in 0..2 {
+                    d103_progress(&peer, &runtime, &context, "passed").await;
+                    d103_incomplete(&device, &runtime, &context, "launch").await;
+                }
+                d103_progress(&device, &runtime, &context, progress).await;
+                assert!(device.0.info().healthy);
+            }
+            d103_incomplete(&device, &runtime, &context, "launch").await;
+            for _ in 0..2 {
+                d103_progress(&peer, &runtime, &context, "failed").await;
+                d103_incomplete(&device, &runtime, &context, "launch").await;
+            }
+            d103_progress(&peer, &runtime, &context, "failed").await;
+            let (run, cell) = d103_batch(&device, &runtime, &context, "launch");
+            assert!(matches!(outcome(run).await, Err(VendorError::DeviceLost(_))));
+            assert_eq!(checked(cell.completed().expect("batch result")).uncompleted.len(), 1);
+            assert_eq!(device.0.info().network_state, NetworkState::Disconnected);
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
+/// Keep otherwise countable launch failures in flight until both devices are restored. A snapshot of server
+/// availability at the end of the batch would wrongly let those failures consume peer progress.
+struct HeldOutage {
+    runner: AndroidRunnerExecutor,
+    at_gate: AtomicUsize,
+    release: tokio::sync::watch::Receiver<bool>,
+}
+impl AndroidBatchExecutor for HeldOutage {
+    fn execute<'a>(
+        &'a self,
+        device: &'a AndroidDevice,
+        configuration: Arc<Configuration>,
+        pool: DevicePoolId,
+        batch: BatchRef,
+        result: Arc<Deferred<TestBatchResults>>,
+        context: VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            let held = batch.id == "held";
+            let outcome = self
+                .runner
+                .execute(device, configuration, pool, batch, result, context)
+                .await;
+            if held {
+                self.at_gate.fetch_add(1, Ordering::SeqCst);
+                let _ = self.release.clone().wait_for(|open| *open).await;
+            }
+            outcome
+        })
+    }
+}
+
+#[test]
+fn an_adb_server_outage_does_not_retire_any_of_its_android_devices_d103() {
+    let mut config = runner_configuration();
+    android(&mut config).wait_for_devices_timeout_millis = 600_000;
+    run_with_driven_clock(config, |runtime, context, clock| {
+        Box::pin(async move {
+            let mut server = server(d103_peers_script()).await;
+            let (open, release) = tokio::sync::watch::channel(false);
+            let executor = Arc::new(HeldOutage {
+                runner: AndroidRunnerExecutor::default(),
+                at_gate: AtomicUsize::new(0),
+                release,
+            });
+            let provider = AdamDeviceProvider::new(runtime_with(&runtime, &[server.port()], executor.clone()))?;
+            provider.initialize(context.clone()).await?;
+            let devices = [connected(&provider).await, connected(&provider).await];
+            logcat_streams(&[(&server, 2)]).await;
+
+            let (retired, kept) = (&devices[0], &devices[1]);
+            d103_incomplete(retired, &runtime, &context, "launch").await;
+            for _ in 0..2 {
+                d103_progress(kept, &runtime, &context, "passed").await;
+                d103_incomplete(retired, &runtime, &context, "launch").await;
+            }
+            d103_progress(kept, &runtime, &context, "passed").await;
+            let interrupted = devices
+                .each_ref()
+                .map(|device| d103_batch(device, &runtime, &context, "held"));
+            until(|| executor.at_gate.load(Ordering::SeqCst) == 2).await;
+            server.kill(Some(Duration::ZERO));
+            until(|| server.transcript().iter().any(|row| row["event"] == "server_restarted")).await;
+            // Drive only the reconnect backoff. The outward batch calls stay on the outcome gate.
+            let start = context.clock.now_millis();
+            checked(
+                tokio::time::timeout(Duration::from_secs(60), async {
+                    for step in 1..=60 {
+                        let streams = server
+                            .transcript()
+                            .iter()
+                            .filter(|row| row["type"] == "shell" && row["command"] == "logcat -v long")
+                            .count();
+                        if streams == 4 {
+                            return;
+                        }
+                        clock.advance_to(start + 1000 * step).await;
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                    logcat_streams(&[(&server, 4)]).await;
+                })
+                .await,
+            );
+            // A logcat request can be recorded before the provider opens the restoration gate. Release the batch
+            // outcomes only once both gates are open, so consulting just current availability would be wrong.
+            for device in &devices {
+                provider
+                    .android_device(device)
+                    .expect("provided Android device")
+                    .wait_for_next_instrumentation(&batch("probe", vec![]), || Ok(None), &context)
+                    .await?;
+            }
+            open.send_replace(true);
+            for ((run, cell), device) in interrupted.into_iter().zip(&devices) {
+                outcome(run).await?;
+                assert_eq!(
+                    checked(cell.completed().expect("interrupted batch result"))
+                        .uncompleted
+                        .len(),
+                    1
+                );
+                assert!(device.0.info().healthy);
+            }
+
+            // The outage neither incremented nor reset the streak. A genuine third failure still retires just its device.
+            assert!(matches!(
+                outcome(d103_batch(retired, &runtime, &context, "launch").0).await,
+                Err(VendorError::DeviceLost(_))
+            ));
+            // The device still shows in adb's list but cannot be borrowed or set up again by a reconciliation of it.
+            assert_eq!(provider.borrow(context.clone()).await?, *kept);
+            outcome(d103_batch(kept, &runtime, &context, "passed").0).await?;
+            assert!(kept.0.info().healthy);
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
+fn no_strike_for_incomplete_instrumentation(response: serde_json::Value, with_peer_progress: bool) {
+    run_with_stopped_clock(runner_configuration(), move |runtime, context| {
+        Box::pin(async move {
+            let mut script = d103_peers_script();
+            script["shell"].as_array_mut().unwrap().push(response);
+            let mut server = server(script).await;
+            let provider = AdamDeviceProvider::new(runtime_with(
+                &runtime,
+                &[server.port()],
+                Arc::new(AndroidRunnerExecutor::default()),
+            ))?;
+            provider.initialize(context.clone()).await?;
+            let device = connected(&provider).await;
+            let peer = connected(&provider).await;
+
+            if with_peer_progress {
+                two_strikes_and_fresh_peer_progress(&device, &peer, &runtime, &context).await;
+            }
+            for _ in 0..4 {
+                d103_incomplete(&device, &runtime, &context, "incomplete").await;
+                if !with_peer_progress {
+                    d103_incomplete(&peer, &runtime, &context, "incomplete").await;
+                }
+            }
+            assert!(device.0.info().healthy);
+            assert!(peer.0.info().healthy);
+            if with_peer_progress {
+                assert!(matches!(
+                    outcome(d103_batch(&device, &runtime, &context, "launch").0).await,
+                    Err(VendorError::DeviceLost(_))
+                ));
+            }
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
+async fn two_strikes_and_fresh_peer_progress(
+    device: &DeviceRef,
+    peer: &DeviceRef,
+    runtime: &AndroidRuntime,
+    context: &VendorContext,
+) {
+    d103_incomplete(device, runtime, context, "launch").await;
+    for _ in 0..2 {
+        d103_progress(peer, runtime, context, "passed").await;
+        d103_incomplete(device, runtime, context, "launch").await;
+    }
+    d103_progress(peer, runtime, context, "passed").await;
+}
+
+#[test]
+fn zero_tests_reported_by_instrumentation_do_not_retire_the_device_d103() {
+    no_strike_for_incomplete_instrumentation(
+        json!({
+            "regex": "^am instrument.* -e class pkg.Clazz#incomplete ",
+            "stdout": "INSTRUMENTATION_RESULT: stream=\n\nTime: 0\n\nOK (0 tests)\n\nINSTRUMENTATION_CODE: -1\n",
+        }),
+        true,
+    );
+}
+
+fn reported_crash() -> serde_json::Value {
+    json!({
+        "regex": "^am instrument.* -e class pkg.Clazz#incomplete ",
+        "stdout": format!("{}INSTRUMENTATION_RESULT: shortMsg=Process crashed.\nINSTRUMENTATION_CODE: 0\n",
+                          instrumented("incomplete")),
+    })
+}
+
+#[test]
+fn a_reported_crash_after_test_start_does_not_retire_the_device_d103() {
+    no_strike_for_incomplete_instrumentation(reported_crash(), true);
+}
+
+#[test]
+fn a_shared_instrumentation_crash_does_not_retire_either_device_d103() {
+    no_strike_for_incomplete_instrumentation(reported_crash(), false);
+}
+
+#[test]
+fn a_shared_shell_argument_error_does_not_retire_either_device_d103() {
+    no_strike_for_incomplete_instrumentation(
+        json!({
+            "regex": "^am instrument.* -e class pkg.Clazz#incomplete ",
+            "stderr": "/system/bin/sh: no closing quote\n",
+            "exit_code": 2
+        }),
+        false,
+    );
+}
+
+#[test]
+fn a_missing_runner_report_does_not_retire_the_device_d103() {
+    no_strike_for_incomplete_instrumentation(
+        json!({
+            "regex": "^am instrument.* -e class pkg.Clazz#incomplete ",
+            "stdout": "INSTRUMENTATION_STATUS: Error=Unable to find instrumentation info for: ComponentInfo{com.nope/com.nope.Runner}\nINSTRUMENTATION_STATUS: id=ActivityManagerService\nINSTRUMENTATION_STATUS_CODE: -1\nonError: commandError=true message=INSTRUMENTATION_FAILED: com.nope/com.nope.Runner\n",
+            "exit_code": 1
+        }),
+        true,
+    );
+}
+
+#[test]
+fn a_signing_mismatch_report_does_not_retire_the_device_d103() {
+    no_strike_for_incomplete_instrumentation(
+        json!({
+            "regex": "^am instrument.* -e class pkg.Clazz#incomplete ",
+            "stdout": "INSTRUMENTATION_STATUS: Error=Permission Denial: package com.example.test does not have a signature matching the target com.example\nINSTRUMENTATION_STATUS: id=ActivityManagerService\nINSTRUMENTATION_STATUS_CODE: -1\nonError: commandError=true message=Permission Denial: package com.example.test does not have a signature matching the target com.example\n",
+            "stderr": "java.lang.SecurityException: Permission Denial: starting instrumentation\n",
+            "exit_code": 1
+        }),
+        true,
+    );
+}
+
+#[test]
+fn shell_v2_cut_after_non_protocol_output_does_not_retire_the_device_d103() {
+    no_strike_for_incomplete_instrumentation(
+        json!({
+            "regex": "^am instrument.* -e class pkg.Clazz#incomplete ",
+            "output": [{"stdout": "plain shell output\n"}, "close"],
+        }),
+        true,
+    );
+}
+
+struct PreLaunchHold(Arc<tokio::sync::Notify>);
+impl AndroidListenerFactory for PreLaunchHold {
+    fn create(
+        &self,
+        _: &AndroidDevice,
+        _: &Configuration,
+        _: &DevicePoolId,
+        batch: &BatchRef,
+    ) -> VendorResult<InstalledListener> {
+        Ok(InstalledListener {
+            listener: if batch.id == "prelaunch" {
+                Arc::new(Self(self.0.clone()))
+            } else {
+                Arc::new(NoHold)
+            },
+            attachments: None,
+        })
+    }
+}
+struct NoHold;
+impl AndroidTestRunListener for NoHold {}
+impl AndroidTestRunListener for PreLaunchHold {
+    fn before_test_run_in<'a>(
+        &'a self,
+        _: Option<&'a marathon_dex::apk_parser::InstrumentationInfo>,
+        context: VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            self.0.notify_one();
+            Err(VendorError::Cancelled(context.cancellation.cancelled().await))
+        })
+    }
+}
+
+#[test]
+fn a_pre_launch_file_sync_timeout_does_not_retire_the_device_d103() {
+    const DEADLINE: i64 = 30_000;
+    let mut config = runner_configuration();
+    config.test_batch_timeout_millis = DEADLINE;
+    run_with_driven_clock(config, |runtime, context, clock| {
+        Box::pin(async move {
+            let mut server = server(d103_peers_script()).await;
+            let at_listener = Arc::new(tokio::sync::Notify::new());
+            let runner = Arc::new(AndroidRunnerExecutor {
+                slots: ListenerSlots {
+                    file_sync: Some(Arc::new(PreLaunchHold(at_listener.clone()))),
+                    ..ListenerSlots::default()
+                },
+            });
+            let provider = AdamDeviceProvider::new(runtime_with(&runtime, &[server.port()], runner))?;
+            provider.initialize(context.clone()).await?;
+            let device = connected(&provider).await;
+            let peer = connected(&provider).await;
+            two_strikes_and_fresh_peer_progress(&device, &peer, &runtime, &context).await;
+            let submitted = instrumentations(&server).len();
+
+            for _ in 0..3 {
+                let (run, cell) = d103_batch(&device, &runtime, &context, "prelaunch");
+                checked(tokio::time::timeout(Duration::from_secs(60), at_listener.notified()).await);
+                assert_eq!(instrumentations(&server).len(), submitted);
+                clock.advance_to(context.clock.now_millis() + DEADLINE).await;
+                let ran = outcome(run).await;
+                assert!(ran.is_ok(), "pre-launch timeout must not retire the device: {ran:?}");
+                assert_eq!(
+                    names(&checked(cell.completed().expect("batch result")).uncompleted),
+                    ["prelaunch"]
+                );
+            }
+            assert_eq!(instrumentations(&server).len(), submitted);
+            assert!(device.0.info().healthy);
+            assert!(matches!(
+                outcome(d103_batch(&device, &runtime, &context, "launch").0).await,
+                Err(VendorError::DeviceLost(_))
+            ));
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
+fn shared_deadline(method: &'static str, batch_deadline: bool) {
+    const DEADLINE: i64 = 30_000;
+    let mut config = runner_configuration();
+    if batch_deadline {
+        config.test_batch_timeout_millis = DEADLINE;
+    } else {
+        config.test_output_timeout_millis = DEADLINE;
+    }
+    run_with_driven_clock(config, move |runtime, context, clock| {
+        Box::pin(async move {
+            let mut script = d103_peers_script();
+            script["shell"].as_array_mut().unwrap().push(json!({
+                "regex": format!("^am instrument.* -e class pkg.Clazz#{method} "),
+                "stdout": if batch_deadline { instrumented(method) } else { String::new() },
+                "before_okay_gate": (!batch_deadline).then_some("release-ok"),
+                "hang": true,
+            }));
+            let mut server = server(script).await;
+            let reached = Arc::new(Reached {
+                in_flight: method,
+                ..Reached::default()
+            });
+            let runner = Arc::new(AndroidRunnerExecutor {
+                slots: ListenerSlots {
+                    file_sync: Some(Arc::new(ProbeFactory {
+                        reached: reached.clone(),
+                        made: Default::default(),
+                    })),
+                    ..ListenerSlots::default()
+                },
+            });
+            let provider = AdamDeviceProvider::new(runtime_with(&runtime, &[server.port()], runner))?;
+            provider.initialize(context.clone()).await?;
+            let devices = [connected(&provider).await, connected(&provider).await];
+            for i in 0..8 {
+                let device = &devices[i % 2];
+                reached.started.store(false, Ordering::SeqCst);
+                let (run, cell) = d103_batch(device, &runtime, &context, method);
+                if batch_deadline {
+                    until(|| reached.started.load(Ordering::SeqCst)).await;
+                } else {
+                    until(|| {
+                        server
+                            .transcript()
+                            .iter()
+                            .filter(|r| r["event"] == "held_before_shell_okay")
+                            .count()
+                            == i + 1
+                    })
+                    .await;
+                }
+                clock.advance_to(context.clock.now_millis() + DEADLINE).await;
+                let ran = outcome(run).await;
+                assert!(ran.is_ok(), "a shared timeout must not retire either device: {ran:?}");
+                assert_eq!(
+                    names(&checked(cell.completed().expect("batch result")).uncompleted),
+                    [method]
+                );
+                assert!(device.0.info().healthy);
+            }
+            server.open_gate("release-ok");
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
+#[test]
+fn a_shared_shell_handshake_stall_does_not_retire_either_device_d103() {
+    shared_deadline("handshake", false);
+}
+
+#[test]
+fn a_shared_batch_deadline_mid_test_does_not_retire_either_device_d103() {
+    shared_deadline("slow", true);
+}

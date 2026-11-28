@@ -13,6 +13,11 @@ The section for a version becomes the text of its GitHub release, which carries 
   It tries one force-stop if exit could not be confirmed (D102).
 - Android reports no longer include empty or unfinished videos or GIF captures with no completed frames (U273, U274).
 - Android screenshot diagnostics now use Android log targets (U275).
+- **Android can retire a device that keeps failing batches while its peers finish tests (D103).** Each of the three
+  strikes requires another device in the same pool to complete a new batch with a test pass or failure. A pool
+  without such progress, including a single-device pool, cannot retire a device this way. Reported instrumentation outcomes, setup
+  and listener timeouts, and connection losses do not count. A passed or failed test resets the device's streak, and
+  normal retry quotas still apply.
 
 ### Analytics
 

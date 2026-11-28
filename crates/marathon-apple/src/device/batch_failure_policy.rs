@@ -2,6 +2,7 @@
 
 use crate::{apple_device_test_runner::RunError, cmd::failure, logparser::parser::DeviceFailureReason};
 use marathon_core::error::{Failure, VendorError};
+use marathon_core::execution::batch_health::ConsecutiveBatches;
 use marathon_error::FailureKind;
 
 #[derive(Clone, Debug)]
@@ -31,27 +32,24 @@ impl BatchLoss {
 }
 /// Owned by the serial execute path, or protected by the device's short state lock.
 pub struct BatchFailurePolicy {
-    max_consecutive_batch_failures: i32,
-    max_batches_without_progress: i32,
-    consecutive_batch_failures: i32,
-    batches_without_progress: i32,
+    consecutive_batch_failures: ConsecutiveBatches,
+    batches_without_progress: Option<ConsecutiveBatches>,
 }
 impl Default for BatchFailurePolicy {
     fn default() -> Self {
-        Self::new(3, 0)
+        Self::new(ConsecutiveBatches::DEFAULT_LIMIT, 0)
     }
 }
 impl BatchFailurePolicy {
     pub fn new(max_consecutive_batch_failures: i32, max_batches_without_progress: i32) -> Self {
         Self {
-            max_consecutive_batch_failures,
-            max_batches_without_progress,
-            consecutive_batch_failures: 0,
-            batches_without_progress: 0,
+            consecutive_batch_failures: ConsecutiveBatches::new(max_consecutive_batch_failures),
+            batches_without_progress: (max_batches_without_progress > 0)
+                .then(|| ConsecutiveBatches::new(max_batches_without_progress)),
         }
     }
     pub fn on_batch_completed(&mut self, progress: bool) -> Option<BatchLoss> {
-        self.consecutive_batch_failures = 0;
+        self.consecutive_batch_failures.reset();
         self.count_progress(progress)
     }
     pub fn on_batch_failed(
@@ -81,27 +79,22 @@ impl BatchFailurePolicy {
             return Some(loss);
         }
         if passed_tests {
-            self.consecutive_batch_failures = 0;
+            self.consecutive_batch_failures.reset();
             return None;
         }
-        self.consecutive_batch_failures = self.consecutive_batch_failures.wrapping_add(1);
-        (self.consecutive_batch_failures >= self.max_consecutive_batch_failures).then(|| BatchLoss::new(error))
+        self.consecutive_batch_failures.record().map(|_| BatchLoss::new(error))
     }
     fn count_progress(&mut self, progress: bool) -> Option<BatchLoss> {
+        let count = self.batches_without_progress.as_mut()?;
         if progress {
-            self.batches_without_progress = 0;
+            count.reset();
             return None;
         }
-        self.batches_without_progress = self.batches_without_progress.wrapping_add(1);
-        (self.max_batches_without_progress > 0 && self.batches_without_progress >= self.max_batches_without_progress)
-            .then(|| {
-                BatchLoss::new(failure(
-                    FailureKind::IllegalState,
-                    format!(
-                        "No test has passed or failed in {} batches in a row",
-                        self.batches_without_progress
-                    ),
-                ))
-            })
+        count.record().map(|count| {
+            BatchLoss::new(failure(
+                FailureKind::IllegalState,
+                format!("No test has passed or failed in {count} batches in a row"),
+            ))
+        })
     }
 }

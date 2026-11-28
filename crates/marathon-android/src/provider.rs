@@ -47,6 +47,7 @@ struct Provided {
 }
 struct Inner {
     runtime: Arc<AndroidRuntime>,
+    peer_progress: Arc<crate::batch_health::PeerProgress>,
     factory: Arc<SocketFactory>,
     logger: Component,
     channel: Arc<SharedChannel<DeviceEvent>>,
@@ -72,6 +73,7 @@ impl AdamDeviceProvider {
         Ok(Self {
             inner: Arc::new(Inner {
                 runtime,
+                peer_progress: Arc::default(),
                 factory,
                 logger,
                 channel: SharedChannel::new(),
@@ -325,7 +327,8 @@ impl AdamDeviceProvider {
                         let key = (server_name(&client), serial.clone());
                         let retried = lock(&self.inner.devices)
                             .get(&key)
-                            .filter(|p| p.device.is_same(&device))
+                            // D103: a still-listed retired instance is not eligible for D85's replacement.
+                            .filter(|p| p.device.is_same(&device) && !p.device.is_disconnected())
                             .map(|p| p.retried_prepare);
                         let Some(retried) = retried else {
                             if let Some(replaced) = replaced {
@@ -389,12 +392,13 @@ impl AdamDeviceProvider {
                             let cleanup_limit = cleanup_limits
                                 .entry((client.host(), client.port()))
                                 .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(RECOVERIES_PER_SERVER)));
-                            let device = AndroidDevice::with_remote_cleanup_limit(
+                            let device = AndroidDevice::with_provider_state(
                                 client.clone(),
                                 serial.clone(),
                                 self.inner.trackers.tracker(&client),
                                 self.inner.runtime.clone(),
                                 Some(cleanup_limit.clone()),
+                                self.inner.peer_progress.clone(),
                             );
                             if let Some(deadline) = continued {
                                 device.continue_preparation(deadline);
@@ -849,7 +853,7 @@ impl AdamDeviceProvider {
         let provided = |serial: &str| {
             lock(&self.inner.devices)
                 .get(&(server.clone(), serial.to_owned()))
-                .filter(|p| *lock(&p.ready))
+                .filter(|p| *lock(&p.ready) && !p.device.is_disconnected())
                 .map(|p| p.device.clone())
         };
         let (returned, gone) = blips.update(&devices);
@@ -943,6 +947,10 @@ impl AdamDeviceProvider {
             return Ok(());
         }
         let tracker = self.inner.trackers.tracker(client);
+        if device.is_disconnected() {
+            kind.release_wait(&tracker, &serial);
+            return Ok(());
+        }
         // A recovery fails only by a cancellation, which a current one sees only as the loop ends, or a panic. After a
         // panic use the same fallback as an unanswered probe; ending the loop would end the server's tracking.
         let outcome = match done.outcome {
@@ -1215,7 +1223,9 @@ impl DeviceProvider for AdamDeviceProvider {
                 let available: Vec<_> = lock(&self.inner.devices)
                     .iter()
                     // D41: a device in its grace period cannot take work now. Never true in a healthy run.
-                    .filter(|(_, p)| *lock(&p.ready) && !p.device.is_held() && !p.device.stopping())
+                    .filter(|(_, p)| {
+                        *lock(&p.ready) && !p.device.is_disconnected() && !p.device.is_held() && !p.device.stopping()
+                    })
                     .map(|((server, serial), p)| (server.clone(), serial.clone(), p.reference.clone()))
                     .collect();
                 if !available.is_empty() {

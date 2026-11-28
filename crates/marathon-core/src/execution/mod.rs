@@ -1,5 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/DevicePoolMessage.kt
 //! and the execution package's actors.
+pub mod batch_health;
 pub mod device;
 mod pool_message;
 pub use pool_message::{DevicePoolMessage, FromDevice, FromQueue, FromScheduler};

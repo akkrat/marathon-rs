@@ -6,13 +6,13 @@ use crate::{
     arguments::ArgumentsFactory,
     artifact_listeners::coverage::{self, CoverageFile},
     cleanup::ChildSignal,
-    device::{AndroidBatchExecutor, AndroidDevice},
+    device::{AndroidBatchExecutor, AndroidDevice, BatchEvidence},
     listeners::*,
     models::*,
     support::*,
 };
 use marathon_adb::{
-    instrument_request::{InstrumentOptions, TestRunnerRequest},
+    instrument_request::{InstrumentOptions, InstrumentationOutcome, TestRunnerRequest},
     testrunner::{MetricMap, TestEvent, TestIdentifier},
 };
 use marathon_config::{Configuration, vendor::PathRoot};
@@ -38,16 +38,15 @@ impl Drop for InstrumentationChannel {
 }
 impl InstrumentationChannel {
     pub fn start(device: &AndroidDevice, request: TestRunnerRequest) -> VendorResult<Self> {
-        Self::start_with(device, request, || Ok(()))
+        Self::start_with(device, request, None)
     }
 
-    fn start_with(
-        device: &AndroidDevice,
-        request: TestRunnerRequest,
-        submitted: impl FnOnce() -> VendorResult<()>,
-    ) -> VendorResult<Self> {
+    fn start_with(device: &AndroidDevice, request: TestRunnerRequest, batch: Option<&BatchRef>) -> VendorResult<Self> {
         let work = device.admit()?;
-        submitted()?;
+        if let Some(batch) = batch {
+            device.record_submission(batch)?;
+        }
+        let batch = batch.cloned();
         let (sender, receiver) = tokio::sync::mpsc::channel(1);
         let owned = device.clone();
         let failure = Arc::new(Mutex::new(None));
@@ -68,9 +67,26 @@ impl InstrumentationChannel {
                             })
                             .await;
                             if let Some(request) = stream.request_mut() {
+                                // Keep shell and instrumentation outcomes separate from D25's synthesized result.
+                                if let Some(batch) = &batch
+                                    && let Some(outcome) = request.outcome()
+                                {
+                                    let evidence = match outcome {
+                                        InstrumentationOutcome::NonzeroExitBeforeTest => BatchEvidence::Candidate,
+                                        InstrumentationOutcome::Reported | InstrumentationOutcome::Unclassified => {
+                                            BatchEvidence::Excluded
+                                        }
+                                    };
+                                    owned.note_batch_evidence(batch, evidence);
+                                }
                                 for warning in request.take_warnings() {
                                     owned.log(Level::WARN, &warning.to_string(), None);
                                 }
+                            }
+                            if matches!(&chunk, Err(error) if !matches!(error, VendorError::Cancelled(_)))
+                                && let Some(batch) = &batch
+                            {
+                                owned.note_batch_evidence(batch, BatchEvidence::Excluded);
                             }
                             match chunk? {
                                 Some(events) => {
@@ -84,11 +100,10 @@ impl InstrumentationChannel {
                                 None => break,
                             }
                         }
-                        // D25: a dropped connection ends the shell stream as normally as `am` does.
-                        match stream.request().filter(|r| r.ended_without_result()) {
-                            Some(request) => Err(stream_ended_early(request.exit_code())),
-                            None => Ok(()),
+                        if let Some(request) = stream.request().filter(|r| r.ended_without_result()) {
+                            return Err(stream_ended_early(request.exit_code()));
                         }
+                        Ok(())
                     }
                     .await;
                     stream.cancel();
@@ -278,7 +293,7 @@ impl AndroidDeviceTestRunner<'_> {
         Ok(())
     }
     /// D25: the run failed, with the batch's unfinished tests on the usual retry path. The device is lost only if the
-    /// same failure in a synchronous request would have made it so, so a parser exception cannot retire a healthy device.
+    /// same failure in a synchronous request would have made it so.
     async fn on_producer_failure(
         &self,
         failure: VendorError,
@@ -384,8 +399,10 @@ impl AndroidDeviceTestRunner<'_> {
                     .await?;
             }
             let mut channel = None;
+            let mut awaiting_output = false;
             let result = timed(&context, configuration.test_batch_timeout_millis, |signal| {
                 let channel = &mut channel;
+                let awaiting_output = &mut awaiting_output;
                 let announced = &mut announced;
                 let info = &info;
                 let ignored = &ignored;
@@ -419,11 +436,10 @@ impl AndroidDeviceTestRunner<'_> {
                         None,
                     );
                     // D70: from here the batch counts as started, whatever comes back.
-                    *channel = Some(InstrumentationChannel::start_with(self.device, request, || {
-                        self.device.record_submission(raw)
-                    })?);
+                    *channel = Some(InstrumentationChannel::start_with(self.device, request, Some(raw))?);
                     if let Some(channel) = channel.as_mut() {
                         loop {
+                            *awaiting_output = true;
                             let update = timed(&child, configuration.test_output_timeout_millis, |signal| {
                                 let child = VendorContext {
                                     cancellation: signal,
@@ -435,8 +451,10 @@ impl AndroidDeviceTestRunner<'_> {
                                 }
                             })
                             .await?;
+                            *awaiting_output = false;
                             match update {
                                 None => {
+                                    self.device.note_batch_evidence(raw, BatchEvidence::Candidate);
                                     listener
                                         .on_event_in(
                                             &TestEvent::TestRunFailed {
@@ -464,6 +482,13 @@ impl AndroidDeviceTestRunner<'_> {
             .await;
             let result = match result {
                 Ok(None) => {
+                    // The batch deadline also covers host listeners and preparation, before any submission.
+                    let evidence = if awaiting_output {
+                        BatchEvidence::Candidate
+                    } else {
+                        BatchEvidence::Excluded
+                    };
+                    self.device.note_batch_evidence(&raw, evidence);
                     listener
                         .on_event_in(
                             &TestEvent::TestRunFailed {
@@ -478,6 +503,7 @@ impl AndroidDeviceTestRunner<'_> {
                     None => Ok(()),
                 },
                 Err(error) if is_io_exception(&error) => {
+                    self.device.note_batch_evidence(&raw, BatchEvidence::Excluded);
                     let names = batch
                         .tests
                         .iter()

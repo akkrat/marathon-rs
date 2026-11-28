@@ -264,6 +264,8 @@ pub struct ShellExpectation {
     pub service: Option<ServiceKind>,
     /// The expectation stops matching after this many uses.
     pub times: Option<u32>,
+    /// Hold the service acknowledgement, rather than just its output.
+    pub before_okay_gate: Option<String>,
     #[serde(default)]
     pub delay_ms: u64,
     pub stdout: Option<String>,
@@ -291,6 +293,8 @@ pub enum OutputStep {
     SleepMs(u64),
     /// Waits until the test opens the gate of this name with `FakeAdbServer::open_gate`.
     Gate(String),
+    /// Close only this connection, without sending a shell-v2 exit frame.
+    Close,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -390,6 +394,7 @@ impl Script {
             devices,
             shell: compile_rules(&self.shell, base_dir, "shell")?,
             default: Response {
+                before_okay_gate: None,
                 steps: [
                     (!self.default.stdout.is_empty()).then(|| Step::Stdout(self.default.stdout.clone().into_bytes())),
                     (!self.default.stderr.is_empty()).then(|| Step::Stderr(self.default.stderr.clone().into_bytes())),
@@ -471,6 +476,7 @@ pub struct Rule {
 
 #[derive(Debug, Clone)]
 pub struct Response {
+    pub before_okay_gate: Option<String>,
     pub steps: Vec<Step>,
     pub exit_code: u8,
     pub hang: bool,
@@ -487,6 +493,7 @@ pub enum Step {
     },
     Sleep(u64),
     Gate(String),
+    Close,
 }
 
 fn compile_device(d: &DeviceSpec, base: &Path) -> Result<CompiledDevice, ScriptError> {
@@ -587,6 +594,7 @@ fn compile_rule(e: &ShellExpectation, base: &Path, id: &str) -> Result<Rule, Scr
                     OutputStep::Stderr(t) => Step::Stderr(t.clone().into_bytes()),
                     OutputStep::SleepMs(ms) => Step::Sleep(*ms),
                     OutputStep::Gate(name) => Step::Gate(name.clone()),
+                    OutputStep::Close => Step::Close,
                     OutputStep::StdoutFile(FileStream::Path(p)) => stream_step(base, p, None, 0)?,
                     OutputStep::StdoutFile(FileStream::Options {
                         path,
@@ -623,6 +631,7 @@ fn compile_rule(e: &ShellExpectation, base: &Path, id: &str) -> Result<Rule, Scr
         service: e.service,
         times: e.times,
         response: Response {
+            before_okay_gate: e.before_okay_gate.clone(),
             steps,
             exit_code: exit_code(e.exit_code, id)?,
             hang: e.hang,

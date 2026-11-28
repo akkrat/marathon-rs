@@ -3444,6 +3444,41 @@ that test's capture. It drops an empty or failed capture instead of attaching it
 **Migration action:** none. Healthy recordings use the same report paths. Invalid or unconfirmed recordings can be
 absent from new reports and attachments.
 
+## D103 — Android retires a device that keeps failing batches
+
+Approved 2026-11-27 (project owner's decision). WP x120. See the [x120 findings](wp/x120-findings.md).
+
+D82 keeps an Android retry off the device it came from while other work is queued. A broken device can still take that
+other work and leave each test incomplete, or keep taking its own retries while the other devices are busy. In an earlier
+farm run an emulator that never reached a test used up one test's incomplete retry quota in seconds (U204).
+
+A failed or zero-progress batch can count as a strike only when another Android device in the same pool has completed
+a batch with at least one passed or failed test. The first eligible failure opens the streak at the start of that
+batch. The first strike needs peer progress after that point, and each later strike needs new peer progress after
+the previous strike. A burst of peer completions can support only one strike per device. With no intervening peer
+progress, an eligible batch neither adds a strike nor resets the streak. A passed or failed test on the device
+resets its own streak, even if the rest of its batch is incomplete. A single-device pool with no peer progress
+cannot trigger D103.
+
+A nonzero shell-v2 exit before a named test without a reported instrumentation outcome, or a timeout while waiting
+for instrumentation output, is eligible. Neither shows that the device is at fault. Reported instrumentation outcomes
+(including crashes, zero tests and explicit launch refusals), valid skips alone, and setup or listener timeouts are
+not strikes. Neither are cancellation, host or socket errors, missing exit frames on shell v2, bare shell-v1 EOF,
+or other ambiguous ends. An excluded outcome from any instrumentation in the batch rules out a strike. A batch
+that spans a tracked adb outage or offline grace period cannot strike, even if the connection has recovered. D49
+request losses keep their own accounting. There is no extra adb probe.
+
+On the third strike the device is disconnected (D24) and takes no more batches. It is not set up again solely because
+the same serial is still listed (including after adb server recovery). A genuine removal and return on the adb list
+can introduce a new device instance. The batch is accounted for once as today. Completed tests are kept, and ordinary
+retry placement and quotas apply to the remaining tests. If no device is left and work remains, D48 still gives a
+device the usual time to arrive and become ready. A finished queue does not wait.
+
+The devices executing retries, attempt order and count, final verdicts, and exit status can change. Reports can reflect
+those changes but their formats are unchanged. There is no new Marathonfile field or CLI option.
+
+**Migration action:** none. Check the device or the instrumentation if a device is repeatedly disconnected this way.
+
 ## D104 — Batch-level artifacts use their type suffix
 
 Approved 2026-11-27 (project owner's decision).

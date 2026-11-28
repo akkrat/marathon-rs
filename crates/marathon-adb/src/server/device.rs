@@ -213,6 +213,7 @@ fn builtin(world: &World, serial: &str, cmd: &str) -> Option<Response> {
     use crate::client::shell::boot_marker::{BOOT_ID_COMMAND, MarkerCommand};
     const BOOT_ID: &str = "00000000-0000-4000-8000-000000000001";
     let out = |s: String| Response {
+        before_okay_gate: None,
         steps: vec![Step::Stdout(s.into_bytes())],
         exit_code: 0,
         hang: false,
@@ -238,6 +239,7 @@ fn builtin(world: &World, serial: &str, cmd: &str) -> Option<Response> {
             MarkerCommand::Remove => {
                 device.preparation_markers.remove(&token);
                 Response {
+                    before_okay_gate: None,
                     steps: vec![],
                     exit_code: 0,
                     hang: false,
@@ -359,6 +361,12 @@ async fn run(
         serial,
         id: rule.clone(),
     };
+    if let Some(name) = &response.before_okay_gate {
+        world.transcript.record(json!({
+            "event": "held_before_shell_okay", "serial": serial, "conn": conn, "gate": name
+        }));
+        let _ = world.gates.subscribe().wait_for(|open| open.contains(name)).await;
+    }
     write_okay(&mut wr).await?;
     let payload = payload_size(cmd.kind, &cmd.text);
     let mut received = None;
@@ -379,6 +387,7 @@ async fn run(
                         cmd.text
                     ));
                     let failure = Response {
+                        before_okay_gate: None,
                         steps: Vec::new(),
                         exit_code: 1,
                         hang: false,
@@ -406,6 +415,7 @@ async fn run(
             ));
             let text = format!("Failure [INSTALL_FAILED_INVALID_APK: fake adb received {got_total} of {n} bytes]\n");
             let failure = Response {
+                before_okay_gate: None,
                 steps: Vec::new(),
                 exit_code: 1,
                 hang: false,
@@ -451,6 +461,10 @@ async fn run(
                     capture_output(world, serial, conn, "stderr", b);
                 }
                 Step::Sleep(ms) => tokio::time::sleep(Duration::from_millis(*ms)).await,
+                Step::Close => {
+                    wr.shutdown().await?;
+                    return Ok(true);
+                }
                 Step::Gate(name) => {
                     // The world holds the sender, so the wait ends only when the gate opens.
                     let _ = world.gates.subscribe().wait_for(|open| open.contains(name)).await;

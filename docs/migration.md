@@ -140,7 +140,7 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 | wrap the SSH client for iOS device-log transfers ([D106](deviations.md#d106--compress-ios-device-logs-over-ssh)) | The rsync remote shell requests SSH compression for device-log receives only. | Accept `-C` in a controller-side SSH wrapper. Worker forced commands and allowlists need no change. [See below](#ios-device-log-compression). |
 
 These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D22, D23, D26, D28–D30, D34, D36, D37, D40, D42, D45, D49,
-D51, D53, D54, D64–D66, D68–D70, D74–D77, D79–D84, D88, D90–D95, D97, D98, D99 and D102. D65 can include a previously missed late pool,
+D51, D53, D54, D64–D66, D68–D70, D74–D77, D79–D84, D88, D90–D95, D97, D98, D99, D102 and D103. D65 can include a previously missed late pool,
 lengthen a run and correct its reports and existing exit status; it needs no configuration change. D66 turns a SIGQUIT, which used to end the run at once, into a
 logged state dump; a wrapper that sends SIGQUIT and then SIGTERM now gets the dump, then D52's reports and exit status. D2, D3, D6, D8–D12, D14, D20, D24, D25, D67, D71, D72, D78 and D87 have an action of their own, described in their entries and in the
 sections below.
@@ -320,6 +320,14 @@ still require their existing allowlist entries.
 and delivery. No configuration changes are needed. Android sends one INT and only uses KILL if it cannot
 confirm that a known recorder exited. Unconfirmed or invalid movies and GIFs without a finished capture are not
 included in new reports.
+
+[D103](deviations.md#d103--android-retires-a-device-that-keeps-failing-batches) is new after 0.15.6 and needs no
+configuration change. An Android device is disconnected after three strikes. Each strike needs a failed or
+zero-progress batch and fresh evidence that another device in the same pool completed a batch with a test pass
+or failure. Progress before the first eligible batch started does not count. Once a strike is counted, later strikes
+need new peer progress. A passed or failed test on the device resets its streak. A pool with no peer progress,
+including a single-device pool, cannot trigger D103. Reported instrumentation outcomes and transport losses do not
+count. Retry quotas and the pool's usual D48 wait for a device to return are unchanged.
 
 [D104](deviations.md#d104--batch-level-artifacts-use-their-type-suffix) changes batch-level artifact suffixes.
 See the lookup and glob guidance in the table above.
